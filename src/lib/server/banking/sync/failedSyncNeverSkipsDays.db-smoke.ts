@@ -5,6 +5,7 @@ import { env as privateEnv } from '$env/dynamic/private';
 import { prisma } from '$lib/server/db';
 import { migrationsPathFor, resolveDatabaseProvider } from '$lib/server/database/provider';
 import { MockBankConnector } from '$lib/server/banking/connectors/mock';
+import { EnableBankingApiError } from '$lib/server/banking/enablebanking/http';
 import type {
 	AuthorizationCallbackInput,
 	BankConnector,
@@ -51,8 +52,11 @@ import { completeBankAuthorization, startBankAuthorization, syncBankConnection }
  * - the throttle claim writing the cursor: moved before anything is persisted vs. after;
  * - the window reading `lastSyncAt`: anchored on the attempt vs. on the last complete sync.
  *
- * The lookback counted as `today - N` (an N + 1 day window) reddens every sync case here, because
- * the fake bank refuses a window longer than its history, as a real one does.
+ * Two guards overlap here, and saying which covers what is the point. The fake bank refuses a
+ * window longer than its history, as a real one does, and the sync retries a refused wider window
+ * with the default one. So a lookback counted as `today - N`, or a window no longer clamped to the
+ * lookback, is REFUSED and then RESCUED by the retry: both stay green in the sync cases, and
+ * `service.spec.ts` is where each is asserted on its own. The retry itself is reddened here.
  *
  * A complete sync that stops writing the cursor stays GREEN here, and that is the fourth meaning
  * rather than a hole: every sync then fetches the whole lookback, and deduplication makes the
@@ -104,6 +108,12 @@ class FailableMockConnector extends MockBankConnector implements BankConnector {
 	private fetchesUntilFailure: number | null = null;
 	/** Provider account ids the next consent covers; null is every account the mock has. */
 	offeredAccounts: string[] | null = null;
+	/** The history this bank serves; `BANK_HISTORY_DAYS` unless a case models a shorter one. */
+	historyDays = BANK_HISTORY_DAYS;
+	/** Every range the bank ACCEPTED, in order. */
+	readonly fetchedRanges: FetchTransactionsRange[] = [];
+	/** Runs once, inside the next fetch: stands in for something happening mid-sync. */
+	duringNextFetch: (() => Promise<void>) | null = null;
 
 	failFetch(position: number): void {
 		this.fetchesUntilFailure = position;
@@ -127,8 +137,21 @@ class FailableMockConnector extends MockBankConnector implements BankConnector {
 		accountId: string,
 		range: FetchTransactionsRange
 	): Promise<ImportedTransaction[]> {
+		const during = this.duringNextFetch;
+		if (during) {
+			this.duringNextFetch = null;
+			await during();
+		}
 		const days = (Date.parse(range.to) - Date.parse(range.from)) / DAY_MS + 1;
-		if (days > BANK_HISTORY_DAYS) throw new Error('WRONG_TRANSACTIONS_PERIOD');
+		if (days > this.historyDays) {
+			// What the Enable Banking transport throws for that refusal, code read from `error`.
+			throw new EnableBankingApiError(
+				422,
+				'WRONG_TRANSACTIONS_PERIOD',
+				'Enable Banking API error (status 422)'
+			);
+		}
+		this.fetchedRanges.push(range);
 		if (this.fetchesUntilFailure !== null) {
 			this.fetchesUntilFailure -= 1;
 			if (this.fetchesUntilFailure === 0) {
@@ -190,10 +213,16 @@ async function connect(userId: string, connector: FailableMockConnector): Promis
 	return completed.connectionId;
 }
 
-async function sync(userId: string, connectionId: string, connector: BankConnector, at: Date) {
+async function sync(
+	userId: string,
+	connectionId: string,
+	connector: BankConnector,
+	at: Date,
+	env: NodeJS.ProcessEnv = SYNC_ENV
+) {
 	return syncBankConnection(
 		{ userId, connectionId },
-		{ env: SYNC_ENV, now: () => at, getConnector: () => connector }
+		{ env, now: () => at, getConnector: () => connector }
 	);
 }
 
@@ -306,8 +335,9 @@ describe('#763: a failed bank sync never skips the days it did not fetch', () =>
 
 	/**
 	 * A cursor older than the bank's history: a consent renewed late, a restore, or a sync that
-	 * failed for weeks. Reddened by removing the lower clamp (the window reaches back past the bank's
-	 * history and every sync is refused, so the outcome is `error` forever) vs. clamped (`synced`).
+	 * failed for weeks. Removing the lower clamp alone stays green here, because the retry of a
+	 * refused wider window rescues it; removing both reddens it (`error` forever vs. `synced`). The
+	 * clamp on its own is asserted in `service.spec.ts`.
 	 */
 	it('a cursor older than the bank serves still syncs, and brings every day the bank still has', async () => {
 		const longAgo = new Date('2026-04-01T08:00:00.000Z');
@@ -326,9 +356,9 @@ describe('#763: a failed bank sync never skips the days it did not fetch', () =>
 			where: { id: staleConnection, userId: failingUser },
 			select: { providerSessionId: true, credentialsEncrypted: true, consentExpiresAt: true }
 		});
-		await expect(stale.fetchTransactions(context, 'mock-checking', unclamped)).rejects.toThrow(
-			'WRONG_TRANSACTIONS_PERIOD'
-		);
+		await expect(
+			stale.fetchTransactions(context, 'mock-checking', unclamped)
+		).rejects.toMatchObject({ status: 422, providerCode: 'WRONG_TRANSACTIONS_PERIOD' });
 
 		expect((await sync(failingUser, staleConnection, stale, now)).outcome).toBe('synced');
 
@@ -376,6 +406,102 @@ describe('#763: a failed bank sync never skips the days it did not fetch', () =>
 		expect((await sync(controlUser, controlConnection, control, secondAt)).outcome).toBe('synced');
 
 		expect(await ledger(failingUser)).toEqual(await ledger(controlUser));
+	});
+
+	/**
+	 * A renewal that lands WHILE a sync runs. The sync read its buckets before the renewal attached
+	 * one, so it never fetched it, and writing the cursor at its end would vouch for a bucket it did
+	 * not touch. Reddened by removing the re-read before the cursor write (the new account's history
+	 * starts at the overlap) vs. kept (the cursor stays empty and the next sync fetches it all).
+	 */
+	it('a renewal during a sync leaves the cursor empty, so the account it adds still gets its history', async () => {
+		const firstAt = new Date('2026-07-19T08:00:00.000Z');
+		const secondAt = new Date('2026-07-19T15:00:00.000Z');
+
+		const racing = new FailableMockConnector();
+		racing.offeredAccounts = ['mock-checking'];
+		const racingConnection = await connect(failingUser, racing);
+		racing.duringNextFetch = async () => {
+			racing.offeredAccounts = null;
+			await authorize(failingUser, racing, racingConnection);
+		};
+		expect((await sync(failingUser, racingConnection, racing, firstAt)).outcome).toBe('synced');
+
+		// Calibration: the renewal did run mid-sync (two buckets now) and the sync fetched only one.
+		const buckets = await prisma.account.count({
+			where: { userId: failingUser, bankConnectionId: racingConnection }
+		});
+		expect(buckets).toBe(2);
+		expect(racing.fetchedRanges).toHaveLength(1);
+		const row = await prisma.bankConnection.findFirstOrThrow({
+			where: { id: racingConnection, userId: failingUser },
+			select: { lastCompleteSyncAt: true, lastSyncStatus: true }
+		});
+		expect(row).toEqual({ lastCompleteSyncAt: null, lastSyncStatus: 'ok' });
+
+		const control = new FailableMockConnector();
+		const controlConnection = await connect(controlUser, control);
+		expect((await sync(controlUser, controlConnection, control, firstAt)).outcome).toBe('synced');
+		expect((await sync(failingUser, racingConnection, racing, secondAt)).outcome).toBe('synced');
+		expect((await sync(controlUser, controlConnection, control, secondAt)).outcome).toBe('synced');
+
+		expect(await ledger(failingUser)).toEqual(await ledger(controlUser));
+	});
+
+	/**
+	 * `BANK_SYNC_FIRST_LOOKBACK_DAYS` set above what the bank serves. Before, the refusal was asked
+	 * for again on every sync, since a refusal does not move the cursor: refused forever. Reddened by
+	 * removing the retry (`error` on both syncs) vs. kept (the default window is asked for instead in
+	 * the same sync, and the ledger matches a connection on the default setting).
+	 */
+	it('a first-sync window longer than the bank serves is retried with the default window in the same sync', async () => {
+		const at = new Date('2026-07-19T08:00:00.000Z');
+		const longLookback = { ...SYNC_ENV, BANK_SYNC_FIRST_LOOKBACK_DAYS: '400' };
+
+		const wide = new FailableMockConnector();
+		const wideConnection = await connect(failingUser, wide);
+		expect((await sync(failingUser, wideConnection, wide, at, longLookback)).outcome).toBe(
+			'synced'
+		);
+
+		const control = new FailableMockConnector();
+		const controlConnection = await connect(controlUser, control);
+		expect((await sync(controlUser, controlConnection, control, at)).outcome).toBe('synced');
+
+		// Calibration: the ledgers are not empty, and the control asked for the window the retry did.
+		const expected = await ledger(controlUser);
+		expect(expected.length).toBeGreaterThan(0);
+		expect(wide.fetchedRanges[0]).toEqual(control.fetchedRanges[0]);
+		expect(await ledger(failingUser)).toEqual(expected);
+	});
+
+	/**
+	 * A bank serving less than the default window. The retry cannot help, so the sync says which
+	 * setting to lower, and lowering it is enough: the reason, then the way out, both asserted.
+	 */
+	it('a bank serving less than the default window gets a refusal that names the setting, and the setting fixes it', async () => {
+		const at = new Date('2026-07-19T08:00:00.000Z');
+		const short = new FailableMockConnector();
+		short.historyDays = 60;
+		const shortConnection = await connect(failingUser, short);
+
+		expect(await sync(failingUser, shortConnection, short, at)).toEqual({
+			outcome: 'window_refused'
+		});
+		const row = await prisma.bankConnection.findFirstOrThrow({
+			where: { id: shortConnection, userId: failingUser },
+			select: { lastSyncError: true, lastCompleteSyncAt: true }
+		});
+		expect(row).toEqual({
+			lastSyncError: 'http_422:WRONG_TRANSACTIONS_PERIOD',
+			lastCompleteSyncAt: null
+		});
+
+		const lowered = { ...SYNC_ENV, BANK_SYNC_FIRST_LOOKBACK_DAYS: '60' };
+		const later = new Date(at.getTime() + 7 * 60 * 60 * 1000);
+		expect((await sync(failingUser, shortConnection, short, later, lowered)).outcome).toBe(
+			'synced'
+		);
 	});
 });
 

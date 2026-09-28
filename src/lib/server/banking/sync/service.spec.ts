@@ -930,7 +930,9 @@ describe('syncBankConnection', () => {
 
 	it('fetches only buckets with a non-null providerAccountId, persists via the shared module, and marks lastSyncStatus ok', async () => {
 		prismaMock.bankConnection.findFirst.mockResolvedValueOnce(activeConnection);
-		prismaMock.account.findMany.mockResolvedValueOnce([
+		// Every read of the buckets, including the re-read before the cursor write, sees the same
+		// set: no renewal lands during this sync.
+		prismaMock.account.findMany.mockResolvedValue([
 			{ id: 'account-1', providerAccountId: 'acc-1' },
 			{ id: 'account-2', providerAccountId: 'acc-2' }
 		]);
@@ -1227,6 +1229,74 @@ describe('syncBankConnection', () => {
 		expect(writes).toEqual([['lastSyncAt'], ['lastSyncAt', 'lastSyncStatus', 'lastSyncError']]);
 	});
 
+	it('writes ok but no cursor when a bucket was attached after the sync read its buckets (#769)', async () => {
+		// Reddened by removing the re-read: the cursor then vouches for a bucket nothing fetched.
+		prismaMock.bankConnection.findFirst.mockResolvedValueOnce(activeConnection);
+		prismaMock.account.findMany
+			.mockResolvedValueOnce([{ id: 'account-1', providerAccountId: 'acc-1' }])
+			.mockResolvedValueOnce([{ id: 'account-1' }, { id: 'account-2' }]);
+		prismaMock.bankConnection.update.mockResolvedValue({});
+		const fetchTransactions = vi.fn().mockResolvedValue([]);
+
+		const result = await syncBankConnection(
+			{ userId: 'user-1', connectionId: 'conn-1' },
+			{ env: ENABLED_ENV, now: () => NOW, getConnector: () => fakeConnector({ fetchTransactions }) }
+		);
+
+		expect(result).toEqual({ outcome: 'synced', importedRows: 0, duplicateRows: 0 });
+		expect(prismaMock.bankConnection.update).toHaveBeenCalledWith({
+			where: { id: 'conn-1' },
+			data: { lastSyncAt: NOW, lastSyncStatus: 'ok', lastSyncError: null }
+		});
+	});
+
+	describe('a refused period (422 WRONG_TRANSACTIONS_PERIOD)', () => {
+		const refusal = () =>
+			new EnableBankingApiError(422, 'WRONG_TRANSACTIONS_PERIOD', 'Enable Banking API error');
+		const syncWith = async (fetchTransactions: ReturnType<typeof vi.fn>, lookback: string) => {
+			prismaMock.bankConnection.findFirst.mockResolvedValueOnce(activeConnection);
+			prismaMock.account.findMany.mockResolvedValue([
+				{ id: 'account-1', providerAccountId: 'acc-1' }
+			]);
+			prismaMock.bankConnection.update.mockResolvedValue({});
+			return syncBankConnection(
+				{ userId: 'user-1', connectionId: 'conn-1', force: true },
+				{
+					env: { ...ENABLED_ENV, BANK_SYNC_FIRST_LOOKBACK_DAYS: lookback },
+					now: () => NOW,
+					getConnector: () => fakeConnector({ fetchTransactions })
+				}
+			);
+		};
+
+		// Reddened by removing the retry: `error`, and the same wide window refused on every sync.
+		it('is retried once, in the same sync, with the default window when the refused one was wider', async () => {
+			const fetchTransactions = vi.fn().mockRejectedValueOnce(refusal()).mockResolvedValue([]);
+
+			expect((await syncWith(fetchTransactions, '400')).outcome).toBe('synced');
+			const [first, retry] = fetchTransactions.mock.calls.map((call) => call[2]);
+			expect(calendarDaysAsked(first)).toBe(400);
+			expect(calendarDaysAsked(retry)).toBe(90);
+			expect(retry.to).toBe(first.to);
+		});
+
+		it('is not retried when the refused window was already the default, and says so as its own outcome', async () => {
+			const fetchTransactions = vi.fn().mockRejectedValue(refusal());
+
+			expect(await syncWith(fetchTransactions, '90')).toEqual({ outcome: 'window_refused' });
+			expect(fetchTransactions).toHaveBeenCalledTimes(1);
+		});
+
+		it('keeps `error` for every other failure: only the refused period names the setting', async () => {
+			const fetchTransactions = vi
+				.fn()
+				.mockRejectedValue(new EnableBankingApiError(422, 'SOMETHING_ELSE', 'x'));
+
+			expect(await syncWith(fetchTransactions, '400')).toEqual({ outcome: 'error' });
+			expect(fetchTransactions).toHaveBeenCalledTimes(1);
+		});
+	});
+
 	it('skips createImportBatch/persistImportedTransactions when the bucket has no transactions', async () => {
 		prismaMock.bankConnection.findFirst.mockResolvedValueOnce(activeConnection);
 		prismaMock.account.findMany.mockResolvedValueOnce([
@@ -1388,7 +1458,7 @@ describe('syncBankConnection', () => {
 
 		it('still completes as "synced" when fetchAccountBalance throws — the throw never propagates to the outer catch', async () => {
 			prismaMock.bankConnection.findFirst.mockResolvedValueOnce(activeConnection);
-			prismaMock.account.findMany.mockResolvedValueOnce([
+			prismaMock.account.findMany.mockResolvedValue([
 				{
 					id: 'account-1',
 					providerAccountId: 'acc-1',

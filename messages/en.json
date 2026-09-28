@@ -1061,6 +1061,7 @@
 	"bank_connections_sync_consent_expired": "The bank consent has expired. Reconnect the bank.",
 	"bank_connections_sync_unavailable": "This connection is no longer usable. Reconnect the bank.",
 	"bank_connections_sync_error": "Sync failed. Try again later.",
+	"bank_connections_sync_window_refused": "Your bank refuses this much history. Lower BANK_SYNC_FIRST_LOOKBACK_DAYS in the server settings.",
 	"bank_connections_error_generic": "Invalid operation.",
 	"bank_connections_error_redirect": "The return URL is not allowed (BANK_SYNC_REDIRECT_ALLOWED_ORIGINS).",
 	"bank_connections_error_unknown_bank": "Unknown bank: pick a bank from the list.",

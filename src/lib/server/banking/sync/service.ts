@@ -48,10 +48,14 @@ const MAX_FIRST_SYNC_LOOKBACK_DAYS = 3650;
 /**
  * First-sync backfill window in days. BANK_SYNC_FIRST_LOOKBACK_DAYS overrides the
  * 90-day default (bounded 1..3650) — meant for sandbox/dev datasets frozen in the past
- * (Enable Banking's Mock ASPSP serves 2020-2021 bookings), not for production tuning:
- * the range only widens the fetches made until a first sync completes (every attempt
- * before that asks for the whole window again, #763) and never touches the 6h
- * unattended-call throttle, so the PSD2 budget is unaffected.
+ * (Enable Banking's Mock ASPSP serves 2020-2021 bookings), or LOWERED for a bank that
+ * serves less history than the default. It is the window of every sync that has no
+ * complete sync to start from (a first sync, a sync after one that did not complete,
+ * after a renewal that added an account, after a restore without a cursor), and the
+ * longest window any sync asks for. A bank refusing it gets one retry with the default
+ * window (`fetchWithinBankHistory`); a bank refusing that too is reported as
+ * `window_refused`, which names this setting. It never touches the 6h unattended-call
+ * throttle, so the PSD2 budget is unaffected.
  */
 function getFirstSyncLookbackDays(env: NodeJS.ProcessEnv): number {
 	const parsed = Number.parseInt(env.BANK_SYNC_FIRST_LOOKBACK_DAYS ?? '', 10);
@@ -475,6 +479,8 @@ export type SyncOutcome =
 	| { outcome: 'throttled' }
 	| { outcome: 'consent_expired' }
 	| { outcome: 'unavailable' }
+	/** The bank refuses even the default first-sync window: `BANK_SYNC_FIRST_LOOKBACK_DAYS` is too long for it. */
+	| { outcome: 'window_refused' }
 	| { outcome: 'error' };
 
 export interface SyncBankConnectionInput {
@@ -555,10 +561,12 @@ export async function syncBankConnection(
 		let importedRows = 0;
 		let duplicateRows = 0;
 		for (const bucket of buckets) {
-			const transactions = await connector.fetchTransactions(
+			const transactions = await fetchWithinBankHistory(
+				connector,
 				context,
 				bucket.providerAccountId as string,
-				range
+				range,
+				currentTime
 			);
 			if (transactions.length > 0) {
 				const importBatchId = await createImportBatch({
@@ -618,11 +626,19 @@ export async function syncBankConnection(
 		// every bucket has been fetched and written by the time it runs. A throw anywhere above
 		// skips it, and so does a process that dies mid-sync, so the next window still starts from
 		// the last sync that got this far (#763).
+		//
+		// Every bucket it READ, that is. A renewal landing while this sync ran can have attached a
+		// bucket after the read above; the cursor would then vouch for a bucket nothing fetched, and
+		// undo the clear that renewal made (#769). So the set is read again, and the cursor is
+		// written only when it is still the set that was fetched.
+		const fetched = new Set(buckets.map((bucket) => bucket.id));
+		const linkedNow = await linkedBucketIds(input.userId, connection.id);
+		const fetchedEveryBucket = [...linkedNow].every((id) => fetched.has(id));
 		await prisma.bankConnection.update({
 			where: { id: connection.id },
 			data: {
 				lastSyncAt: currentTime,
-				lastCompleteSyncAt: currentTime,
+				...(fetchedEveryBucket ? { lastCompleteSyncAt: currentTime } : {}),
 				lastSyncStatus: 'ok',
 				lastSyncError: null
 			}
@@ -643,8 +659,51 @@ export async function syncBankConnection(
 				...(isAuthRejection(caught) ? { status: 'error' as const } : {})
 			}
 		});
-		return { outcome: 'error' };
+		// The one failure the operator can fix and the user cannot: the bank refuses even the
+		// default window, so the setting has to be lowered. Said as such rather than « try again »,
+		// which would never work.
+		return isHistoryRefusal(caught) ? { outcome: 'window_refused' } : { outcome: 'error' };
 	}
+}
+
+/**
+ * One account's fetch, retried ONCE with the default first-sync window when the bank refuses the
+ * period and the refused window reached further back than that default.
+ *
+ * `BANK_SYNC_FIRST_LOOKBACK_DAYS` can ask for more history than a bank serves (it exists for sandbox
+ * data frozen in the past), and a renewal or a restore that clears the cursor makes the next sync
+ * ask for that whole window. Since #763 a refusal does not move the cursor, so without this retry
+ * such a connection was refused on every sync, for good. A bank refusing even the default window is
+ * not retried again: `syncBankConnection` reports it as `window_refused`.
+ */
+async function fetchWithinBankHistory(
+	connector: BankConnector,
+	context: ConnectionContext,
+	providerAccountId: string,
+	range: { from: string; to: string },
+	currentTime: Date
+) {
+	try {
+		return await connector.fetchTransactions(context, providerAccountId, range);
+	} catch (caught) {
+		const defaultFrom = toIsoDate(
+			new Date(currentTime.getTime() - (FIRST_SYNC_LOOKBACK_DAYS - 1) * DAY_MS)
+		);
+		if (!isHistoryRefusal(caught) || range.from >= defaultFrom) throw caught;
+		return connector.fetchTransactions(context, providerAccountId, {
+			from: defaultFrom,
+			to: range.to
+		});
+	}
+}
+
+/** The bank refused the period asked for: more history than it serves. */
+function isHistoryRefusal(caught: unknown): boolean {
+	return (
+		caught instanceof EnableBankingApiError &&
+		caught.status === 422 &&
+		caught.providerCode === 'WRONG_TRANSACTIONS_PERIOD'
+	);
 }
 
 /**
