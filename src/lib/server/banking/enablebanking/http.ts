@@ -114,16 +114,25 @@ export async function enableBankingRequest(
 }
 
 /** Extracts only the provider's error `code` field — never the message or full body. */
+/**
+ * A provider machine code: upper-case letters, digits and underscores. Anything else in those
+ * fields is provider text, which never reaches `lastSyncError` (see the sync service).
+ */
+const PROVIDER_CODE_PATTERN = /^[A-Z][A-Z0-9_]{0,63}$/;
+
+/**
+ * The provider's machine code, from `error` or from `code`. Refusals are reported with the HTTP
+ * status as a NUMBER in `code` and the machine code in `error` (the 422 WRONG_TRANSACTIONS_PERIOD
+ * body quoted in securo-finance/securo#655 and we-promise/sure#2989), so reading `code` alone
+ * returned no code for exactly the refusal the sync service needs to recognise (#763).
+ */
 async function readProviderErrorCode(response: Response): Promise<string | null> {
 	try {
 		const body: unknown = await response.json();
-		if (
-			typeof body === 'object' &&
-			body !== null &&
-			'code' in body &&
-			typeof (body as { code?: unknown }).code === 'string'
-		) {
-			return (body as { code: string }).code;
+		if (typeof body !== 'object' || body === null) return null;
+		for (const field of ['error', 'code'] as const) {
+			const value = (body as Record<string, unknown>)[field];
+			if (typeof value === 'string' && PROVIDER_CODE_PATTERN.test(value)) return value;
 		}
 		return null;
 	} catch {
