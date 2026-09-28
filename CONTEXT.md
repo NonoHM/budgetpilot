@@ -167,3 +167,19 @@ The state a control shows while a finger or a pointer is on it. Distinct from **
 Pressed never survives `pointerup`, is removed without delay by `pointercancel`, and carries no
 `aria-*` at all. See [the design referential index](./docs/reference/design-referential.md) for where
 its timing rule lives.
+
+## Last sync, and the last complete sync
+
+**The last sync** is `BankConnection.lastSyncAt`: when a bank sync was last attempted, whatever
+happened. The 6-hour throttle counts from it and the connection card shows it.
+
+**The last complete sync** is `BankConnection.lastCompleteSyncAt`: the most recent sync that
+fetched and wrote every account the connection fed at the time. A renewal that attaches an account
+clears it, since no sync fetched that account. It is the fetch cursor: the next sync asks the bank
+from it minus the overlap, never for more than the first-sync window, and for that whole window
+when there is none.
+
+> **What confusing this cost.** One column played both parts, and the throttle claim and the failure
+> path both wrote it. A first sync that failed on its second account moved the next window to the
+> failed attempt, so every row of that account older than the overlap was never fetched, silently
+> (#763).

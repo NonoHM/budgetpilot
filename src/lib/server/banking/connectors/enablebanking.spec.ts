@@ -1153,4 +1153,51 @@ describe('EnableBankingConnector — hygiène des erreurs', () => {
 			expect((caught as { providerCode?: string }).providerCode).toBe('ASPSP_RATE_LIMIT_EXCEEDED');
 		}
 	});
+
+	it('reads the machine code from `error` when `code` is the numeric HTTP status (#763)', async () => {
+		// The shape two public reports quote for a refused period (securo-finance/securo#655,
+		// we-promise/sure#2989): `code` is the number, the machine code is in `error`. Read only from
+		// `code`, the refusal the sync service retries on had no code at all.
+		const fetchImpl = vi.fn().mockImplementation(() =>
+			Promise.resolve(
+				jsonResponse(
+					{
+						code: 422,
+						message: 'Wrong transactions period requested',
+						detail: { message: 'Requested time period out of bound.' },
+						error: 'WRONG_TRANSACTIONS_PERIOD'
+					},
+					422
+				)
+			)
+		);
+		const { connector } = makeConnector({ fetchImpl });
+
+		const caught = await connector
+			.createConnection({
+				redirectUrl: 'http://localhost/cb',
+				aspsp: { name: 'Test Bank', country: 'FR' }
+			})
+			.catch((error: unknown) => error);
+
+		expect(caught).toMatchObject({ status: 422, providerCode: 'WRONG_TRANSACTIONS_PERIOD' });
+	});
+
+	it('keeps no provider code that is not a machine code: free text is dropped, not stored', async () => {
+		const fetchImpl = vi
+			.fn()
+			.mockImplementation(() =>
+				Promise.resolve(jsonResponse({ error: 'free text from FR7612345 holder' }, 400))
+			);
+		const { connector } = makeConnector({ fetchImpl });
+
+		const caught = await connector
+			.createConnection({
+				redirectUrl: 'http://localhost/cb',
+				aspsp: { name: 'Test Bank', country: 'FR' }
+			})
+			.catch((error: unknown) => error);
+
+		expect(caught).toMatchObject({ status: 400, providerCode: null });
+	});
 });
