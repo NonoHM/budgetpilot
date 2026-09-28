@@ -447,21 +447,48 @@ snapshot.
 - **Consent expires**, typically after 90 days, and your bank decides when. The
   connection card shows "expires soon" 14 days ahead and offers a renewal that
   reuses the same bank without losing your imported history.
-- **The first sync backfills 90 days, today included.** After that, each sync
-  starts 7 days before the last sync that completed, and duplicate detection
-  absorbs the overlap. A sync never asks for more than those 90 days, the
-  history many banks cap PSD2 access at.
-- **A sync that fails does not move that starting point**, so the next one
-  fetches the days the failed one missed. The same holds when a renewal adds an
-  account: the next sync fetches 90 days for every account of the connection.
-- **Some syncs fetch the whole 90 days again**: the first one after a sync that
-  did not complete, after a renewal that added an account, and after restoring a
-  backup that does not record where syncing stopped. Duplicate detection absorbs the rows you already have, with two
-  exceptions. A transaction you deleted inside those 90 days comes back. And a
-  bank that sends a transaction again with a changed label or amount and no
-  transaction reference can create a duplicate, which you delete by hand.
+- **The first sync fetches your last 90 days.** After that, each sync picks up
+  where the last finished sync stopped, plus a week of overlap. Transactions you
+  already have are recognized and skipped.
+- **A sync that fails loses nothing.** The next sync fetches the days the
+  failed one missed.
 - **Deleting a connection keeps the transactions it already imported.** They're
   yours, and they stay.
+
+### When a sync fetches your last 90 days again
+
+Sometimes a sync fetches your whole last 90 days again, not only the days since
+the last sync:
+
+- when the last sync on that connection did not finish,
+- when you renew a connection and the bank adds an account to it,
+- when you restore a backup that doesn't record where syncing stopped.
+
+Transactions you already have are skipped, so this is usually invisible. Two
+things can show up:
+
+- **A bank transaction you deleted can reappear** if it's in those 90 days.
+  Delete it again.
+- **A transaction can appear twice** if your bank sends it again with a
+  different label or amount. Delete the extra copy.
+
+#### Details for operators
+
+- **Which connections.** A connection with no recorded finished sync
+  (`BankConnection.lastCompleteSyncAt` is empty). That covers a connection whose
+  last sync failed or was interrupted, a renewal that attaches an account the
+  connection didn't feed before, and a restored backup without that field. On
+  upgrade, only connections whose last sync succeeded keep a starting point.
+- **How far back.** The first-sync window: `BANK_SYNC_FIRST_LOOKBACK_DAYS`,
+  default 90, counted in calendar days with today included. No sync asks for
+  more than that window, because many banks refuse a longer period. Otherwise a
+  sync starts 7 days before the last finished sync. Dates are computed in UTC,
+  so between local midnight and the UTC day change the window can reach one day
+  further back in local time.
+- **Why a duplicate can appear.** Duplicate detection keys a bank transaction on
+  the bank's own transaction reference (`entry_reference`) when the bank sends
+  one. When it doesn't, the key is built from the date, label and amount, so a
+  row the bank re-sends with changed text or amount is a new row.
 
 ## Renew the certificate before it expires
 
