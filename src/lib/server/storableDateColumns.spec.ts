@@ -113,6 +113,9 @@ const COLUMNS: Record<string, Column> = {
 		]
 	},
 	'BankConnection.lastSyncAt': CLOCK,
+	// The fetch cursor (#763): the server's clock at a complete sync, or NULL. The restore carries
+	// it through the validated backup field below.
+	'BankConnection.lastCompleteSyncAt': CLOCK,
 	'BankConnection.createdAt': CLOCK,
 	'BankConnection.updatedAt': CLOCK,
 	'BankAuthorizationRequest.expiresAt': CLOCK,
@@ -157,7 +160,7 @@ const COLUMNS: Record<string, Column> = {
 	'Transaction.createdAt': CLOCK,
 	'Transaction.updatedAt': CLOCK,
 	// The file import's period is the span of its storable rows. The bank sync's batch period is
-	// NOT parsed: `banking/sync/service.ts` builds it from `lastSyncAt` and the clock, so it is not a
+	// NOT parsed: `banking/sync/service.ts` builds it from `lastCompleteSyncAt` and the clock, so it is not a
 	// writer of a supplied date and is not listed here.
 	'ImportBatch.periodStart': { kind: 'parsed', writers: [IMPORT_PERIOD('from')] },
 	'ImportBatch.periodEnd': { kind: 'parsed', writers: [IMPORT_PERIOD('to')] },
@@ -226,6 +229,7 @@ const COLUMNS: Record<string, Column> = {
 const RESTORED_FROM: Record<string, string> = {
 	'BankConnection.consentExpiresAt': 'bankConnections.[].consentExpiresAt',
 	'BankConnection.lastSyncAt': 'bankConnections.[].lastSyncAt',
+	'BankConnection.lastCompleteSyncAt': 'bankConnections.[].lastCompleteSyncAt',
 	'ImportBatch.periodStart': 'importBatches.[].periodStart',
 	'ImportBatch.periodEnd': 'importBatches.[].periodEnd',
 	'Transaction.date': 'transactions.[].date',
