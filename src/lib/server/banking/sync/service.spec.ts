@@ -1253,7 +1253,10 @@ describe('syncBankConnection', () => {
 	describe('a refused period (422 WRONG_TRANSACTIONS_PERIOD)', () => {
 		const refusal = () =>
 			new EnableBankingApiError(422, 'WRONG_TRANSACTIONS_PERIOD', 'Enable Banking API error');
-		const syncWith = async (fetchTransactions: ReturnType<typeof vi.fn>, lookback: string) => {
+		const syncWith = async (
+			fetchTransactions: BankConnector['fetchTransactions'],
+			lookback: string
+		) => {
 			prismaMock.bankConnection.findFirst.mockResolvedValueOnce(activeConnection);
 			prismaMock.account.findMany.mockResolvedValue([
 				{ id: 'account-1', providerAccountId: 'acc-1' }
