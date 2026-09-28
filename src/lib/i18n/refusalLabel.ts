@@ -1,7 +1,17 @@
 import * as m from '$lib/paraglide/messages';
-import type { TransactionValidationCode } from '$lib/domain/transaction';
+import { STORABLE_YEARS, type TransactionValidationCode } from '$lib/domain/transaction';
 import type { CsvRefusalFact, CsvRefusalScope } from '$lib/server/import/refusals';
 import { roleLabel } from '$lib/domain/columnMappingLabels';
+
+/**
+ * The range a « year out of range » sentence names, read from the ONE definition rather than typed
+ * into the catalogue, so the sentence cannot state a range the check does not apply. As strings,
+ * so no locale inserts a thousands separator into a year (« 1 000 »).
+ */
+export const STORABLE_YEAR_BOUNDS = {
+	first: String(STORABLE_YEARS.first),
+	last: String(STORABLE_YEARS.last)
+};
 
 /**
  * The only place a CSV refusal becomes language.
@@ -29,6 +39,8 @@ export function violationLabel(code: TransactionValidationCode): string {
 			return m.import_refusal_tx_id_required();
 		case 'invalid-iso-date':
 			return m.import_refusal_tx_invalid_iso_date();
+		case 'date-out-of-range':
+			return m.import_refusal_tx_date_out_of_range(STORABLE_YEAR_BOUNDS);
 		case 'amount-cents-required':
 			return m.import_refusal_tx_amount_cents_required();
 		case 'zero-amount':
@@ -158,6 +170,8 @@ export function refusalLabel(fact: CsvRefusalFact): string {
 			return m.import_refusal_mapping_invalid();
 		case 'invalid-date':
 			return m.import_refusal_invalid_date({ value: fact.value });
+		case 'date-out-of-range':
+			return m.import_refusal_date_out_of_range({ value: fact.value, ...STORABLE_YEAR_BOUNDS });
 		case 'invalid-amount':
 			return m.import_refusal_invalid_amount();
 		case 'zero-amount':

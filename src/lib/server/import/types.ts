@@ -295,7 +295,7 @@ export interface CsvProfileParser {
 	 * ## A LIST rather than a name
 	 *
 	 * `banque-populaire` reads three date columns and `revolut` two, through
-	 * `normalizeFirstValidDate`, which picks the first valid one PER ROW. So a parse can take its
+	 * `readRowDate`, which picks the first valid one PER ROW. So a parse can take its
 	 * date from one column on one row and another on the next, and any column that could become
 	 * the date is a column whose order matters. An index that this file does not carry is simply
 	 * absent from the list; the file then meets its ordinary refusal.

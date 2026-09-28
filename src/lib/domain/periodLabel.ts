@@ -1,4 +1,5 @@
 import { formatMonthLabel } from './dateFormat';
+import { PERIOD_FLOOR } from './periodPresets';
 
 /**
  * The Période trigger's value slot, and the ladder that keeps it honest.
@@ -58,6 +59,8 @@ export interface PeriodCopy {
 	openEnd: (formattedDate: string) => string;
 	custom: string;
 	invalid: string;
+	/** The all-time preset's own label, « Toujours »: what a range from the floor to today IS. */
+	allTime: string;
 }
 
 /**
@@ -229,13 +232,24 @@ export function formatPeriodLabel(input: {
 	invalid: boolean;
 	locale: string;
 	allowCustomRung: boolean;
+	/** Today, so a range from the floor to today can be named as the all-time preset it is. */
+	todayIso: string;
 	copy: PeriodCopy;
 }): PeriodLabel {
-	const { from, to, invalid, locale, allowCustomRung, copy } = input;
+	const { to, invalid, locale, allowCustomRung, todayIso, copy } = input;
 
 	if (invalid) {
 		return { text: copy.invalid, full: copy.invalid, rung: 'invalid', shortened: false };
 	}
+
+	// #758: `PERIOD_FLOOR` is an INTERNAL bound, the start the all-time query needs, never a date
+	// the reader chose. It is read as no start at all, so it is never printed: from the floor to
+	// today is « Toujours », the preset's own label, and from the floor to another day is the
+	// open-end rung below. It printed « 1 janvier 1970 → … » while the floor was the epoch.
+	if (input.from === PERIOD_FLOOR && to === todayIso) {
+		return { text: copy.allTime, full: copy.allTime, rung: 'preset', shortened: false };
+	}
+	const from = input.from === PERIOD_FLOOR ? '' : input.from;
 
 	// One open end: the design requires the WORD, never a one-sided arrow. An arrow missing one of
 	// its two ends reads as a truncated range, which is the same lie by a different route.

@@ -3,6 +3,7 @@ import { constantTimeEquals } from '$lib/server/banking/constantTime';
 import { filterBalancesByCurrency, selectPreferredBalance } from '$lib/domain/bankBalance';
 import type { ImportedTransaction, ImportedTransactionType } from '$lib/server/import/types';
 import { parseMoney, DEFAULT_CURRENCY, isValidCurrencyCode } from '$lib/domain/money';
+import { isStorableIsoDate, isStorableYear } from '$lib/domain/transaction';
 import {
 	buildPreviewRowId,
 	sanitizeImportedText,
@@ -343,7 +344,7 @@ function maskIbanTail(iban: string | null | undefined): string | null {
 }
 
 /** Maps one provider transaction; returns null for entries we deliberately skip (non-BOOK). */
-function mapTransaction(
+export function mapTransaction(
 	transaction: EnableBankingTransaction,
 	position: number
 ): ImportedTransaction | null {
@@ -365,6 +366,12 @@ function mapTransaction(
 		transaction.booking_date ?? transaction.value_date ?? transaction.transaction_date ?? null;
 	if (!date) {
 		throw new Error('Enable Banking transaction has no usable date');
+	}
+	// #758. The provider's string reached `persist.ts` unchecked, where a year 0000 row reads back
+	// as 2000 on MariaDB and throws `22008` on PostgreSQL. Refused by the same predicate every CSV
+	// row and every restore passes, and the same way this function refuses an unknown indicator.
+	if (!isStorableIsoDate(date)) {
+		throw new Error('Enable Banking transaction has an unusable date');
 	}
 
 	const remittance = (transaction.remittance_information ?? []).join(' ').trim();
@@ -410,11 +417,19 @@ function mapTransaction(
 	};
 }
 
-/** Parses a provider datetime string into a Date; null when absent or unparseable. */
-function parseProviderDate(value: string | null | undefined): Date | null {
+/**
+ * Parses a provider datetime string into a Date; null when absent, unparseable, or dated in a year
+ * no engine stores faithfully (#758). Its callers already treat null as « the provider did not
+ * say »: a consent expiry the app cannot store is one it does not know, never one it guesses.
+ *
+ * A datetime rather than a calendar date, so the year is judged on the UTC instant through
+ * `isStorableYear`, the comparison `isStorableIsoDate` itself makes, as the restore validator does.
+ */
+export function parseProviderDate(value: string | null | undefined): Date | null {
 	if (!value) return null;
 	const parsed = new Date(value);
-	return Number.isNaN(parsed.getTime()) ? null : parsed;
+	if (Number.isNaN(parsed.getTime())) return null;
+	return isStorableYear(parsed.getUTCFullYear()) ? parsed : null;
 }
 
 /**

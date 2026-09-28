@@ -97,6 +97,16 @@ const FIELD_DISPLAY: {
 		},
 		value: { shown: 'sentence', values: ['01.06.2026', '31.02.2026'] }
 	},
+	// #758: the cell parsed as a date and only its year is refused. The sentence quotes the cell as
+	// written; the field cell names the column the date was READ from, which is the fall-through's
+	// choice on a profile with several date columns.
+	'date-out-of-range': {
+		column: {
+			shown: { by: "the rows table's field cell: every producer sets `field` to this column" },
+			values: ['date', 'Date de comptabilisation']
+		},
+		value: { shown: 'sentence', values: ['16/01/0000', '31/12/0999'] }
+	},
 	// The three amount codes: the field cell shows `CsvRefusal.field`, which is the internal key
 	// (« amount ») on the house format and on generic files rather than the header. That spelling
 	// is #761's, not this table's.
@@ -226,15 +236,16 @@ describe('refusalLabel', () => {
 		expect(refusalLabel({ code: 'file-empty' })).toBe('CSV vide ou sans données');
 	});
 
-	it('renders every code in the union, and there are 45 of them', () => {
+	it('renders every code in the union, and there are 46 of them', () => {
 		const rendered = CSV_REFUSAL_CODES.map((code) => refusalLabel(FACTS[code]));
 
 		// The absolute figure beside the emptiness assertion: a run that rendered nothing at all
 		// would satisfy "none is empty" perfectly. 44 since #485 added 'multi-account-file' and
-		// 'ambiguous-account-column'; 45 since #600 added 'declared-currency-mismatch'.
-		expect(rendered).toHaveLength(45);
-		expect(CSV_REFUSAL_CODES).toHaveLength(45);
-		expect(rendered.filter((label) => label.trim().length > 0)).toHaveLength(45);
+		// 'ambiguous-account-column'; 45 since #600 added 'declared-currency-mismatch'; 46 since #758 added
+		// 'date-out-of-range'.
+		expect(rendered).toHaveLength(46);
+		expect(CSV_REFUSAL_CODES).toHaveLength(46);
+		expect(rendered.filter((label) => label.trim().length > 0)).toHaveLength(46);
 		// A key leaking through would render as the key itself.
 		expect(rendered.filter((label) => label.startsWith('import_refusal_'))).toEqual([]);
 	});
@@ -244,7 +255,7 @@ describe('refusalLabel', () => {
 
 		// Two guards in sequence are indistinguishable to a user when they render the same
 		// sentence, which is the whole reason the contract names them separately.
-		expect(new Set(rendered).size).toBe(45);
+		expect(new Set(rendered).size).toBe(46);
 	});
 
 	it('renders the payload of the five facts whose sentence names a value', () => {
@@ -270,6 +281,14 @@ describe('refusalLabel', () => {
 		expect(date).toContain('01.06.2026');
 		expect(date).toContain('JJ/MM/AAAA');
 		expect(date).toContain('AAAA-MM-JJ');
+
+		// #758, compared WHOLE: the cell as written and the range, both interpolated. A catalogue
+		// that stopped interpolating `{first}` would print the placeholder, and a range typed into
+		// the catalogue instead of read from `STORABLE_YEARS` would still pass a substring check.
+		expect(refusalLabel({ code: 'date-out-of-range', column: 'date', value: '16/01/0000' })).toBe(
+			'année hors plage : « 16/01/0000 » (attendu : de 1000 à 9999)'
+		);
+		expect(violationLabel('date-out-of-range')).toBe('année hors plage (de 1000 à 9999)');
 
 		// The fifth, and it is the first to carry TWO payload values, which is why it is asserted
 		// rather than assumed to follow from the four above. A message naming one placeholder
@@ -307,12 +326,12 @@ describe('refusalLabel', () => {
 });
 
 describe('violationLabel', () => {
-	it('renders every domain code, and there are 11 of them', () => {
+	it('renders every domain code, and there are 12 of them', () => {
 		const rendered = TRANSACTION_VALIDATION_CODES.map(violationLabel);
 
-		expect(rendered).toHaveLength(11);
-		expect(rendered.filter((label) => label.trim().length > 0)).toHaveLength(11);
-		expect(new Set(rendered).size).toBe(11);
+		expect(rendered).toHaveLength(12);
+		expect(rendered.filter((label) => label.trim().length > 0)).toHaveLength(12);
+		expect(new Set(rendered).size).toBe(12);
 		expect(rendered.filter((label) => label.startsWith('import_refusal_tx_'))).toEqual([]);
 	});
 });
@@ -379,7 +398,8 @@ describe('what a refusal carries, and where the reader sees it (#692)', () => {
 
 	/**
 	 * The absolute figure beside the empty list above: a swap loop that read no field would agree
-	 * with every classification. 33 fields over 45 codes, per catalogue.
+	 * with every classification. 35 fields over 46 codes, per catalogue (33 over 45 before #758 added
+	 * `date-out-of-range`, whose value the sentence quotes and whose column the field cell shows).
 	 */
 	it('read every carried field, in both catalogues', () => {
 		const kinds = swaps.map(({ shown }) =>
@@ -390,7 +410,7 @@ describe('what a refusal carries, and where the reader sees it (#692)', () => {
 			sentence: kinds.filter((kind) => kind === 'sentence').length,
 			by: kinds.filter((kind) => kind === 'by').length,
 			withheld: kinds.filter((kind) => kind === 'withheld').length
-		}).toEqual({ sentence: 44, by: 18, withheld: 4 });
+		}).toEqual({ sentence: 46, by: 20, withheld: 4 });
 	});
 
 	it('names the currency and no bank, since three producers share the sentence', () => {
