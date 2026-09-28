@@ -62,8 +62,9 @@ account number none of your accounts carries, the app asks which account it
 belongs to and remembers the answer (Settings, Remembered accounts). That
 memory is keyed on the number itself, through a keyed hash whose key is
 derived from this instance's own secret, so it would never match on another
-instance, and each entry shows the number's last four characters. It stays in
-the database.
+instance, and each entry shows the number's last four characters. A restore
+deletes them with the rest of your data and cannot put them back: after a
+restore, each such account asks once again.
 
 `importSourceSignatures` is still a key of the file, and is always empty. It
 held an older memory keyed on a file's column layout; files written before
