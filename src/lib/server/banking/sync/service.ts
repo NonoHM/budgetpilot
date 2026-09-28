@@ -48,8 +48,13 @@ const MAX_FIRST_SYNC_LOOKBACK_DAYS = 3650;
 /**
  * First-sync backfill window in days. BANK_SYNC_FIRST_LOOKBACK_DAYS overrides the
  * 90-day default (bounded 1..3650) — meant for sandbox/dev datasets frozen in the past
- * (Enable Banking's Mock ASPSP serves 2020-2021 bookings), not for production tuning:
- * the range only widens ONE historical fetch and never touches the 6h unattended-call
+ * (Enable Banking's Mock ASPSP serves 2020-2021 bookings), or LOWERED for a bank that
+ * serves less history than the default. It is the window of every sync that has no
+ * complete sync to start from (a first sync, a sync after one that did not complete,
+ * after a renewal that added an account, after a restore without a cursor), and the
+ * longest window any sync asks for. A bank refusing it gets one retry with the default
+ * window (`fetchWithinBankHistory`); a bank refusing that too is reported as
+ * `window_refused`, which names this setting. It never touches the 6h unattended-call
  * throttle, so the PSD2 budget is unaffected.
  */
 function getFirstSyncLookbackDays(env: NodeJS.ProcessEnv): number {
@@ -60,6 +65,56 @@ function getFirstSyncLookbackDays(env: NodeJS.ProcessEnv): number {
 	return parsed;
 }
 const LAST_SYNC_ERROR_MAX_LENGTH = 200;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * The window a sync asks the bank for, and the only place it is decided.
+ *
+ * It reads the fetch CURSOR, `lastCompleteSyncAt`, and cannot read anything else: `lastSyncAt` is
+ * not a parameter, so no caller can hand it in. Before #763 the window started from `lastSyncAt`,
+ * which the throttle claim writes BEFORE anything is fetched and the error path writes after a
+ * failure. A first sync that failed partway therefore moved the next window to the failed attempt
+ * minus the overlap, and the rest of its lookback was never fetched. Measured with the mock
+ * connector against a real engine: all three savings rows of a 90-day first sync missing after
+ * the next successful sync (`failedSyncNeverSkipsDays.db-smoke.ts`).
+ *
+ * With no complete sync on record, the whole first-sync lookback. Otherwise the last complete
+ * sync minus the overlap, which re-covers anything booked late and is absorbed by deduplication.
+ *
+ * THE LOOKBACK COUNTS TODAY: N days is today and the N - 1 days before it, the way a bank that
+ * caps history at N days counts them. `today - N` would be an N + 1 day span, which such a bank
+ * refuses outright (Enable Banking answers 422 WRONG_TRANSACTIONS_PERIOD, reported against a
+ * 90-day default in securo-finance/securo#655; Actual Budget subtracts 89 for the same reason).
+ * The day matters more since #763: a refused first sync no longer moves the cursor, so a window
+ * the bank will never accept would be asked for again on every sync.
+ *
+ * TWO BOUNDS, for the same reason: a cursor never widens the window past what a first sync asks
+ * for, and a cursor after now is not trusted. Without the first, a cursor older than the lookback
+ * (a consent renewed late, a restore, a sync failing for weeks) asks the bank for more history than
+ * it serves, is refused, and stays refused, since a refusal does not move the cursor. Without the
+ * second, a cursor in the future (clock skew, a restored row) gives `from` after `to`. Both fall
+ * back to the first-sync window, which is the widest a bank capping at the lookback accepts.
+ *
+ * Computed in UTC calendar days, like every date the connector sends.
+ */
+function syncFetchRange(
+	lastCompleteSyncAt: Date | null,
+	currentTime: Date,
+	env: NodeJS.ProcessEnv
+): { from: string; to: string } {
+	const to = toIsoDate(currentTime);
+	const lookbackFrom = toIsoDate(
+		new Date(currentTime.getTime() - (getFirstSyncLookbackDays(env) - 1) * DAY_MS)
+	);
+	const cursor =
+		lastCompleteSyncAt && lastCompleteSyncAt.getTime() <= currentTime.getTime()
+			? lastCompleteSyncAt
+			: null;
+	if (!cursor) return { from: lookbackFrom, to };
+	const cursorFrom = toIsoDate(new Date(cursor.getTime() - RESYNC_OVERLAP_DAYS * DAY_MS));
+	// ISO calendar dates compare correctly as strings.
+	return { from: cursorFrom > lookbackFrom ? cursorFrom : lookbackFrom, to };
+}
 
 export type BankSyncErrorCode =
 	| 'disabled'
@@ -257,8 +312,8 @@ export async function completeBankAuthorization(
 
 	let connectionId: string | null = null;
 	if (request.renewsConnectionId) {
-		// Renewal: refresh the existing connection in place. lastSyncAt is kept (throttle
-		// and overlap window stay honest); stale error state is cleared.
+		// Renewal: refresh the existing connection in place. lastSyncAt and lastCompleteSyncAt
+		// are kept (the throttle and the fetch cursor stay honest); stale error state is cleared.
 		const renewed = await prisma.bankConnection.updateMany({
 			where: { id: request.renewsConnectionId, userId: input.userId, provider: request.provider },
 			data: {
@@ -292,6 +347,12 @@ export async function completeBankAuthorization(
 
 	const source = resolveTransactionSource(request.provider);
 	const accounts = established.accounts ?? [];
+	// Only a connection that existed before this consent has a cursor to protect. A new one starts
+	// with none, so its first sync already asks for the whole lookback.
+	const linkedBefore =
+		request.renewsConnectionId === connectionId
+			? await linkedBucketIds(input.userId, connectionId)
+			: null;
 	for (const account of accounts) {
 		await resolveImportBucketAccount({
 			userId: input.userId,
@@ -309,7 +370,32 @@ export async function completeBankAuthorization(
 		});
 	}
 
+	// #769. The cursor is one per CONNECTION and vouches for the buckets the connection had when it
+	// was written. A bucket this consent attached (created, or an orphan re-linked by
+	// `resolveImportBucketAccount`) was fetched by none of those syncs, so the cursor would start
+	// its first fetch at the overlap and its older history would never be asked for. Clearing it
+	// makes the next sync ask for the whole lookback, bounded by `syncFetchRange`; the buckets that
+	// were already there get rows they hold, which deduplication absorbs.
+	if (linkedBefore) {
+		const linkedAfter = await linkedBucketIds(input.userId, connectionId);
+		if ([...linkedAfter].some((id) => !linkedBefore.has(id))) {
+			await prisma.bankConnection.updateMany({
+				where: { id: connectionId, userId: input.userId },
+				data: { lastCompleteSyncAt: null }
+			});
+		}
+	}
+
 	return { connectionId, accountCount: accounts.length };
+}
+
+/** The buckets a connection feeds: the set `syncBankConnection` fetches for. */
+async function linkedBucketIds(userId: string, connectionId: string): Promise<Set<string>> {
+	const buckets = await prisma.account.findMany({
+		where: { userId, bankConnectionId: connectionId, providerAccountId: { not: null } },
+		select: { id: true }
+	});
+	return new Set(buckets.map((bucket) => bucket.id));
 }
 
 /** One bank-sync bucket's net worth link status, for the explicit-link UI on /imports/bank-connections. */
@@ -393,6 +479,8 @@ export type SyncOutcome =
 	| { outcome: 'throttled' }
 	| { outcome: 'consent_expired' }
 	| { outcome: 'unavailable' }
+	/** The bank refuses even the default first-sync window: `BANK_SYNC_FIRST_LOOKBACK_DAYS` is too long for it. */
+	| { outcome: 'window_refused' }
 	| { outcome: 'error' };
 
 export interface SyncBankConnectionInput {
@@ -441,7 +529,8 @@ export async function syncBankConnection(
 		// Atomically claim the throttle slot: the read above can race with a concurrent
 		// sync on the same connection, so re-check + claim in one guarded update — only
 		// one of two simultaneous requests can win when lastSyncAt still matches what we
-		// just read (Prisma's DateTime equality compares exact instants).
+		// just read (Prisma's DateTime equality compares exact instants). It claims with the
+		// ATTEMPT column only: nothing has been fetched yet, so the cursor is not touched (#763).
 		const claimed = await prisma.bankConnection.updateMany({
 			where: { id: connection.id, userId: input.userId, lastSyncAt: connection.lastSyncAt },
 			data: { lastSyncAt: currentTime }
@@ -466,23 +555,18 @@ export async function syncBankConnection(
 		select: { id: true, providerAccountId: true, netWorthAccountId: true, currency: true }
 	});
 
-	const overlapMs = connection.lastSyncAt
-		? RESYNC_OVERLAP_DAYS * 24 * 60 * 60 * 1000
-		: getFirstSyncLookbackDays(env) * 24 * 60 * 60 * 1000;
-	const fromAnchor = connection.lastSyncAt ?? currentTime;
-	const range = {
-		from: toIsoDate(new Date(fromAnchor.getTime() - overlapMs)),
-		to: toIsoDate(currentTime)
-	};
+	const range = syncFetchRange(connection.lastCompleteSyncAt, currentTime, env);
 
 	try {
 		let importedRows = 0;
 		let duplicateRows = 0;
 		for (const bucket of buckets) {
-			const transactions = await connector.fetchTransactions(
+			const transactions = await fetchWithinBankHistory(
+				connector,
 				context,
 				bucket.providerAccountId as string,
-				range
+				range,
+				currentTime
 			);
 			if (transactions.length > 0) {
 				const importBatchId = await createImportBatch({
@@ -538,12 +622,32 @@ export async function syncBankConnection(
 			}
 		}
 
+		// The ONE write of the fetch cursor on this path, and it is the last statement of the try:
+		// every bucket has been fetched and written by the time it runs. A throw anywhere above
+		// skips it, and so does a process that dies mid-sync, so the next window still starts from
+		// the last sync that got this far (#763).
+		//
+		// Every bucket it READ, that is. A renewal landing while this sync ran can have attached a
+		// bucket after the read above; the cursor would then vouch for a bucket nothing fetched, and
+		// undo the clear that renewal made (#769). So the set is read again, and the cursor is
+		// written only when it is still the set that was fetched.
+		const fetched = new Set(buckets.map((bucket) => bucket.id));
+		const linkedNow = await linkedBucketIds(input.userId, connection.id);
+		const fetchedEveryBucket = [...linkedNow].every((id) => fetched.has(id));
 		await prisma.bankConnection.update({
 			where: { id: connection.id },
-			data: { lastSyncAt: currentTime, lastSyncStatus: 'ok', lastSyncError: null }
+			data: {
+				lastSyncAt: currentTime,
+				...(fetchedEveryBucket ? { lastCompleteSyncAt: currentTime } : {}),
+				lastSyncStatus: 'ok',
+				lastSyncError: null
+			}
 		});
 		return { outcome: 'synced', importedRows, duplicateRows };
 	} catch (caught) {
+		// `lastSyncAt` records the ATTEMPT, so the throttle counts a failed call against the PSD2
+		// budget like any other. The cursor is deliberately absent: a failure fetched nothing it
+		// can vouch for.
 		await prisma.bankConnection.update({
 			where: { id: connection.id },
 			data: {
@@ -555,8 +659,51 @@ export async function syncBankConnection(
 				...(isAuthRejection(caught) ? { status: 'error' as const } : {})
 			}
 		});
-		return { outcome: 'error' };
+		// The one failure the operator can fix and the user cannot: the bank refuses even the
+		// default window, so the setting has to be lowered. Said as such rather than « try again »,
+		// which would never work.
+		return isHistoryRefusal(caught) ? { outcome: 'window_refused' } : { outcome: 'error' };
 	}
+}
+
+/**
+ * One account's fetch, retried ONCE with the default first-sync window when the bank refuses the
+ * period and the refused window reached further back than that default.
+ *
+ * `BANK_SYNC_FIRST_LOOKBACK_DAYS` can ask for more history than a bank serves (it exists for sandbox
+ * data frozen in the past), and a renewal or a restore that clears the cursor makes the next sync
+ * ask for that whole window. Since #763 a refusal does not move the cursor, so without this retry
+ * such a connection was refused on every sync, for good. A bank refusing even the default window is
+ * not retried again: `syncBankConnection` reports it as `window_refused`.
+ */
+async function fetchWithinBankHistory(
+	connector: BankConnector,
+	context: ConnectionContext,
+	providerAccountId: string,
+	range: { from: string; to: string },
+	currentTime: Date
+) {
+	try {
+		return await connector.fetchTransactions(context, providerAccountId, range);
+	} catch (caught) {
+		const defaultFrom = toIsoDate(
+			new Date(currentTime.getTime() - (FIRST_SYNC_LOOKBACK_DAYS - 1) * DAY_MS)
+		);
+		if (!isHistoryRefusal(caught) || range.from >= defaultFrom) throw caught;
+		return connector.fetchTransactions(context, providerAccountId, {
+			from: defaultFrom,
+			to: range.to
+		});
+	}
+}
+
+/** The bank refused the period asked for: more history than it serves. */
+function isHistoryRefusal(caught: unknown): boolean {
+	return (
+		caught instanceof EnableBankingApiError &&
+		caught.status === 422 &&
+		caught.providerCode === 'WRONG_TRANSACTIONS_PERIOD'
+	);
 }
 
 /**
