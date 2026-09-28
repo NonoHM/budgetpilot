@@ -57,23 +57,24 @@ no key derivation. You download it, mail it to yourself, drop it in a cloud
 folder. Anything written into it has left every control this application has,
 which is why this one value stays in the database.
 
-`importSourceSignatures` is the memory that says "a file with this column
-layout belongs in that account". Only the entries learnt from a file that
-carried **no** fragment are exported, and they come back attached to the
-restored account. The entries that were told apart **by** a fragment are not in
-the file and are gone after a restore.
+**Remembered accounts are not in the backup either.** When a statement names an
+account number none of your accounts carries, the app asks which account it
+belongs to and remembers the answer (Settings, Remembered accounts). That
+memory is keyed on the number itself, through a keyed hash whose key is
+derived from this instance's own secret, so it would never match on another
+instance, and each entry shows the number's last four characters. It stays in
+the database.
+
+`importSourceSignatures` is still a key of the file, and is always empty. It
+held an older memory keyed on a file's column layout; files written before
+1.2 may carry entries, which a restore reads and ignores.
 
 So, after restoring:
 
-| The account                    | What it does on its next statement  |
-| ------------------------------ | ----------------------------------- |
-| never had a fragment           | recognised as before, nothing to do |
-| was recognised by its fragment | asks you once, then remembers again |
-
-That second row is the price of the choice, and it is charged once per account
-rather than once per import. Dropping the whole table would have been simpler
-and would have charged it to every account instead, including those that never
-had a fragment to lose.
+| The account                                 | What it does on its next statement     |
+| ------------------------------------------- | -------------------------------------- |
+| never had a number                          | recognised as before, nothing to do    |
+| was recognised by its number, or remembered | may ask you once, then remembers again |
 
 `userEmail` is **informational**. Restoring a file whose `userEmail` names
 somebody else succeeds, measured rather than assumed, because the target is
