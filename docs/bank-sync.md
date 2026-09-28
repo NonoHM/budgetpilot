@@ -447,10 +447,19 @@ snapshot.
 - **Consent expires**, typically after 90 days, and your bank decides when. The
   connection card shows "expires soon" 14 days ahead and offers a renewal that
   reuses the same bank without losing your imported history.
-- **The first sync backfills 90 days.** After that, each sync starts 7 days
-  before the last sync that completed, and duplicate detection absorbs the
-  overlap. A sync that fails does not move that starting point, so the next one
-  fetches the days the failed one missed.
+- **The first sync backfills 90 days, today included.** After that, each sync
+  starts 7 days before the last sync that completed, and duplicate detection
+  absorbs the overlap. A sync never asks for more than those 90 days, the
+  history many banks cap PSD2 access at.
+- **A sync that fails does not move that starting point**, so the next one
+  fetches the days the failed one missed. The same holds when a renewal adds an
+  account: the next sync fetches 90 days for every account of the connection.
+- **Some syncs fetch the whole 90 days again**: the first one after a sync that
+  did not complete, after a renewal that added an account, and after restoring a
+  backup that does not record where syncing stopped. Duplicate detection absorbs the rows you already have, with two
+  exceptions. A transaction you deleted inside those 90 days comes back. And a
+  bank that sends a transaction again with a changed label or amount and no
+  transaction reference can create a duplicate, which you delete by hand.
 - **Deleting a connection keeps the transactions it already imported.** They're
   yours, and they stay.
 

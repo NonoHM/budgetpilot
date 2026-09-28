@@ -12,6 +12,11 @@
 -- NOT repaired, because nothing records where it lies: a gap left by a failure that a later
 -- SUCCESSFUL sync followed. That success moved `lastSyncAt` on and set the status back to 'ok'.
 --
+-- NOT told apart either, and copied as if it were a success: a sync whose throttle claim wrote
+-- `lastSyncAt` and whose process died before any outcome, after an earlier success. The status
+-- still reads that success's 'ok', so the cursor gets the dead claim's instant, and the days
+-- between the success and the claim, beyond the overlap, stay unfetched.
+--
 -- One statement, for the reason in the previous migration. Re-runnable: it only fills a NULL.
 UPDATE "BankConnection"
 SET "lastCompleteSyncAt" = "lastSyncAt"
