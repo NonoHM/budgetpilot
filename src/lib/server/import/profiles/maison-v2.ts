@@ -90,17 +90,12 @@ export function maisonV2DateColumns(headers: string[]): number[] {
 	return index >= 0 ? [index] : [];
 }
 
-export function parseMaisonV2Rows({
-	rows,
-	warnings,
-	dateOrder
-}: CsvProfileParseInput): CsvImportResult {
+export function parseMaisonV2Rows({ rows, dateOrder }: CsvProfileParseInput): CsvImportResult {
 	const headers = rows[0].cells.map(foldExactHeader);
 
 	if (!matchesMaisonV2Header(headers)) {
 		return emptyResult(
 			[{ code: 'header-not-recognized', profile: 'maison' }],
-			warnings,
 			'maison',
 			// The rows the file has, like its three sibling profiles. A zero here was the same false
 			// figure the row cap carried: a claim about the file rather than about the refusal.
@@ -214,7 +209,6 @@ export function parseMaisonV2Rows({
 
 	return {
 		transactions,
-		warnings,
 		invalidRows: refusals,
 		summary: buildSummary({
 			profile: 'maison',

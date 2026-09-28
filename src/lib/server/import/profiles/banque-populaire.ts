@@ -88,7 +88,6 @@ export function banquePopulaireDateColumns(headers: string[]): number[] {
 
 export function parseBanquePopulaireRows({
 	rows,
-	warnings,
 	categorizationRules,
 	dateOrder
 }: CsvProfileParseInput): CsvImportResult {
@@ -96,7 +95,6 @@ export function parseBanquePopulaireRows({
 	if (!matchesBanquePopulaireHeader(headers)) {
 		return emptyResult(
 			[{ code: 'header-not-recognized', profile: 'Banque Populaire' }],
-			warnings,
 			'banque-populaire',
 			rows.length - 1
 		);
@@ -202,10 +200,6 @@ export function parseBanquePopulaireRows({
 		]);
 		const amount = parseBanquePopulaireAmount(record.Debit ?? '', record.Credit ?? '');
 
-		if (amount.ok && amount.warning === 'negative-credit') {
-			warnings.push(`Ligne ${line}: crédit négatif`);
-		}
-
 		if (!amount.ok) {
 			addRefusal(refusals, { kind: 'row', line }, amount.fact, amount.field);
 			return;
@@ -260,7 +254,6 @@ export function parseBanquePopulaireRows({
 
 	return {
 		transactions,
-		warnings,
 		invalidRows: refusals,
 		summary: buildSummary({
 			profile: 'banque-populaire',
@@ -283,7 +276,6 @@ type BanquePopulaireAmountResult =
 			ok: true;
 			amountCents: number;
 			type: ImportedTransactionType;
-			warning?: 'negative-credit';
 	  }
 	| {
 			ok: false;
@@ -317,10 +309,5 @@ function parseBanquePopulaireAmount(debit: string, credit: string): BanquePopula
 		return { ok: true, amountCents: Math.abs(parsedAmount), type: 'expense' };
 	}
 
-	return {
-		ok: true,
-		amountCents: Math.abs(parsedAmount),
-		type: 'income',
-		warning: parsedAmount < 0 ? 'negative-credit' : undefined
-	};
+	return { ok: true, amountCents: Math.abs(parsedAmount), type: 'income' };
 }

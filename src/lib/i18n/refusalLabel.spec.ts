@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import * as m from '$lib/paraglide/messages';
 import { refusalLabel, scopeLabel, violationLabel } from './refusalLabel';
 import { roleLabel } from '$lib/domain/columnMappingLabels';
 import {
@@ -305,6 +306,59 @@ describe('refusalLabel', () => {
 		expect(mixed).toContain('24/06/2026');
 		expect(mixed).toContain('06/24/2026');
 		expect(mixed).not.toContain('{');
+	});
+
+	/**
+	 * #622's second defect: the SAME fact renders two different sentences depending on whether the
+	 * caller names a designated column, and the two must not say the same thing about who chose it.
+	 */
+	it('names the designated column on mixed-date-order, when the caller has one', () => {
+		expect.assertions(2);
+		const fact = {
+			code: 'mixed-date-order',
+			dayFirst: '24/06/2026',
+			monthFirst: '06/24/2026'
+		} as const;
+
+		// Against the CATALOGUE function itself, the same one `refusalLabel` calls, rather than a
+		// sentence retyped here: the fifth placeholder (`column`) is the one this test exists for.
+		expect(refusalLabel(fact, { designatedDateColumn: 'zone_1' })).toBe(
+			m.import_refusal_mixed_date_order_column({
+				column: 'zone_1',
+				dayFirst: '24/06/2026',
+				monthFirst: '06/24/2026'
+			})
+		);
+		// The auto path's key never renders once a column is named: the two keys are for two
+		// different situations, not two tones for one.
+		expect(refusalLabel(fact, { designatedDateColumn: 'zone_1' })).not.toBe(
+			m.import_refusal_mixed_date_order({ dayFirst: '24/06/2026', monthFirst: '06/24/2026' })
+		);
+	});
+
+	/**
+	 * A headerless file has no column NAME to show (`dateColumn` is `null` on the `position`
+	 * match), so `null` falls back to the plain file-level KEY rather than rendering an empty
+	 * « la colonne «  » ». Separates « no column to name » from « a column named the empty string »,
+	 * which `withCellValue`'s blank check treats the same way. Against the catalogue function
+	 * directly: two calls to `refusalLabel` comparing to EACH OTHER would read as equal under a
+	 * break that deletes the branch entirely rather than only the fallback, because both calls
+	 * would then take the one surviving path.
+	 */
+	it('falls back to the file-level sentence when there is no column name to show', () => {
+		expect.assertions(2);
+		const fact = {
+			code: 'mixed-date-order',
+			dayFirst: '24/06/2026',
+			monthFirst: '06/24/2026'
+		} as const;
+		const fileLevel = m.import_refusal_mixed_date_order({
+			dayFirst: '24/06/2026',
+			monthFirst: '06/24/2026'
+		});
+
+		expect(refusalLabel(fact, { designatedDateColumn: null })).toBe(fileLevel);
+		expect(refusalLabel(fact, { designatedDateColumn: '' })).toBe(fileLevel);
 	});
 
 	it('joins a domain verdict in the order the validator pushed it', () => {

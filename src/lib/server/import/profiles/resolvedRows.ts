@@ -54,7 +54,6 @@ export interface ResolvedRowsInput {
 	currencyColumns: string[];
 	acceptedCurrency: string;
 	profile: ResolvedCsvImportProfile;
-	warnings: string[];
 	categorizationRules: CategorizationRuleInput[];
 }
 
@@ -84,7 +83,6 @@ export function parseResolvedRows({
 	currencyColumns,
 	acceptedCurrency,
 	profile,
-	warnings,
 	categorizationRules
 }: ResolvedRowsInput): CsvImportResult {
 	const resolvedFields = [columns.date, columns.label, columns.amount, columns.category].filter(
@@ -284,7 +282,6 @@ export function parseResolvedRows({
 
 	return {
 		transactions,
-		warnings,
 		invalidRows: refusals,
 		summary: {
 			...buildSummary({

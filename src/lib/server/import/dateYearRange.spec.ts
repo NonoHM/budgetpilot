@@ -255,4 +255,35 @@ describe('readRowDate, the one reading of a row date', () => {
 			date: '1000-01-01'
 		});
 	});
+
+	/**
+	 * #623: `column` is a HEADER CELL, and on the `mapped` profile it is the user's own file's
+	 * header, not a literal role name. `value` was already bounded through `refusalCellValue`;
+	 * `column` was not, so an oversized header reached this fact, and therefore the page's data on
+	 * every failed import, at whatever length the file's own upload cap allowed. Same bound, same
+	 * function, as `value` gets: sanitise and cut at 64 characters. Separates « the column is
+	 * bounded like the value beside it » from « only the value is ».
+	 */
+	it('bounds an oversized column name exactly as it bounds the value', () => {
+		expect.assertions(1);
+		const oversizedColumn = 'x'.repeat(70);
+		expect(readRowDate([{ column: oversizedColumn, value: 'CARD_PAYMENT' }])).toEqual({
+			kind: 'refused',
+			fact: { code: 'invalid-date', column: `${'x'.repeat(64)}...`, value: 'CARD_PAYMENT' }
+		});
+	});
+
+	/** Same bound, the `date-out-of-range` branch: separates the two branches' `column` handling. */
+	it('bounds an oversized column name on the date-out-of-range branch too', () => {
+		expect.assertions(1);
+		const oversizedColumn = 'y'.repeat(70);
+		expect(readRowDate([{ column: oversizedColumn, value: '16/01/0000' }])).toEqual({
+			kind: 'refused',
+			fact: {
+				code: 'date-out-of-range',
+				column: `${'y'.repeat(64)}...`,
+				value: '16/01/0000'
+			}
+		});
+	});
 });

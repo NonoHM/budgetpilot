@@ -18,6 +18,7 @@ import { fingerprintFor } from '$lib/server/import/mapping/fingerprint';
 import { recordColumnMappingUse, saveColumnMapping } from '$lib/server/import/mapping/store';
 import { MAPPING_ROLES } from '$lib/server/import/mapping/model';
 import { refusalLabel } from '$lib/i18n/refusalLabel';
+import { refusalCellValue } from '$lib/server/import/utils/safety';
 import { resolveImportOffer } from '$lib/server/import/offerPrecedence';
 import { emptyParseFacts } from '$lib/server/import/offerFacts';
 import { declaredCurrencyRefusal } from '$lib/server/import/declaredCurrency';
@@ -183,25 +184,27 @@ export const actions: Actions = {
 			//
 			// AND THE REASON, when the file was refused as a whole. « Aucune transaction valide à
 			// importer » is true and useless: it is the same sentence a user gets for a missing date
-			// column, so it leaves them re-designating at random. A header-scoped refusal is a fact
-			// about the FILE: the money is split across two columns, or the amounts are magnitudes
-			// beside a direction column. Naming it is the difference between a refusal that
-			// teaches and one that only blocks. Row-scoped refusals are deliberately not surfaced
-			// here: sixty-six of them are a summary, not a banner. See #343.
+			// column, so it leaves them re-designating at random. A file- or header-scoped refusal
+			// is a fact about the FILE: it is refused on its size, its date column proves both
+			// readings, the money is split across two columns, or the amounts are magnitudes beside
+			// a direction column. Naming it is the difference between a refusal that teaches and one
+			// that only blocks (#648, #622). Row-scoped refusals are deliberately not surfaced here:
+			// sixty-six of them are a summary, not a banner. See #343.
 			// The facts through the one definition `/import` reads too (`offerFacts.ts`): the first
-			// header-scoped refusal, and #485's two, PROVEN (refused outright, no offer) and UNPROVEN
-			// (the one offer this branch gains).
+			// file- or header-scoped refusal, and #485's two, PROVEN (refused outright, no offer) and
+			// UNPROVEN (the one offer this branch gains).
 			const {
-				header: headerRefusal,
+				fileScoped: fileScopedRefusal,
 				multiAccount: multiAccountRefusal,
 				accountColumn: accountColumnRefusal
 			} = emptyParseFacts(result);
 			// THE ONE ORDER, same function `/import` reads: no `split`, `account` or `dateOrder` on this
 			// door (see `offerPrecedence.ts`'s own docstring for why), so those are simply never passed.
-			// `produced: false` because this branch is the empty parse.
+			// `produced: false` because this branch is the empty parse. `header` is `offerPrecedence.ts`'s
+			// name for this rung; `fileScoped` is the wider set of codes this door now feeds into it.
 			const offer = resolveImportOffer({
 				produced: false,
-				header: headerRefusal,
+				header: fileScopedRefusal,
 				multiAccount: multiAccountRefusal,
 				accountColumn: accountColumnRefusal ? { state: 'open', fact: accountColumnRefusal } : null
 			});
@@ -226,7 +229,16 @@ export const actions: Actions = {
 			return fail(400, {
 				error:
 					offer.rung === 'header' || offer.rung === 'multiAccount'
-						? refusalLabel(offer.fact)
+						? refusalLabel(offer.fact, {
+								// #622's second defect: the ONLY door that knows the user designated
+								// this column rather than a profile auto-detecting it. Bounded here,
+								// before it reaches a rendered sentence, for the same reason #623
+								// bounds one on its way into a fact payload: this module renders
+								// language and does not itself reach `$lib/server`.
+								designatedDateColumn: resolved.mapping.dateColumn
+									? refusalCellValue(resolved.mapping.dateColumn)
+									: null
+							})
 						: offer.rung === 'accountColumn'
 							? accountColumnHeader
 								? m.import_error_account_column_unanswerable({ header: accountColumnHeader })
