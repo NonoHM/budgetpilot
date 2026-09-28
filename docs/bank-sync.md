@@ -487,8 +487,10 @@ things can show up:
   further back in local time.
 - **Why a duplicate can appear.** Duplicate detection keys a bank transaction on
   the bank's own transaction reference (`entry_reference`) when the bank sends
-  one. When it doesn't, the key is built from the date, label and amount, so a
-  row the bank re-sends with changed text or amount is a new row.
+  one. When it doesn't, the key is built from the account, the date, label,
+  amount, type (debit or credit) and currency, and the row's position among
+  identical rows in the same fetch. A row the bank re-sends with any of those
+  changed gets a new key and is stored as a new row.
 
 ## Renew the certificate before it expires
 
