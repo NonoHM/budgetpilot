@@ -59,6 +59,7 @@
 	} from '$lib/import/completedImport.svelte';
 	import { onMount, tick, untrack } from 'svelte';
 	import { importWriteFailureLabel } from '$lib/i18n/importWriteLabel';
+	import { accountAnswerFor, accountMemoryLabel } from '$lib/import/accountHint';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
@@ -554,6 +555,45 @@
 		focusVisibleAccountRow();
 	}
 
+	/**
+	 * #599: WHAT THE MEMORY ANSWERED, when it is the memory that answered.
+	 *
+	 * The server returns the question with `resolution.kind === 'remembered'` when the user answered
+	 * this statement's account number before; the row then arrives CHOSEN, with the hint saying so,
+	 * and the user still presses « Importer » (the memory pre-fills, it never decides). Through
+	 * `accountAnswerFor`, the one mapping from a resolution to a row sentence, which also refuses to
+	 * pre-fill an account the options do not hold.
+	 */
+	const rememberedAnswer = $derived.by(() => {
+		if (accountOffer?.resolution.rank !== 3 || accountOffer.resolution.kind !== 'remembered') {
+			return null;
+		}
+		const answer = accountAnswerFor(
+			accountOffer.resolution,
+			accountOffer.options,
+			accountMemoryLabel(accountOffer.memory, getLocale())
+		);
+		return answer.accountId === null ? null : { accountId: answer.accountId, hint: answer.hint };
+	});
+
+	/**
+	 * The pre-fill, applied ONCE per offer, and only onto an unanswered row: an answer the user gave
+	 * is never replaced by the application's, which is the rule `chosenId` records on the
+	 * designation screen. Bound to the file in hand like any answer, so choosing another statement
+	 * clears it (`answeredFor` above).
+	 */
+	let prefilledFrom: object | undefined;
+	$effect(() => {
+		const offer = accountOffer;
+		const remembered = rememberedAnswer;
+		if (!offer || offer === prefilledFrom || !offersAccountChoice) return;
+		prefilledFrom = offer;
+		if (remembered && untrack(() => chosenAccountId) === null) {
+			chosenAccountId = remembered.accountId;
+			answeredFor = csvFiles?.[0];
+		}
+	});
+
 	const accountRowState = $derived<'ok' | 'todo' | 'error'>(
 		chosenAccount ? 'ok' : accountErrorShown ? 'error' : 'todo'
 	);
@@ -572,7 +612,14 @@
 	 * primary looked like nothing happening while both assertions about it were green.
 	 */
 	const accountRowHint = $derived(
-		accountRowState === 'error' ? m.import_account_error_required() : undefined
+		accountRowState === 'error'
+			? m.import_account_error_required()
+			: // #599: « Mémorisé, 3 imports depuis le 15 août », ONLY while the row holds the account
+				// the memory answered. A choice the user changed is theirs, and a provenance line
+				// describing an answer that no longer stands would be false.
+				rememberedAnswer !== null && chosenAccountId === rememberedAnswer.accountId
+				? rememberedAnswer.hint
+				: undefined
 	);
 
 	/**
@@ -1578,9 +1625,11 @@
 						refusal, beside the refusal: this path never opens the designation screen, so the
 						question is asked where the user already is.
 
-						No hint on the row. The banner directly above is the refusal and carries the reason; a
-						provenance line repeating it would say one thing twice, in the one place a user is
-						already being told that something went wrong.
+						No hint on the row, with ONE exception. The banner directly above is the refusal and
+						carries the reason; a provenance line repeating it would say one thing twice. The
+						exception says something the banner does not: when the memory answered (#599), the row
+						arrives chosen and says « Mémorisé, N imports depuis le … », as a private Claude Design
+						canvas draws it (`accountRowHint`).
 
 						`allowCreate` only in the currency-refusal state (#741): there the refusal asks for an
 						account in a currency the user may not hold, and « Nouveau compte » is the one way
