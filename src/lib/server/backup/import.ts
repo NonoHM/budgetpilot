@@ -166,13 +166,12 @@ export async function restoreBackup(userId: string, payload: BackupExport): Prom
 		// always "to reconnect", never functional with imported secrets.
 		const bankConnectionIdMap = new Map<string, string>();
 		for (const connection of payload.bankConnections) {
-			// The fetch cursor (#763). A file written before the cursor existed carries none, and
-			// its `lastSyncAt` is the value that version fetched from, so it is the one to resume
-			// from. A NULL the file does carry means no complete sync was on record, and is kept.
-			const syncCursor =
-				connection.lastCompleteSyncAt === undefined
-					? connection.lastSyncAt
-					: connection.lastCompleteSyncAt;
+			// The fetch cursor (#763), restored as written. A file written before the cursor existed
+			// carries none, and its `lastSyncAt` is not one: a backup carries no sync status, so it
+			// cannot say whether that sync completed, and before #763 a failure or a bare throttle
+			// claim wrote the same column. No cursor then, so the first sync after reconnecting asks
+			// for the whole lookback, bounded in `syncFetchRange`, and deduplication absorbs the rest.
+			const syncCursor = connection.lastCompleteSyncAt ?? null;
 			const created = await tx.bankConnection.create({
 				data: {
 					userId,

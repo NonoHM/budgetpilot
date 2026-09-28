@@ -1478,7 +1478,7 @@ describe('restoreBackup', () => {
 		expect(connection.providerSessionId).toBeUndefined();
 	});
 
-	it('restores the fetch cursor as written, keeps a written NULL, and falls back to lastSyncAt only when the file predates the cursor (#763)', async () => {
+	it('restores the fetch cursor as written, keeps a written NULL, and restores none from a file that predates the cursor (#763)', async () => {
 		expect.assertions(1);
 
 		const payload = buildValidPayload();
@@ -1518,10 +1518,12 @@ describe('restoreBackup', () => {
 				(c.lastCompleteSyncAt as Date | null | undefined)?.toISOString() ?? c.lastCompleteSyncAt
 			])
 		);
+		// An old file carries `lastSyncAt` but no status, so it cannot say whether that sync
+		// completed: no cursor, and the first sync after reconnecting asks for the whole lookback.
 		expect(cursors).toEqual({
 			expired: '2026-06-01T00:00:00.000Z',
 			error: null,
-			revoked: '2026-06-04T00:00:00.000Z'
+			revoked: null
 		});
 	});
 
