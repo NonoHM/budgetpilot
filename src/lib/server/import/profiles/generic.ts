@@ -93,7 +93,6 @@ export function genericDateColumns(headers: string[]): number[] {
 
 export function parseGenericRows({
 	rows,
-	warnings,
 	categorizationRules,
 	dateOrder
 }: CsvProfileParseInput): CsvImportResult {
@@ -165,7 +164,6 @@ export function parseGenericRows({
 	if (headerRefusals.length > 0) {
 		return {
 			transactions: [],
-			warnings,
 			invalidRows: headerRefusals,
 			summary: buildSummary({
 				profile: 'generic',
@@ -204,7 +202,6 @@ export function parseGenericRows({
 		currencyColumns,
 		acceptedCurrency: ACCEPTED_CURRENCY,
 		profile: 'generic',
-		warnings,
 		categorizationRules
 	});
 }

@@ -53,16 +53,11 @@ export function maisonDateColumns(headers: string[]): number[] {
 	return index >= 0 ? [index] : [];
 }
 
-export function parseMaisonRows({
-	rows,
-	warnings,
-	dateOrder
-}: CsvProfileParseInput): CsvImportResult {
+export function parseMaisonRows({ rows, dateOrder }: CsvProfileParseInput): CsvImportResult {
 	const headers = rows[0].cells.map(foldExactHeader);
 	if (!matchesMaisonHeader(headers)) {
 		return emptyResult(
 			[{ code: 'header-not-recognized', profile: 'maison' }],
-			warnings,
 			'maison',
 			rows.length - 1
 		);
@@ -196,7 +191,6 @@ export function parseMaisonRows({
 
 	return {
 		transactions,
-		warnings,
 		invalidRows: refusals,
 		summary: buildSummary({
 			profile: 'maison',
