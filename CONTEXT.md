@@ -174,8 +174,10 @@ its timing rule lives.
 happened. The 6-hour throttle counts from it and the connection card shows it.
 
 **The last complete sync** is `BankConnection.lastCompleteSyncAt`: the most recent sync that
-fetched and wrote every account of the connection. It is the fetch cursor: the next sync asks the
-bank from it minus the overlap, or for the whole first-sync window when there is none.
+fetched and wrote every account the connection fed at the time. A renewal that attaches an account
+clears it, since no sync fetched that account. It is the fetch cursor: the next sync asks the bank
+from it minus the overlap, never for more than the first-sync window, and for that whole window
+when there is none.
 
 > **What confusing this cost.** One column played both parts, and the throttle claim and the failure
 > path both wrote it. A first sync that failed on its second account moved the next window to the

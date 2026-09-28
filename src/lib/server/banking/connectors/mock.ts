@@ -81,10 +81,13 @@ export class MockBankConnector implements BankConnector {
 			throw new Error('Missing authorization code');
 		}
 		const consentExpiresAt = new Date(Date.now() + MOCK_CONSENT_DAYS * 24 * 60 * 60 * 1000);
+		// The accounts on the authorisation, as Enable Banking returns them there: the sync service
+		// creates buckets from this list only, so without it no bucket path is reachable (#769).
 		return {
 			providerSessionId: `mock-session-${randomUUID()}`,
 			credentialsEncrypted: encryptSecret(JSON.stringify({ authorizationCode: code })),
-			consentExpiresAt
+			consentExpiresAt,
+			accounts
 		};
 	}
 

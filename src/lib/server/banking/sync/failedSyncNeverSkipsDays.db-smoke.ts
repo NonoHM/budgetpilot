@@ -51,9 +51,13 @@ import { completeBankAuthorization, startBankAuthorization, syncBankConnection }
  * - the throttle claim writing the cursor: moved before anything is persisted vs. after;
  * - the window reading `lastSyncAt`: anchored on the attempt vs. on the last complete sync.
  *
+ * The lookback counted as `today - N` (an N + 1 day window) reddens every sync case here, because
+ * the fake bank refuses a window longer than its history, as a real one does.
+ *
  * A complete sync that stops writing the cursor stays GREEN here, and that is the fourth meaning
  * rather than a hole: every sync then fetches the whole lookback, and deduplication makes the
- * ledgers agree. `service.spec.ts` asserts the write itself.
+ * ledgers agree. `service.spec.ts` asserts the write itself. A cursor in the future is likewise
+ * covered only there: no production path here writes one.
  */
 
 if (!process.env.DATABASE_URL) {
@@ -78,16 +82,28 @@ const SYNC_ENV = {
 } as unknown as NodeJS.ProcessEnv;
 
 /**
- * The mock connector as the sync path meets a real provider: Enable Banking returns the accounts
- * on the authorisation itself, and `completeBankAuthorization` creates the buckets from that list
- * only. The failure switch stands in for a provider error partway through a sync.
+ * The history a bank serves, in calendar days counted inclusively. A fact about the BANK, not a
+ * copy of the app's lookback: Enable Banking refuses a longer window with 422
+ * WRONG_TRANSACTIONS_PERIOD at banks capping PSD2 history at 90 days (securo-finance/securo#655).
+ * If the app's default lookback ever exceeded it, this suite would redden, which is right: such a
+ * bank would refuse that default.
+ */
+const BANK_HISTORY_DAYS = 90;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * The mock connector with three switches a real bank has and the mock does not:
  *
- * It fails by POSITION (the Nth fetch after arming), never by account name: the sync reads its
- * buckets with no `orderBy`, and PostgreSQL returned them in the other order from SQLite in a full
- * suite run, which made a name-targeted failure hit the first bucket instead of the second.
+ * - a failure partway through a sync, by POSITION (the Nth fetch after arming), never by account
+ *   name: the sync reads its buckets with no `orderBy`, and PostgreSQL returned them in the other
+ *   order from SQLite in a full suite run;
+ * - a history cap: a window longer than `BANK_HISTORY_DAYS` is refused, with the reason;
+ * - which accounts the consent covers, so a renewal can add one.
  */
 class FailableMockConnector extends MockBankConnector implements BankConnector {
 	private fetchesUntilFailure: number | null = null;
+	/** Provider account ids the next consent covers; null is every account the mock has. */
+	offeredAccounts: string[] | null = null;
 
 	failFetch(position: number): void {
 		this.fetchesUntilFailure = position;
@@ -97,8 +113,13 @@ class FailableMockConnector extends MockBankConnector implements BankConnector {
 		input: AuthorizationCallbackInput
 	): Promise<EstablishedConnection> {
 		const established = await super.completeAuthorization(input);
-		const accounts = await this.listAccounts(established satisfies ConnectionContext);
-		return { ...established, accounts };
+		const offered = this.offeredAccounts;
+		return offered
+			? {
+					...established,
+					accounts: (established.accounts ?? []).filter((account) => offered.includes(account.id))
+				}
+			: established;
 	}
 
 	override async fetchTransactions(
@@ -106,6 +127,8 @@ class FailableMockConnector extends MockBankConnector implements BankConnector {
 		accountId: string,
 		range: FetchTransactionsRange
 	): Promise<ImportedTransaction[]> {
+		const days = (Date.parse(range.to) - Date.parse(range.from)) / DAY_MS + 1;
+		if (days > BANK_HISTORY_DAYS) throw new Error('WRONG_TRANSACTIONS_PERIOD');
 		if (this.fetchesUntilFailure !== null) {
 			this.fetchesUntilFailure -= 1;
 			if (this.fetchesUntilFailure === 0) {
@@ -135,8 +158,15 @@ async function makeUser(tag: string): Promise<string> {
 	return user.id;
 }
 
-/** The two production steps a person goes through: start the consent, come back from the bank. */
-async function connect(userId: string, connector: FailableMockConnector): Promise<string> {
+/**
+ * The two production steps a person goes through: start the consent, come back from the bank.
+ * With `renewConnectionId`, the renewal the connection card offers, on the same connection.
+ */
+async function authorize(
+	userId: string,
+	connector: FailableMockConnector,
+	renewConnectionId?: string
+): Promise<{ connectionId: string; accountCount: number }> {
 	const options = { env: SYNC_ENV, getConnector: () => connector };
 	const started = await startBankAuthorization(
 		{
@@ -144,17 +174,19 @@ async function connect(userId: string, connector: FailableMockConnector): Promis
 			provider: 'mock',
 			aspspName: 'Banque Fictive Démo',
 			aspspCountry: 'FR',
-			origin: ORIGIN
+			origin: ORIGIN,
+			renewConnectionId
 		},
 		options
 	);
 	const state = new URL(started.authorizationUrl).searchParams.get('state');
 	if (!state) throw new Error('the mock authorisation URL carried no state');
-	const completed = await completeBankAuthorization(
-		{ userId, params: { state, code: 'db-smoke-code' } },
-		options
-	);
-	expect(completed.accountCount).toBeGreaterThan(1);
+	return completeBankAuthorization({ userId, params: { state, code: 'db-smoke-code' } }, options);
+}
+
+async function connect(userId: string, connector: FailableMockConnector): Promise<string> {
+	const completed = await authorize(userId, connector);
+	expect(completed.accountCount).toBeGreaterThan(0);
 	return completed.connectionId;
 }
 
@@ -271,6 +303,80 @@ describe('#763: a failed bank sync never skips the days it did not fetch', () =>
 
 		expect(await ledger(failingUser)).toEqual(await ledger(controlUser));
 	});
+
+	/**
+	 * A cursor older than the bank's history: a consent renewed late, a restore, or a sync that
+	 * failed for weeks. Reddened by removing the lower clamp (the window reaches back past the bank's
+	 * history and every sync is refused, so the outcome is `error` forever) vs. clamped (`synced`).
+	 */
+	it('a cursor older than the bank serves still syncs, and brings every day the bank still has', async () => {
+		const longAgo = new Date('2026-04-01T08:00:00.000Z');
+		const now = new Date('2026-07-19T08:00:00.000Z');
+
+		const stale = new FailableMockConnector();
+		const staleConnection = await connect(failingUser, stale);
+		expect((await sync(failingUser, staleConnection, stale, longAgo)).outcome).toBe('synced');
+
+		// Calibration: the fake refuses the unclamped window, with the bank's reason.
+		const unclamped = {
+			from: new Date(longAgo.getTime() - 7 * DAY_MS).toISOString().slice(0, 10),
+			to: now.toISOString().slice(0, 10)
+		};
+		const context = await prisma.bankConnection.findFirstOrThrow({
+			where: { id: staleConnection, userId: failingUser },
+			select: { providerSessionId: true, credentialsEncrypted: true, consentExpiresAt: true }
+		});
+		await expect(stale.fetchTransactions(context, 'mock-checking', unclamped)).rejects.toThrow(
+			'WRONG_TRANSACTIONS_PERIOD'
+		);
+
+		expect((await sync(failingUser, staleConnection, stale, now)).outcome).toBe('synced');
+
+		// The oracle: a connection made today, whose first sync asks for everything the bank has.
+		const fresh = new FailableMockConnector();
+		const freshConnection = await connect(controlUser, fresh);
+		expect((await sync(controlUser, freshConnection, fresh, now)).outcome).toBe('synced');
+		const expected = await ledger(controlUser);
+		const actual = await ledger(failingUser);
+		expect(expected.length).toBeGreaterThan(0);
+		expect(expected.filter((line) => !actual.includes(line))).toEqual([]);
+		expect(new Set(actual).size).toBe(actual.length);
+	});
+
+	/**
+	 * #769: an account the consent covers only from a renewal on. Renewal keeps the connection, and
+	 * so its cursor; before the reset, the new account's first fetch started at the cursor minus the
+	 * overlap and its older history was never asked for. Reddened by removing the reset in
+	 * `completeBankAuthorization` (the new account gets the overlap only) vs. kept (the lookback).
+	 */
+	it('an account added at renewal gets the same history as an account there from the start, with no duplicate', async () => {
+		// One calendar day, more than six hours apart: the renewal sits between the two syncs.
+		const firstAt = new Date('2026-07-19T08:00:00.000Z');
+		const secondAt = new Date('2026-07-19T15:00:00.000Z');
+
+		const renewed = new FailableMockConnector();
+		renewed.offeredAccounts = ['mock-checking'];
+		const renewedConnection = await connect(failingUser, renewed);
+		expect((await sync(failingUser, renewedConnection, renewed, firstAt)).outcome).toBe('synced');
+
+		renewed.offeredAccounts = null;
+		const renewal = await authorize(failingUser, renewed, renewedConnection);
+		expect(renewal.connectionId).toBe(renewedConnection);
+
+		const control = new FailableMockConnector();
+		const controlConnection = await connect(controlUser, control);
+		expect((await sync(controlUser, controlConnection, control, firstAt)).outcome).toBe('synced');
+
+		// Calibration: the renewal added an account the failing ledger has no row for yet.
+		const accounts = accountsOf(await ledger(controlUser));
+		expect(accounts).toHaveLength(2);
+		expect(accountsOf(await ledger(failingUser))).toHaveLength(1);
+
+		expect((await sync(failingUser, renewedConnection, renewed, secondAt)).outcome).toBe('synced');
+		expect((await sync(controlUser, controlConnection, control, secondAt)).outcome).toBe('synced');
+
+		expect(await ledger(failingUser)).toEqual(await ledger(controlUser));
+	});
 });
 
 /**
@@ -285,7 +391,7 @@ describe('#763: a failed bank sync never skips the days it did not fetch', () =>
  * complete sync vs. no cursor) and by dropping the NULL guard (a cursor overwritten vs. kept).
  */
 describe('#763: the backfill seeds the cursor only where the last sync succeeded', () => {
-	it('copies lastSyncAt after a success, leaves NULL after a failure or an unfinished attempt, and never overwrites a cursor', async () => {
+	it('copies lastSyncAt where the status reads ok, leaves NULL after a failure or a first claim that never finished, and never overwrites a cursor', async () => {
 		const provider = resolveDatabaseProvider(process.env);
 		const file = resolve(
 			process.cwd(),
@@ -303,13 +409,18 @@ describe('#763: the backfill seeds the cursor only where the last sync succeeded
 
 		const attempt = new Date('2026-07-19T08:00:00.000Z');
 		const earlier = new Date('2026-07-01T08:00:00.000Z');
-		const seed = async (lastSyncStatus: string | null, lastCompleteSyncAt: Date | null) => {
+		const claimed = new Date('2026-07-20T08:00:00.000Z');
+		const seed = async (
+			lastSyncAt: Date,
+			lastSyncStatus: string | null,
+			lastCompleteSyncAt: Date | null
+		) => {
 			const row = await prisma.bankConnection.create({
 				data: {
 					userId: failingUser,
 					provider: 'mock',
 					status: 'active',
-					lastSyncAt: attempt,
+					lastSyncAt,
 					lastSyncStatus,
 					lastCompleteSyncAt
 				},
@@ -317,10 +428,17 @@ describe('#763: the backfill seeds the cursor only where the last sync succeeded
 			});
 			return row.id;
 		};
-		const succeeded = await seed('ok', null);
-		const failed = await seed('error', null);
-		const neverFinished = await seed(null, null);
-		const alreadySeeded = await seed('ok', earlier);
+		const succeeded = await seed(attempt, 'ok', null);
+		const failed = await seed(attempt, 'error', null);
+		// A FIRST sync whose throttle claim was written and whose outcome never was: the process died
+		// between the two, so the status is still the NULL a new connection starts with.
+		const firstClaimOnly = await seed(attempt, null, null);
+		// A sync that succeeded, then a later claim that died before its outcome. The status still
+		// reads the earlier 'ok' and `lastSyncAt` holds the dead claim's instant. This row cannot be
+		// told apart from `succeeded`, so the backfill copies the claim's instant: the declared limit
+		// in the migration's own comment, pinned here so a change to it is seen.
+		const claimOnlyAfterSuccess = await seed(claimed, 'ok', null);
+		const alreadySeeded = await seed(attempt, 'ok', earlier);
 
 		await prisma.$executeRawUnsafe(statement);
 
@@ -330,16 +448,18 @@ describe('#763: the backfill seeds the cursor only where the last sync succeeded
 		});
 		const cursorOf = (id: string) =>
 			rows.find((row) => row.id === id)?.lastCompleteSyncAt?.toISOString() ?? null;
-		expect(rows).toHaveLength(4);
+		expect(rows).toHaveLength(5);
 		expect({
 			succeeded: cursorOf(succeeded),
 			failed: cursorOf(failed),
-			neverFinished: cursorOf(neverFinished),
+			firstClaimOnly: cursorOf(firstClaimOnly),
+			claimOnlyAfterSuccess: cursorOf(claimOnlyAfterSuccess),
 			alreadySeeded: cursorOf(alreadySeeded)
 		}).toEqual({
 			succeeded: attempt.toISOString(),
 			failed: null,
-			neverFinished: null,
+			firstClaimOnly: null,
+			claimOnlyAfterSuccess: claimed.toISOString(),
 			alreadySeeded: earlier.toISOString()
 		});
 	});

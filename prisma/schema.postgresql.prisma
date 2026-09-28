@@ -308,7 +308,8 @@ model BankConnection {
   /// The fetch cursor: the instant of the most recent sync that fetched AND wrote every
   /// bucket. The next sync asks the bank from this instant minus the overlap, or for the
   /// whole first-sync lookback when it is NULL. Written only by a sync that completed and by
-  /// a backup restore, never by the throttle claim or a failure (#763).
+  /// a backup restore, never by the throttle claim or a failure (#763); cleared by a renewal
+  /// that attaches an account (#769).
   lastCompleteSyncAt   DateTime?
   lastSyncStatus       String?
   lastSyncError        String?

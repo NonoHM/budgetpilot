@@ -621,6 +621,8 @@ describe('completeBankAuthorization', () => {
 				})
 			});
 			persistMock.resolveImportBucketAccount.mockResolvedValue({ accountId: 'x', created: false });
+			// The same bucket before and after: the consent attached nothing new.
+			prismaMock.account.findMany.mockResolvedValue([{ id: 'x' }]);
 
 			const result = await completeBankAuthorization(
 				{ userId: 'user-1', params: { state: 'raw-state', code: 'auth-code' } },
@@ -643,6 +645,43 @@ describe('completeBankAuthorization', () => {
 			expect(persistMock.resolveImportBucketAccount).toHaveBeenCalledWith(
 				expect.objectContaining({ bankConnectionId: 'conn-1', providerAccountId: 'acc-1' })
 			);
+			// No new bucket, so the cursor is kept: the renewal update is the only connection write.
+			expect(prismaMock.bankConnection.updateMany).toHaveBeenCalledTimes(1);
+		});
+
+		it('clears the fetch cursor, scoped to the owner, when the renewal attaches a bucket the connection did not feed (#769)', async () => {
+			// Reddened by removing the reset: the new bucket's first fetch starts at the overlap.
+			prismaMock.bankAuthorizationRequest.findUnique.mockResolvedValueOnce({
+				...baseRequest,
+				renewsConnectionId: 'conn-1'
+			});
+			prismaMock.bankAuthorizationRequest.updateMany.mockResolvedValueOnce({ count: 1 });
+			prismaMock.bankConnection.updateMany.mockResolvedValue({ count: 1 });
+			const connector = fakeConnector({
+				completeAuthorization: vi.fn().mockResolvedValue({
+					providerSessionId: 'sess-renewed',
+					credentialsEncrypted: 'enc-renewed',
+					consentExpiresAt: null,
+					accounts: [
+						{ id: 'acc-1', name: 'Compte courant', currency: 'EUR' },
+						{ id: 'acc-2', name: 'Livret', currency: 'EUR' }
+					]
+				})
+			});
+			persistMock.resolveImportBucketAccount.mockResolvedValue({ accountId: 'x', created: false });
+			prismaMock.account.findMany
+				.mockResolvedValueOnce([{ id: 'bucket-1' }])
+				.mockResolvedValueOnce([{ id: 'bucket-1' }, { id: 'bucket-2' }]);
+
+			await completeBankAuthorization(
+				{ userId: 'user-1', params: { state: 'raw-state', code: 'auth-code' } },
+				{ env: ENABLED_ENV, now: () => NOW, getConnector: () => connector }
+			);
+
+			expect(prismaMock.bankConnection.updateMany).toHaveBeenLastCalledWith({
+				where: { id: 'conn-1', userId: 'user-1' },
+				data: { lastCompleteSyncAt: null }
+			});
 		});
 
 		it('falls back to creating a new connection when the renewal target was deleted meanwhile (updateMany count 0)', async () => {
@@ -1044,6 +1083,53 @@ describe('syncBankConnection', () => {
 
 		const [, , range] = fetchTransactions.mock.calls[0];
 		expect(range.from).toBe('2026-07-03'); // lastCompleteSyncAt - 7 days
+	});
+
+	describe('the window never asks for more than the lookback, and never ends before it starts', () => {
+		/** The range one sync asks for, given what the connection row holds. */
+		const rangeWith = async (lastCompleteSyncAt: Date | null) => {
+			prismaMock.bankConnection.findFirst.mockResolvedValueOnce({
+				...activeConnection,
+				lastSyncAt: lastCompleteSyncAt,
+				lastCompleteSyncAt
+			});
+			prismaMock.account.findMany.mockResolvedValueOnce([
+				{ id: 'account-1', providerAccountId: 'acc-1' }
+			]);
+			prismaMock.bankConnection.update.mockResolvedValue({});
+			const fetchTransactions = vi.fn().mockResolvedValue([]);
+			await syncBankConnection(
+				{ userId: 'user-1', connectionId: 'conn-1', force: true },
+				{
+					env: ENABLED_ENV,
+					now: () => NOW,
+					getConnector: () => fakeConnector({ fetchTransactions })
+				}
+			);
+			return fetchTransactions.mock.calls[0][2] as { from: string; to: string };
+		};
+		const daysAgo = (days: number) => new Date(NOW.getTime() - days * 24 * 60 * 60 * 1000);
+
+		// Reddened by removing the lower clamp: a cursor older than the lookback asked for more
+		// history than a bank capping at the lookback serves, which it refuses on every sync.
+		it('a cursor older than the lookback asks for exactly the first-sync window', async () => {
+			const firstSync = await rangeWith(null);
+			expect(await rangeWith(daysAgo(200))).toEqual(firstSync);
+			// The boundary, from the other side: a cursor whose overlap still fits inside the
+			// lookback keeps its own start, one day short of the full window.
+			expect(calendarDaysAsked(await rangeWith(daysAgo(81)))).toBe(
+				calendarDaysAsked(firstSync) - 1
+			);
+		});
+
+		// Reddened by removing the future-cursor rule: a cursor after now gave `from` after `to`,
+		// which the connector refuses as an invalid range on every sync.
+		it('a cursor in the future (clock skew, a restore) is not trusted: the first-sync window', async () => {
+			const firstSync = await rangeWith(null);
+			const future = await rangeWith(new Date(NOW.getTime() + 30 * 24 * 60 * 60 * 1000));
+			expect(future.from <= future.to).toBe(true);
+			expect(future).toEqual(firstSync);
+		});
 	});
 
 	// This case and the one before it are reddened by a window read off `lastSyncAt`: anchored on

@@ -83,16 +83,33 @@ const DAY_MS = 24 * 60 * 60 * 1000;
  * 90-day default in securo-finance/securo#655; Actual Budget subtracts 89 for the same reason).
  * The day matters more since #763: a refused first sync no longer moves the cursor, so a window
  * the bank will never accept would be asked for again on every sync.
+ *
+ * TWO BOUNDS, for the same reason: a cursor never widens the window past what a first sync asks
+ * for, and a cursor after now is not trusted. Without the first, a cursor older than the lookback
+ * (a consent renewed late, a restore, a sync failing for weeks) asks the bank for more history than
+ * it serves, is refused, and stays refused, since a refusal does not move the cursor. Without the
+ * second, a cursor in the future (clock skew, a restored row) gives `from` after `to`. Both fall
+ * back to the first-sync window, which is the widest a bank capping at the lookback accepts.
+ *
+ * Computed in UTC calendar days, like every date the connector sends.
  */
 function syncFetchRange(
 	lastCompleteSyncAt: Date | null,
 	currentTime: Date,
 	env: NodeJS.ProcessEnv
 ): { from: string; to: string } {
-	const from = lastCompleteSyncAt
-		? new Date(lastCompleteSyncAt.getTime() - RESYNC_OVERLAP_DAYS * DAY_MS)
-		: new Date(currentTime.getTime() - (getFirstSyncLookbackDays(env) - 1) * DAY_MS);
-	return { from: toIsoDate(from), to: toIsoDate(currentTime) };
+	const to = toIsoDate(currentTime);
+	const lookbackFrom = toIsoDate(
+		new Date(currentTime.getTime() - (getFirstSyncLookbackDays(env) - 1) * DAY_MS)
+	);
+	const cursor =
+		lastCompleteSyncAt && lastCompleteSyncAt.getTime() <= currentTime.getTime()
+			? lastCompleteSyncAt
+			: null;
+	if (!cursor) return { from: lookbackFrom, to };
+	const cursorFrom = toIsoDate(new Date(cursor.getTime() - RESYNC_OVERLAP_DAYS * DAY_MS));
+	// ISO calendar dates compare correctly as strings.
+	return { from: cursorFrom > lookbackFrom ? cursorFrom : lookbackFrom, to };
 }
 
 export type BankSyncErrorCode =
@@ -326,6 +343,12 @@ export async function completeBankAuthorization(
 
 	const source = resolveTransactionSource(request.provider);
 	const accounts = established.accounts ?? [];
+	// Only a connection that existed before this consent has a cursor to protect. A new one starts
+	// with none, so its first sync already asks for the whole lookback.
+	const linkedBefore =
+		request.renewsConnectionId === connectionId
+			? await linkedBucketIds(input.userId, connectionId)
+			: null;
 	for (const account of accounts) {
 		await resolveImportBucketAccount({
 			userId: input.userId,
@@ -343,7 +366,32 @@ export async function completeBankAuthorization(
 		});
 	}
 
+	// #769. The cursor is one per CONNECTION and vouches for the buckets the connection had when it
+	// was written. A bucket this consent attached (created, or an orphan re-linked by
+	// `resolveImportBucketAccount`) was fetched by none of those syncs, so the cursor would start
+	// its first fetch at the overlap and its older history would never be asked for. Clearing it
+	// makes the next sync ask for the whole lookback, bounded by `syncFetchRange`; the buckets that
+	// were already there get rows they hold, which deduplication absorbs.
+	if (linkedBefore) {
+		const linkedAfter = await linkedBucketIds(input.userId, connectionId);
+		if ([...linkedAfter].some((id) => !linkedBefore.has(id))) {
+			await prisma.bankConnection.updateMany({
+				where: { id: connectionId, userId: input.userId },
+				data: { lastCompleteSyncAt: null }
+			});
+		}
+	}
+
 	return { connectionId, accountCount: accounts.length };
+}
+
+/** The buckets a connection feeds: the set `syncBankConnection` fetches for. */
+async function linkedBucketIds(userId: string, connectionId: string): Promise<Set<string>> {
+	const buckets = await prisma.account.findMany({
+		where: { userId, bankConnectionId: connectionId, providerAccountId: { not: null } },
+		select: { id: true }
+	});
+	return new Set(buckets.map((bucket) => bucket.id));
 }
 
 /** One bank-sync bucket's net worth link status, for the explicit-link UI on /imports/bank-connections. */
