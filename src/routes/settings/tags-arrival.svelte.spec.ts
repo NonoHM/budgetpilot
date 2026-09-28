@@ -40,6 +40,7 @@ function baseData(overrides: Partial<PageData> = {}): PageData {
 		accountNameMaxLength: 120,
 		linkableNetWorthAccounts: [],
 		columnMappingCap: 50,
+		rememberedAccounts: [],
 		...overrides
 	} as PageData;
 }
