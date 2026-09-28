@@ -124,6 +124,27 @@ describe('the account row when the memory answered', () => {
 		expect(posted(section)).toBe('');
 	});
 
+	it('hides the « choisissez » banner while the row holds the remembered account', async () => {
+		// SEPARATES « the hint explains the pre-fill, so the banner asking to choose is withdrawn »
+		// FROM « a red banner above an already answered row » (controller ruling, currency-refusal
+		// precedent). Both mounts are checked: the banner is rendered once per mount.
+		for (const width of [1280, 390]) {
+			await page.viewport(width, width === 390 ? 844 : 800);
+			const section = await mount(REMEMBERED, width);
+			await chooseAndSubmit(section);
+			expect(question(section).textContent).toContain(HINT);
+			expect(section.textContent).not.toContain(m.import_account_error_required());
+		}
+	});
+
+	it('keeps the banner when the memory did not answer', async () => {
+		// The calibration of the case above: the same banner, same fixture shape, is on screen.
+		await page.viewport(1280, 800);
+		const section = await mount(UNKNOWN, 1280);
+		await chooseAndSubmit(section);
+		expect(section.textContent).toContain(m.import_account_error_required());
+	});
+
 	it('drops the hint once the user picks another account', async () => {
 		// SEPARATES « a provenance describes the answer on the row » FROM « it survives a choice
 		// that replaced it », which would say the user's own pick was remembered.

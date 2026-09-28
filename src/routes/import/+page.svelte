@@ -576,6 +576,17 @@
 		return answer.accountId === null ? null : { accountId: answer.accountId, hint: answer.hint };
 	});
 
+	/**
+	 * Whether the row holds, right now, the account the memory answered. One condition for the two
+	 * things it decides: the « Mémorisé » hint shows, and the « Choisissez le compte » banner above
+	 * it does not (controller ruling, the currency refusal's precedent): the hint explains the
+	 * pre-fill, and a red sentence asking to choose above an answered row is false. Changed to
+	 * another account or cleared, the banner is back.
+	 */
+	const memoryAnswersRow = $derived(
+		rememberedAnswer !== null && chosenAccountId === rememberedAnswer.accountId
+	);
+
 	const accountRowState = $derived<'ok' | 'todo' | 'error'>(
 		chosenAccount ? 'ok' : accountErrorShown ? 'error' : 'todo'
 	);
@@ -599,8 +610,8 @@
 			: // #599: « Mémorisé, 3 imports depuis le 15 août », ONLY while the row holds the account
 				// the memory answered. A choice the user changed is theirs, and a provenance line
 				// describing an answer that no longer stands would be false.
-				rememberedAnswer !== null && chosenAccountId === rememberedAnswer.accountId
-				? rememberedAnswer.hint
+				memoryAnswersRow
+				? rememberedAnswer!.hint
 				: undefined
 	);
 
@@ -1621,7 +1632,7 @@
 					noFileLabel={m.common_file_dropzone_no_file()}
 				/>
 
-				{#if formError && !currencyRefusalAnswered}
+				{#if formError && !currencyRefusalAnswered && !memoryAnswersRow}
 					<AlertBanner variant="error">{formError}</AlertBanner>
 				{/if}
 
@@ -2118,7 +2129,7 @@
 				noFileLabel={m.common_file_dropzone_no_file()}
 			/>
 
-			{#if formError && !currencyRefusalAnswered}
+			{#if formError && !currencyRefusalAnswered && !memoryAnswersRow}
 				<AlertBanner variant="error">{formError}</AlertBanner>
 			{/if}
 
