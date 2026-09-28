@@ -46,7 +46,13 @@ const UNKNOWN = offer({ rank: 3, kind: 'unknown' }, null);
 const DATA: PageData = { user: null, correction: null } as unknown as PageData;
 
 async function mount(account: unknown, width: number) {
-	const form = { error: m.import_account_error_required(), account };
+	// `answers` as the route sends it with every question (`kept`): FOUND BY THE WALK, a fixture
+	// without it let the pre-fill pass here while the page's reply effect cleared it in the browser.
+	const form = {
+		error: m.import_account_error_required(),
+		account,
+		answers: { key: 'k', dateOrder: null, accountId: null, accountColumnAnswer: null }
+	};
 	const rendered = await render(Page, { data: DATA, form: form as never });
 	const sections = rendered.container.querySelectorAll('main > section');
 	return (width >= 1024 ? sections[0] : sections[1]) as HTMLElement;

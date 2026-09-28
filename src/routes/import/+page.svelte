@@ -576,24 +576,6 @@
 		return answer.accountId === null ? null : { accountId: answer.accountId, hint: answer.hint };
 	});
 
-	/**
-	 * The pre-fill, applied ONCE per offer, and only onto an unanswered row: an answer the user gave
-	 * is never replaced by the application's, which is the rule `chosenId` records on the
-	 * designation screen. Bound to the file in hand like any answer, so choosing another statement
-	 * clears it (`answeredFor` above).
-	 */
-	let prefilledFrom: object | undefined;
-	$effect(() => {
-		const offer = accountOffer;
-		const remembered = rememberedAnswer;
-		if (!offer || offer === prefilledFrom || !offersAccountChoice) return;
-		prefilledFrom = offer;
-		if (remembered && untrack(() => chosenAccountId) === null) {
-			chosenAccountId = remembered.accountId;
-			answeredFor = csvFiles?.[0];
-		}
-	});
-
 	const accountRowState = $derived<'ok' | 'todo' | 'error'>(
 		chosenAccount ? 'ok' : accountErrorShown ? 'error' : 'todo'
 	);
@@ -897,6 +879,30 @@
 				chosenAccountId = null;
 			}
 		});
+	});
+
+	/**
+	 * The pre-fill, applied ONCE per offer, and only onto an unanswered row: an answer the user gave
+	 * is never replaced by the application's, which is the rule `chosenId` records on the
+	 * designation screen. Bound to the file in hand like any answer, so choosing another statement
+	 * clears it (`answeredFor` above).
+	 *
+	 * DECLARED AFTER THE REPLY EFFECT ABOVE, and the order is the fix. Effects run in declaration
+	 * order within one flush, and a reply carrying the remembered question also carries `answers`
+	 * with no account: declared first, this set the row and the reply effect then cleared it, so the
+	 * row arrived unanswered. FOUND BY THE BROWSER WALK; the component spec now sends `answers` as
+	 * the route does, and reddens with the two effects swapped.
+	 */
+	let prefilledFrom: object | undefined;
+	$effect(() => {
+		const offer = accountOffer;
+		const remembered = rememberedAnswer;
+		if (!offer || offer === prefilledFrom || !offersAccountChoice) return;
+		prefilledFrom = offer;
+		if (remembered && untrack(() => chosenAccountId) === null) {
+			chosenAccountId = remembered.accountId;
+			answeredFor = csvFiles?.[0];
+		}
 	});
 
 	/**
