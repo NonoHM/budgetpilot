@@ -956,6 +956,97 @@ describe('/settings', () => {
 			expect(backupImport.restoreBackup).not.toHaveBeenCalled();
 		});
 
+		/**
+		 * #758: a backup whose date no engine stores faithfully is refused with THAT reason, not as
+		 * « corrompu ». Such a file is not corrupt: an install on SQLite accepted a year 0000 row
+		 * before #758 and exported it faithfully, and « corrompu » would send its owner looking for
+		 * damage that is not there. Separates the range sentence from the generic one, and « refused
+		 * before any write » from « restored ».
+		 */
+		it('rejette une sauvegarde portant une date hors plage, en le disant, sans appeler restoreBackup', async () => {
+			expect.assertions(3);
+
+			const file = buildBackupFile(
+				JSON.stringify({
+					formatVersion: 1,
+					exportedAt: '0999-12-31T00:00:00.000Z',
+					userEmail: 'user-a@example.test',
+					accounts: [],
+					categories: [],
+					importBatches: [],
+					transactions: [],
+					monthlyBudgets: [],
+					categoryRules: [],
+					categorizationRules: [],
+					categoryNatureMappings: []
+				})
+			);
+
+			const result = (await runRestoreAction(buildBackupFormData(file))) as {
+				status: number;
+				data: { restoreError: string };
+			};
+
+			expect(result.status).toBe(400);
+			expect(result.data.restoreError).toBe(
+				'Cette sauvegarde contient une date hors des années 1000 à 9999 (date d’export). Vos données n’ont pas été modifiées.'
+			);
+			expect(backupImport.restoreBackup).not.toHaveBeenCalled();
+		});
+
+		/**
+		 * Two kinds of record can share one label: a net worth line and its snapshots are both
+		 * « patrimoine ». The sentence names it once. Compared whole, so « (patrimoine, patrimoine) »
+		 * is red: a substring assertion would pass straight over the doubled word.
+		 */
+		it('nomme une seule fois le patrimoine quand ses lignes et ses relevés sont hors plage', async () => {
+			expect.assertions(2);
+
+			const file = buildBackupFile(
+				JSON.stringify({
+					formatVersion: 1,
+					exportedAt: new Date().toISOString(),
+					userEmail: 'user-a@example.test',
+					accounts: [],
+					categories: [],
+					importBatches: [],
+					transactions: [],
+					monthlyBudgets: [],
+					categoryRules: [],
+					categorizationRules: [],
+					categoryNatureMappings: [],
+					netWorthAccounts: [
+						{
+							id: 'nwa-1',
+							name: 'Livret',
+							type: 'savings',
+							balanceCents: 100,
+							deletedAt: '0026-05-01T00:00:00.000Z'
+						}
+					],
+					netWorthSnapshots: [
+						{
+							id: 'nws-1',
+							accountId: 'nwa-1',
+							type: 'savings',
+							balanceCents: 100,
+							capturedAt: '0026-05-01T00:00:00.000Z'
+						}
+					]
+				})
+			);
+
+			const result = (await runRestoreAction(buildBackupFormData(file))) as {
+				status: number;
+				data: { restoreError: string };
+			};
+
+			expect(result.status).toBe(400);
+			expect(result.data.restoreError).toBe(
+				'Cette sauvegarde contient une date hors des années 1000 à 9999 (patrimoine). Vos données n’ont pas été modifiées.'
+			);
+		});
+
 		it('rejette un payload contenant un champ non déclaré (ex. userId injecté) sans appeler restoreBackup', async () => {
 			expect.assertions(3);
 

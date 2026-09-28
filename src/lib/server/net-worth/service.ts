@@ -1,4 +1,5 @@
 import { DEFAULT_DENOMINATION } from '$lib/domain/money';
+import { isStorableIsoDate } from '$lib/domain/transaction';
 import { error } from '@sveltejs/kit';
 import * as m from '$lib/paraglide/messages';
 import {
@@ -474,18 +475,18 @@ function validateInput(input: SaveNetWorthAccountInput): {
  * snapshot is current for any account already holding two on one day; and it puts the
  * headline-versus-curve invariant back at risk, since the curve draws one point per instant.
  */
-function parseAsOfDate(raw: string | undefined): Date | null | undefined {
+export function parseAsOfDate(raw: string | undefined): Date | null | undefined {
 	if (!raw) return undefined;
-	if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return null;
+	// Through `isStorableIsoDate`, the one reading every date writer shares (#758). It used to
+	// test the digit shape alone, so year 0000 reached PostgreSQL (`22008`, a 500) and 0001 to
+	// 0099 were stored for MariaDB to read back in the wrong century.
+	if (!isStorableIsoDate(raw)) return null;
 
 	const todayIso = new Date().toISOString().slice(0, 10);
 	if (raw > todayIso) return null;
 	if (raw === todayIso) return undefined;
 
-	const parsed = new Date(`${raw}T12:00:00.000Z`);
-	if (Number.isNaN(parsed.getTime())) return null;
-
-	return parsed;
+	return new Date(`${raw}T12:00:00.000Z`);
 }
 
 function toRecord(account: {

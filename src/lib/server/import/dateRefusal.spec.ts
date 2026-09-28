@@ -134,7 +134,7 @@ describe('an unreadable date, on every profile that can read one', () => {
 	 * The direction this change is NOT moving in.
 	 *
 	 * Everything above makes the app refuse more legibly. The loss lives on the other side: a date
-	 * the app DOES accept must still import, and `normalizeFirstValidDate`'s whole job on
+	 * the app DOES accept must still import, and the fall-through's whole job (`readRowDate`) on
 	 * `banque-populaire` is to fall back through three columns. A guard added after it could
 	 * refuse a row whose first date column is blank and whose second is perfectly readable.
 	 */

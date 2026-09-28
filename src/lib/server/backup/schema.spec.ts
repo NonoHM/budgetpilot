@@ -5,7 +5,8 @@ import {
 	MAX_ANCHOR_CELL_CHARS,
 	MAX_IMPORTED_RECURRING_STREAM_ACTIONS,
 	MAX_RECURRING_STREAM_ACTIONS,
-	parseAnchorTransactionIds
+	parseAnchorTransactionIds,
+	restoreRefusal
 } from './schema';
 import { MAX_TAGS_PER_TRANSACTION } from '$lib/domain/tags';
 import { MAX_SPLITS_PER_TRANSACTION } from '$lib/domain/allocation';
@@ -920,5 +921,117 @@ describe('tags', () => {
 
 		payload.transactionTags.push({ transactionId: 'tx-1', tagId: 'file-tag-overflow' });
 		expect(backupExportSchema.safeParse(payload).success).toBe(false);
+	});
+});
+
+/**
+ * #758 on the restore path. A backup carries dates as timestamps, `Date.parse` admits years from
+ * before 0000 to beyond 9999, and each one lands in a `DateTime` column: MariaDB reads a year 0000
+ * row back as 2000, PostgreSQL throws `22008` for it and reads a year 10000 row back as an Invalid
+ * Date. The validator refuses what an engine cannot store faithfully, before any write, which is
+ * the rule `MAX_PORTABLE_STRING` already applies to text.
+ *
+ * Breaks, each separately: the range refinement removed (red on every « refuses » case, which then
+ * reads `success: true`); the classifier answering `invalid` for everything (red on the reason
+ * assertions, separating « the user is told it is a date » from « told the file is corrupt »); the
+ * classifier ignoring the other issues (red on the mixed case, separating « every reason is the
+ * range » from « one of them is »).
+ */
+describe('restore refuses a year no engine stores faithfully', () => {
+	it.each([
+		'0000-01-16T00:00:00.000Z',
+		'0050-06-15T00:00:00.000Z',
+		'0999-12-31T23:59:59.999Z',
+		'+010000-01-01T00:00:00.000Z'
+	])('refuses a transaction dated %s, for the range reason', (date) => {
+		expect.assertions(2);
+		const payload = buildValidPayload();
+		payload.transactions[0].date = date;
+
+		const result = backupExportSchema.safeParse(payload);
+
+		expect(result.success).toBe(false);
+		expect(result.success ? null : restoreRefusal(result.error)).toEqual({
+			reason: 'date-out-of-range',
+			kinds: ['transactions']
+		});
+	});
+
+	it.each(['1000-01-01T00:00:00.000Z', '9999-12-31T23:59:59.999Z'])(
+		'accepts a transaction dated %s, a storable bound',
+		(date) => {
+			expect.assertions(1);
+			const payload = buildValidPayload();
+			payload.transactions[0].date = date;
+
+			expect(backupExportSchema.safeParse(payload).success).toBe(true);
+		}
+	);
+
+	/**
+	 * Every date field, not only the transaction's: an import batch period is the column PostgreSQL
+	 * threw on first in #758's measurement. Separates « the range is a property of the one backup
+	 * date reader » from « bolted on to `transactions[].date` ».
+	 */
+	it('refuses an import batch period in year 0000, for the range reason', () => {
+		expect.assertions(1);
+		const payload = buildValidPayload();
+		payload.importBatches[0].periodStart = '0000-01-16T00:00:00.000Z' as never;
+
+		const result = backupExportSchema.safeParse(payload);
+
+		expect(result.success ? null : restoreRefusal(result.error)).toEqual({
+			reason: 'date-out-of-range',
+			kinds: ['importBatches']
+		});
+	});
+
+	/**
+	 * The sentence names every kind of record at fault, once each and in the file's order, so the
+	 * owner of an export knows where to look. Separates « names both » from « names the first ».
+	 */
+	it('names every kind of record carrying an out-of-range date, once each', () => {
+		expect.assertions(1);
+		const payload = buildValidPayload();
+		payload.importBatches[0].periodStart = '0000-01-16T00:00:00.000Z' as never;
+		payload.importBatches[0].periodEnd = '0000-01-17T00:00:00.000Z' as never;
+		payload.transactions[0].date = '0026-05-01T00:00:00.000Z';
+
+		const result = backupExportSchema.safeParse(payload);
+
+		expect(result.success ? null : restoreRefusal(result.error)).toEqual({
+			reason: 'date-out-of-range',
+			kinds: ['importBatches', 'transactions']
+		});
+	});
+
+	/**
+	 * A file with an out-of-range date AND another fault is not described by the date sentence: it
+	 * would send the owner to fix one date and meet the refusal again. Separates « every issue is the
+	 * range » from « one of them is ».
+	 */
+	it('calls a file invalid when the range is not its only fault', () => {
+		expect.assertions(1);
+		const payload = buildValidPayload();
+		payload.transactions[0].date = '0026-05-01T00:00:00.000Z';
+		payload.transactions[0].amountCents = 42.5;
+
+		const result = backupExportSchema.safeParse(payload);
+
+		expect(result.success ? null : restoreRefusal(result.error)).toEqual({ reason: 'invalid' });
+	});
+
+	/**
+	 * A string that is not a date at all stays « corrupt »: the range sentence would tell the user the
+	 * file holds a date it does not hold. Separates the two reasons.
+	 */
+	it('keeps an unparseable date as invalid, not out of range', () => {
+		expect.assertions(1);
+		const payload = buildValidPayload();
+		payload.transactions[0].date = 'pas-une-date';
+
+		const result = backupExportSchema.safeParse(payload);
+
+		expect(result.success ? null : restoreRefusal(result.error)).toEqual({ reason: 'invalid' });
 	});
 });

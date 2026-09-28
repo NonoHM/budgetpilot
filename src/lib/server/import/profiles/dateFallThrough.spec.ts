@@ -9,7 +9,7 @@ function parseBanquePopulaireLine(line: string) {
 }
 
 /**
- * `normalizeFirstValidDate` tries `Date operation`, then `Date de comptabilisation`, then
+ * `readRowDate` tries `Date operation`, then `Date de comptabilisation`, then
  * `Date de valeur`, in that order (`banque-populaire.ts:112-116`), and returns the first that
  * normalises to a valid ISO date. The narrowing that refuses a date cell carrying two dates
  * (#366) is a narrowing of `normalizeDate`, not of this loop: a row whose `Date operation` is

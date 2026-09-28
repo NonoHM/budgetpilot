@@ -24,7 +24,12 @@ import { isReauthRateLimited, recordReauthAttempt } from '$lib/server/auth/rateL
 import { resolveClientAddress } from '$lib/server/net/clientAddress';
 import { prisma } from '$lib/server/db';
 import { BackupImportError, restoreBackup } from '$lib/server/backup/import';
-import { backupExportSchema } from '$lib/server/backup/schema';
+import {
+	backupExportSchema,
+	restoreRefusal,
+	type RestoreDateKind
+} from '$lib/server/backup/schema';
+import { STORABLE_YEAR_BOUNDS } from '$lib/i18n/refusalLabel';
 import { countJsonNodes, resolveBackupMaxJsonNodes } from '$lib/server/backup/parseBounds';
 import {
 	listTagsWithCounts,
@@ -399,7 +404,19 @@ export const actions: Actions = {
 
 		const parsed = backupExportSchema.safeParse(rawJson);
 		if (!parsed.success) {
-			return fail(400, { restoreError: m.settings_error_restore_corrupted() });
+			// #758: a date no engine stores faithfully is not corruption. An install on SQLite
+			// accepted such a row before the import parser refused it, and exported it faithfully;
+			// the sentence names the kinds of record to look in.
+			const refusal = restoreRefusal(parsed.error);
+			return fail(400, {
+				restoreError:
+					refusal.reason === 'date-out-of-range'
+						? m.settings_error_restore_date_out_of_range({
+								...STORABLE_YEAR_BOUNDS,
+								kinds: restoreDateKindsSentence(refusal.kinds)
+							})
+						: m.settings_error_restore_corrupted()
+			});
 		}
 
 		try {
@@ -805,4 +822,36 @@ function accountRefusalSentence(reason: AccountWriteRefusal): string {
 		case 'discriminant-taken':
 			return m.import_account_create_error_fragment_taken();
 	}
+}
+
+/**
+ * A kind of record a restore refusal names (#758). Dedicated keys rather than the navigation's
+ * labels, which were capitalised as headings and, in English, did not name the record (« Upcoming »):
+ * these sit mid-sentence inside a parenthesis, lower case in both locales. A switch with no default
+ * arm, so a kind added to `RESTORE_DATE_KINDS` fails to compile until it is named here.
+ */
+function restoreDateKindLabel(kind: RestoreDateKind): string {
+	switch (kind) {
+		case 'exportedAt':
+			return m.settings_restore_kind_export_date();
+		case 'bankConnections':
+			return m.settings_restore_kind_bank_connections();
+		case 'importBatches':
+			return m.settings_restore_kind_imports();
+		case 'transactions':
+			return m.settings_restore_kind_transactions();
+		// Two kinds, one word for the reader: a net worth line and its snapshots are both patrimoine.
+		case 'netWorthAccounts':
+		case 'netWorthSnapshots':
+			return m.settings_restore_kind_net_worth();
+		case 'savingsGoals':
+			return m.settings_restore_kind_savings_goals();
+		case 'recurringStreamActions':
+			return m.settings_restore_kind_upcoming_bills();
+	}
+}
+
+/** The kinds at fault as the sentence lists them: labelled, then each label once, in file order. */
+function restoreDateKindsSentence(kinds: readonly RestoreDateKind[]): string {
+	return [...new Set(kinds.map(restoreDateKindLabel))].join(', ');
 }

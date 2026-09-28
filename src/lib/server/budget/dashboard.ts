@@ -8,7 +8,7 @@ import { normalizeForMatch } from '$lib/domain/normalize';
 import { withConcurrentWriteRetry } from '$lib/server/database/upsert';
 import type { Transaction, TransactionValidationCode } from '$lib/domain/transaction';
 import { allocateByCategory, type CategoryAllocation } from '$lib/domain/allocation';
-import { validateTransaction } from '$lib/domain/transaction';
+import { STORABLE_YEARS, validateTransaction } from '$lib/domain/transaction';
 import { parseManualAmountCents, DEFAULT_DENOMINATION } from '$lib/domain/money';
 import type { DateRange } from '$lib/server/date-range';
 import { prisma } from '$lib/server/db';
@@ -38,6 +38,9 @@ const MAX_BUDGET_CATEGORY_LENGTH = 80;
 const LEGACY_FR: Record<TransactionValidationCode, string> = {
 	'id-required': 'id requis',
 	'invalid-iso-date': 'date ISO invalide',
+	// #758, added after the shim froze: a new code needs a sentence here or the type fails. Built
+	// from the one definition so it cannot name a range the check does not apply.
+	'date-out-of-range': `année hors plage (de ${STORABLE_YEARS.first} à ${STORABLE_YEARS.last})`,
 	'amount-cents-required': 'montant en centimes requis',
 	'zero-amount': 'montant nul interdit',
 	'amount-too-large': 'montant trop élevé',
