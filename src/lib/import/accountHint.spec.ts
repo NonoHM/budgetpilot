@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import * as m from '$lib/paraglide/messages';
-import { accountAnswerFor } from './accountHint';
+import { accountAnswerFor, accountMemoryLabel } from './accountHint';
 
 /**
  * The mapping from a ranked resolution to what the row SAYS.
@@ -25,32 +25,48 @@ describe('what the account row is given to say', () => {
 	});
 
 	it('states the account when MEMORY named it, with the figures behind the memory', () => {
-		// SEPARATES: « one remembered account, stated » FROM « several, asked ». The figures are what
-		// make the sentence checkable by the user: a habit they can date is one they can disown.
+		// SEPARATES: « the answer remembered for this identifier, stated with its figures » FROM « a
+		// bare prefill ». The figures are what make the sentence checkable by the user: an answer
+		// they can date is one they can disown.
 		// The date arrives ALREADY FORMATTED, from the route that knows the negotiated locale, which
 		// is the convention `replaces.namedAt` already follows on this screen. A domain module that
 		// reached for an ambient locale is the failure `domain/money.ts` recorded: it passed every
 		// gate and died at container startup.
-		const answer = accountAnswerFor({ rank: 3, candidates: ['a2'] }, OPTIONS, {
+		const answer = accountAnswerFor({ rank: 3, kind: 'remembered', accountId: 'a2' }, OPTIONS, {
 			useCount: 3,
-			lastUsedLabel: '15 août'
+			rememberedLabel: '15 août'
 		});
 		expect(answer.accountId).toBe('a2');
 		expect(answer.hint).toBe(m.import_account_hint_from_memory({ count: 3, date: '15 août' }));
 	});
 
-	it('asks, and does not choose, when several accounts share the shape', () => {
-		// SEPARATES: « the application asks » FROM « the application picks the first ». Picking is how
-		// a statement lands in the wrong account silently, and it is the defect this piece removes.
-		const answer = accountAnswerFor({ rank: 3, candidates: ['a1', 'a2'] }, OPTIONS, null);
-		expect(answer.accountId).toBeNull();
-		expect(answer.hint).toBe(m.import_account_hint_ambiguous());
+	it('says « 1 import », not « 1 imports », on the first re-import after an answer', () => {
+		// SEPARATES: « the singular for the one answering import » FROM « the plural for every count
+		// ». useCount starts at 1 (the answering import), so the first time the hint can ever show,
+		// it shows this figure. Compared as a whole sentence: a substring would pass over « 1 imports ».
+		const answer = accountAnswerFor({ rank: 3, kind: 'remembered', accountId: 'a2' }, OPTIONS, {
+			useCount: 1,
+			rememberedLabel: '15 août'
+		});
+		expect(answer.hint).toBe(m.import_account_hint_from_memory_one({ count: 1, date: '15 août' }));
+		expect(answer.hint).not.toBe(m.import_account_hint_from_memory({ count: 1, date: '15 août' }));
 	});
 
-	it('says the shape is new when nothing is remembered', () => {
+	it('formats the date in the locale it is handed, from the date the answer was given', () => {
+		// SEPARATES: « the label is built from `rememberedAt` in the caller's locale » FROM « an
+		// ambient locale or another date ». One definition for both hosts of the row.
+		const label = accountMemoryLabel(
+			{ useCount: 2, rememberedAt: '2026-08-15T12:00:00.000Z' },
+			'fr'
+		);
+		expect(label).toStrictEqual({ useCount: 2, rememberedLabel: '15 août' });
+		expect(accountMemoryLabel(null, 'fr')).toBeNull();
+	});
+
+	it('says the format is new when nothing is remembered', () => {
 		// SEPARATES: « never seen this format » FROM « seen it and lost the account ». The two need
 		// different sentences because only the second is a fault the user can do something about.
-		const answer = accountAnswerFor({ rank: 3, candidates: [] }, OPTIONS, null);
+		const answer = accountAnswerFor({ rank: 3, kind: 'unknown' }, OPTIONS, null);
 		expect(answer.accountId).toBeNull();
 		expect(answer.hint).toBe(m.import_account_hint_unknown());
 	});

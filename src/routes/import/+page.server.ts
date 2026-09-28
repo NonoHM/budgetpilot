@@ -15,6 +15,7 @@ import { applyColumnMapping } from '$lib/server/import/mapping/apply';
 import { readColumnMapping, recordColumnMappingUse } from '$lib/server/import/mapping/store';
 import { correctionMatchesFile, designationAssignment } from '$lib/server/import/mapping/recap';
 import { decideAutoAccount } from '$lib/server/import/autoAccount';
+import { rememberAnsweredAccount } from '$lib/server/import/accountMemory';
 import { answerKeyFor, keptAnswers, readBoundAnswers } from '$lib/server/import/answerBinding';
 import {
 	ImportFileError,
@@ -139,7 +140,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 /**
  * The account offer, in the shape that survives the wire.
  *
- * `lastUsedAt` leaves as an ISO string rather than a `Date`, and the formatting happens on the
+ * `rememberedAt` leaves as an ISO string rather than a `Date`, and the formatting happens on the
  * page: the negotiated locale is known there, and this repository has one expensive instance of a
  * module reaching for an ambient locale on the server. `namedAt` on this same payload already
  * follows the convention.
@@ -162,7 +163,7 @@ function accountOfferFrom(offer: AccountOffer) {
 		prefillName: offer.prefillName,
 		memory: offer.memory && {
 			useCount: offer.memory.useCount,
-			lastUsedAt: offer.memory.lastUsedAt?.toISOString() ?? null
+			rememberedAt: offer.memory.rememberedAt.toISOString()
 		},
 		// Nobody has chosen yet on the way in. The screen derives its prefill from `resolution`.
 		chosenId: null
@@ -487,9 +488,18 @@ export const actions: Actions = {
 			 * account row is given, drawn on this page instead. `account` and not `designation`: the
 			 * columns are known, and submitting a designation would write a `ColumnMapping` under
 			 * this file's fingerprint that shadows the built-in profile for ever.
+			 *
+			 * The sentence follows the CAUSE (#599): « plusieurs comptes pour cette banque » is false
+			 * for a user who holds one, whose file names another. That user is told what the row
+			 * asks, in the sentence the row's own error state already uses, rather than a fact about
+			 * their accounts that is not true.
 			 */
+			const cause = decision.kind === 'ask' ? decision.cause : 'several-accounts';
 			return fail(400, {
-				error: m.import_account_error_ambiguous_auto(),
+				error:
+					cause === 'names-another-account'
+						? m.import_account_error_required()
+						: m.import_account_error_ambiguous_auto(),
 				account: accountOfferFrom(offer.question.fact),
 				answers: kept
 			});
@@ -775,6 +785,32 @@ export const actions: Actions = {
 		// by every row, or a write that failed after the parse (D3), is not one, and counting it would
 		// overstate how much the user should trust the correspondance.
 		if (useMapping && remembered) await recordColumnMappingUse(user.id, remembered.id);
+
+		/**
+		 * #696: THE MEMORY'S WRITER, on the answered-account path, once the import SUCCEEDED.
+		 *
+		 * Only when the USER's answer decided the account: `kept.accountId` is set exactly when a
+		 * bound answer resolved (`decideAutoAccount` reads `chosenId` first), so an account the file
+		 * named, or the one account of a source, writes nothing. `rememberAnsweredAccount` then
+		 * writes only for a file naming one identifier no account holds, the one case the memory is
+		 * ever read for.
+		 *
+		 * AFTER the write and unable to undo it: the rows are in the ledger and the summary below is
+		 * true whatever happens here. A failure to remember costs one question on the next statement,
+		 * so it is logged without any identifier and the import still reports success (ASVS
+		 * v5.0.0-16.2.5: the fragment and the identifier are never logged).
+		 */
+		if (decision.kind === 'account' && kept.accountId !== null) {
+			try {
+				await rememberAnsweredAccount({
+					userId: user.id,
+					rows: importData.rows,
+					accountId: decision.bucket.accountId
+				});
+			} catch {
+				console.warn('[budgetpilot] an answered import account could not be remembered');
+			}
+		}
 
 		return {
 			importResult: {

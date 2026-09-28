@@ -2,25 +2,22 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MAISON_V3_HEADER } from './profiles/maison-v3';
 import type { ParsedCsvRow } from './types';
 
-const findMany = vi.fn();
+// The memory key's secret, as an explicit fixture (`accountMemoryKey.ts` reads it lazily).
+process.env.RATE_LIMIT_HASH_SECRET ??= 'a1'.repeat(32);
+
 const findFirst = vi.fn();
-const create = vi.fn();
-const updateMany = vi.fn();
-const accountFindFirst = vi.fn();
 
 vi.mock('$lib/server/db', () => ({
-	prisma: {
-		importSourceSignature: { findMany, findFirst, create, updateMany },
-		account: { findFirst: accountFindFirst }
-	}
+	prisma: { rememberedAccount: { findFirst } }
 }));
 
-const { resolveStatementAccount, sourceFingerprintFor } = await import('./sourceSignature');
+const { resolveStatementAccount } = await import('./sourceSignature');
+const { accountMemoryKeyFor } = await import('./accountMemoryKey');
 
 const userId = 'user-mine';
 
 /** `rows[0]` is the HEADER row, exactly as `parseRows` returns it and `findDiscriminantColumn`
- *  documents. Both fixtures below share this header, so both share one fingerprint. */
+ *  documents. */
 const HEADERS = ['date', 'libelle', 'montant', 'compte'];
 
 function rowsWhoseAccountColumnReads(cell: string): ParsedCsvRow[] {
@@ -34,7 +31,7 @@ function rowsWhoseAccountColumnReads(cell: string): ParsedCsvRow[] {
 /** A statement whose `compte` column is a constant eight-digit account number: rank 1 territory. */
 const fileNaming = (fragment: string) => rowsWhoseAccountColumnReads(`1234${fragment}`);
 
-/** The SAME shape and therefore the same fingerprint, carrying nothing that can name an account. */
+/** The SAME shape, carrying nothing that can name an account. */
 const fileNamingNothing = () => rowsWhoseAccountColumnReads('Compte courant');
 
 /**
@@ -107,20 +104,23 @@ const bpSavings = (discriminant: string) => ({
 	discriminant
 });
 
-/** What the memory holds, in the shape the read selects. */
-const remembers = (...accountIds: string[]) =>
-	findMany.mockResolvedValue(accountIds.map((accountId) => ({ accountId })));
+/** What the memory holds for the file's identifier, in the shape the read selects. */
+const remembers = (accountId: string | null) =>
+	findFirst.mockResolvedValue(
+		accountId === null
+			? null
+			: { accountId, useCount: 2, rememberedAt: new Date('2026-08-15T00:00:00.000Z') }
+	);
 
 beforeEach(() => {
 	vi.clearAllMocks();
-	findMany.mockResolvedValue([]);
+	findFirst.mockResolvedValue(null);
 });
 
 describe('rank 1, what the file itself names', () => {
-	// THE FILE BEATS THE MEMORY, ALWAYS. The inverse would replay a memorised mistake forever,
-	// which is the defect with one extra step. The memory here deliberately names the OTHER
-	// account, so the assertion cannot pass by the two agreeing.
-	it('prefers the account the file names over the account the memory names', async () => {
+	// THE FILE BEATS THE MEMORY, ALWAYS. The memory here deliberately names the OTHER account, so
+	// the assertion cannot pass by the two agreeing, and it is not even read: the file proved it.
+	it('prefers the account the file names, and does not read the memory', async () => {
 		remembers(bpCurrent('0185').id);
 
 		const resolution = await resolveStatementAccount({
@@ -134,6 +134,7 @@ describe('rank 1, what the file itself names', () => {
 			accountId: bpSavings('9032').id,
 			fragment: '9032'
 		});
+		expect(findFirst).not.toHaveBeenCalled();
 	});
 
 	// The other direction of the same rule: a file that PROVES it spans two accounts is not
@@ -148,15 +149,12 @@ describe('rank 1, what the file itself names', () => {
 		});
 
 		expect(resolution).toStrictEqual({ rank: 1, kind: 'multi-account' });
-		// And the memory was never consulted, which is what "refuses" means here.
-		expect(findMany).not.toHaveBeenCalled();
+		expect(findFirst).not.toHaveBeenCalled();
 	});
 
-	// #485's plate-7 split: an UNPROVEN varying column (a bare digit run, exactly as consistent
-	// with a reference number as with a second account) is not proof, so it must not short-circuit
-	// rank 1 the way a verified IBAN pair does. It falls through to the memory exactly as a file
-	// naming nothing would, because unproven evidence and no evidence get the same rank-1 answer.
-	it('falls through to the memory when the varying column is unproven rather than verified', async () => {
+	// An UNPROVEN varying column (#485) names no single identifier, so there is nothing the memory
+	// could be keyed on: asked, and the memory is not read.
+	it('asks, without reading the memory, when the varying column is unproven', async () => {
 		remembers(bpCurrent('0185').id);
 
 		const resolution = await resolveStatementAccount({
@@ -165,8 +163,8 @@ describe('rank 1, what the file itself names', () => {
 			accounts: [bpCurrent('0185'), bpSavings('9032')]
 		});
 
-		expect(resolution).toStrictEqual({ rank: 3, candidates: [bpCurrent('0185').id] });
-		expect(findMany).toHaveBeenCalledTimes(1);
+		expect(resolution).toStrictEqual({ rank: 3, kind: 'unknown' });
+		expect(findFirst).not.toHaveBeenCalled();
 	});
 });
 
@@ -181,13 +179,10 @@ describe("rank 2, what a V3 export's own compte column names", () => {
 		});
 
 		expect(resolution).toStrictEqual({ rank: 2, accountId: 'account-bp' });
-		// Resolved before the memory was ever read: rank 2 sits ahead of rank 3, same as rank 1.
-		expect(findMany).not.toHaveBeenCalled();
+		expect(findFirst).not.toHaveBeenCalled();
 	});
 
-	it('falls through to the memory when the name matches none of the destinations', async () => {
-		remembers();
-
+	it('asks when the name matches none of the destinations', async () => {
 		const resolution = await resolveStatementAccount({
 			userId,
 			rows: v3RowsNaming('Compte disparu'),
@@ -196,7 +191,7 @@ describe("rank 2, what a V3 export's own compte column names", () => {
 			]
 		});
 
-		expect(resolution).toStrictEqual({ rank: 3, candidates: [] });
+		expect(resolution).toStrictEqual({ rank: 3, kind: 'unknown' });
 	});
 
 	// THE SAFETY CASE. `@@unique([userId, name, source])` lets two of the user's own accounts
@@ -205,8 +200,6 @@ describe("rank 2, what a V3 export's own compte column names", () => {
 	// have come from, so this gets the SAME answer as a name matching nothing: refused, not
 	// guessed.
 	it("refuses rather than guesses when the name matches two of the user's own accounts", async () => {
-		remembers();
-
 		const resolution = await resolveStatementAccount({
 			userId,
 			rows: v3RowsNaming('Compte import CSV'),
@@ -221,122 +214,115 @@ describe("rank 2, what a V3 export's own compte column names", () => {
 			]
 		});
 
-		expect(resolution).toStrictEqual({ rank: 3, candidates: [] });
+		expect(resolution).toStrictEqual({ rank: 3, kind: 'unknown' });
 	});
 });
 
-describe('rank 3, what the memory holds', () => {
-	it('returns a SET and never a choice when the fingerprint is known to two accounts', async () => {
-		remembers(bpCurrent('0185').id, bpSavings('9032').id);
+describe("rank 3, what the user answered for the file's identifier", () => {
+	it('proposes the account answered for an identifier no account holds', async () => {
+		remembers(bpSavings('9032').id);
 
 		const resolution = await resolveStatementAccount({
 			userId,
-			rows: fileNamingNothing(),
+			rows: fileNaming('7777'),
 			accounts: [bpCurrent('0185'), bpSavings('9032')]
 		});
 
 		expect(resolution).toStrictEqual({
 			rank: 3,
-			candidates: [bpCurrent('0185').id, bpSavings('9032').id]
+			kind: 'remembered',
+			accountId: bpSavings('9032').id
 		});
 	});
 
-	// 6b's central decision, asserted so nobody "improves" it later: an ambiguous row PRE-FILLS
-	// NOTHING. A guess right eight times in ten produces two misfiled statements and no trace.
-	it('pre-fills nothing when two accounts share the fingerprint', async () => {
-		remembers(bpCurrent('0185').id, bpSavings('9032').id);
-
-		const resolution = await resolveStatementAccount({
-			userId,
-			rows: fileNamingNothing(),
-			accounts: [bpCurrent('0185'), bpSavings('9032')]
-		});
-
-		expect('accountId' in resolution).toBe(false);
-	});
-
-	it('reports the memorised account as gone rather than proposing it', async () => {
+	it('reports the remembered account as gone rather than proposing it', async () => {
 		remembers(bpSavings('9032').id);
 
 		const resolution = await resolveStatementAccount({
 			userId,
-			rows: fileNamingNothing(),
-			accounts: []
+			rows: fileNaming('7777'),
+			accounts: [bpCurrent('0185')]
 		});
 
 		expect(resolution).toStrictEqual({ rank: 3, kind: 'orphan' });
 	});
 
-	// The companion to the orphan above, and the distinction is the whole reason both exist: an
-	// empty memory is "we know nothing", an unresolvable memory is "the account you used is gone".
-	it('says it knows nothing, rather than orphan, when the shape was never seen', async () => {
-		remembers();
+	// The companion to the orphan above: nothing remembered is « we know nothing », an answer whose
+	// account is gone is « the account you chose is gone ».
+	it('says it knows nothing, rather than orphan, when the identifier was never answered', async () => {
+		remembers(null);
 
 		const resolution = await resolveStatementAccount({
 			userId,
-			rows: fileNamingNothing(),
+			rows: fileNaming('7777'),
 			accounts: [bpCurrent('0185')]
 		});
 
-		expect(resolution).toStrictEqual({ rank: 3, candidates: [] });
+		expect(resolution).toStrictEqual({ rank: 3, kind: 'unknown' });
 	});
 
-	it('excludes an archived account from the candidates', async () => {
+	it('never proposes an archived account', async () => {
 		const archived = { ...bpSavings('9032'), archivedAt: new Date() };
-		remembers(bpCurrent('0185').id, archived.id);
+		remembers(archived.id);
 
 		const resolution = await resolveStatementAccount({
 			userId,
-			rows: fileNamingNothing(),
+			rows: fileNaming('7777'),
 			accounts: [bpCurrent('0185'), archived]
 		});
 
-		// One candidate left, so the row SHOWS it rather than asking. An archived account keeps its
-		// past imports and stops being a destination.
-		expect(resolution).toStrictEqual({ rank: 3, candidates: [bpCurrent('0185').id] });
+		expect(resolution).toStrictEqual({ rank: 3, kind: 'orphan' });
 	});
 
-	it('excludes the manual bucket from the candidates', async () => {
-		remembers(bpCurrent('0185').id, 'manual-1');
+	it('never proposes the manual bucket', async () => {
+		remembers('manual-1');
 
 		const resolution = await resolveStatementAccount({
 			userId,
-			rows: fileNamingNothing(),
+			rows: fileNaming('7777'),
 			accounts: [
 				bpCurrent('0185'),
 				{ id: 'manual-1', name: 'Manuel', source: 'manual', archivedAt: null }
 			]
 		});
 
-		expect(resolution).toStrictEqual({ rank: 3, candidates: [bpCurrent('0185').id] });
+		expect(resolution).toStrictEqual({ rank: 3, kind: 'orphan' });
+	});
+
+	// A file naming no account has no key: the memory is not read, and a shape shared by every
+	// statement of one bank cannot stand in for one (#599).
+	it('does not read the memory for a file that names no account', async () => {
+		remembers(bpCurrent('0185').id);
+
+		const resolution = await resolveStatementAccount({
+			userId,
+			rows: fileNamingNothing(),
+			accounts: [bpCurrent('0185'), bpSavings('9032')]
+		});
+
+		expect(resolution).toStrictEqual({ rank: 3, kind: 'unknown' });
+		expect(findFirst).not.toHaveBeenCalled();
 	});
 });
 
 describe('the read is scoped', () => {
 	/**
-	 * The unit HALF, and it is deliberately not the control.
-	 *
-	 * A fingerprint is a hash of a bank's PUBLIC column names, so every user of that bank shares
-	 * one: a lookup without `userId` reads somebody else's configuration, and that is the DESIGNED
-	 * behaviour of the key rather than a rare collision. This assertion reads the where clause the
-	 * query was built with, which catches the regression locally. It cannot be the control,
-	 * because the fake above decides what `findMany` returns: dropping `userId` leaves every other
-	 * test in this file green. `sourceSignature.db-smoke.ts` is where that is proven, against two
-	 * real users holding the identical fingerprint.
+	 * The unit HALF, and it is deliberately not the control: the fake decides what `findFirst`
+	 * returns, so dropping `userId` leaves every other test here green. The key is a function of
+	 * the identifier and the instance secret alone, so two users importing one identifier compute
+	 * one key; `accountMemory.db-smoke.ts` proves the scoping against two real users.
 	 */
-	it('names userId in the same where clause as the fingerprint', async () => {
-		remembers();
-
+	it('names userId in the same where clause as the key of the FULL identifier', async () => {
 		await resolveStatementAccount({
 			userId,
-			rows: fileNamingNothing(),
+			rows: fileNaming('7777'),
 			accounts: [bpCurrent('0185')]
 		});
 
-		expect(findMany).toHaveBeenCalledOnce();
-		expect(findMany.mock.calls[0][0].where).toStrictEqual({
+		expect(findFirst).toHaveBeenCalledOnce();
+		expect(findFirst.mock.calls[0][0].where).toStrictEqual({
 			userId,
-			fingerprint: sourceFingerprintFor(HEADERS)
+			identifierKey: accountMemoryKeyFor('12347777')
 		});
 	});
 });

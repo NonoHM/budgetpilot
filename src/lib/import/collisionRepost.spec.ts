@@ -33,7 +33,7 @@ const PENDING = {
 				transactionCount: 128
 			}
 		],
-		resolution: { rank: 3 as const, candidates: [] },
+		resolution: { rank: 3 as const, kind: 'unknown' as const },
 		memory: null,
 		// Nobody has chosen yet on the way IN. The repost is what fills it.
 		chosenId: null

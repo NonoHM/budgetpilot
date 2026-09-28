@@ -132,7 +132,7 @@ describe('the account offer the designation screen is given', () => {
 		expect.assertions(2);
 		await makeAccount('BP · Compte courant', 'banque_populaire');
 		const offer = await buildAccountOffer({ userId: mine, rows: ROWS });
-		expect(offer.resolution).toStrictEqual({ rank: 3, candidates: [] });
+		expect(offer.resolution).toStrictEqual({ rank: 3, kind: 'unknown' });
 		expect(offer.options).toHaveLength(1);
 	});
 });

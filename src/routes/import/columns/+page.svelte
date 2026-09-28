@@ -21,7 +21,7 @@
 	import type { ImportSummaryResult } from '$lib/domain/importSummary';
 	import { applyAction, deserialize } from '$app/forms';
 	import type { ActionData } from './$types';
-	import { accountAnswerFor } from '$lib/import/accountHint';
+	import { accountAnswerFor, accountMemoryLabel } from '$lib/import/accountHint';
 	import {
 		requestAccountCreation,
 		type AccountCreationAnswer
@@ -146,16 +146,7 @@
 		const answer = accountAnswerFor(
 			carried.resolution,
 			carried.options,
-			carried.memory
-				? {
-						useCount: carried.memory.useCount,
-						lastUsedLabel: carried.memory.lastUsedAt
-							? new Intl.DateTimeFormat(getLocale(), { day: 'numeric', month: 'long' }).format(
-									new Date(carried.memory.lastUsedAt)
-								)
-							: ''
-					}
-				: null
+			accountMemoryLabel(carried.memory, getLocale())
 		);
 		return {
 			options: carried.options,

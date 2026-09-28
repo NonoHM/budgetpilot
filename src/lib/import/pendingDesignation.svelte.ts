@@ -81,7 +81,7 @@ export interface PendingDesignation {
 		declaredCurrency?: string;
 		resolution: AccountResolution;
 		/** ISO, formatted on the screen where the negotiated locale is known. */
-		memory: { useCount: number; lastUsedAt: string | null } | null;
+		memory: { useCount: number; rememberedAt: string } | null;
 		/**
 		 * The name the create sheet opens with, composed on the server from what the file said.
 		 *

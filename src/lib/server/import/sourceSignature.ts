@@ -1,8 +1,7 @@
 import { isStatementDestination } from '$lib/server/accounts/projection';
-import { prisma } from '$lib/server/db';
 import { computeNameKey } from '$lib/server/naming/nameKey';
-import { findDiscriminantColumn } from './discriminant';
-import { fingerprintFor } from './mapping/fingerprint';
+import { accountMemoryKeyOf, readRememberedAccount } from './accountMemory';
+import { accountHoldingFragment, findDiscriminantColumn } from './discriminant';
 import { readMaisonV3Account } from './profiles/maison-v3';
 import type { ParsedCsvRow } from './types';
 
@@ -62,32 +61,20 @@ export function resolveNamedAccount(
  * Which account a statement belongs to, and how sure we are.
  *
  * The rank is part of the answer rather than an implementation detail, because the screen says
- * something different for each: rank 1 states the account, rank 3 with one candidate proposes it,
- * rank 3 with several asks, and both refusals name what is wrong with the file.
+ * something different for each: rank 1 states the account, rank 3 `remembered` proposes the
+ * account the user answered last time, and `orphan` and `multi-account` name what is wrong.
+ *
+ * Rank 3 holds at most ONE account by construction: the memory is keyed on the file's full
+ * identifier, one row per user and identifier (`@@unique([userId, identifierKey])`), so there is no
+ * set to choose from and no « ambiguous memory » state to represent.
  */
 export type AccountResolution =
 	| { rank: 1; accountId: string; fragment: string }
 	| { rank: 1; kind: 'multi-account' }
 	| { rank: 2; accountId: string }
-	| { rank: 3; candidates: string[] }
-	| { rank: 3; kind: 'orphan' };
-
-/**
- * The identity of a file SHAPE, for the purpose of remembering which account it landed on.
- *
- * `name` rather than `position`, and the reason is not the one that decides it for a column
- * mapping. A mapping keyed by position stores INDICES, so a reordered file finding it would read
- * amounts out of the date column; a signature stores an account id, which no reordering can
- * invalidate. A bank that moves a column is still the same bank and still the same account, so the
- * sorted canonical form is the one that keeps answering after an export changes. It also keeps one
- * row per shape under `@@unique([userId, fingerprint, discriminant])` rather than two.
- *
- * The digest is `fingerprintFor`'s, unchanged and un-truncated: one hashing path in this tree, so
- * a change to the canonical form moves both tables together or neither.
- */
-export function sourceFingerprintFor(headers: string[]): string {
-	return fingerprintFor(headers, 'name');
-}
+	| { rank: 3; kind: 'remembered'; accountId: string }
+	| { rank: 3; kind: 'orphan' }
+	| { rank: 3; kind: 'unknown' };
 
 /**
  * Where a statement should land, read from the file first and from the memory only afterwards.
@@ -101,25 +88,22 @@ export function sourceFingerprintFor(headers: string[]): string {
  * is read, and a `multi-account` file is refused before the memory is read AT ALL: a file that
  * carries evidence against a single account must not be overridden by a memory saying it is one.
  *
- * ## Ambiguity pre-fills NOTHING
+ * ## The memory is keyed on the file's own identifier, never on its shape (#599)
  *
- * When the memory holds two accounts for one shape the answer is the SET, never the more recent or
- * the more used of the two. A guess that is right eight times in ten produces two misfiled
- * statements and no trace of the guess having been made, and a misfiled statement is discovered
- * months later as a balance that does not reconcile. `{ rank: 3; candidates }` carries no
- * `accountId` field by construction, so a caller cannot pre-fill from it by accident.
+ * A shape (the header row) is shared by every statement of one bank, so a memory keyed on it
+ * cannot tell two accounts of that bank apart. The memory is keyed on the file's FULL account
+ * identifier (`accountMemory.ts`), and a file carrying none gets `unknown`: asked, never guessed.
  *
- * ## `candidates: []` and `orphan` are different answers
+ * ## `unknown` and `orphan` are different answers
  *
- * Empty means the shape was never seen. `orphan` means it was seen, and every account it was seen
- * landing on has since been deleted or archived. The screen says different things, and the
- * distinction is also what makes the scoping break-check in `sourceSignature.db-smoke.ts`
- * observable at all.
+ * `unknown` means nothing is remembered for this identifier, or the file names none. `orphan` means
+ * an answer is remembered and its account has since been archived. The screen says different
+ * things.
  *
- * @param rows As `parseRows` returns them: `rows[0]` is the HEADER row, which is both what
- *   `findDiscriminantColumn` reads around and what the fingerprint is taken over.
- * @param accounts The caller's own accounts. Every candidate returned comes from THIS list, so a
- *   signature row naming an account the caller does not hold can never be proposed.
+ * @param rows As `parseRows` returns them: `rows[0]` is the HEADER row, which is what
+ *   `findDiscriminantColumn` reads around.
+ * @param accounts The caller's own accounts. Every account returned comes from THIS list, so a
+ *   remembered answer naming an account the caller does not hold can never be proposed.
  */
 export async function resolveStatementAccount({
 	userId,
@@ -148,9 +132,9 @@ export async function resolveStatementAccount({
 		return { rank: 1, kind: 'multi-account' };
 	}
 	if (named.kind === 'resolved') {
-		const holders = destinations.filter((account) => holdsFragment(account, named.fragment));
-		if (holders.length === 1) {
-			return { rank: 1, accountId: holders[0].id, fragment: named.fragment };
+		const holder = accountHoldingFragment(named.fragment, destinations);
+		if (holder !== null) {
+			return { rank: 1, accountId: holder, fragment: named.fragment };
 		}
 		// ZERO holders is the ordinary case of a first import from a new bank, and the memory is
 		// still worth asking. TWO is supposed to be unreachable, since `assertDiscriminantFree` is the
@@ -169,104 +153,20 @@ export async function resolveStatementAccount({
 		return { rank: 2, accountId: namedAccountId };
 	}
 
-	// RANK 3: what we remember.
+	// RANK 3: what the user answered for this identifier last time, and only when the file names
+	// one that no destination holds: `accountMemoryKeyOf` returns null for the file rank 1 decides,
+	// which is the same predicate as the rank above, so the memory can never outrank the file.
 	//
-	// `userId` is in the SAME where clause as the fingerprint, never a check performed afterwards.
-	// A fingerprint is a hash of a bank's PUBLIC column names, so every user of that bank shares
-	// one: a global lookup is the DESIGNED behaviour of this key rather than a rare collision, and
-	// what stands between it and a read of somebody else's configuration is that the composite
-	// makes the safe query the shortest one to write. ASVS 5.0 V8.2.2.
-	const remembered = await prisma.importSourceSignature.findMany({
-		where: { userId, fingerprint: sourceFingerprintFor(headersOf(rows)) },
-		select: { accountId: true },
-		orderBy: [{ createdAt: 'asc' }, { id: 'asc' }]
-	});
-	if (remembered.length === 0) return { rank: 3, candidates: [] };
-
-	const candidates: string[] = [];
-	for (const { accountId } of remembered) {
-		if (candidates.includes(accountId)) continue;
-		if (destinations.some((account) => account.id === accountId)) candidates.push(accountId);
-	}
-	return candidates.length === 0 ? { rank: 3, kind: 'orphan' } : { rank: 3, candidates };
-}
-
-export type RememberResult = 'remembered' | 'not-found';
-
-/**
- * Records that a file of this shape landed on this account. Called at SUCCESSFUL import only.
- *
- * ## The account is authorised in the statement, not beside it
- *
- * `accountId` reaches this function from a screen, so it is a claim rather than a fact (ASVS 5.0
- * V8.1.1). The foreign key only refuses an account that does not EXIST, not one belonging to
- * somebody else, so ownership is checked here and the write does not happen without it. A row
- * belonging to another user and a row that never existed are one answer, `not-found`, because
- * telling them apart would answer "does this id exist" for an id the caller does not own.
- *
- * ## Why this is not an `upsert`
- *
- * MEASURED on the generated client: `ImportSourceSignatureUserIdFingerprintDiscriminantCompound-
- * UniqueInput` types `discriminant` as `string`, NOT `string | null`, so the composite cannot be
- * named at all for the NULL-discriminant case, which is the ordinary case of a file that carries
- * no account column. The database agrees for its own reason: NULL never equals NULL in a unique
- * index, on all three engines, so an upsert keyed that way would insert a second row every time
- * rather than update the first. A scoped `findFirst` translates `discriminant: null` to `IS NULL`
- * and gets the row that is actually there.
- *
- * A second import of the same shape onto a DIFFERENT account overwrites `accountId` rather than
- * adding a row, which is the unique constraint's meaning read forwards: the memory is a record of
- * where this shape last landed, and a user correcting themselves must not leave the old answer
- * standing beside the new one.
- */
-export async function rememberStatementAccount({
-	userId,
-	fingerprint,
-	discriminant,
-	accountId
-}: {
-	userId: string;
-	fingerprint: string;
-	discriminant: string | null;
-	accountId: string;
-}): Promise<RememberResult> {
-	const owned = await prisma.account.findFirst({
-		where: { id: accountId, userId },
-		select: { id: true }
-	});
-	if (!owned) return 'not-found';
-
-	const existing = await prisma.importSourceSignature.findFirst({
-		where: { userId, fingerprint, discriminant },
-		select: { id: true }
-	});
-
-	if (existing) {
-		// `updateMany` rather than `update`, so `userId` stays part of the statement the database
-		// executes rather than a condition satisfied a query earlier.
-		await prisma.importSourceSignature.updateMany({
-			where: { id: existing.id, userId },
-			data: { accountId, useCount: { increment: 1 }, lastUsedAt: new Date() }
-		});
-		return 'remembered';
-	}
-
-	await prisma.importSourceSignature.create({
-		data: { userId, fingerprint, discriminant, accountId, useCount: 1, lastUsedAt: new Date() }
-	});
-	return 'remembered';
-}
-
-/**
- * `rows[0]` is the header row. An empty file has no shape, and hashes the empty list.
- *
- * Exported so a caller asking a SECOND question about the same shape computes the fingerprint from
- * the same function rather than retyping `rows[0].cells`. Two sides of one comparison must not come
- * from two sources: a caller that retyped it would agree with this one by luck, and would keep
- * agreeing right up until the day the header row stops being row zero.
- */
-export function headersOf(rows: ParsedCsvRow[]): string[] {
-	return rows[0]?.cells ?? [];
+	// `userId` is in the SAME where clause as the key (`readRememberedAccount`), never a check
+	// performed afterwards: two users of one instance importing one identifier compute one key.
+	// ASVS v5.0.0-8.2.2.
+	const key = accountMemoryKeyOf(rows, destinations);
+	if (key === null) return { rank: 3, kind: 'unknown' };
+	const remembered = await readRememberedAccount(userId, key);
+	if (remembered === null) return { rank: 3, kind: 'unknown' };
+	return destinations.some((account) => account.id === remembered.accountId)
+		? { rank: 3, kind: 'remembered', accountId: remembered.accountId }
+		: { rank: 3, kind: 'orphan' };
 }
 
 /**
@@ -279,9 +179,3 @@ export function headersOf(rows: ParsedCsvRow[]): string[] {
  * the ranks below than the qualified one does.
  */
 const isDestination = isStatementDestination;
-
-/** Fragments compare trimmed and upper cased, the same way `assertDiscriminantFree` compares them. */
-function holdsFragment(account: ResolvableAccount, fragment: string): boolean {
-	const held = (account.discriminant ?? '').trim().toUpperCase();
-	return held !== '' && held === fragment.trim().toUpperCase();
-}

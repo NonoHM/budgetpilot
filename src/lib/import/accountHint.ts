@@ -32,8 +32,28 @@ export interface AccountHintOption {
 
 export interface AccountMemoryLabel {
 	useCount: number;
-	/** Already formatted by the caller. Never a `Date`, and never formatted here. */
-	lastUsedLabel: string;
+	/** When the answer was given, already formatted. Never a `Date` here. */
+	rememberedLabel: string;
+}
+
+/**
+ * The memory's figures as the hint reads them, formatted in the locale the CALLER passes.
+ *
+ * One definition for both hosts of the account row (`/import` and the designation screen), so « 15
+ * août » is written one way wherever the memory is named. The locale is a parameter, never read
+ * from the environment here: see the module doc on why a module must not reach for one.
+ */
+export function accountMemoryLabel(
+	memory: { useCount: number; rememberedAt: string } | null,
+	locale: string
+): AccountMemoryLabel | null {
+	if (memory === null) return null;
+	return {
+		useCount: memory.useCount,
+		rememberedLabel: new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'long' }).format(
+			new Date(memory.rememberedAt)
+		)
+	};
 }
 
 export interface AccountAnswer {
@@ -109,31 +129,32 @@ export function accountAnswerFor(
 		};
 	}
 
-	if ('kind' in resolution) {
+	if (resolution.kind === 'orphan') {
 		return { accountId: null, hint: m.import_account_hint_orphan(), aboutTheFile: false };
 	}
 
-	if (resolution.candidates.length === 1) {
+	if (resolution.kind === 'remembered') {
 		return {
-			accountId: shown(resolution.candidates[0]),
+			accountId: shown(resolution.accountId),
 			// Without the figures the memory cannot be checked, so the sentence falls back to the one
 			// that is merely true rather than inventing a count.
-			hint: memory
-				? m.import_account_hint_from_memory({
-						count: memory.useCount,
-						date: memory.lastUsedLabel
-					})
-				: m.import_account_hint_unknown(),
+			hint: memory ? rememberedHint(memory) : m.import_account_hint_unknown(),
 			aboutTheFile: false
 		};
 	}
 
-	return {
-		accountId: null,
-		hint:
-			resolution.candidates.length === 0
-				? m.import_account_hint_unknown()
-				: m.import_account_hint_ambiguous(),
-		aboutTheFile: false
-	};
+	return { accountId: null, hint: m.import_account_hint_unknown(), aboutTheFile: false };
+}
+
+/**
+ * « Mémorisé, 3 imports depuis le 15 août », and the singular when the one import is the answering
+ * one: the first re-import after an answer reads « 1 import », never « 1 imports ».
+ */
+function rememberedHint(memory: AccountMemoryLabel): string {
+	return memory.useCount > 1
+		? m.import_account_hint_from_memory({ count: memory.useCount, date: memory.rememberedLabel })
+		: m.import_account_hint_from_memory_one({
+				count: memory.useCount,
+				date: memory.rememberedLabel
+			});
 }

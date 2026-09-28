@@ -239,6 +239,48 @@ export function assertDiscriminantFree(
 	}
 }
 
+/**
+ * The one account among `accounts` holding this fragment, or null when none does or several do.
+ *
+ * RANK 1'S RULE, and the memory's boundary: a file whose fragment exactly one destination holds
+ * proves its own account, so `resolveStatementAccount` answers from the file and the memory
+ * (`accountMemory.ts`) is neither read nor written for it. One definition for the three callers, so
+ * « the file decides » cannot mean one thing to the resolver and another to the memory.
+ *
+ * Compared trimmed and upper cased, the way `assertDiscriminantFree` compares.
+ */
+export function accountHoldingFragment(
+	fragment: string,
+	accounts: ReadonlyArray<{ id: string; discriminant?: string | null }>
+): string | null {
+	const wanted = fragment.trim().toUpperCase();
+	const holders = accounts.filter((account) => {
+		const held = (account.discriminant ?? '').trim().toUpperCase();
+		return held !== '' && held === wanted;
+	});
+	return holders.length === 1 ? holders[0].id : null;
+}
+
+/**
+ * The WHOLE identifier a `resolved` verdict was decided on, in the canonical form it was compared
+ * in: the value `resolved.fragment` is the tail of.
+ *
+ * A separate function rather than a field on the verdict, and that is the containment: the verdict
+ * travels (rank 1 carries its fragment to the page), and a full IBAN riding along on an object that
+ * crosses the wire is one spread away from a page payload. This returns the value to the one caller
+ * that needs it, the memory key (`accountMemory.ts`), which hashes it on the next line and keeps
+ * nothing. The same protection level as the fragment, stricter: never logged, never stored.
+ *
+ * `rows[1]` stands for every data row because `resolved` means every data row carries this same
+ * canonical value; the verdict is the proof, so a caller may only pass one it holds.
+ */
+export function statementIdentifier(
+	rows: ParsedCsvRow[],
+	verdict: Extract<DiscriminantResult, { kind: 'resolved' }>
+): string {
+	return canonicalize(rows[1]?.cells[verdict.index] ?? '');
+}
+
 /** Whitespace removed and upper cased, so a grouped IBAN and a run-together one are one value. */
 function canonicalize(cell: string): string {
 	return cell.replace(/\s+/g, '').toUpperCase();
