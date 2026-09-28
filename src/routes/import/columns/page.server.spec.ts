@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as m from '$lib/paraglide/messages';
 import { refusalLabel } from '$lib/i18n/refusalLabel';
+import { CSV_MAX_ROWS } from '$lib/server/import/csv';
 
 /**
  * The designation action's memorisation branch, which had NO server test of its own.
@@ -1057,6 +1058,113 @@ describe('a file whose money the designation splits, on the designation door', (
 });
 
 /**
+ * #622 / #648: A DATE COLUMN PROVING BOTH READINGS, on the designation door.
+ *
+ * Scoped `{ kind: 'file' }` by `emptyResult` (`utils/csv.ts`), never `{ kind: 'header' }`, so
+ * before D2 this fell through `emptyParseFacts`'s narrower match and reached the generic sentence
+ * — the same one a file with no recognisable header gets. The designated column here is the
+ * file's ONLY date column, so there is nothing else to redesignate; the fact still names the two
+ * contradicting cells rather than leaving the user guessing which of their columns is wrong.
+ *
+ * Break (`fileScoped` read from `scope.kind === 'header'` only): red, separating « the door names
+ * the file-scoped fact » from « the door says nothing valid to import ».
+ *
+ * #622's SECOND DEFECT, on the same fact: this door's sentence names the COLUMN the user
+ * designated rather than « ce fichier », which is the file's own producer's wording and blames
+ * the file for a choice the user made. `designatedDateColumn` is read off the production
+ * designation step itself (`designated.mapping.dateColumn`), never retyped, so the oracle and the
+ * door consult the one value.
+ */
+describe('a designated date column proving both readings, on the designation door', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+	});
+
+	it('names the column and the contradiction, not the generic sentence or "ce fichier"', async () => {
+		expect.assertions(3);
+		const mixed = [
+			'date,label,amount',
+			'24/06/2026,Mercerie,-45.20',
+			'06/24/2026,Pharmacie,-18.90'
+		].join('\n');
+		// The same two production steps the door takes: the indices `submit` posts, then the mapped
+		// parse, so the oracle is the parser's own fact rather than a sentence typed here.
+		const { importHeaderCells, parseCsvTransactionRows } = await import('$lib/server/import/csv');
+		const { parseRows } = await import('$lib/server/import/utils/csv');
+		const { mappingFromPostedIndices } = await import('$lib/server/import/mapping/designation');
+		const rows = parseRows(mixed);
+		const designated = mappingFromPostedIndices({
+			headers: importHeaderCells(rows),
+			posted: { date: '0', label: '1', amount: '2' },
+			hasHeaderRow: true
+		});
+		if (!designated.ok) throw new Error('the fixture no longer designates');
+		const parsed = parseCsvTransactionRows(rows, {
+			profile: 'mapped',
+			columnMapping: designated.mapping,
+			hasHeaderRow: true
+		});
+		const fileFact = parsed.invalidRows.find((row) => row.scope.kind === 'file')?.fact;
+		if (!fileFact || fileFact.code !== 'mixed-date-order')
+			throw new Error('the fixture no longer produces a mixed-date-order refusal');
+
+		const result = await submit(mixed, true);
+
+		expect(fileFact.code).toBe('mixed-date-order');
+		expect(result.data?.error).toBe(
+			refusalLabel(fileFact, { designatedDateColumn: designated.mapping.dateColumn })
+		);
+		// The FILE-level wording never appears on this door once a column was designated: it is the
+		// one the auto path uses, and using it here is exactly the defect #622 measured.
+		expect(result.data?.error).not.toBe(refusalLabel(fileFact));
+	});
+});
+
+/**
+ * #648's added note (D1, 2026-09-26): this refusal had NO route-level test, unlike its sibling
+ * `amount-split-across-columns` above. It is already scoped `{ kind: 'header' }` at its two
+ * production sites (`generic.ts`, `mapped.ts`), so `emptyParseFacts` already found it before D2;
+ * this closes the coverage gap rather than a code defect.
+ */
+describe('an amount column whose sign lives in a sibling column, on the designation door', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+	});
+
+	it('names the sign-in-separate-column refusal rather than the generic sentence', async () => {
+		expect.assertions(2);
+		const signInSeparateColumn = [
+			'date,label,amount,sens',
+			'2026-06-01,Mercerie,45.20,D',
+			'2026-06-03,Salaire,2450.00,C'
+		].join('\n');
+		const { importHeaderCells, parseCsvTransactionRows } = await import('$lib/server/import/csv');
+		const { parseRows } = await import('$lib/server/import/utils/csv');
+		const { mappingFromPostedIndices } = await import('$lib/server/import/mapping/designation');
+		const rows = parseRows(signInSeparateColumn);
+		const designated = mappingFromPostedIndices({
+			headers: importHeaderCells(rows),
+			posted: { date: '0', label: '1', amount: '2' },
+			hasHeaderRow: true
+		});
+		if (!designated.ok) throw new Error('the fixture no longer designates');
+		const parsed = parseCsvTransactionRows(rows, {
+			profile: 'mapped',
+			columnMapping: designated.mapping,
+			hasHeaderRow: true
+		});
+		const headerFact = parsed.invalidRows.find((row) => row.scope.kind === 'header')?.fact;
+		if (!headerFact || headerFact.code !== 'amount-sign-in-separate-column')
+			throw new Error('the fixture no longer produces a sign-in-separate-column refusal');
+
+		const result = await submit(signInSeparateColumn, true);
+
+		expect(headerFact.code).toBe('amount-sign-in-separate-column');
+		expect(result.data?.error).toBe(refusalLabel(headerFact));
+	});
+});
+
+/**
  * THE STEP ORDER, FROM THE SIDE THAT SKIPS A STEP. ASVS v5.0.0-2.3.1: « Verify that the application
  * will only process business logic flows for the same user in the expected sequential step order
  * and without skipping steps. »
@@ -1068,6 +1176,13 @@ describe('a file whose money the designation splits, on the designation door', (
  * Break (`fileDimensionRefusal` returns null in `parseImportRows`): red, separating « the bound is
  * decided where the file is read, at every door » from « the bound lives at the door that offered
  * the screen ».
+ *
+ * #648: THE SENTENCE ITSELF, not only the refusal. This case is scoped `{ kind: 'file' }`
+ * (`emptyResult` in `utils/csv.ts`), never `{ kind: 'header' }`, so before D2 `emptyParseFacts`
+ * never found it and this test asserted the generic `import_error_no_valid_transactions` — the
+ * same sentence a file with no recognisable header gets, which leaves the user re-designating at
+ * random on a file no designation can fix. MEASURED against this test before the fix: it passed
+ * on the generic sentence, which is the defect pinned rather than caught.
  */
 describe('a file over the row bound, posted straight to the designation door', () => {
 	beforeEach(() => {
@@ -1081,7 +1196,7 @@ describe('a file over the row bound, posted straight to the designation door', (
 		});
 	});
 
-	it('is refused before any write, and the correspondance is not memorised', async () => {
+	it('names the row bound rather than the generic sentence, and writes nothing', async () => {
 		expect.assertions(5);
 		const rows = Array.from(
 			{ length: 1001 },
@@ -1091,7 +1206,9 @@ describe('a file over the row bound, posted straight to the designation door', (
 		const result = await submit(['date,label,amount', ...rows].join('\n'), true);
 
 		expect(result.status).toBe(400);
-		expect(result.data?.error).toBe(m.import_error_no_valid_transactions());
+		// The bound's OWN sentence, through the production label, so this asserts which fact the
+		// door picks rather than a retyped copy of the wording.
+		expect(result.data?.error).toBe(refusalLabel({ code: 'too-many-rows', max: CSV_MAX_ROWS }));
 		expect(persist.createImportBatch).not.toHaveBeenCalled();
 		expect(persist.persistImportedTransactions).not.toHaveBeenCalled();
 		expect(store.saveColumnMapping).not.toHaveBeenCalled();

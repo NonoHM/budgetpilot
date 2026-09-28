@@ -273,7 +273,11 @@ export function readRowDate(
 			kind: 'refused',
 			fact: {
 				code: 'invalid-date',
-				column: candidates[0]?.column ?? '',
+				// #623: a HEADER CELL, not a literal role name, on the `mapped` profile (the user's
+				// own file's header, through `columns.date`). `value` beside it was already bounded;
+				// this closes the asymmetry so both halves of the fact obey the same rule before
+				// either reaches the page's data.
+				column: refusalCellValue(candidates[0]?.column ?? ''),
 				value: refusalCellValue(firstPresentValue(...values))
 			}
 		};
@@ -284,7 +288,7 @@ export function readRowDate(
 			kind: 'refused',
 			fact: {
 				code: 'date-out-of-range',
-				column: source.column,
+				column: refusalCellValue(source.column),
 				value: refusalCellValue(source.value ?? '')
 			}
 		};
@@ -294,13 +298,11 @@ export function readRowDate(
 
 export function emptyResult(
 	facts: CsvRefusalFact[],
-	warnings: string[],
 	profile: ResolvedCsvImportProfile = 'generic',
 	totalRows = 0
 ): CsvImportResult {
 	return {
 		transactions: [],
-		warnings,
 		// header-not-recognized has nowhere to point but the header row, never the file as a
 		// whole: the catalogue calls this out as the one exception to the { kind: 'file' } default.
 		invalidRows: facts.map((fact) => ({

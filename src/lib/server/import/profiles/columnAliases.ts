@@ -14,8 +14,9 @@ import { foldComparableHeader } from '../utils/encoding';
  *
  * The rejected alternative was to keep an ordered preference list and let the first entry
  * present win. It is deterministic, and it still makes an invisible choice about which column
- * holds the user's money, with nowhere to say so: `CsvImportResult.warnings` is declared and
- * read by nobody (#308), so "pick one and tell them" is not implementable today.
+ * holds the user's money, with nowhere to say so: `CsvImportResult` carried a `warnings` field
+ * for exactly this, and nothing ever read it (#308, deleted in D2), so "pick one and tell them"
+ * is not implementable today.
  *
  * **Today's refusal is tomorrow's affordance rather than an obstacle to remove.** Two headers
  * claiming one role is exactly the moment a mapping UI asks the user to pick, so the refusal

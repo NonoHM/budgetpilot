@@ -98,7 +98,24 @@ function withCellValue(
 	return trimmed === '' ? withoutValue() : quoting(trimmed);
 }
 
-export function refusalLabel(fact: CsvRefusalFact): string {
+/**
+ * What only the `mapped` caller knows and the fact itself does not carry: which column the USER
+ * designated for the role the sentence is about. Optional, and consulted for exactly one code
+ * today (see `mixed-date-order` below): every other rendering ignores it, so a caller that has
+ * none may omit the argument rather than pass an empty object.
+ */
+export interface RefusalRenderContext {
+	/**
+	 * The date column's own display name, as the caller's `ColumnMapping` names it, or `null` when
+	 * there is none to show: a headerless file is matched by POSITION and carries no column name at
+	 * all (`mappingFromPostedIndices`'s `matchBy: 'position'` branch). Already bounded through
+	 * `refusalCellValue` by the CALLER: this module renders language and does not itself reach into
+	 * `$lib/server`, which a raw header cell lifted from the user's file would need.
+	 */
+	designatedDateColumn?: string | null;
+}
+
+export function refusalLabel(fact: CsvRefusalFact, context: RefusalRenderContext = {}): string {
 	switch (fact.code) {
 		case 'file-too-large':
 			return m.import_refusal_file_too_large({ bytes: fact.bytes });
@@ -111,10 +128,24 @@ export function refusalLabel(fact: CsvRefusalFact): string {
 		case 'header-not-recognized':
 			return m.import_refusal_header_not_recognized({ profile: fact.profile });
 		case 'mixed-date-order':
-			return m.import_refusal_mixed_date_order({
-				dayFirst: fact.dayFirst,
-				monthFirst: fact.monthFirst
-			});
+			// #622's second defect: on the `mapped` path the user CHOSE this column, so the
+			// sentence names it back rather than blaming « ce fichier » for that choice. The auto
+			// path never has a designated column (a profile chose it), so it keeps the file-level
+			// wording, and so does a headerless mapped file, which has no column name to show.
+			return withCellValue(
+				context.designatedDateColumn ?? '',
+				(column) =>
+					m.import_refusal_mixed_date_order_column({
+						column,
+						dayFirst: fact.dayFirst,
+						monthFirst: fact.monthFirst
+					}),
+				() =>
+					m.import_refusal_mixed_date_order({
+						dayFirst: fact.dayFirst,
+						monthFirst: fact.monthFirst
+					})
+			);
 		case 'ambiguous-date-order':
 			// Reached only when the route did not intercept the offer (a hand-crafted request, or a
 			// client that dropped the `reading` payload): the sentence names the problem in words

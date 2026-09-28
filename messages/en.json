@@ -438,6 +438,7 @@
 	"import_refusal_too_many_columns": "This file declares more than {max} columns. That limit exists for the column designation screen.",
 	"import_refusal_header_not_recognized": "{profile} header not recognized",
 	"import_refusal_mixed_date_order": "This file writes its dates in two different orders: “{dayFirst}” can only be read day-first, “{monthFirst}” only month-first. No single reading fits the whole file, so nothing was imported.",
+	"import_refusal_mixed_date_order_column": "The column “{column}” mixes two date orders: “{dayFirst}” and “{monthFirst}”. Designate a different one if the file has one.",
 	"import_refusal_ambiguous_date_order": "This file's dates can be read two ways and nothing in it says which is right.",
 	"import_refusal_multi_account_file": "This file covers more than one account. Import each account from its own file.",
 	"import_refusal_ambiguous_account_column": "Whether this file covers one account or several could not be told without your answer.",

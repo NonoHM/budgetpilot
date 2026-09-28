@@ -41,7 +41,7 @@ export function parseCsvTransactions(
 	const sizeBytes = new TextEncoder().encode(content).length;
 
 	if (sizeBytes > maxBytes) {
-		return emptyResult([{ code: 'file-too-large', bytes: sizeBytes }], []);
+		return emptyResult([{ code: 'file-too-large', bytes: sizeBytes }]);
 	}
 
 	return parseImportRows(parseRows(content), options);
@@ -265,10 +265,8 @@ export function parseImportRows(
 	rows: ParsedCsvRow[],
 	options: CsvImportOptions = {}
 ): CsvImportResult {
-	const warnings: string[] = [];
 	const dimensions = fileDimensionRefusal(rows, options);
-	if (dimensions)
-		return emptyResult([dimensions.fact], warnings, 'generic', dimensions.dataRowCount);
+	if (dimensions) return emptyResult([dimensions.fact], 'generic', dimensions.dataRowCount);
 
 	const normalizedRows = normalizeParsedRows(rows);
 	const dataRowCount = normalizedRows.length - firstDataRowIndex(options.hasHeaderRow);
@@ -292,7 +290,6 @@ export function parseImportRows(
 		const profileLabel = requestedProfile === 'auto' ? 'CSV' : profileErrorLabel(requestedProfile);
 		return emptyResult(
 			[{ code: 'header-not-recognized', profile: profileLabel }],
-			warnings,
 			resultProfile(requestedProfile),
 			dataRowCount
 		);
@@ -362,7 +359,6 @@ export function parseImportRows(
 					monthFirst: refusalCellValue(decision.monthFirst)
 				}
 			],
-			warnings,
 			parser ? parser.profile : 'mapped',
 			dataRowCount
 		);
@@ -370,7 +366,6 @@ export function parseImportRows(
 	const parsed = !parser
 		? parseMappedRows({
 				rows: normalizedRows,
-				warnings,
 				sourceName: options.sourceName,
 				categorizationRules: options.categorizationRules ?? [],
 				columnMapping: options.columnMapping,
@@ -379,7 +374,6 @@ export function parseImportRows(
 			})
 		: parser.parse({
 				rows: normalizedRows,
-				warnings,
 				sourceName: options.sourceName,
 				categorizationRules: options.categorizationRules ?? [],
 				dateOrder: decision.order
@@ -418,7 +412,6 @@ export function parseImportRows(
 			return carryDeclaration(
 				emptyResult(
 					[{ code: 'multi-account-file', column: discriminant.index }],
-					warnings,
 					parser ? parser.profile : 'mapped',
 					dataRowCount
 				),
@@ -435,7 +428,6 @@ export function parseImportRows(
 							sample: refusalCellValue(normalizedRows[1]?.cells[discriminant.index] ?? '')
 						}
 					],
-					warnings,
 					parser ? parser.profile : 'mapped',
 					dataRowCount
 				),
@@ -492,7 +484,6 @@ export function parseImportRows(
 						sample: refusalCellValue(verdict.sample)
 					}
 				],
-				warnings,
 				parser ? parser.profile : 'mapped',
 				dataRowCount
 			),

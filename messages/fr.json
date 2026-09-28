@@ -438,6 +438,7 @@
 	"import_refusal_too_many_columns": "Ce fichier déclare plus de {max} colonnes. Cette limite existe pour l'écran de désignation des colonnes.",
 	"import_refusal_header_not_recognized": "En-tête {profile} non reconnu",
 	"import_refusal_mixed_date_order": "Ce fichier écrit ses dates dans deux ordres différents : « {dayFirst} » ne peut se lire que jour en premier, « {monthFirst} » que mois en premier. Aucune lecture ne vaut pour tout le fichier, donc rien n'a été importé.",
+	"import_refusal_mixed_date_order_column": "La colonne « {column} » mélange deux ordres de date : « {dayFirst} » et « {monthFirst} ». Désignez-en une autre si le fichier en a une.",
 	"import_refusal_ambiguous_date_order": "Les dates de ce fichier peuvent se lire de deux façons et rien n'indique laquelle est la bonne.",
 	"import_refusal_multi_account_file": "Ce fichier concerne plusieurs comptes. Importez chaque compte depuis son propre fichier.",
 	"import_refusal_ambiguous_account_column": "Impossible de savoir si ce fichier concerne un seul compte ou plusieurs sans votre réponse.",

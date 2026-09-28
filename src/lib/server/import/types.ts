@@ -254,7 +254,6 @@ export interface CsvImportSummary {
 
 export interface CsvImportResult {
 	transactions: ImportedTransaction[];
-	warnings: string[];
 	invalidRows: CsvRefusal[];
 	summary: CsvImportSummary;
 }
@@ -306,7 +305,6 @@ export interface CsvProfileParser {
 
 export interface CsvProfileParseInput {
 	rows: ParsedCsvRow[];
-	warnings: string[];
 	sourceName?: string;
 	categorizationRules: CategorizationRuleInput[];
 	/** The file's date order, when it has been decided. Absent reads day-first. Every profile

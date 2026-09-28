@@ -140,7 +140,6 @@ export function revolutDateColumns(headers: string[]): number[] {
 
 export function parseRevolutRows({
 	rows,
-	warnings,
 	categorizationRules,
 	dateOrder
 }: CsvProfileParseInput): CsvImportResult {
@@ -148,7 +147,6 @@ export function parseRevolutRows({
 	if (!matchesRevolutHeader(headers)) {
 		return emptyResult(
 			[{ code: 'header-not-recognized', profile: 'Revolut' }],
-			warnings,
 			'revolut',
 			rows.length - 1
 		);
@@ -333,7 +331,6 @@ export function parseRevolutRows({
 
 	return {
 		transactions,
-		warnings,
 		invalidRows: refusals,
 		summary: {
 			...buildSummary({

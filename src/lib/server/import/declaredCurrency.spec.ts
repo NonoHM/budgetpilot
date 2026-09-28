@@ -124,7 +124,6 @@ describe('every registered profile that can be handed a declaring file carries t
 
 			const result = entry.parse({
 				rows,
-				warnings: [],
 				categorizationRules: [],
 				dateOrder: 'day-first'
 			});
