@@ -126,11 +126,11 @@ Two things are worth knowing:
   imported. That happens when one column mixes `24/06/2026` and `06/24/2026`, which
   no single answer can make true. When that column is one you designated
   yourself, the refusal names it, so you know which one to try instead.
-- **If a later row proves the other order after all, that proof wins over your
+- **If a date in the file proves the other order, that proof wins over your
   answer.** BudgetPilot does not import on an answer the file itself
   contradicts. The result screen then states which reading it actually used
-  and shows the row that proved it, in place of the line that would otherwise
-  confirm your answer.
+  and quotes the date that proves it, in place of the line that would
+  otherwise confirm your answer.
 
 The full table of what settles a date order is in
 [the imports reference](../reference/imports.md#how-the-day-and-month-are-told-apart).
