@@ -51,12 +51,23 @@ export function accountMemoryKeyOf(
 	rows: ParsedCsvRow[],
 	destinations: readonly ResolvableAccount[]
 ): AccountMemoryKey | null {
+	const named = namedIdentifierOf(rows);
+	if (named === null) return null;
+	if (named.holder(destinations) !== null) return null;
+	return named.key;
+}
+
+/** The file's one constant identifier, keyed, and a way to ask which destination holds it. */
+function namedIdentifierOf(rows: ParsedCsvRow[]) {
 	const verdict = findDiscriminantColumn(rows);
 	if (verdict.kind !== 'resolved') return null;
-	if (accountHoldingFragment(verdict.fragment, destinations) !== null) return null;
 	return {
-		identifierKey: accountMemoryKeyFor(statementIdentifier(rows, verdict)),
-		fragment: verdict.fragment
+		key: {
+			identifierKey: accountMemoryKeyFor(statementIdentifier(rows, verdict)),
+			fragment: verdict.fragment
+		} satisfies AccountMemoryKey,
+		holder: (destinations: readonly ResolvableAccount[]) =>
+			accountHoldingFragment(verdict.fragment, destinations)
 	};
 }
 
@@ -109,8 +120,16 @@ export async function rememberAnsweredAccount(input: {
 
 	// The destinations the READER compares against (`buildAccountOffer` hands the resolver
 	// `accountsForPicker`), so the two sides of « the file decides » read one set.
-	const key = accountMemoryKeyOf(input.rows, accountsForPicker(held));
-	if (key === null) return 'not-applicable';
+	//
+	// ONE EXCEPTION to « no row where the file decides » (M2, contradiction pass): when the account
+	// the user answered IS the one holding the file's fragment, typically an account just created
+	// from this file after an earlier answer misfiled it, the answer is written. The reader never
+	// consults it (rank 1 answers first), but Settings then names the account the statements really
+	// go to, instead of keeping the withdrawn answer listed. Held by ANOTHER account: nothing.
+	const named = namedIdentifierOf(input.rows);
+	const holder = named?.holder(accountsForPicker(held)) ?? null;
+	if (named === null || (holder !== null && holder !== input.accountId)) return 'not-applicable';
+	const key = named.key;
 
 	for (let attempt = 0; attempt < 2; attempt += 1) {
 		const existing = await prisma.rememberedAccount.findFirst({

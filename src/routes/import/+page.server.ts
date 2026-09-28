@@ -170,6 +170,23 @@ function accountOfferFrom(offer: AccountOffer) {
 	};
 }
 
+/**
+ * M1 (contradiction pass): the memory pre-fills only an account the file can land in. A remembered
+ * account in a currency the file's own declaration contradicts would be posted on the next press
+ * and refused (#600), so the question is asked unanswered instead, as if nothing were remembered.
+ * `declaredCurrencyRefusal` is the one comparison the currency rung itself makes.
+ */
+function withoutRefusedMemory(
+	offer: AccountOffer,
+	declared: ReadonlyArray<string | undefined>
+): AccountOffer {
+	const resolution = offer.resolution;
+	if (resolution.rank !== 3 || resolution.kind !== 'remembered') return offer;
+	const account = offer.options.find((option) => option.id === resolution.accountId);
+	if (!account || declaredCurrencyRefusal(declared, account) === null) return offer;
+	return { ...offer, resolution: { rank: 3, kind: 'unknown' }, memory: null };
+}
+
 export const actions: Actions = {
 	default: async ({ locals, request, getClientAddress }) => {
 		const user = requireUser(locals.user);
@@ -500,7 +517,15 @@ export const actions: Actions = {
 					cause === 'names-another-account'
 						? m.import_account_error_required()
 						: m.import_account_error_ambiguous_auto(),
-				account: accountOfferFrom(offer.question.fact),
+				account: {
+					...accountOfferFrom(
+						withoutRefusedMemory(offer.question.fact, result.summary.declaredCurrencies ?? [])
+					),
+					// M2 (contradiction pass): « Nouveau compte » on #599's question. The file names
+					// an account the user may not hold yet; offering only the accounts they hold made
+					// them pick one, and the memory then remembered that misfile.
+					allowCreate: cause === 'names-another-account'
+				},
 				answers: kept
 			});
 		}

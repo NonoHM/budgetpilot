@@ -472,6 +472,13 @@
 	 * the state rather than a second spelling of it.
 	 */
 	const declaredCurrency = $derived(accountOffer?.declaredCurrency ?? null);
+	/**
+	 * « Nouveau compte » in two states: the currency refusal (#741), and #599's question, where the
+	 * file names an account the user may not hold yet (M2, contradiction pass; the server says so
+	 * with `allowCreate`). The created account holds the file's fragment, so the next statement of
+	 * it is recognised by the file itself.
+	 */
+	const offersCreate = $derived(declaredCurrency !== null || accountOffer?.allowCreate === true);
 
 	/**
 	 * Accounts created here, appended after the server's options, exactly as the designation screen
@@ -533,11 +540,17 @@
 	 */
 	async function submitCreate(name: string) {
 		const file = submittedFile;
-		if (!file || declaredCurrency === null) return;
+		if (!file) return;
 		createPhase = 'busy';
 		createError = null;
 		createErrorField = null;
-		const answer = await requestAccountCreation({ name, file, currency: declaredCurrency });
+		// No currency on #599's question (M2): the account is created in the application default,
+		// exactly as the designation screen creates one.
+		const answer = await requestAccountCreation({
+			name,
+			file,
+			currency: declaredCurrency ?? undefined
+		});
 		if (!answer.ok) {
 			createPhase = 'error';
 			createError = answer.error;
@@ -568,6 +581,10 @@
 		if (accountOffer?.resolution.rank !== 3 || accountOffer.resolution.kind !== 'remembered') {
 			return null;
 		}
+		// THE PLAIN ASK ONLY (M1, contradiction pass). The currency refusal hands back the same
+		// remembered resolution, because the server rebuilds the offer; pre-filling it there would
+		// post the refused account again on the next press, under a banner hidden by the rule below.
+		if (declaredCurrency !== null) return null;
 		const answer = accountAnswerFor(
 			accountOffer.resolution,
 			accountOffer.options,
@@ -1676,7 +1693,7 @@
 							selectedId={chosenAccountId}
 							panelId="import-account-panel-desktop"
 							initialFocus={accountPanelFocus}
-							allowCreate={declaredCurrency !== null}
+							allowCreate={offersCreate}
 							{declaredCurrency}
 							onChoose={chooseAccount}
 							onClose={closeAccountPanel}
@@ -2160,7 +2177,7 @@
 						selectedId={chosenAccountId}
 						panelId="import-account-panel-mobile"
 						initialFocus={accountPanelFocus}
-						allowCreate={declaredCurrency !== null}
+						allowCreate={offersCreate}
 						{declaredCurrency}
 						onChoose={chooseAccount}
 						onClose={closeAccountPanel}

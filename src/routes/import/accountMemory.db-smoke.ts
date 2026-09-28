@@ -6,6 +6,7 @@ import { answerKeyFor } from '$lib/server/import/answerBinding';
 import { createStatementAccount } from '$lib/server/accounts/service';
 import { forgetRememberedAccount } from '$lib/server/import/accountMemory';
 import { actions as importActions } from './+page.server';
+import { actions as columnsActions } from './columns/+page.server';
 
 if (!process.env.DATABASE_URL) {
 	throw new Error(
@@ -244,5 +245,114 @@ describe('#696: the answer to the account question is remembered, visibly, and f
 		await postImport(userId, { csvFile: statement(OTHER, '15') });
 		expect(mentions(OTHER.slice(-4))).toBe(false);
 		expect(mentions(OTHER)).toBe(false);
+	});
+});
+
+/** A generic statement that DECLARES its currency and names `identifier` in an account column. */
+function declaring(identifier: string, currency: string): File {
+	const text = [
+		'date,label,amount,currency,compte',
+		`2026-09-03,CARTE MONOPRIX,-32.10,${currency},${identifier}`,
+		`2026-09-14,VIR SALAIRE PAUL MERCIER,1850.00,${currency},${identifier}`
+	].join('\n');
+	return new File([text], 'declaring.csv', { type: 'text/csv' });
+}
+
+describe('contradiction pass: the memory and the rest of the question', () => {
+	it('M1: does not pre-fill a remembered account the file’s declared currency refuses', async () => {
+		// SEPARATES « the ask offers the remembered account only where the file could land in it »
+		// FROM « it pre-fills an account the next press is refused into ». The memory is written
+		// through the route by a file declaring nothing, then a file declaring EUR asks.
+		expect.assertions(3);
+		const userId = await seedUser('m1');
+		await createStatementAccount({ userId, name: 'Compte courant' });
+		const usd = await createStatementAccount({
+			userId,
+			name: 'Compte USD',
+			denomination: { currency: 'USD', exponent: 2 }
+		});
+		await postImport(userId, { csvFile: statement(OTHER), accountId: usd.id });
+		expect(await prisma.rememberedAccount.count({ where: { userId } })).toBe(1);
+
+		const asked = await postImport(userId, { csvFile: declaring(OTHER, 'EUR') });
+		expect(asked.status).toBe(400);
+		expect(offerOf(asked)?.resolution).toStrictEqual({ rank: 3, kind: 'unknown' });
+	});
+
+	it('M2: offers « Nouveau compte » on the #599 question', async () => {
+		// SEPARATES « the user can say this is a new account » FROM « the only answers are the
+		// accounts they hold, one of which then gets remembered for a statement it never owned ».
+		expect.assertions(2);
+		const userId = await seedUser('m2-offer');
+		await createStatementAccount({ userId, name: 'Compte courant', discriminant: HELD });
+		const asked = await postImport(userId, { csvFile: statement(OTHER) });
+		expect(asked.status).toBe(400);
+		expect((offerOf(asked) as { allowCreate?: boolean } | undefined)?.allowCreate).toBe(true);
+	});
+
+	it('M2: an account created for the file replaces a misfiled answer in the memory', async () => {
+		// SEPARATES « the NEW account is what is remembered » FROM « the old answer stays listed ».
+		// The created account holds the file's own fragment (the sheet reads it from the file).
+		expect.assertions(2);
+		const userId = await seedUser('m2-new');
+		const courant = await createStatementAccount({
+			userId,
+			name: 'Compte courant',
+			discriminant: HELD
+		});
+		await postImport(userId, { csvFile: statement(OTHER), accountId: courant.id });
+		const created = await createStatementAccount({
+			userId,
+			name: 'Compte joint',
+			discriminant: OTHER
+		});
+
+		await postImport(userId, { csvFile: statement(OTHER, '15'), accountId: created.id });
+
+		const rows = await prisma.rememberedAccount.findMany({ where: { userId } });
+		expect(rows.map((row) => row.accountId)).toStrictEqual([created.id]);
+		expect(await landedIn(userId, created.id)).toBe(2);
+	});
+});
+
+describe('M3: the designation door writes the memory too', () => {
+	/** Headers no profile recognises, so the file is designated; its fourth column names the account. */
+	function opaque(identifier: string): File {
+		const text = [
+			'poste_1,poste_2,poste_3,compte',
+			`2026-09-03,CARTE MONOPRIX,-32.10,${identifier}`,
+			`2026-09-14,VIR SALAIRE PAUL MERCIER,1850.00,${identifier}`
+		].join('\n');
+		return new File([text], 'opaque.csv', { type: 'text/csv' });
+	}
+
+	async function postColumns(userId: string, fields: Record<string, string | File>) {
+		const body = new FormData();
+		for (const [key, value] of Object.entries(fields)) body.set(key, value);
+		return (await columnsActions.default!({
+			locals: { user: { id: userId } },
+			request: new Request('http://localhost/import/columns', { method: 'POST', body }),
+			getClientAddress: () => `client-${userId}`
+		} as never)) as ActionOutcome;
+	}
+
+	it('remembers the account the user chose on the designation screen', async () => {
+		// SEPARATES « both import doors write the memory the offer reads » FROM « the designation
+		// door reads it (rank 3) and never writes it ». Calibration in the same test: the rows landed.
+		expect.assertions(2);
+		const userId = await seedUser('m3');
+		await createStatementAccount({ userId, name: 'Compte courant', discriminant: HELD });
+		const joint = await createStatementAccount({ userId, name: 'Compte joint' });
+		await postColumns(userId, {
+			csvFile: opaque(OTHER),
+			dateIndex: '0',
+			labelIndex: '1',
+			amountIndex: '2',
+			remember: 'false',
+			accountId: joint.id
+		});
+		expect(await landedIn(userId, joint.id)).toBe(2);
+		const rows = await prisma.rememberedAccount.findMany({ where: { userId } });
+		expect(rows.map((row) => [row.fragment, row.accountId])).toStrictEqual([['0185', joint.id]]);
 	});
 });

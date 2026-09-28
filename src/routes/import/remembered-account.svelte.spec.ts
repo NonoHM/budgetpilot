@@ -3,6 +3,7 @@ import { render } from 'vitest-browser-svelte';
 import { page, userEvent } from 'vitest/browser';
 import '../layout.css';
 import * as m from '$lib/paraglide/messages';
+import { refusalLabel } from '$lib/i18n/refusalLabel';
 import { clearPendingDesignation } from '$lib/import/pendingDesignation.svelte';
 
 const navigation = vi.hoisted(() => ({ goto: vi.fn(async () => {}) }));
@@ -45,11 +46,15 @@ const UNKNOWN = offer({ rank: 3, kind: 'unknown' }, null);
 
 const DATA: PageData = { user: null, correction: null } as unknown as PageData;
 
-async function mount(account: unknown, width: number) {
+async function mount(
+	account: unknown,
+	width: number,
+	error: string = m.import_account_error_required()
+) {
 	// `answers` as the route sends it with every question (`kept`): FOUND BY THE WALK, a fixture
 	// without it let the pre-fill pass here while the page's reply effect cleared it in the browser.
 	const form = {
-		error: m.import_account_error_required(),
+		error,
 		account,
 		answers: { key: 'k', dateOrder: null, accountId: null, accountColumnAnswer: null }
 	};
@@ -86,6 +91,43 @@ beforeEach(() => {
 				)
 		)
 	);
+});
+
+/**
+ * M1 (contradiction pass): the currency refusal comes back with the SAME remembered resolution,
+ * because the server rebuilds the offer. Pre-filling it again would post the refused account on the
+ * next press, and hiding the banner would hide the only sentence saying why: a loop with its
+ * reason hidden. Remembered account in USD, file declares EUR.
+ */
+const CURRENCY_REFUSED = {
+	...offer(
+		{ rank: 3, kind: 'remembered', accountId: 'acc-joint' },
+		{ useCount: 3, rememberedAt: '2026-08-15T12:00:00.000Z' }
+	),
+	options: [
+		{ ...OPTIONS[0], currency: 'EUR' },
+		{ ...OPTIONS[1], currency: 'USD' }
+	],
+	declaredCurrency: 'EUR'
+};
+const EUR_INTO_USD = refusalLabel({
+	code: 'declared-currency-mismatch',
+	declared: 'EUR',
+	destination: 'USD'
+});
+
+describe('the remembered account and the currency refusal', () => {
+	it('does not pre-fill an account in another currency, and shows why', async () => {
+		// SEPARATES « the refusal's reason on screen, the row unanswered » FROM « the refused
+		// account posted again under a hidden banner ».
+		await page.viewport(1280, 800);
+		const section = await mount(CURRENCY_REFUSED, 1280, EUR_INTO_USD);
+		await chooseAndSubmit(section);
+
+		expect(posted(section)).toBe('');
+		expect(section.textContent).toContain(EUR_INTO_USD);
+		expect(question(section).textContent).not.toContain(HINT);
+	});
 });
 
 describe('the account row when the memory answered', () => {
@@ -157,5 +199,27 @@ describe('the account row when the memory answered', () => {
 
 		expect(posted(section)).toBe('acc-courant');
 		expect(question(section).textContent).not.toContain(HINT);
+	});
+});
+
+describe('#599 question: « Nouveau compte » (M2)', () => {
+	it('offers the footer when the server says the file names another account', async () => {
+		// SEPARATES « the user can answer with a new account » FROM « only the accounts they hold ».
+		// Calibrated by the plain question below, which must not offer it.
+		await page.viewport(1280, 800);
+		const section = await mount({ ...UNKNOWN, allowCreate: true }, 1280);
+		await chooseAndSubmit(section);
+		await userEvent.click(question(section).querySelector('button') as HTMLElement);
+		await expect
+			.element(page.getByRole('button', { name: m.import_account_new() }).first())
+			.toBeVisible();
+	});
+
+	it('does not offer it on the plain question', async () => {
+		await page.viewport(1280, 800);
+		const section = await mount(UNKNOWN, 1280);
+		await chooseAndSubmit(section);
+		await userEvent.click(question(section).querySelector('button') as HTMLElement);
+		expect(document.body.textContent).not.toContain(m.import_account_new());
 	});
 });
