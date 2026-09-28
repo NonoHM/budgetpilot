@@ -447,50 +447,68 @@ snapshot.
 - **Consent expires**, typically after 90 days, and your bank decides when. The
   connection card shows "expires soon" 14 days ahead and offers a renewal that
   reuses the same bank without losing your imported history.
-- **The first sync fetches your last 90 days.** After that, each sync picks up
-  where the last finished sync stopped, plus a week of overlap. Transactions you
-  already have are recognized and skipped.
-- **A sync that fails loses nothing.** The next sync fetches the days the
-  failed one missed.
+- **The first sync fetches the last 90 days.** After that, each sync starts 7
+  days before the last sync that finished, and transactions already imported
+  are recognized and skipped.
+- **A sync that fails loses nothing.** It does not move that starting point, so
+  the next sync fetches the days the failed one missed.
 - **Deleting a connection keeps the transactions it already imported.** They're
   yours, and they stay.
 
-### When a sync fetches your last 90 days again
+### When a sync fetches its whole window again
 
-Sometimes a sync fetches your whole last 90 days again, not only the days since
-the last sync:
+Most syncs fetch only the days since the last finished sync, plus 7 days of
+overlap. Some fetch the whole window again, 90 days by default. Transactions
+already imported are skipped, so this is usually invisible, with two exceptions:
 
-- when the last sync on that connection did not finish,
-- when you renew a connection and the bank adds an account to it,
-- when you restore a backup that doesn't record where syncing stopped.
+- **A bank transaction deleted inside the window reappears.** Delete it again.
+- **A transaction the bank sends again with a changed label or amount can
+  appear twice.** Delete the extra copy.
 
-Transactions you already have are skipped, so this is usually invisible. Two
-things can show up:
+A sync fetches its whole window when any of these is true:
 
-- **A bank transaction you deleted can reappear** if it's in those 90 days.
-  Delete it again.
-- **A transaction can appear twice** if your bank sends it again with a
-  different label or amount. Delete the extra copy.
+- **No finished sync is recorded for the connection**
+  (`BankConnection.lastCompleteSyncAt` is empty). This is the case for a
+  connection that has never finished a sync, after a renewal that attached an
+  account the connection didn't feed before (or that attached one while a sync
+  was running), and after restoring a backup made by a version without that
+  field. On upgrade to the version that added it, only connections whose last
+  sync had succeeded keep a starting point.
+- **The last finished sync is older than the window minus the overlap**, 83 days
+  with the defaults, for example after a consent renewed late. A sync never asks
+  for more than the window.
+- **The recorded finished sync is later than the server's clock**, after a clock
+  change or a restore.
 
-#### Details for operators
+A sync that fails after an earlier finished sync does not fetch the whole
+window: the next one starts 7 days before that finished sync.
 
-- **Which connections.** A connection with no recorded finished sync
-  (`BankConnection.lastCompleteSyncAt` is empty). That covers a connection whose
-  last sync failed or was interrupted, a renewal that attaches an account the
-  connection didn't feed before, and a restored backup without that field. On
-  upgrade, only connections whose last sync succeeded keep a starting point.
-- **How far back.** The first-sync window: `BANK_SYNC_FIRST_LOOKBACK_DAYS`,
-  default 90, counted in calendar days with today included. No sync asks for
-  more than that window, because many banks refuse a longer period. Otherwise a
-  sync starts 7 days before the last finished sync. Dates are computed in UTC,
-  so between local midnight and the UTC day change the window can reach one day
-  further back in local time.
-- **Why a duplicate can appear.** Duplicate detection keys a bank transaction on
-  the bank's own transaction reference (`entry_reference`) when the bank sends
-  one. When it doesn't, the key is built from the account, the date, label,
-  amount, type (debit or credit) and currency, and the row's position among
-  identical rows in the same fetch. A row the bank re-sends with any of those
-  changed gets a new key and is stored as a new row.
+The window is `BANK_SYNC_FIRST_LOOKBACK_DAYS` calendar days, today included,
+computed in UTC.
+
+Duplicate detection keys a bank transaction on the bank's own transaction
+reference (`entry_reference`) when the bank sends one. When it doesn't, the key
+is built from the account, the date, label, amount, type (debit or credit) and
+currency, and the row's position among identical rows in the same fetch. A row
+the bank sends again with any of those changed gets a new key and is stored as a
+new row.
+
+### When the bank refuses the window
+
+Many banks serve at most 90 days of history and refuse a longer request. When
+the bank refuses the window, the sync asks once more for the last 90 days, in the
+same sync. If the bank refuses that too, the sync fails with:
+
+> Your bank refuses this much history. Lower BANK_SYNC_FIRST_LOOKBACK_DAYS in
+> the server settings.
+
+Set `BANK_SYNC_FIRST_LOOKBACK_DAYS` to the history your bank serves, for example
+60, and restart the container.
+
+Because the window is computed in UTC, a bank that counts days in a time zone
+ahead of UTC may refuse a whole-window sync for up to about two hours after local
+midnight, and the sync can then show the message above. The next sync succeeds;
+change the setting only if the message comes back.
 
 ## Renew the certificate before it expires
 
@@ -580,14 +598,14 @@ authority on why the provider refused something.
 Every variable below is documented in full in `.env.example`, which is the
 authoritative reference. This is the short version.
 
-| Variable                             | Purpose                                                                  |
-| ------------------------------------ | ------------------------------------------------------------------------ |
-| `BANK_SYNC_ENABLED`                  | Master switch. Anything but `true` disables the feature entirely.        |
-| `ENABLE_BANKING_APP_ID`              | The application UUID from the Control Panel.                             |
-| `ENABLE_BANKING_PRIVATE_KEY_PATH`    | Path to the PEM file, resolved inside the container.                     |
-| `ENABLE_BANKING_PRIVATE_KEY`         | The PEM inline instead, newlines as `\n`. Mutually exclusive with above. |
-| `ORIGIN`                             | Your instance's origin. Must match the other two places in step 2.       |
-| `BANK_SYNC_REDIRECT_ALLOWED_ORIGINS` | Allowlist for the consent callback. Unset means no flow can start.       |
-| `BANK_SYNC_ALLOWED_HOSTS`            | Provider API allowlist. Defaults to `api.enablebanking.com`, HTTPS only. |
-| `ENABLE_BANKING_BASE_URL`            | Provider API base URL. Always re-validated against the allowlist.        |
-| `BANK_SYNC_FIRST_LOOKBACK_DAYS`      | Catch-up window for a connection's first sync. Defaults to 90.           |
+| Variable                             | Purpose                                                                                |
+| ------------------------------------ | -------------------------------------------------------------------------------------- |
+| `BANK_SYNC_ENABLED`                  | Master switch. Anything but `true` disables the feature entirely.                      |
+| `ENABLE_BANKING_APP_ID`              | The application UUID from the Control Panel.                                           |
+| `ENABLE_BANKING_PRIVATE_KEY_PATH`    | Path to the PEM file, resolved inside the container.                                   |
+| `ENABLE_BANKING_PRIVATE_KEY`         | The PEM inline instead, newlines as `\n`. Mutually exclusive with above.               |
+| `ORIGIN`                             | Your instance's origin. Must match the other two places in step 2.                     |
+| `BANK_SYNC_REDIRECT_ALLOWED_ORIGINS` | Allowlist for the consent callback. Unset means no flow can start.                     |
+| `BANK_SYNC_ALLOWED_HOSTS`            | Provider API allowlist. Defaults to `api.enablebanking.com`, HTTPS only.               |
+| `ENABLE_BANKING_BASE_URL`            | Provider API base URL. Always re-validated against the allowlist.                      |
+| `BANK_SYNC_FIRST_LOOKBACK_DAYS`      | Longest window a sync asks for, used when it fetches the whole window. Defaults to 90. |
