@@ -158,8 +158,12 @@ Don't want to build at all? Use the published image, see
 
 ## The interface is in French
 
-That's the default locale, not a bug. **Settings**, first option, switch to
-English. The choice is stored in a cookie per browser.
+The interface follows the language your browser asks for: French when your
+browser prefers French, English for any other language. English is the default.
+
+To change it, go to **Settings** > **Language** and choose it in **Interface
+language**. BudgetPilot keeps that choice for this browser, whatever language
+the browser asks for.
 
 ## No AI card on the dashboard
 
