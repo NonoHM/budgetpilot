@@ -105,8 +105,11 @@ updates:
 
   - package-ecosystem: docker
     directory: /
+    # Daily, not weekly: the required image-cve gate refuses every pull request while the base
+    # image carries a fixable CRITICAL/HIGH, and the only way out is a digest upstream rebuilt,
+    # so a weekly check can hold every merge for up to six extra days (#785).
     schedule:
-      interval: weekly
+      interval: daily
     commit-message:
       prefix: chore
     groups:
