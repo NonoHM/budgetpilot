@@ -44,6 +44,7 @@ import {
 	resolveColumnMappingsPerUser
 } from '$lib/server/import/mapping/store';
 import { rememberedMappingView } from '$lib/domain/rememberedMapping';
+import { forgetRememberedAccount, listRememberedAccounts } from '$lib/server/import/accountMemory';
 import { accountListRows, invitationApplies } from '$lib/server/accounts/projection';
 import {
 	AccountWriteError,
@@ -65,57 +66,67 @@ export const load: PageServerLoad = async ({ cookies, locals }) => {
 	const currentToken = cookies.get(SESSION_COOKIE);
 	const currentTokenHash = currentToken ? hashSessionToken(currentToken) : null;
 
-	const [account, sessions, tags, columnMappings, accountRows, linkableNetWorthAccounts] =
-		await Promise.all([
-			prisma.user.findUniqueOrThrow({
-				where: { id: user.id },
-				select: {
-					email: true,
-					role: true,
-					aiInsightsEnabled: true,
-					aiIncludeLabels: true,
-					totpEnabled: true
-				}
-			}),
-			prisma.session.findMany({
-				where: { userId: user.id },
-				select: {
-					id: true,
-					tokenHash: true,
-					createdAt: true,
-					expiresAt: true,
-					revokedAt: true
-				},
-				orderBy: { createdAt: 'desc' }
-			}),
-			listTagsWithCounts(user.id),
-			listColumnMappings(user.id),
-			/**
-			 * The Comptes section, read here and PROJECTED before it leaves the server.
-			 *
-			 * Archived rows are in the query on purpose: `accountsForList` keeps them and
-			 * `accountsForPicker` drops them, and a screen that hid what it archived would leave the
-			 * user no way to undo it. `netWorthAccount` is joined for the name alone, so the row can
-			 * say which line it feeds without the page holding an id it would have to resolve.
-			 */
-			prisma.account.findMany({
-				where: { userId: user.id },
-				select: {
-					id: true,
-					name: true,
-					nameKey: true,
-					source: true,
-					institution: true,
-					discriminant: true,
-					archivedAt: true,
-					netWorthAccountId: true,
-					netWorthAccount: { select: { name: true } },
-					_count: { select: { transactions: true } }
-				},
-				orderBy: [{ archivedAt: 'asc' }, { name: 'asc' }, { id: 'asc' }]
-			}),
-			readLinkableNetWorthAccounts(user.id)
-		]);
+	const [
+		account,
+		sessions,
+		tags,
+		columnMappings,
+		rememberedAccounts,
+		accountRows,
+		linkableNetWorthAccounts
+	] = await Promise.all([
+		prisma.user.findUniqueOrThrow({
+			where: { id: user.id },
+			select: {
+				email: true,
+				role: true,
+				aiInsightsEnabled: true,
+				aiIncludeLabels: true,
+				totpEnabled: true
+			}
+		}),
+		prisma.session.findMany({
+			where: { userId: user.id },
+			select: {
+				id: true,
+				tokenHash: true,
+				createdAt: true,
+				expiresAt: true,
+				revokedAt: true
+			},
+			orderBy: { createdAt: 'desc' }
+		}),
+		listTagsWithCounts(user.id),
+		listColumnMappings(user.id),
+		// « Comptes mémorisés » (#599): the owner's condition that a remembered answer is
+		// VISIBLE and REVOCABLE. Scoped by `user.id` in the query itself.
+		listRememberedAccounts(user.id),
+		/**
+		 * The Comptes section, read here and PROJECTED before it leaves the server.
+		 *
+		 * Archived rows are in the query on purpose: `accountsForList` keeps them and
+		 * `accountsForPicker` drops them, and a screen that hid what it archived would leave the
+		 * user no way to undo it. `netWorthAccount` is joined for the name alone, so the row can
+		 * say which line it feeds without the page holding an id it would have to resolve.
+		 */
+		prisma.account.findMany({
+			where: { userId: user.id },
+			select: {
+				id: true,
+				name: true,
+				nameKey: true,
+				source: true,
+				institution: true,
+				discriminant: true,
+				archivedAt: true,
+				netWorthAccountId: true,
+				netWorthAccount: { select: { name: true } },
+				_count: { select: { transactions: true } }
+			},
+			orderBy: [{ archivedAt: 'asc' }, { name: 'asc' }, { id: 'asc' }]
+		}),
+		readLinkableNetWorthAccounts(user.id)
+	]);
 
 	const mappedSessions = sessions.map((session) => ({
 		id: session.id,
@@ -153,6 +164,7 @@ export const load: PageServerLoad = async ({ cookies, locals }) => {
 			rememberedMappingView({ ...mapping, importBatchCount: mapping._count.importBatches })
 		),
 		columnMappingCap: resolveColumnMappingsPerUser(),
+		rememberedAccounts,
 		accounts: accountListRows(accountRows),
 		// The invitation reads the SAME predicate the rows' `generic` flag does, so the sentence and
 		// the rows it points at cannot disagree. Computed here rather than derived on the page from
@@ -736,6 +748,27 @@ export const actions: Actions = {
 		}
 
 		return { columnMappingSuccess: m.settings_mappings_success_deleted() };
+	},
+
+	/**
+	 * « Oublier » on a remembered account (#599). A POST form action, so SvelteKit's origin check
+	 * refuses it from another site (ASVS v5.0.0-3.5.1, v5.0.0-3.5.3).
+	 *
+	 * The posted id is a claim: `forgetRememberedAccount` deletes with `userId` in the same where
+	 * clause, and another user's id, an unknown id and a malformed one are the same « introuvable »
+	 * answer, so the response says nothing about ids the caller does not own (ASVS v5.0.0-8.2.2).
+	 */
+	forgetRememberedAccount: async ({ locals, request }) => {
+		const user = requireUser(locals.user);
+		const formData = await request.formData();
+		const id = normalizeId(getFormValue(formData, 'id'));
+		const result = id ? await forgetRememberedAccount(user.id, id) : 'not-found';
+		if (result === 'not-found') {
+			return fail(404, {
+				rememberedAccountError: m.settings_remembered_accounts_error_not_found()
+			});
+		}
+		return { rememberedAccountSuccess: m.settings_remembered_accounts_success_forgotten() };
 	}
 };
 

@@ -27,7 +27,7 @@ const db = vi.hoisted(() => {
 		transactionTags: [] as Row[],
 		transactionSplits: [] as Row[],
 		columnMappings: [] as Row[],
-		importSourceSignatures: [] as Row[]
+		rememberedAccounts: [] as Row[]
 	};
 
 	let counter = 0;
@@ -220,52 +220,6 @@ const db = vi.hoisted(() => {
 		};
 	}
 
-	/**
-	 * ImportSourceSignature is the one table the export reads through a PREDICATE rather than as a
-	 * whole-table scan for the user: only the rows carrying no account identifier fragment travel
-	 * (see backup/schema.ts for why).
-	 *
-	 * The generic `table()` helper above honours `where.userId` and silently ignores every other
-	 * key, which is also how Prisma treats a clause it is not given: a missing filter is no filter.
-	 * Used here it would answer a filtered query with the unfiltered set, so an export that had
-	 * FORGOTTEN the filter would look correct and an export that applied it could not be told
-	 * apart. This one models the predicate, and refuses loudly any predicate it cannot model
-	 * rather than treating it as absent.
-	 */
-	function importSourceSignatureTable() {
-		const rows = store.importSourceSignatures;
-		const generic = table(rows, 'signature');
-		return {
-			...generic,
-			findMany: vi.fn(
-				async ({
-					where,
-					select
-				}: {
-					where: { userId: string; discriminant?: null };
-					select?: Record<string, boolean>;
-				}) => {
-					const modelled = new Set(['userId', 'discriminant']);
-					const unknown = Object.keys(where).filter((key) => !modelled.has(key));
-					if (unknown.length > 0) {
-						throw new Error(
-							`this fake does not model where.${unknown.join(', where.')} on ImportSourceSignature`
-						);
-					}
-					if ('discriminant' in where && where.discriminant !== null) {
-						throw new Error(
-							'this fake models `discriminant: null` only; any other value would be a fragment leaving the database'
-						);
-					}
-					return rows
-						.filter((row) => row.userId === where.userId)
-						.filter((row) => ('discriminant' in where ? (row.discriminant ?? null) === null : true))
-						.map((row) => pick(row, select));
-				}
-			)
-		};
-	}
-
 	const categoryTable = table(store.categories, 'category');
 	const categoryUpsert = vi.fn(
 		async ({
@@ -326,7 +280,7 @@ const db = vi.hoisted(() => {
 			category: { ...categoryTable, upsert: categoryUpsert },
 			importBatch: table(store.importBatches, 'batch'),
 			columnMapping: table(store.columnMappings, 'column-mapping'),
-			importSourceSignature: importSourceSignatureTable(),
+			rememberedAccount: table(store.rememberedAccounts, 'remembered-account'),
 			transaction: table(store.transactions, 'transaction'),
 			monthlyBudget: table(store.monthlyBudgets, 'budget'),
 			categoryRule: table(store.categoryRules, 'category-rule'),
@@ -3057,26 +3011,15 @@ describe('the export and restore seam', () => {
  * themselves and drops in a cloud folder, and a fragment written into it has left every control
  * this application has.
  *
- * The signatures follow the same line, drawn through the table rather than around it: a row whose
- * `discriminant` is NULL carries no fragment and travels, a row carrying one does not. Full
- * exclusion was available and is worse: an account that never had a fragment would lose a memory
- * it could have kept.
- *
- * THE MIDDLE OPTION IS UNSAFE, AND IT IS KILLED HERE RATHER THAN MERELY AVOIDED, because it is
- * what somebody reaches for as the obvious compromise: export EVERY signature with `discriminant`
- * nulled out, keeping the whole memory and none of the fragments. Two rows of one user that share
- * a fingerprint and tell two accounts apart by their fragment then collapse onto one key. Restored,
- * they are either refused by @@unique([userId, fingerprint, discriminant]) mid-transaction, which
- * takes the whole restore with it on PostgreSQL, or they land as two rows a later read cannot
- * choose between, and the memory answers with an ARBITRARY account. That is a wrong answer the
- * application then replays for ever, manufactured by the backup itself. The reason lives two
- * models away from the code that would do it, which is exactly why it is written down here.
+ * The remembered accounts (#599) do not travel at all: every row carries a fragment, and its key
+ * is bound to this instance's secret, so on another instance it would never match. The retired
+ * shape memory's key, `importSourceSignatures`, is written empty and read and ignored on restore,
+ * because the export object is `.strict()` and dropping the key would refuse every older file.
  */
 describe('the backup and the account identifier fragment', () => {
 	// Full-length, because the column holds the whole 64 character SHA-256 of a header row and is
 	// documented as never truncated.
 	const FRAGMENT_FREE_FINGERPRINT = 'b'.repeat(64);
-	const FRAGMENT_BEARING_FINGERPRINT = 'c'.repeat(64);
 	// The four characters a statement would carry. Written once, asserted absent everywhere.
 	const FRAGMENT = '4417';
 
@@ -3118,38 +3061,26 @@ describe('the backup and the account identifier fragment', () => {
 		);
 	}
 
-	function seedTwoSignatures() {
-		db.store.importSourceSignatures.push(
+	function seedRememberedAccounts() {
+		db.store.rememberedAccounts.push(
 			{
-				id: 'sig-fragment-free',
+				id: 'remembered-a',
 				userId: 'user-a',
-				fingerprint: FRAGMENT_FREE_FINGERPRINT,
-				discriminant: null,
+				identifierKey: 'd'.repeat(64),
+				fragment: FRAGMENT,
 				accountId: 'acc-plain',
 				useCount: 3,
-				lastUsedAt: null
+				rememberedAt: new Date('2026-08-15T00:00:00.000Z')
 			},
+			// A third party, which a purge of `user-a` must not touch.
 			{
-				id: 'sig-fragment-bearing',
-				userId: 'user-a',
-				fingerprint: FRAGMENT_BEARING_FINGERPRINT,
-				discriminant: FRAGMENT,
-				accountId: 'acc-fragment',
-				useCount: 1,
-				lastUsedAt: null
-			},
-			// A third party, and deliberately NOT `user-b`, which is the account the restore tests
-			// below write into: a foreign row sharing the destination's id would be counted as a
-			// restored one and the remap assertion would read its accountId instead. That is not
-			// hypothetical, it is what the first run of these tests did.
-			{
-				id: 'sig-other-user',
+				id: 'remembered-elsewhere',
 				userId: 'user-elsewhere',
-				fingerprint: FRAGMENT_FREE_FINGERPRINT,
-				discriminant: null,
+				identifierKey: 'd'.repeat(64),
+				fragment: FRAGMENT,
 				accountId: 'acc-elsewhere',
 				useCount: 9,
-				lastUsedAt: null
+				rememberedAt: new Date('2026-08-15T00:00:00.000Z')
 			}
 		);
 	}
@@ -3157,7 +3088,7 @@ describe('the backup and the account identifier fragment', () => {
 	it('never writes an account identifier fragment into the export', async () => {
 		expect.assertions(4);
 		seedThreeAccounts();
-		seedTwoSignatures();
+		seedRememberedAccounts();
 
 		const payload = await buildBackupExport('user-a');
 
@@ -3171,77 +3102,42 @@ describe('the backup and the account identifier fragment', () => {
 		expect(payload.accounts.every((account) => !('discriminant' in account))).toBe(true);
 	});
 
-	it('exports the signatures that carry no fragment, and only those', async () => {
-		expect.assertions(5);
+	it('exports no remembered account, and the retired memory key empty (#599)', async () => {
+		// SEPARATES « the remembered accounts stay in the database » FROM « the export carries them
+		// under some key ». The store holds one for this user, so the empty array is the export's
+		// choice rather than an empty table.
+		expect.assertions(3);
 		seedThreeAccounts();
-		seedTwoSignatures();
+		seedRememberedAccounts();
 
 		const payload = await buildBackupExport('user-a');
 
-		// Calibration again: this user owns TWO signatures, so "one is exported" is a filter doing
-		// its job rather than a query returning nothing.
-		expect(db.store.importSourceSignatures.filter((row) => row.userId === 'user-a')).toHaveLength(
-			2
-		);
-		expect(payload.importSourceSignatures).toHaveLength(1);
-		expect(payload.importSourceSignatures[0].fingerprint).toBe(FRAGMENT_FREE_FINGERPRINT);
-		// The field is ABSENT from the payload, not present and null. `.strict()` then refuses a
-		// hand-edited file that smuggles one back in, exactly as it does for credentialsEncrypted.
-		expect(payload.importSourceSignatures.every((row) => !('discriminant' in row))).toBe(true);
-		expect(JSON.stringify(payload)).not.toContain(FRAGMENT);
+		expect(db.store.rememberedAccounts.filter((row) => row.userId === 'user-a')).toHaveLength(1);
+		expect(payload.importSourceSignatures).toStrictEqual([]);
+		expect(JSON.stringify(payload)).not.toContain('d'.repeat(64));
 	});
 
-	it('restores the fragment-free memory onto the regenerated account id', async () => {
-		expect.assertions(5);
+	it('purges the remembered accounts of the restored user, and only theirs', async () => {
+		expect.assertions(2);
 		seedThreeAccounts();
-		seedTwoSignatures();
-		db.store.users.push({ id: 'user-b', email: 'b@example.test' });
-
-		// Through JSON and through the validator, because that is what a restore reads: a file.
-		const exported = await buildBackupExport('user-a');
-		const parsed = backupExportSchema.safeParse(JSON.parse(JSON.stringify(exported)));
-		if (!parsed.success) {
-			throw new Error(
-				`the export did not validate: ${parsed.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.code}`).join(', ')}`
-			);
-		}
-
-		await restoreBackup('user-b', parsed.data);
-
-		const restored = db.store.importSourceSignatures.filter((row) => row.userId === 'user-b');
-		expect(restored).toHaveLength(1);
-		const newAccount = db.store.accounts.find(
-			(row) => row.userId === 'user-b' && row.name === 'Compte courant'
-		);
-		expect(newAccount).toBeDefined();
-		// The point of the test: the file's `acc-plain` is not the id anything is stored under, so
-		// a restore that copied the column through would point the memory at another user's row.
-		expect(restored[0].accountId).toBe(newAccount!.id);
-		expect(restored[0].accountId).not.toBe('acc-plain');
-		expect(restored[0].discriminant).toBeNull();
-	});
-
-	it('leaves the memory of an account that had a fragment dead after a restore over itself', async () => {
-		expect.assertions(3);
-		seedThreeAccounts();
-		seedTwoSignatures();
+		seedRememberedAccounts();
 
 		const exported = await buildBackupExport('user-a');
 		const parsed = backupExportSchema.safeParse(JSON.parse(JSON.stringify(exported)));
-		if (!parsed.success) throw new Error('the export did not validate, see the test above');
+		if (!parsed.success) throw new Error('the export did not validate');
 
 		await restoreBackup('user-a', parsed.data);
 
-		// The cost this design charges, asserted rather than described in a document nothing runs:
-		// the fragment-bearing row is gone and is not coming back, and the fragment-free one is
-		// still there. Both halves, so a restore that wiped the table would fail the second.
-		const own = db.store.importSourceSignatures.filter((row) => row.userId === 'user-a');
-		expect(own).toHaveLength(1);
-		expect(own[0].fingerprint).toBe(FRAGMENT_FREE_FINGERPRINT);
-		expect(JSON.stringify(db.store.importSourceSignatures)).not.toContain(FRAGMENT);
+		expect(db.store.rememberedAccounts.filter((row) => row.userId === 'user-a')).toHaveLength(0);
+		expect(
+			db.store.rememberedAccounts.filter((row) => row.userId === 'user-elsewhere')
+		).toHaveLength(1);
 	});
 
-	it('refuses a memory naming an account the file does not carry', async () => {
+	it('restores a file written before 1.2 whose retired memory names no account it carries', async () => {
+		// SEPARATES « the retired shape memory is read and ignored » FROM « it still decides whether
+		// a restore succeeds »: before #599 this file was refused by name; it now restores, and
+		// writes no memory.
 		expect.assertions(2);
 		db.store.users.push({ id: 'user-b', email: 'b@example.test' });
 
@@ -3250,17 +3146,15 @@ describe('the backup and the account identifier fragment', () => {
 			importSourceSignatures: [
 				{
 					fingerprint: FRAGMENT_FREE_FINGERPRINT,
-					// Names nothing in `accounts`. Left to the engine this is a foreign key error
-					// mid-transaction, which aborts the whole restore with a message about a
-					// constraint; refused by name here, before any write.
 					accountId: 'file-acc-that-is-not-there',
 					useCount: 0
 				}
 			]
 		};
 
-		await expect(restoreBackup('user-b', payload)).rejects.toThrow(BackupImportError);
-		expect(db.store.importSourceSignatures).toHaveLength(0);
+		await restoreBackup('user-b', payload);
+		expect(db.store.accounts.filter((row) => row.userId === 'user-b')).toHaveLength(1);
+		expect(db.store.rememberedAccounts).toHaveLength(0);
 	});
 });
 
