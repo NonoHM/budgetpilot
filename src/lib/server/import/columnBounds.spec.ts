@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { parseCsvTransactions } from './csv';
 import {
 	assertCsvColumnBoundConfigured,
@@ -7,6 +7,12 @@ import {
 	CSV_MAX_COLUMNS_ENV,
 	resolveCsvMaxColumns
 } from './columnBounds';
+import { ENVIRONMENT_CHECKS } from '../env/assertConfigured';
+
+// The boot collector imports every check's module, and several of them reach the Prisma client.
+// Nothing here queries a database, so the client is replaced rather than constructed: the wiring
+// test below needs the collector's LIST, not a connection.
+vi.mock('$lib/server/db', () => ({ prisma: {} }));
 
 /** A file of one data row and `count` columns, the first three being the required roles. */
 function fileWithColumns(count: number): string {
@@ -132,5 +138,16 @@ describe('assertCsvColumnBoundConfigured', () => {
 		}
 		expect(warnings).toHaveLength(2);
 		expect(warnings.join(' ')).toContain('LOWERED');
+	});
+
+	// WITHOUT THIS THE CEILING IS DECORATION. Every test above calls the module directly, so all of
+	// them pass on a build where the boot collector never runs the check. Compared by FUNCTION
+	// REFERENCE, which is what ENVIRONMENT_CHECKS is exported for (#715): before this test, deleting
+	// the entry from `ENVIRONMENT_CHECKS` left this file green, 11 of 11 (2026-09-25), and the same
+	// break now reddens this test, registered 0 times.
+	it('is registered with the boot collector', () => {
+		expect(
+			ENVIRONMENT_CHECKS.filter(([, run]) => run === assertCsvColumnBoundConfigured)
+		).toHaveLength(1);
 	});
 });

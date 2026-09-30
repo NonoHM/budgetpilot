@@ -33,7 +33,7 @@ describe('getInitials', () => {
 
 describe('getEmailInitials', () => {
 	it('extrait les initiales depuis un local-part multi-mots séparé par un point', () => {
-		expect(getEmailInitials('sophie.martin@gmail.com')).toBe('SM');
+		expect(getEmailInitials('sophie.martin@example.com')).toBe('SM');
 	});
 
 	it('extrait les initiales depuis un local-part multi-mots séparé par un tiret ou underscore', () => {
@@ -42,16 +42,16 @@ describe('getEmailInitials', () => {
 	});
 
 	it("replie sur les deux premières lettres pour un local-part composé d'un seul mot", () => {
-		expect(getEmailInitials('paul@budgetpilot.com')).toBe('PA');
+		expect(getEmailInitials('paul@example.com')).toBe('PA');
 	});
 
 	it("replie sur les deux premiers caractères quand le local-part n'est fait que de séparateurs", () => {
-		expect(getEmailInitials('..@x.com')).toBe('..');
-		expect(getEmailInitials('___@x.com')).toBe('__');
+		expect(getEmailInitials('..@example.com')).toBe('..');
+		expect(getEmailInitials('___@example.com')).toBe('__');
 	});
 
 	it('gère un local-part très court (une seule lettre)', () => {
-		expect(getEmailInitials('a@x.com')).toBe('A');
+		expect(getEmailInitials('a@example.com')).toBe('A');
 	});
 
 	it('gère une adresse sans arobase en traitant toute la chaîne comme local-part', () => {
@@ -63,6 +63,6 @@ describe('getEmailInitials', () => {
 	});
 
 	it('gère un local-part avec des séparateurs en début/fin', () => {
-		expect(getEmailInitials('.sophie.martin.@gmail.com')).toBe('SM');
+		expect(getEmailInitials('.sophie.martin.@example.com')).toBe('SM');
 	});
 });

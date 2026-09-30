@@ -35,7 +35,18 @@ until you do, and picking the wrong one is undone by deleting the import from th
 history.
 
 The row only lists accounts you already have. To send a statement to an account
-that does not exist yet, create it in **Settings > Accounts** first.
+that does not exist yet, create it in **Settings > Accounts** first, unless the
+row appeared for the currency reason below, where **New account** is offered
+right there.
+
+**A statement in a currency your destination account does not hold is refused
+the same way.** If your file states its currency and it does not match the
+account it would otherwise go into, BudgetPilot will not relabel the amounts:
+the **Account** row appears, listing only accounts already held in that
+currency. This can only happen if you hold an account in another currency
+in the first place, so an ordinary all-euro setup never meets it. If you have
+no account in that currency, **New account** is offered right there, and
+creates one already set to it.
 
 If the file turns out to cover **several accounts** rather than one, the import
 still goes through and the summary tells you which account the rows landed in.
@@ -113,7 +124,13 @@ Two things are worth knowing:
 - **The reading applies to the whole file**, not to one row.
 - **A file whose column proves both readings is refused**, and nothing is
   imported. That happens when one column mixes `24/06/2026` and `06/24/2026`, which
-  no single answer can make true.
+  no single answer can make true. When that column is one you designated
+  yourself, the refusal names it, so you know which one to try instead.
+- **If a date in the file proves the other order, that proof wins over your
+  answer.** BudgetPilot does not import on an answer the file itself
+  contradicts. The result screen then states which reading it actually used
+  and quotes the date that proves it, in place of the line that would
+  otherwise confirm your answer.
 
 The full table of what settles a date order is in
 [the imports reference](../reference/imports.md#how-the-day-and-month-are-told-apart).
@@ -147,8 +164,11 @@ Because it is keyed on the column names, a bank that adds a column, or reorders
 them, changes nothing. If a bank **renames** one, that row alone comes back to
 be redesignated and the others keep their answers.
 
-Memorisation is on by default, stated on the screen, with a link to decline it
-for a file you do not expect to see again.
+Memorisation is on by default. The designation screen carries only the link
+to decline it, for a file you do not expect to see again: **Ne pas mémoriser**
+turns it off, **Mémoriser cette correspondance** turns it back on. What
+memorisation will do is stated after the import, on the result screen, not
+before it.
 
 ### Forget a remembered answer
 
@@ -196,14 +216,15 @@ pick from your accounts.
 Most of the time the row is already filled in and you can leave it alone. Here
 is what it can say:
 
-| The row says                                                 | What to do                                    |
-| ------------------------------------------------------------ | --------------------------------------------- |
-| _IBAN ···4417 read from the file_                            | Nothing. Your bank printed the account number |
-| _Remembered, 3 imports since 15 August_                      | Nothing. Files like this went here before     |
-| _First statement in this format_                             | Pick an account. It will be remembered        |
-| _Two accounts use this format. The file does not say which._ | Pick the right one                            |
-| _This file contains several accounts._                       | Pick the one you want these transactions in   |
-| _The remembered account no longer exists._                   | Pick another one                              |
+| The row says                                                 | What to do                                               |
+| ------------------------------------------------------------ | -------------------------------------------------------- |
+| _IBAN ···4417 read from the file_                            | Nothing. Your bank printed the account number            |
+| _Remembered, 3 imports since 15 August_                      | Nothing. Files like this went here before                |
+| _First statement in this format_                             | Pick an account. It will be remembered                   |
+| _Two accounts use this format. The file does not say which._ | Pick the right one                                       |
+| _This file contains several accounts._                       | Pick the one you want these transactions in              |
+| _The remembered account no longer exists._                   | Pick another one                                         |
+| The banner names a currency your accounts don't hold         | Pick an account in that currency, or tap **New account** |
 
 Two things worth knowing:
 
@@ -223,6 +244,11 @@ whatever you will recognise, then tap **Create and select**.
 The name is only for you. Nobody else sees it, and you can change it later in
 **Settings, Accounts**.
 
+When **New account** opens for the currency reason above, the sheet also
+states the currency the account will be created in, matching your statement.
+Everywhere else, a new account is created in BudgetPilot's own default
+currency.
+
 ## What is refused
 
 | The file                       | What you get                             |
@@ -241,6 +267,17 @@ answered on the screen described above.
 
 A file with fewer than three columns is the one case designating cannot repair:
 there is nothing to point the three roles at.
+
+**These reasons can also reach the designation screen**, not only the door
+before it. If you're there to correct a remembered answer and the file turns
+out to be over one of the size limits above, the screen names the reason
+instead of falling back to a generic "no rows imported" message.
+
+**A single row can be refused for its own date, separately from all of
+this.** A date whose year falls before 1000 or after 9999 is refused on that
+row alone: no supported database stores such a year faithfully, and
+designating a different column cannot change what the file itself wrote. The
+rest of the file still imports; it is counted among the invalid rows below.
 
 The last one needs a word, because it is the only limit that is not about
 the size of the file you picked. An `.xlsx` is a zip archive, so a small
@@ -290,6 +327,25 @@ quickest way to tell "nothing happened" from "nothing needed to happen".
 
 The summary also names the account the transactions went into, so you can catch
 a statement filed in the wrong place straight away.
+
+## If the write itself fails
+
+Every refusal above happens before anything is written. Separately, and very
+rarely, the database can have a problem partway through writing the rows of a
+file that already passed all of them. Each of the three sentences this can
+show tells you something different, because how much landed changes what to
+do next:
+
+| The message says                                                                                | What to do                                                                                                            |
+| ----------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| _The import did not complete, and no transaction was saved. Try again._                         | Nothing landed. Import the file again                                                                                 |
+| _Import of {date} stopped after N transactions. Delete it in Imports._                          | Some rows landed. Delete that import in **Imports**, then try again                                                   |
+| _The import stopped: some transactions may have been saved. Check Imports before trying again._ | BudgetPilot cannot tell what landed. Check **Imports** first, so a retry does not create a second, overlapping import |
+
+None of these are about your file: it already passed every check above.
+Importing the same statement again afterwards is always safe once you've
+acted on the sentence, because duplicate detection catches whatever already
+landed.
 
 ## Importing the same file twice
 

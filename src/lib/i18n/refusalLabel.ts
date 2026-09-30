@@ -1,7 +1,17 @@
 import * as m from '$lib/paraglide/messages';
-import type { TransactionValidationCode } from '$lib/domain/transaction';
+import { STORABLE_YEARS, type TransactionValidationCode } from '$lib/domain/transaction';
 import type { CsvRefusalFact, CsvRefusalScope } from '$lib/server/import/refusals';
 import { roleLabel } from '$lib/domain/columnMappingLabels';
+
+/**
+ * The range a « year out of range » sentence names, read from the ONE definition rather than typed
+ * into the catalogue, so the sentence cannot state a range the check does not apply. As strings,
+ * so no locale inserts a thousands separator into a year (« 1 000 »).
+ */
+export const STORABLE_YEAR_BOUNDS = {
+	first: String(STORABLE_YEARS.first),
+	last: String(STORABLE_YEARS.last)
+};
 
 /**
  * The only place a CSV refusal becomes language.
@@ -29,6 +39,8 @@ export function violationLabel(code: TransactionValidationCode): string {
 			return m.import_refusal_tx_id_required();
 		case 'invalid-iso-date':
 			return m.import_refusal_tx_invalid_iso_date();
+		case 'date-out-of-range':
+			return m.import_refusal_tx_date_out_of_range(STORABLE_YEAR_BOUNDS);
 		case 'amount-cents-required':
 			return m.import_refusal_tx_amount_cents_required();
 		case 'zero-amount':
@@ -70,7 +82,40 @@ export function scopeLabel(scope: CsvRefusalScope): string {
 	}
 }
 
-export function refusalLabel(fact: CsvRefusalFact): string {
+/**
+ * THE ONE CHOICE between a sentence quoting the cell it refused and the same sentence without it
+ * (#692). A cell blank after trimming would quote as « «  » », which reads as a rendering fault
+ * rather than as « this cell was empty », so the sentence drops the value instead. Every sentence
+ * that quotes a refused cell and can meet a blank one goes through here, so the two variants
+ * cannot drift apart per code.
+ */
+function withCellValue(
+	value: string,
+	quoting: (value: string) => string,
+	withoutValue: () => string
+): string {
+	const trimmed = value.trim();
+	return trimmed === '' ? withoutValue() : quoting(trimmed);
+}
+
+/**
+ * What only the `mapped` caller knows and the fact itself does not carry: which column the USER
+ * designated for the role the sentence is about. Optional, and consulted for exactly one code
+ * today (see `mixed-date-order` below): every other rendering ignores it, so a caller that has
+ * none may omit the argument rather than pass an empty object.
+ */
+export interface RefusalRenderContext {
+	/**
+	 * The date column's own display name, as the caller's `ColumnMapping` names it, or `null` when
+	 * there is none to show: a headerless file is matched by POSITION and carries no column name at
+	 * all (`mappingFromPostedIndices`'s `matchBy: 'position'` branch). Already bounded through
+	 * `refusalCellValue` by the CALLER: this module renders language and does not itself reach into
+	 * `$lib/server`, which a raw header cell lifted from the user's file would need.
+	 */
+	designatedDateColumn?: string | null;
+}
+
+export function refusalLabel(fact: CsvRefusalFact, context: RefusalRenderContext = {}): string {
 	switch (fact.code) {
 		case 'file-too-large':
 			return m.import_refusal_file_too_large({ bytes: fact.bytes });
@@ -83,10 +128,24 @@ export function refusalLabel(fact: CsvRefusalFact): string {
 		case 'header-not-recognized':
 			return m.import_refusal_header_not_recognized({ profile: fact.profile });
 		case 'mixed-date-order':
-			return m.import_refusal_mixed_date_order({
-				dayFirst: fact.dayFirst,
-				monthFirst: fact.monthFirst
-			});
+			// #622's second defect: on the `mapped` path the user CHOSE this column, so the
+			// sentence names it back rather than blaming « ce fichier » for that choice. The auto
+			// path never has a designated column (a profile chose it), so it keeps the file-level
+			// wording, and so does a headerless mapped file, which has no column name to show.
+			return withCellValue(
+				context.designatedDateColumn ?? '',
+				(column) =>
+					m.import_refusal_mixed_date_order_column({
+						column,
+						dayFirst: fact.dayFirst,
+						monthFirst: fact.monthFirst
+					}),
+				() =>
+					m.import_refusal_mixed_date_order({
+						dayFirst: fact.dayFirst,
+						monthFirst: fact.monthFirst
+					})
+			);
 		case 'ambiguous-date-order':
 			// Reached only when the route did not intercept the offer (a hand-crafted request, or a
 			// client that dropped the `reading` payload): the sentence names the problem in words
@@ -117,7 +176,7 @@ export function refusalLabel(fact: CsvRefusalFact): string {
 			// back to. One function cannot disagree with itself.
 			return m.import_refusal_missing_required_column({ role: roleLabel(fact.role) });
 		case 'bad-column-count':
-			return m.import_refusal_bad_column_count();
+			return m.import_refusal_bad_column_count({ actual: fact.actual, expected: fact.expected });
 		case 'ambiguous-column-mapping':
 			return m.import_refusal_ambiguous_column_mapping({
 				role: roleLabel(fact.role),
@@ -142,6 +201,8 @@ export function refusalLabel(fact: CsvRefusalFact): string {
 			return m.import_refusal_mapping_invalid();
 		case 'invalid-date':
 			return m.import_refusal_invalid_date({ value: fact.value });
+		case 'date-out-of-range':
+			return m.import_refusal_date_out_of_range({ value: fact.value, ...STORABLE_YEAR_BOUNDS });
 		case 'invalid-amount':
 			return m.import_refusal_invalid_amount();
 		case 'zero-amount':
@@ -157,9 +218,28 @@ export function refusalLabel(fact: CsvRefusalFact): string {
 		case 'invalid-balance':
 			return m.import_refusal_invalid_balance();
 		case 'unsupported-currency':
-			return m.import_refusal_unsupported_currency();
+			// No bank in the sentence (#692): Revolut, the generic file and the designated file all
+			// produce this code, and a sentence shared by several producers names none of them.
+			return withCellValue(
+				fact.currency,
+				(currency) => m.import_refusal_unsupported_currency({ currency }),
+				m.import_refusal_unsupported_currency_no_value
+			);
+		case 'declared-currency-mismatch':
+			return m.import_refusal_declared_currency_mismatch({
+				declared: fact.declared,
+				destination: fact.destination
+			});
 		case 'state-not-completed':
-			return m.import_refusal_state_not_completed();
+			// Revolut IS named here, because Revolut is this code's one producer. The state is shown
+			// because it is the difference between « wait for it to settle » (pending) and « it will
+			// never import » (reverted, declined), and it sits in Revolut's ninth column, past the
+			// eight cells the row preview shows.
+			return withCellValue(
+				fact.state,
+				(state) => m.import_refusal_state_not_completed({ state }),
+				m.import_refusal_state_not_completed_no_value
+			);
 		case 'footer-ignored':
 			return m.import_refusal_footer_ignored();
 		case 'debit-credit-both':

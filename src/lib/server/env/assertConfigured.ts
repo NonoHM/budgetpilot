@@ -67,10 +67,19 @@ export async function assertEnvironmentConfigured(): Promise<void> {
 }
 
 /**
- * Exported so each bound's own spec can assert its check is reached at boot by comparing the
- * FUNCTION REFERENCE, rather than by grepping hooks.server.ts for its name. Those specs used to
- * scan the source text, which was honest about being a proxy and calibrated as one; an identity
- * comparison is not a proxy at all, and it does not break when the wiring moves file.
+ * Every boot check, each registered exactly once.
+ *
+ * **What counts as a boot check is a naming rule, and a test enforces it both ways.** A boot check
+ * is a function exported from a module under `src/lib` and named `assert<Thing>Configured` or
+ * `assert<Thing>Safe`. `assertConfigured.spec.ts` enumerates every such export from the tree and
+ * fails unless each is registered here exactly once, and unless every entry here is one of them
+ * (#738). So a new check cannot be added unregistered and green, and a check named outside the
+ * rule cannot be registered without that test saying so.
+ *
+ * Compared by FUNCTION REFERENCE, never by name: the older bound specs scanned this file's text,
+ * which the import line at the top satisfies on its own, so deleting an entry left them green
+ * (#715). `init` awaiting `assertEnvironmentConfigured` is asserted by calling `init`, in
+ * `src/hooks.server.init.spec.ts`.
  */
 export const ENVIRONMENT_CHECKS: Check[] = [
 	['DATABASE_URL / DATABASE_PROVIDER', assertDatabaseConfigured],

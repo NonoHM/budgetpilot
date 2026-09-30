@@ -1,6 +1,7 @@
 import { error } from '@sveltejs/kit';
 import * as m from '$lib/paraglide/messages';
-import type { PeriodKey } from '$lib/domain/periodPresets';
+import { PERIOD_FLOOR, type PeriodKey } from '$lib/domain/periodPresets';
+import { isStorableIsoDate, isStorableYear, STORABLE_YEARS } from '$lib/domain/transaction';
 
 /**
  * Re-exported rather than declared, so this parser and the Période panel's preset block cannot
@@ -20,7 +21,13 @@ export interface DateRange {
 	comparisonMonth?: string;
 }
 
-const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+/**
+ * The last instant a query bound may name (#758). An exclusive upper bound is « the day after the
+ * last day asked for », and for the last storable day that is year 10000, which MariaDB answers
+ * with warning 1292 and ZERO rows: every total read 0, with no error. Stored dates sit at midnight
+ * or noon UTC, so a bound one millisecond before year 10000 excludes nothing a row can hold.
+ */
+const LAST_BOUND = new Date(Date.UTC(STORABLE_YEARS.last, 11, 31, 23, 59, 59, 999));
 
 export function parseDateRange(params: URLSearchParams, now = new Date()): DateRange {
 	const key = parsePeriodKey(params.get('period'));
@@ -52,14 +59,15 @@ export function parseDateRange(params: URLSearchParams, now = new Date()): DateR
 	}
 
 	if (key === 'all-time') {
-		// Epoch lower bound = no effective date filter (no transaction predates 1970), so the
-		// range keeps the plain DateRange shape without touching any query. Never a whole
-		// calendar month, so the budget summary stays unavailable (isWholeMonthPeriod) and the
-		// derived budgetMonth ('1970-01') is inert. "custom" ranges are unbounded too (no day cap).
+		// The first storable day (#758), so the lower bound filters nothing a row can hold and the
+		// range keeps the plain DateRange shape without touching any query. It was the epoch, which
+		// dropped every row from 1000 to 1969 from the all-time totals. Never a whole calendar
+		// month, so the budget summary stays unavailable (isWholeMonthPeriod) and the derived
+		// budgetMonth is inert. "custom" ranges are unbounded too (no day cap).
 		return buildRange({
 			key,
 			label: m.reports_period_all_time(),
-			from: new Date(0),
+			from: new Date(`${PERIOD_FLOOR}T00:00:00.000Z`),
 			to: addUtcDays(today, 1)
 		});
 	}
@@ -93,7 +101,7 @@ export function parseCustomDateRange(
 	const toInclusive = parseIsoDate(toParam);
 	if (!from || !toInclusive) throw error(400, m.date_range_error_invalid_custom());
 
-	const to = addUtcDays(toInclusive, 1);
+	const to = exclusiveEndOf(toInclusive);
 	if (from >= to) throw error(400, m.date_range_error_invalid_custom());
 
 	return { from, to, fromDate: formatDate(from), toDate: formatDate(toInclusive) };
@@ -134,27 +142,28 @@ function parsePeriodKey(value: string | null): PeriodKey {
 	return 'this-month';
 }
 
+/**
+ * The day after `toInclusive`, as the exclusive bound every query here uses, or `LAST_BOUND` when
+ * that day would leave the storable range (#758).
+ */
+function exclusiveEndOf(toInclusive: Date): Date {
+	const next = addUtcDays(toInclusive, 1);
+	return isStorableYear(next.getUTCFullYear()) ? next : LAST_BOUND;
+}
+
+/**
+ * A query bound, or null. Through `isStorableIsoDate`, the one reading every date writer and every
+ * bound shares (#758): a calendar date whose year an engine can compare. `from=0000-01-01` used to
+ * reach PostgreSQL as a bound and throw `22008`, a 500.
+ *
+ * The calendar half is load-bearing too, and its absence was once a 500: a digit-shape pattern
+ * admitted `2026-99-99`, `new Date()` answered an Invalid Date, and `toISOString()` THROWS on one,
+ * past `parseTransactionDateRange`'s catch. `isValidIsoDate` returns rather than throws, and
+ * `2026-02-30` (which JS rolls over to March 2) is refused as non-canonical.
+ */
 function parseIsoDate(value: string | null): Date | null {
-	if (!value || !DATE_PATTERN.test(value)) return null;
-	const date = new Date(`${value}T00:00:00.000Z`);
-	/**
-	 * The NaN guard is load-bearing, and its absence was a 500 rather than a rejection.
-	 *
-	 * `DATE_PATTERN` counts digits, it does not read a calendar, so `2026-99-99`, `2026-13-01` and
-	 * `2026-00-00` all reach here shaped like dates. `new Date()` returns `Invalid Date` for them,
-	 * and `Date.prototype.toISOString()` THROWS `RangeError: Invalid time value` on an invalid date
-	 * rather than returning a sentinel — so the round-trip check below, which looks like it settles
-	 * validity, never got to run. The throw escaped `parseTransactionDateRange`'s catch (which
-	 * re-raises anything that is not an HttpError), so the page 500ed instead of rendering the
-	 * "Période invalide" state this whole mechanism exists to produce.
-	 *
-	 * Note `2026-02-30` was never affected: JS rolls it over to March 2, which is a VALID date, so
-	 * it reached the round-trip and was correctly rejected as non-canonical. That is why the bug
-	 * stayed hidden — the obvious hostile input works, and only the ones that make `Date` give up
-	 * entirely throw. Both classes now return null on the same line.
-	 */
-	if (Number.isNaN(date.getTime())) return null;
-	return date.toISOString().slice(0, 10) === value ? date : null;
+	if (!value || !isStorableIsoDate(value)) return null;
+	return new Date(`${value}T00:00:00.000Z`);
 }
 
 function buildRange(input: {
@@ -167,7 +176,9 @@ function buildRange(input: {
 	return {
 		...input,
 		fromDate: formatDate(input.from),
-		toDate: formatDate(addUtcDays(input.to, -1)),
+		// The last instant before the exclusive bound, rather than « one day before »: the two agree
+		// on every midnight bound, and only this one names 9999-12-31 for `LAST_BOUND`.
+		toDate: formatDate(new Date(input.to.getTime() - 1)),
 		budgetMonth: getMonthKey(input.from)
 	};
 }

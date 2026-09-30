@@ -47,7 +47,9 @@ describe('parseDateRange', () => {
 		const range = parseDateRange(new URLSearchParams('period=all-time'), now);
 
 		expect(range.key).toBe('all-time');
-		expect(range.from).toEqual(new Date(0));
+		// The first storable day, not the epoch (#758): every engine stores 1000 to 1969, and a floor
+		// at 1970 dropped those rows from every all-time total without a word.
+		expect(range.from).toEqual(new Date('1000-01-01T00:00:00.000Z'));
 		expect(range.to).toEqual(new Date('2026-06-26T00:00:00.000Z'));
 		expect(range.label).toBe('Toujours');
 		// Never a whole calendar month → the budget summary stays unavailable downstream.
@@ -135,6 +137,45 @@ describe('parseCustomDateRange — hostile and shape-valid-but-impossible input'
 		const range = parseCustomDateRange('2026-06-01', '2026-06-30');
 		expect(range.fromDate).toBe('2026-06-01');
 		expect(range.toDate).toBe('2026-06-30');
+	});
+});
+
+/**
+ * #758: a query bound is a date written into a comparison, and an engine judges it like a stored
+ * one. `from=0000-01-01` made PostgreSQL throw `22008` (a 500); `to=9999-12-31` became the exclusive
+ * bound `10000-01-01`, which MariaDB turns into warning 1292 and ZERO rows, so every total read 0
+ * with no error at all.
+ *
+ * Breaks: the range check removed from `parseIsoDate` reddens the first block (separates « a 400 »
+ * from « a bound the engine refuses »); the upper bound built as `to + 1 day` again reddens the
+ * last-day test (separates « the bound stays inside the range » from « it steps past 9999 »).
+ */
+describe('parseCustomDateRange keeps both bounds inside the storable range', () => {
+	it.each(['0000-01-01', '0026-05-01', '0999-12-31'])('refuses from=%s with a 400', (value) => {
+		expect.assertions(2);
+		expect(() => parseCustomDateRange(value, '2026-12-31')).toThrowError(
+			expect.objectContaining({ status: 400 })
+		);
+		expect(() => parseCustomDateRange('2026-01-01', value)).toThrowError(
+			expect.objectContaining({ status: 400 })
+		);
+	});
+
+	it('accepts the last storable day without building a bound past it', () => {
+		expect.assertions(3);
+		const range = parseCustomDateRange('2026-01-01', '9999-12-31');
+		expect(range.to.getUTCFullYear()).toBe(9999);
+		expect(range.to > new Date('9999-12-31T12:00:00.000Z')).toBe(true);
+		expect(range.toDate).toBe('9999-12-31');
+	});
+
+	it('names the last storable day as the end of a custom period', () => {
+		expect.assertions(1);
+		const range = parseDateRange(
+			new URLSearchParams('period=custom&from=1000-01-01&to=9999-12-31'),
+			now
+		);
+		expect([range.fromDate, range.toDate]).toEqual(['1000-01-01', '9999-12-31']);
 	});
 });
 

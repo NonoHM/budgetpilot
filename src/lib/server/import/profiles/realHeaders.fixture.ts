@@ -31,6 +31,59 @@ export const REAL_HEADERS: Array<[name: string, header: string, row: string]> = 
 ];
 
 /**
+ * N26's LEGACY export, in its three languages. HEADER ROWS ONLY: nothing here came from a
+ * statement, and the specs that read these rows synthesise their values.
+ *
+ * Kept apart from `REAL_HEADERS` because they are not taken from an export in hand, and because
+ * none of them imports on the alias table (`Payee`, `Empfänger`, `Bénéficiaire` are no label
+ * alias, and `Datum` is no date alias): `realHeaders.spec.ts` asserts every `REAL_HEADERS` row
+ * imports something, which these do not. They reach the parser through the designation screen.
+ *
+ * Two independent sources, read 2026-09-24, give the same layout and the same meaning:
+ * `siddhantgoel/beancount-n26` (`beancount_n26/__init__.py`, `HEADER_FIELDS`) maps each legacy
+ * account-number column AND the current `Partner Iban` to one key beside the payee, and Firefly
+ * III's `import-configurations` (`de/n26/default.json`) gives the legacy column the role
+ * `opposing-iban`. So the third column names the OTHER party, in every language.
+ */
+export const N26_LEGACY_HEADERS: Array<[name: string, header: string]> = [
+	[
+		'N26 legacy EN',
+		'"Date","Payee","Account number","Transaction type","Payment reference","Category","Amount (EUR)","Amount (Foreign Currency)","Type Foreign Currency","Exchange Rate"'
+	],
+	[
+		'N26 legacy DE',
+		'"Datum","Empfänger","Kontonummer","Transaktionstyp","Verwendungszweck","Kategorie","Betrag (EUR)","Betrag (Fremdwährung)","Fremdwährung","Wechselkurs"'
+	],
+	[
+		'N26 legacy FR',
+		'"Date","Bénéficiaire","Numéro de compte","Type de transaction","Référence de paiement","Catégorie","Montant (EUR)","Montant (Devise étrangère)","Sélectionnez la devise étrangère","Taux de conversion"'
+	]
+];
+
+/**
+ * Whose account each account-identifier column of a RECORDED header row names, one entry per
+ * column, with the reason read from the row or its source.
+ *
+ * This is the direction the discriminant's own header sets cannot check for themselves: a set can
+ * be asked whether each member is recorded, never whether a recorded counterparty column is
+ * missing from it. `discriminant.spec.ts` runs every entry through `findDiscriminantColumn` in its
+ * own recorded row, so a counterparty column recorded here and not excluded there goes red. What
+ * no check here can see is a layout nobody recorded.
+ */
+export const RECORDED_ACCOUNT_COLUMNS: Array<
+	[row: string, header: string, party: 'holder' | 'counterparty']
+> = [
+	// `Partner` is the other party; the same row carries `Partner Name` and `Account Name`.
+	['N26', 'Partner Iban', 'counterparty'],
+	// Beside `accountLabel` and `accountbalance`: the account the balance is of.
+	['Boursorama', 'accountNum', 'holder'],
+	// The sources named on `N26_LEGACY_HEADERS`.
+	['N26 legacy EN', 'Account number', 'counterparty'],
+	['N26 legacy DE', 'Kontonummer', 'counterparty'],
+	['N26 legacy FR', 'Numéro de compte', 'counterparty']
+];
+
+/**
  * Asserted as STILL REFUSED. It carries a debit/credit PAIR rather than one signed amount, and
  * collapsing that needs a stated sign rule which is deliberately deferred: which column is
  * negative is a per bank convention, and guessing it imports every expense as income or the

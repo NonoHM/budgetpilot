@@ -27,6 +27,21 @@ why every control that names an import names it by that, to the second.
 > delete anything: it was a disclosure that revealed a second button. Filed as #380 and closed by
 > naming the control after the timestamp.
 
+## Imported count, and the stored counter
+
+**The imported count** is how many transactions an import holds: the rows filed under its batch,
+counted when a screen asks (`importedCount.ts`). Every screen that names it reads that.
+
+**The stored counter** is `ImportBatch.importedRows`: what the write step recorded when the import
+finished or stopped. A fact about that moment, kept for the backup round trip, read by no screen.
+
+> **What confusing this cost.** The history read the counter, and the counter can say 0 over rows
+> that are in the ledger: a write that dies midway can take the counter's write with it, a batch
+> damaged before the write step owned its failures kept its default, and a restore copies the
+> counter as exported. The history then read « Importé 0 » over transactions that spend like any
+> others, and the delete confirmation once told a user an import had created none while about to
+> destroy real ones (#652, #660).
+
 ## Delete, not cancel
 
 Removing an import and its transactions. **The word is delete**, in every string a user reads and in
@@ -59,6 +74,25 @@ They are not interchangeable, and the type system now says so: the resolved file
 > two lines apart in one object literal. It survived the author's review and a full test suite, and
 > was found by an outside reviewer, because every collision fixture in the repository kept the two
 > values equal and a wrong read therefore agreed with a right one.
+
+## Declared currency, and the account's
+
+Two currencies an imported row can be said to be in.
+
+- **The declared currency** is what the FILE says, read off every row: a `currency` or `Devise`
+  column (where `€` and `Euro` read as EUR), or an amount column whose name ends with a currency
+  code, such as N26's `Amount (EUR)` or `Montant (EUR)`. A blank cell or a missing column declares
+  nothing.
+- **The account's currency** is what the destination `Account` holds. Every stored row is
+  denominated by it.
+
+When the file declares nothing, the account's currency applies, by design. This application's own
+export is that case: its header (`MAISON_V3_HEADER`) carries no currency column. When the file
+declares one and the account holds another, the import is refused, naming both.
+
+> **What confusing this cost.** The parse checked the declared currency against EUR and then
+> forgot it, and the write denominated every row by the account. A file saying EUR, filed into a
+> bank-synced USD account, stored every amount as dollars with a summary reporting success (#600).
 
 ## Profile
 
@@ -104,6 +138,27 @@ cannot be recomputed, so « the same statement twice » and « two statements ag
 figures » are no longer distinguishable. The interface says _peut-être_ because that is what is
 known.
 
+## Account column, and the counterparty's
+
+Two columns a statement can carry that both hold an account identifier.
+
+- **The account column** names the HOLDER's account: the statement's own. It is the only column
+  that can say which of the user's accounts a statement belongs to.
+- **The counterparty's account column** names the OTHER party to each row: who was paid, or who
+  paid. N26 calls it `Partner Iban`, and its legacy export `Account number`, `Kontonummer` or
+  `Numéro de compte`. It says nothing about which account the statement belongs to, whatever its
+  values do.
+
+Both pass the same grammar (an IBAN or a long digit run), so only the header tells them apart, and
+sometimes only the header ROW: nothing in `Numéro de compte` says whose account it is, and in
+N26's export it names the other party because a `Bénéficiaire` column sits beside it.
+
+> **What confusing this cost.** Before #702 the account column was read by its values alone. An N26
+> statement whose rows all paid the holder's own savings account was filed INTO the savings account
+> when the two shared a source, silently and with full confidence, and an account created from a
+> one-row statement stored the counterparty's four characters as its own. An ordinary N26 statement
+> paying two people was refused as a file spanning two accounts.
+
 ## Pressed
 
 The state a control shows while a finger or a pointer is on it. Distinct from **selected**
@@ -112,3 +167,19 @@ The state a control shows while a finger or a pointer is on it. Distinct from **
 Pressed never survives `pointerup`, is removed without delay by `pointercancel`, and carries no
 `aria-*` at all. See [the design referential index](./docs/reference/design-referential.md) for where
 its timing rule lives.
+
+## Last sync, and the last complete sync
+
+**The last sync** is `BankConnection.lastSyncAt`: when a bank sync was last attempted, whatever
+happened. The 6-hour throttle counts from it and the connection card shows it.
+
+**The last complete sync** is `BankConnection.lastCompleteSyncAt`: the most recent sync that
+fetched and wrote every account the connection fed at the time. A renewal that attaches an account
+clears it, since no sync fetched that account. It is the fetch cursor: the next sync asks the bank
+from it minus the overlap, never for more than the first-sync window, and for that whole window
+when there is none.
+
+> **What confusing this cost.** One column played both parts, and the throttle claim and the failure
+> path both wrote it. A first sync that failed on its second account moved the next window to the
+> failed attempt, so every row of that account older than the overlap was never fetched, silently
+> (#763).

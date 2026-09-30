@@ -80,6 +80,24 @@ describe('reading a date order off a column', () => {
 	});
 
 	/**
+	 * #667. The detector reads the cells of EVERY declared date column flattened into one array, so
+	 * the sample alone cannot say which column raised the question. It names its own POSITION in
+	 * the input, and the caller that did the flattening maps that back to a column.
+	 *
+	 * The sample sits at index 3, behind a blank (a pending row's empty date), a cell neither
+	 * reading can place, and a word: three cells the detector must step over. Separates « the
+	 * position of the cell the sample came from » from « the first cell », « the first non-blank
+	 * cell » and « the first cell the grammar matches », which answer 0, 1 and 1 here.
+	 */
+	it('names the position of the cell its question comes from', () => {
+		expect.assertions(1);
+
+		const verdict = detectDateOrder(['', '31/13/2026', 'CARTE', '06/01/2026', '05/02/2026']);
+
+		expect(verdict).toStrictEqual({ kind: 'ambiguous', sample: '06/01/2026', sampleIndex: 3 });
+	});
+
+	/**
 	 * The constructed adversarial case. **No real French statement is known to carry a mixed date
 	 * column**, and none in this repository's fixtures does: this file is written by hand to
 	 * exercise a branch that has never fired on real material, and it is labelled as such rather

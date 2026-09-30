@@ -14,11 +14,12 @@ import type {
 	ParsedCsvRow,
 	ResolvedCsvImportProfile
 } from './types';
-import { emptyResult, normalizeParsedRows, parseRows } from './utils/csv';
+import { emptyResult, firstDataRowIndex, normalizeParsedRows, parseRows } from './utils/csv';
 import { resolveCsvMaxColumns } from './columnBounds';
 import { CSV_MAX_ROWS } from './resourceBounds';
 export { CSV_MAX_ROWS };
 import { refusalCellValue } from './utils/safety';
+import type { CsvRefusalFact } from './refusals';
 export { sanitizeImportedText } from './utils/safety';
 export type {
 	CsvImportOptions,
@@ -40,7 +41,7 @@ export function parseCsvTransactions(
 	const sizeBytes = new TextEncoder().encode(content).length;
 
 	if (sizeBytes > maxBytes) {
-		return emptyResult([{ code: 'file-too-large', bytes: sizeBytes }], []);
+		return emptyResult([{ code: 'file-too-large', bytes: sizeBytes }]);
 	}
 
 	return parseImportRows(parseRows(content), options);
@@ -101,7 +102,11 @@ export function importHeaderCells(rows: ParsedCsvRow[]): string[] {
  * The pad is `SAMPLE_PADDING`, and any reader that is not `ColumnCard` filters it with
  * `isSamplePadding` rather than restating the comparison (#669).
  */
-export function importSampleValues(rows: ParsedCsvRow[], count = 3): string[][] {
+export function importSampleValues(
+	rows: ParsedCsvRow[],
+	count = 3,
+	hasHeaderRow?: boolean
+): string[][] {
 	const normalized = normalizeParsedRows(rows);
 	const header = normalized.length === 0 ? [] : normalized[0].cells;
 	const samples: string[][] = header.map(() => []);
@@ -110,7 +115,11 @@ export function importSampleValues(rows: ParsedCsvRow[], count = 3): string[][] 
 	// a dense statement — exits after `count` rows, which is what the old slice did; a sparse
 	// column is the case that costs more, and it is the case that was wrong.
 	let satisfied = 0;
-	for (let row = 1; row < normalized.length && satisfied < samples.length; row++) {
+	for (
+		let row = firstDataRowIndex(hasHeaderRow);
+		row < normalized.length && satisfied < samples.length;
+		row++
+	) {
 		const cells = normalized[row].cells;
 		for (let column = 0; column < samples.length; column++) {
 			if (samples[column].length >= count) continue;
@@ -149,10 +158,10 @@ export function importSampleValues(rows: ParsedCsvRow[], count = 3): string[][] 
  * An empty cell stays empty here. The row renders « (vide) », which is honest, and the rows still
  * describe one line of the file.
  */
-export function importFirstDataRow(rows: ParsedCsvRow[]): string[] {
+export function importFirstDataRow(rows: ParsedCsvRow[], hasHeaderRow?: boolean): string[] {
 	const normalized = normalizeParsedRows(rows);
 	const header = normalized.length === 0 ? [] : normalized[0].cells;
-	const first = normalized[1]?.cells ?? [];
+	const first = normalized[firstDataRowIndex(hasHeaderRow)]?.cells ?? [];
 	return header.map((_, column) => first[column] ?? '');
 }
 
@@ -175,12 +184,16 @@ export function importFirstDataRow(rows: ParsedCsvRow[]): string[] {
  * Padded to the header width for the same reason `importFirstDataRow` is: a short row must draw
  * empty cells under the right columns rather than shifting every value one to the left.
  */
-export function importPreviewRows(rows: ParsedCsvRow[], count = 5): string[][] {
+export function importPreviewRows(
+	rows: ParsedCsvRow[],
+	count = 5,
+	hasHeaderRow?: boolean
+): string[][] {
 	const normalized = normalizeParsedRows(rows);
 	if (normalized.length === 0) return [];
 	const header = normalized[0].cells;
 	return normalized
-		.slice(1, 1 + Math.max(0, count))
+		.slice(firstDataRowIndex(hasHeaderRow), firstDataRowIndex(hasHeaderRow) + Math.max(0, count))
 		.map((row) => header.map((_, column) => row.cells[column] ?? ''));
 }
 
@@ -195,12 +208,12 @@ export function importPreviewRows(rows: ParsedCsvRow[], count = 5): string[][] {
  * not be counted as carrying a value, or a column would be described as having values beside three
  * « (vide) » lines.
  */
-export function importSampleCoverage(rows: ParsedCsvRow[]): number[] {
+export function importSampleCoverage(rows: ParsedCsvRow[], hasHeaderRow?: boolean): number[] {
 	const normalized = normalizeParsedRows(rows);
 	const header = normalized.length === 0 ? [] : normalized[0].cells;
 	const filled = header.map(() => 0);
 
-	for (let row = 1; row < normalized.length; row++) {
+	for (let row = firstDataRowIndex(hasHeaderRow); row < normalized.length; row++) {
 		const cells = normalized[row].cells;
 		for (let column = 0; column < filled.length; column++) {
 			if ((cells[column] ?? '').trim() !== '') filled[column]++;
@@ -210,15 +223,21 @@ export function importSampleCoverage(rows: ParsedCsvRow[]): number[] {
 	return filled;
 }
 
-export function parseImportRows(
+/**
+ * THE FILE'S OWN REFUSAL, taken before any profile reads a column: no data row, too many rows, too
+ * many columns. The one definition, called by `parseImportRows` below and by `/import`'s correction
+ * door, which decides before the parse and must not parse through the correspondance the user has
+ * just disowned (#351). What it CAN consult is this, because no mapping decides a file's
+ * dimensions: the two doors then refuse the same file for the same reason.
+ *
+ * `dataRowCount` rides with the fact because the summary reports it (see below).
+ */
+export function fileDimensionRefusal(
 	rows: ParsedCsvRow[],
-	options: CsvImportOptions = {}
-): CsvImportResult {
-	const warnings: string[] = [];
-	const maxRows = options.maxRows ?? CSV_MAX_ROWS;
+	options: Pick<CsvImportOptions, 'maxRows' | 'maxColumns' | 'hasHeaderRow'> = {}
+): { fact: CsvRefusalFact; dataRowCount: number } | null {
 	const normalizedRows = normalizeParsedRows(rows);
-
-	if (normalizedRows.length < 2) return emptyResult([{ code: 'file-empty' }], warnings);
+	if (normalizedRows.length < 2) return { fact: { code: 'file-empty' }, dataRowCount: 0 };
 
 	// The rows a refusal below is about, computed ONCE and used both to decide the cap and to
 	// report it. A file refused by a cap used to report zero rows read, which is a statement about
@@ -226,28 +245,31 @@ export function parseImportRows(
 	// user's own answer about a title row is honoured here for the same reason it is honoured in
 	// the row loop: a headerless file's first line is a transaction, and subtracting it reports a
 	// count the user cannot find in their spreadsheet.
-	const dataRowCount =
-		options.hasHeaderRow === false ? normalizedRows.length : normalizedRows.length - 1;
+	const dataRowCount = normalizedRows.length - firstDataRowIndex(options.hasHeaderRow);
 
+	const maxRows = options.maxRows ?? CSV_MAX_ROWS;
 	if (dataRowCount > maxRows)
-		return emptyResult(
-			[{ code: 'too-many-rows', max: maxRows }],
-			warnings,
-			'generic',
-			dataRowCount
-		);
+		return { fact: { code: 'too-many-rows', max: maxRows }, dataRowCount };
 
 	// Beside the row cap and BEFORE profile resolution: the column count is a property of the
 	// file, so the answer must not depend on which profile happened to match. See
 	// columnBounds.ts for why the parser does not need this and the designation screen does.
 	const maxColumns = options.maxColumns ?? resolveCsvMaxColumns();
 	if (normalizedRows[0].cells.length > maxColumns)
-		return emptyResult(
-			[{ code: 'too-many-columns', max: maxColumns }],
-			warnings,
-			'generic',
-			dataRowCount
-		);
+		return { fact: { code: 'too-many-columns', max: maxColumns }, dataRowCount };
+
+	return null;
+}
+
+export function parseImportRows(
+	rows: ParsedCsvRow[],
+	options: CsvImportOptions = {}
+): CsvImportResult {
+	const dimensions = fileDimensionRefusal(rows, options);
+	if (dimensions) return emptyResult([dimensions.fact], 'generic', dimensions.dataRowCount);
+
+	const normalizedRows = normalizeParsedRows(rows);
+	const dataRowCount = normalizedRows.length - firstDataRowIndex(options.hasHeaderRow);
 
 	const requestedProfile = options.profile ?? 'auto';
 
@@ -268,7 +290,6 @@ export function parseImportRows(
 		const profileLabel = requestedProfile === 'auto' ? 'CSV' : profileErrorLabel(requestedProfile);
 		return emptyResult(
 			[{ code: 'header-not-recognized', profile: profileLabel }],
-			warnings,
 			resultProfile(requestedProfile),
 			dataRowCount
 		);
@@ -304,9 +325,22 @@ export function parseImportRows(
 	const dateColumns = parser
 		? parser.dateColumns(normalizedRows[0].cells)
 		: mappedDateColumns(options.columnMapping, normalizedRows[0].cells);
-	const verdict = detectDateOrder(
-		dateColumnCells(normalizedRows, dateColumns, options.hasHeaderRow)
-	);
+	const dateCells = dateColumnCells(normalizedRows, dateColumns, options.hasHeaderRow);
+	const verdict = detectDateOrder(dateCells.values);
+	/**
+	 * THE COLUMN THE READING QUESTION IS ABOUT: the one whose cell the verdict's sample came from.
+	 * One value, read by the question below and by the summary's disclosure, so the two cannot
+	 * name different columns. `dateColumns[0]` (the profile's first-listed column) only where no
+	 * question arises, which is where the disclosure reads it and finds nothing to say.
+	 *
+	 * It used to be `dateColumns[0]` always. On a Banque Populaire file whose `Date operation` is
+	 * blank, or a Revolut file whose first row is pending with no `Date de fin`, the evidence came
+	 * from a sibling column while the offer pointed at the blank one: the row's line 2 read an
+	 * empty cell and the sheet's cards were empty (#667). The reading applied is unaffected either
+	 * way: one column's evidence settles every declared column, as `detectDateOrder` records.
+	 */
+	const questionColumn =
+		verdict.kind === 'ambiguous' ? dateCells.columns[verdict.sampleIndex] : dateColumns[0];
 
 	const decision = decideDateOrder(verdict, options.dateOrder);
 
@@ -325,7 +359,6 @@ export function parseImportRows(
 					monthFirst: refusalCellValue(decision.monthFirst)
 				}
 			],
-			warnings,
 			parser ? parser.profile : 'mapped',
 			dataRowCount
 		);
@@ -333,7 +366,6 @@ export function parseImportRows(
 	const parsed = !parser
 		? parseMappedRows({
 				rows: normalizedRows,
-				warnings,
 				sourceName: options.sourceName,
 				categorizationRules: options.categorizationRules ?? [],
 				columnMapping: options.columnMapping,
@@ -342,7 +374,6 @@ export function parseImportRows(
 			})
 		: parser.parse({
 				rows: normalizedRows,
-				warnings,
 				sourceName: options.sourceName,
 				categorizationRules: options.categorizationRules ?? [],
 				dateOrder: decision.order
@@ -378,25 +409,29 @@ export function parseImportRows(
 		// written to stdout reaches nobody and is indistinguishable from never having run. The gap is
 		// recorded on the issue instead of manufactured as a log line nothing reads.
 		if (discriminant.kind === 'contradictory' || options.accountColumnAnswer === 'is-account') {
-			return emptyResult(
-				[{ code: 'multi-account-file', column: discriminant.index }],
-				warnings,
-				parser ? parser.profile : 'mapped',
-				dataRowCount
+			return carryDeclaration(
+				emptyResult(
+					[{ code: 'multi-account-file', column: discriminant.index }],
+					parser ? parser.profile : 'mapped',
+					dataRowCount
+				),
+				parsed
 			);
 		}
 		if (options.accountColumnAnswer !== 'not-account') {
-			return emptyResult(
-				[
-					{
-						code: 'ambiguous-account-column',
-						column: discriminant.index,
-						sample: refusalCellValue(normalizedRows[1]?.cells[discriminant.index] ?? '')
-					}
-				],
-				warnings,
-				parser ? parser.profile : 'mapped',
-				dataRowCount
+			return carryDeclaration(
+				emptyResult(
+					[
+						{
+							code: 'ambiguous-account-column',
+							column: discriminant.index,
+							sample: refusalCellValue(normalizedRows[1]?.cells[discriminant.index] ?? '')
+						}
+					],
+					parser ? parser.profile : 'mapped',
+					dataRowCount
+				),
+				parsed
 			);
 		}
 		// 'not-account': the column is confirmed noise, and `parsed` proceeds untouched, exactly as
@@ -427,12 +462,9 @@ export function parseImportRows(
 	 * existing day-first default for an unanswered column, and this flag is what lets this branch
 	 * leave it alone without also leaving the silent `mapped` reuse unasked forever.
 	 *
-	 * `dateColumns[0]` rather than every declared column: a registered profile with more than one
-	 * date candidate (banque-populaire, revolut) still designates ONE column as ITS date column,
-	 * and that is what the reading offer's `assignment.date` needs to point at. A profile whose
-	 * first-listed column is blank on the evidence row while a later one supplies it is a narrower,
-	 * separately filed gap (#667): the applied reading is still correct file-wide, only the reading
-	 * offer's own evidence cards can render empty.
+	 * `questionColumn`, one column rather than every declared one: the reading offer's
+	 * `assignment.date` points at one column, and it must be the column whose cell raised the
+	 * question (#667, see `questionColumn`'s own comment above).
 	 */
 	if (
 		verdict.kind === 'ambiguous' &&
@@ -441,17 +473,21 @@ export function parseImportRows(
 		parsed.transactions.length > 0 &&
 		parsed.summary.fileLevelRefusals === 0
 	) {
-		return emptyResult(
-			[
-				{
-					code: 'ambiguous-date-order',
-					column: dateColumns[0],
-					sample: refusalCellValue(verdict.sample)
-				}
-			],
-			warnings,
-			parser ? parser.profile : 'mapped',
-			dataRowCount
+		// #667's `questionColumn` names the column, and #600's `carryDeclaration` carries the file's
+		// declared currency out of this empty parse: both kept.
+		return carryDeclaration(
+			emptyResult(
+				[
+					{
+						code: 'ambiguous-date-order',
+						column: questionColumn,
+						sample: refusalCellValue(verdict.sample)
+					}
+				],
+				parser ? parser.profile : 'mapped',
+				dataRowCount
+			),
+			parsed
 		);
 	}
 
@@ -464,19 +500,24 @@ export function parseImportRows(
 	// whose order was in fact decided. This closes that, and plate 7l's summary line rests on it.
 	//
 	// PLATE 7L'S DISCLOSURE, computed at the one door that knows both halves it needs: which column
-	// (`dateColumns[0]`, the same index `dateColumnCells` just read) and whether an ANSWER is what
-	// settled it, which is exactly the one branch `decideDateOrder` takes an override through
-	// (`verdict.kind === 'ambiguous' && options.dateOrder`). A proven or defaulted column leaves
-	// this undefined, never a value the summary would have to know not to render.
+	// (`questionColumn`, the one the question named) and what became of the ANSWER, which
+	// `decideDateOrder` reports and this reads rather than restating: `applied` is the one branch an
+	// override settles, `overruled` is an answer the file's proof contradicted (#619). A proven
+	// column with no disagreeing answer, or a defaulted one, leaves this undefined, never a value
+	// the summary would have to know not to render. ONE fact, so the two lines can never both show.
 	//
-	// The header text is left undisclosed (not synthesised) for a headerless file: there is no
-	// message variant for that combination in 7i, and the applied reading is unaffected either way.
+	// The header text is left undisclosed (not synthesised) for a headerless file on the answered
+	// line: there is no message variant for that combination in 7i. The overruled line names the
+	// proving cell instead of a column, so it needs no header and shows on a headerless file too.
+	// The cell is untrusted and serialised into the page, so it is bounded like every refusal cell.
 	const dateOrderHeader =
-		options.hasHeaderRow !== false ? (normalizedRows[0].cells[dateColumns[0]] ?? '').trim() : '';
+		options.hasHeaderRow !== false ? (normalizedRows[0].cells[questionColumn] ?? '').trim() : '';
 	const dateOrderDisclosure: CsvImportSummary['dateOrderDisclosure'] =
-		verdict.kind === 'ambiguous' && options.dateOrder && decision.kind === 'read' && dateOrderHeader
-			? { header: dateOrderHeader, order: decision.order }
-			: undefined;
+		decision.answer === 'overruled'
+			? { kind: 'overruled', order: decision.order, proof: refusalCellValue(decision.proof) }
+			: decision.answer === 'applied' && dateOrderHeader
+				? { kind: 'answered', header: dateOrderHeader, order: decision.order }
+				: undefined;
 
 	return {
 		...parsed,
@@ -485,7 +526,24 @@ export function parseImportRows(
 }
 
 /**
- * The cells of the declared date columns, in file order, for the detector.
+ * An empty result the door returns AFTER the parse ran, carrying the file's declared currency out.
+ *
+ * #600: the currency a file declares is a fact about the file, read off every row by the profile
+ * (`declaredCurrencies`), and it does not stop being true because the door then withheld the rows
+ * to ask a question. `/import` ranks the currency refusal ABOVE the date question
+ * (`offerPrecedence.ts`), and it can only do that if the declaration leaves the empty parse that
+ * raised the question. Nothing else of `parsed` is carried: the rows stay withheld.
+ */
+function carryDeclaration(result: CsvImportResult, parsed: CsvImportResult): CsvImportResult {
+	return {
+		...result,
+		summary: { ...result.summary, declaredCurrencies: parsed.summary.declaredCurrencies }
+	};
+}
+
+/**
+ * The cells of the declared date columns, in file order, for the detector, and beside each one the
+ * column it came from, POSITION FOR POSITION, so the verdict's `sampleIndex` names a column (#667).
  *
  * A column index this file does not carry yields nothing rather than an `undefined` the detector
  * would have to defend against: a declaration naming an absent column is an ordinary state (a
@@ -501,15 +559,19 @@ function dateColumnCells(
 	rows: ParsedCsvRow[],
 	columns: number[],
 	hasHeaderRow: boolean | undefined
-): string[] {
+): { values: string[]; columns: number[] } {
 	const values: string[] = [];
-	for (let row = hasHeaderRow === false ? 0 : 1; row < rows.length; row++)
+	const cellColumns: number[] = [];
+	for (let row = firstDataRowIndex(hasHeaderRow); row < rows.length; row++)
 		for (const column of columns) {
 			const cell = rows[row].cells[column];
-			if (cell !== undefined) values.push(cell);
+			if (cell !== undefined) {
+				values.push(cell);
+				cellColumns.push(column);
+			}
 		}
 
-	return values;
+	return { values, columns: cellColumns };
 }
 
 function profileErrorLabel(profile: CsvImportProfile): string {

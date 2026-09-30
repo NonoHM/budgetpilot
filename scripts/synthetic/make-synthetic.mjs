@@ -527,10 +527,11 @@ function misdesignatedReference(ledger = LEDGER) {
 	return csv(header, lines);
 }
 
-function foreignCurrency() {
+/** A generic file whose `currency` column declares `code` on every row. */
+function declaredCurrency(code) {
 	return csv(
 		'date,label,amount,category,currency',
-		rows().map((r) => [iso(r.day), r.label, dec(r.cents), r.cat, 'GBP'].join(','))
+		rows().map((r) => [iso(r.day), r.label, dec(r.cents), r.cat, code].join(','))
 	);
 }
 
@@ -563,7 +564,11 @@ const FILES = {
 	// The refusals that naming a column provably cannot repair.
 	'split-debit-credit.csv': splitDebitCredit(),
 	'sign-indicator.csv': signIndicator(),
-	'foreign-currency.csv': foreignCurrency(),
+	'foreign-currency.csv': declaredCurrency('GBP'),
+
+	// A currency the file DECLARES and the app accepts: imports into a EUR account, refused into an
+	// account held in another currency (#600), whose walk needs a file that says EUR.
+	'declared-eur.csv': declaredCurrency('EUR'),
 
 	// The accented spelling the alias table misses.
 	'accented-headers.csv': neutral('accented'),

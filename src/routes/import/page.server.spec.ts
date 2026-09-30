@@ -1,4 +1,5 @@
 import { existsSync } from 'node:fs';
+import { strToU8, zipSync } from 'fflate';
 import { anonymizeDetailText } from '$lib/server/transactions/anonymize';
 import { UNCLASSIFIED_CATEGORY } from '$lib/domain/categories';
 import { assignDedupeKeys } from '$lib/server/import/dedupeRecompute';
@@ -7,6 +8,14 @@ import { computeDedupeKeyHash } from '$lib/server/import/dedupeKey';
 import { fingerprintFor } from '$lib/server/import/mapping/fingerprint';
 import { refusalLabel } from '$lib/i18n/refusalLabel';
 import { answerKeyFor } from '$lib/server/import/answerBinding';
+import {
+	DESIGNATION_ROW_FACTS,
+	designationView,
+	isSamplePadding,
+	type DesignationFile,
+	type DesignationRowFact
+} from '$lib/domain/columnDesignation';
+import { readWithHeaderRow } from '$lib/domain/headerRowReading';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -77,6 +86,8 @@ const db = vi.hoisted(() => {
 		// The correspondance this import was read through, which is what the correction pairing is
 		// resolved against.
 		columnMappingId?: string | null;
+		// The account the batch is filed on. The write step resolves the batch against it (#596).
+		accountId?: string | null;
 	};
 	type Rule = {
 		id: string;
@@ -137,6 +148,7 @@ const db = vi.hoisted(() => {
 		id?: string;
 		userId?: string;
 		columnMappingId?: string;
+		accountId?: string;
 	};
 	type TransactionCreateArgs = {
 		data: Omit<Transaction, 'id' | 'manualCategory'> & { manualCategory?: string | null };
@@ -153,6 +165,12 @@ const db = vi.hoisted(() => {
 		// How many rows of the batch being corrected carry a split or a tag. Set per test rather
 		// than derived, because this fake models neither table.
 		userWorkCount: 0,
+		/**
+		 * A write the database refuses: `transaction.create` throws for a row with this label. The
+		 * one fault D3's route tests inject, because a fault is what reaches the write step's catch
+		 * and no file this fake can parse produces one.
+		 */
+		failCreateOnLabel: null as string | null,
 		nextId: 1
 	};
 
@@ -179,6 +197,7 @@ const db = vi.hoisted(() => {
 			// failed to fire. Both defaults are stated rather than inferred.
 			state.nextId = 1;
 			state.userWorkCount = 0;
+			state.failCreateOnLabel = null;
 		},
 		prisma: {
 			// The import doors are rate limited, so the action counts and records attempts. Modelled
@@ -379,23 +398,42 @@ const db = vi.hoisted(() => {
 				 * reddens the cross-user test rather than throwing "unmodelled where" in every test
 				 * in this file before reaching it. A clause this cannot express at all still throws.
 				 */
-				findFirst: vi.fn(async ({ where }: { where: BatchFindFirstWhere }) => {
-					const unmodelled = Object.keys(where).filter(
-						(key) => !['id', 'userId', 'columnMappingId'].includes(key)
-					);
-					if (unmodelled.length > 0) {
-						throw new Error(`importBatch.findFirst: unmodelled where ${unmodelled.join(',')}`);
+				findFirst: vi.fn(
+					async ({
+						where,
+						select
+					}: {
+						where: BatchFindFirstWhere;
+						select?: { _count?: { select: { transactions: true } } };
+					}) => {
+						const unmodelled = Object.keys(where).filter(
+							(key) => !['id', 'userId', 'columnMappingId', 'accountId'].includes(key)
+						);
+						if (unmodelled.length > 0) {
+							throw new Error(`importBatch.findFirst: unmodelled where ${unmodelled.join(',')}`);
+						}
+						const found =
+							state.batches.find(
+								(batch) =>
+									(where.id === undefined || batch.id === where.id) &&
+									(where.userId === undefined || batch.userId === where.userId) &&
+									(where.columnMappingId === undefined ||
+										(batch.columnMappingId ?? null) === where.columnMappingId) &&
+									(where.accountId === undefined || (batch.accountId ?? null) === where.accountId)
+							) ?? null;
+						// The imported count a screen shows (D3, `importedCount.ts`): the rows this fake's
+						// own ledger files under the batch, never the stored counter.
+						if (!found || !select?._count) return found;
+						return {
+							...found,
+							_count: {
+								transactions: state.transactions.filter(
+									(transaction) => transaction.importBatchId === found.id
+								).length
+							}
+						};
 					}
-					return (
-						state.batches.find(
-							(batch) =>
-								(where.id === undefined || batch.id === where.id) &&
-								(where.userId === undefined || batch.userId === where.userId) &&
-								(where.columnMappingId === undefined ||
-									(batch.columnMappingId ?? null) === where.columnMappingId)
-						) ?? null
-					);
-				}),
+				),
 				create: vi.fn(async ({ data }: BatchCreateArgs) => {
 					const batch = {
 						id: id('batch'),
@@ -419,7 +457,62 @@ const db = vi.hoisted(() => {
 					if (!batch) throw new Error('batch not found');
 					Object.assign(batch, data);
 					return batch;
-				})
+				}),
+				/**
+				 * The write step's removal of a batch it filed nothing under (D3). Faithful to the three
+				 * clauses the production call sends, `transactions: { none: {} }` included, and loud on
+				 * any other: a fake that ignored « holds no rows » would let a delete of a batch WITH rows
+				 * pass here.
+				 */
+				deleteMany: vi.fn(
+					async ({
+						where
+					}: {
+						where: { id?: string; userId?: string; transactions?: { none: object } };
+					}) => {
+						const unmodelled = Object.keys(where).filter(
+							(key) => !['id', 'userId', 'transactions'].includes(key)
+						);
+						if (unmodelled.length > 0) {
+							throw new Error(`importBatch.deleteMany: unmodelled where ${unmodelled.join(',')}`);
+						}
+						const doomed = state.batches.filter(
+							(batch) =>
+								(where.id === undefined || batch.id === where.id) &&
+								(where.userId === undefined || batch.userId === where.userId) &&
+								(where.transactions === undefined ||
+									!state.transactions.some((transaction) => transaction.importBatchId === batch.id))
+						);
+						for (const batch of doomed) state.batches.splice(state.batches.indexOf(batch), 1);
+						return { count: doomed.length };
+					}
+				),
+				/**
+				 * The write step's counters (#660), scoped by `userId` (#596). Faithful: an absent clause
+				 * filters nothing, as in Prisma, and a clause this cannot express throws.
+				 */
+				updateMany: vi.fn(
+					async ({
+						where,
+						data
+					}: {
+						where: { id?: string; userId?: string };
+						data: Partial<Batch>;
+					}) => {
+						const unmodelled = Object.keys(where).filter((key) => !['id', 'userId'].includes(key));
+						if (unmodelled.length > 0) {
+							throw new Error(`importBatch.updateMany: unmodelled where ${unmodelled.join(',')}`);
+						}
+						let count = 0;
+						for (const batch of state.batches) {
+							if (where.id !== undefined && batch.id !== where.id) continue;
+							if (where.userId !== undefined && batch.userId !== where.userId) continue;
+							Object.assign(batch, data);
+							count += 1;
+						}
+						return { count };
+					}
+				)
 			},
 			categorizationRule: {
 				findMany: vi.fn(async () => state.rules.filter((rule) => rule.active))
@@ -545,6 +638,17 @@ const db = vi.hoisted(() => {
 					if (where.OR) {
 						return state.userWorkCount;
 					}
+					// The write step's ledger count (#660): the rows one batch holds, scoped by user.
+					if (where.dedupeKeyHash === undefined) {
+						if (where.importBatchId === undefined) {
+							throw new Error('transaction.count: unmodelled where without importBatchId');
+						}
+						return state.transactions.filter(
+							(transaction) =>
+								transaction.userId === where.userId &&
+								transaction.importBatchId === where.importBatchId
+						).length;
+					}
 					const hashes = where.dedupeKeyHash?.in ?? [];
 					return state.transactions.filter(
 						(transaction) =>
@@ -592,6 +696,9 @@ const db = vi.hoisted(() => {
 					);
 				}),
 				create: vi.fn(async ({ data }: TransactionCreateArgs) => {
+					if (state.failCreateOnLabel !== null && data.label === state.failCreateOnLabel) {
+						throw new Error('Connection terminated unexpectedly');
+					}
 					if (
 						data.dedupeKey &&
 						state.transactions.some((transaction) => transaction.dedupeKey === data.dedupeKey)
@@ -682,7 +789,9 @@ describe('/import load', () => {
 				source: 'csv',
 				profile: 'generic',
 				rowCount: 3,
-				importedRows: 3,
+				// 0 while 3 rows are FILED under it (below), which is the damaged state a lost connection
+				// or a restore leaves: the confirmation must name the 3 the delete destroys (D3).
+				importedRows: 0,
 				duplicateRows: 0,
 				invalidRows: 0,
 				// The load reads this to NAME the batch on the control that deletes it, so a fixture
@@ -692,6 +801,13 @@ describe('/import load', () => {
 				createdAt: SEEDED_AT,
 				columnMappingId: 'mapping-1'
 			} as (typeof db.state.batches)[number]);
+			for (const n of [1, 2, 3]) {
+				db.state.transactions.push({
+					id: `filed-${n}`,
+					importBatchId: 'batch-1',
+					userId: testUser.id
+				} as (typeof db.state.transactions)[number]);
+			}
 		}
 
 		async function loadWith(search: string) {
@@ -718,7 +834,8 @@ describe('/import load', () => {
 				mappingId: 'mapping-1',
 				batchId: 'batch-1',
 				replacedAt: SEEDED_AT.toISOString(),
-				// 3, which is what the seed above writes as `importedRows`. The confirmation of
+				// 3, the rows the seed FILES under the batch, while its stored counter says 0: separates
+				// « read from the ledger » (D3) from « read from the counter ». The confirmation of
 				// Planche 5c names this number beside a different one, the rows about to be imported,
 				// so a fixture where the two agreed could not tell them apart.
 				replacedRows: 3,
@@ -1107,7 +1224,11 @@ describe('/import actions', () => {
 		});
 		expect(db.state.batches[0].periodStart).toBeInstanceOf(Date);
 		expect(db.state.transactions[0].importBatchId).toBe(db.state.batches[0].id);
-		expect(db.prisma.importBatch.update).toHaveBeenCalled();
+		// The counters go through `updateMany` scoped by the user (#596). That the scope REFUSES a
+		// foreign batch is asserted against real engines in `writeStep.db-smoke.ts`, not here.
+		expect(db.prisma.importBatch.updateMany).toHaveBeenCalledWith(
+			expect.objectContaining({ where: { id: db.state.batches[0].id, userId: testUser.id } })
+		);
 	});
 
 	it('ignores duplicates on a second import of the same CSV', async () => {
@@ -1575,7 +1696,7 @@ describe('/import actions', () => {
 	 *
 	 * The rescue existed and was reachable only from a file NOTHING recognised. A file whose headers
 	 * matched and whose values then failed ended on the same sentence with no way forward, and the
-	 * two are indistinguishable from the outside. Nothing covered `offersDesignation` at any level
+	 * two are indistinguishable from the outside. Nothing covered the offer's gate (now `designationCanHelp`) at any level
 	 * before this block, which is why the routing could be wrong for a whole chantier.
 	 */
 	describe('the designation offer on a file that produced nothing', () => {
@@ -1700,6 +1821,272 @@ describe('/import actions', () => {
 
 			expect(result.data.designation).toBeUndefined();
 		});
+
+		/**
+		 * #628: A FILE REFUSED ON ITS DIMENSIONS. No arrangement of columns changes a row count, and
+		 * the offer used to be built anyway because the old cannot-repair list did not carry the two
+		 * bound codes. Each test asserts the absence of the offer AND the reason the summary states,
+		 * so a refusal for some other cause cannot pass for this one.
+		 *
+		 * Break (the bound codes classified `repairable` in `refusals.ts`): red, separating « the
+		 * gate reads the classification » from « the gate reads a private list ».
+		 */
+		describe('on a file refused on its dimensions (#628)', () => {
+			type Refused = {
+				data: {
+					designation?: unknown;
+					importResult: { invalidRowDetails: ImportInvalidRowDetail[] };
+				};
+			};
+
+			it('is not offered over the row bound, and the summary names the bound', async () => {
+				expect.assertions(2);
+				const rows = Array.from(
+					{ length: 1001 },
+					(_, i) => `2026-03-${String((i % 28) + 1).padStart(2, '0')},MERCERIE ${i},-4.20`
+				);
+				const result = (await runImportWithFile(
+					['date,label,amount', ...rows].join('\n')
+				)) as unknown as Refused;
+
+				expect(result.data.designation).toBeUndefined();
+				expect(result.data.importResult.invalidRowDetails.map((row) => row.fact.code)).toEqual([
+					'too-many-rows'
+				]);
+			});
+
+			it('is not offered over the column bound, and the summary names the bound', async () => {
+				expect.assertions(2);
+				// 513 columns against the default bound of 512 (`CSV_MAX_COLUMNS` unset in this suite).
+				const header = [
+					'date',
+					'label',
+					'amount',
+					...Array.from({ length: 510 }, (_, i) => `c${i}`)
+				];
+				const row = ['2026-03-01', 'MERCERIE', '-4.20', ...Array.from({ length: 510 }, () => '')];
+				const result = (await runImportWithFile(
+					`${header.join(',')}\n${row.join(',')}`
+				)) as unknown as Refused;
+
+				expect(result.data.designation).toBeUndefined();
+				expect(result.data.importResult.invalidRowDetails.map((row) => row.fact.code)).toEqual([
+					'too-many-columns'
+				]);
+			});
+		});
+
+		/**
+		 * #735: THE FILE THE SCREEN DRAWS ONCE THE USER SAYS LINE 1 IS DATA. The offer is built with
+		 * line 1 read as headers (detection's guess), and the « Première ligne » switch is the user's
+		 * answer. Every per-row fact the screen reads must describe the file under the ANSWER.
+		 *
+		 * Synthetic, headerless, three lines, and the only proof of the date order is on line 1
+		 * (`24/05/2025`: 24 cannot be a month). Measured through this action before the fix, after
+		 * `readWithHeaderRow(view, false)`: `dateStates[0]` was `ambiguous`, so the sheet asked a
+		 * question line 1 answers; `firstRow` was line 2, so the Date row stated « 06/01/2025 → 1 juin
+		 * 2025 » under the name « première ligne »; the cards, their readings, the coverage and the
+		 * preview all skipped line 1. The import then wrote 6 January, day-first.
+		 *
+		 * ONE TEST PER FACT, so a fact that is right cannot hide behind one that is red, and each
+		 * fact's break reddens its own line. The expected values are read off the three lines by
+		 * hand, never computed by the code under test.
+		 */
+		describe('once line 1 is declared data (#735)', () => {
+			const HEADERLESS = [
+				'24/05/2025,Fleuriste Bellevue,-31.00',
+				'06/01/2025,Pharmacie du Pont,-18.90',
+				'03/02/2025,Primeur Sainte Anne,-17.45'
+			];
+			const NOT_A_DATE = [null, null, null, null];
+
+			const EXPECTED: Record<DesignationRowFact, unknown> = {
+				samples: [
+					['24/05/2025', '06/01/2025', '03/02/2025'],
+					['Fleuriste Bellevue', 'Pharmacie du Pont', 'Primeur Sainte Anne'],
+					['-31.00', '-18.90', '-17.45']
+				],
+				// The four role rows read one transaction, and it is line 1 now.
+				firstRow: ['24/05/2025', 'Fleuriste Bellevue', '-31.00'],
+				previewRows: HEADERLESS.map((line) => line.split(',')),
+				coverage: [3, 3, 3],
+				// Line 1 proves day-first, so the column is never asked about.
+				dateStates: ['proven-day', 'no-dates', 'no-dates'],
+				// Index 0 is line 1's cell (the Date row's line 3), then the three card values.
+				dateReadings: [
+					{
+						dayFirst: ['2025-05-24', '2025-05-24', '2025-01-06', '2025-02-03'],
+						monthFirst: [null, null, '2025-06-01', '2025-03-02']
+					},
+					{ dayFirst: NOT_A_DATE, monthFirst: NOT_A_DATE },
+					{ dayFirst: NOT_A_DATE, monthFirst: NOT_A_DATE }
+				]
+			};
+
+			async function declaredData() {
+				const result = (await runImportWithFile(HEADERLESS.join('\n'))) as unknown as {
+					data: { designation?: DesignationFile };
+				};
+				const payload = result.data.designation;
+				if (!payload) throw new Error('no designation offer: the fixture no longer reaches it');
+				return readWithHeaderRow(designationView(payload), false);
+			}
+
+			// Enumerated from the registry: a fact added to it without an expectation here fails to
+			// compile, and one added with an expectation is checked through the real action.
+			it.each(DESIGNATION_ROW_FACTS)('%s follows the switch', async (fact) => {
+				expect.assertions(1);
+				expect((await declaredData())[fact]).toStrictEqual(EXPECTED[fact]);
+			});
+		});
+	});
+
+	/**
+	 * #351: THE CORRECTION DOOR CARRIES THE UPLOAD DOOR'S GUARD. It decides before any column is
+	 * read, deliberately, so it cannot consult a parse through the mapping the user just disowned;
+	 * what it CAN consult is the file's own dimensions, which no mapping decides. Measured before
+	 * the fix: a header-only file opened the screen with `rowCount: 0` and « Importer 0 lignes ».
+	 *
+	 * Break (the correction branch skips `designationCanHelp`): red on both refusals, separating
+	 * « one guard at two doors » from « a guard at the upload door only ».
+	 */
+	describe('the correction door, on a file no designation can help (#351)', () => {
+		const HEADERS = ['Jour', 'Intitule operation', 'Somme', 'Detail'];
+
+		function seedCorrection() {
+			db.state.columnMappings.push({
+				id: 'mapping-351',
+				userId: testUser.id,
+				fingerprint: fingerprintFor(HEADERS, 'name'),
+				matchBy: 'name' as const,
+				dateColumn: 'jour',
+				labelColumn: 'detail',
+				amountColumn: 'somme',
+				categoryColumn: null,
+				dateIndex: null,
+				labelIndex: null,
+				amountIndex: null,
+				categoryIndex: null,
+				columnCount: 4,
+				useCount: 0,
+				lastUsedAt: null as Date | null
+			} as (typeof db.state.columnMappings)[number]);
+		}
+
+		type Corrected = {
+			data: {
+				designation?: unknown;
+				importResult?: { invalidRowDetails: ImportInvalidRowDetail[] };
+			};
+		};
+
+		it('refuses a header-only file before the screen, with the upload door answer', async () => {
+			expect.assertions(3);
+			seedCorrection();
+
+			const result = (await runImportWithFileAndFields(HEADERS.join(';'), {
+				correctMappingId: 'mapping-351'
+			})) as unknown as Corrected;
+
+			expect(result.data.designation).toBeUndefined();
+			expect(result.data.importResult?.invalidRowDetails.map((row) => row.fact.code)).toEqual([
+				'file-empty'
+			]);
+			// Nothing read through the disowned correspondance, and nothing written.
+			expect(db.state.transactions).toHaveLength(0);
+		});
+
+		it('refuses a file over the row bound before the screen', async () => {
+			expect.assertions(2);
+			seedCorrection();
+			const rows = Array.from({ length: 1001 }, (_, i) => `24/06/2026;CB ${i};-24,90;PAIEMENT CB`);
+
+			const result = (await runImportWithFileAndFields([HEADERS.join(';'), ...rows].join('\n'), {
+				correctMappingId: 'mapping-351'
+			})) as unknown as Corrected;
+
+			expect(result.data.designation).toBeUndefined();
+			expect(result.data.importResult?.invalidRowDetails.map((row) => row.fact.code)).toEqual([
+				'too-many-rows'
+			]);
+		});
+
+		it('still opens the screen on a file it can read, so the guard is not a wall', async () => {
+			expect.assertions(1);
+			seedCorrection();
+
+			const result = (await runImportWithFileAndFields(
+				`${HEADERS.join(';')}\n24/06/2026;CARREFOUR MARKET;-24,90;PAIEMENT CB 22/06`,
+				{ correctMappingId: 'mapping-351' }
+			)) as unknown as Corrected;
+
+			expect(result.data.designation).toBeDefined();
+		});
+	});
+
+	/**
+	 * #712: A PROFILE THAT READS THE DEBIT/CREDIT PAIR IS NOT A SPLIT FILE. Synthetic, the shape of
+	 * `scripts/synthetic/make-synthetic.mjs`'s `ambiguous-banque-populaire.csv` reduced to one
+	 * debit and one credit, both dated so they read both ways. Measured before the fix, through this
+	 * action: 400 with the split sentence and no reading question.
+	 *
+	 * Break (the split detector runs whatever the profile read): red, separating « the pair was
+	 * already read » from « the parse was empty so the money must be unreadable ».
+	 */
+	describe('a Banque Populaire file whose rows wait on the date question (#712)', () => {
+		const BP_HEADER =
+			'Date de comptabilisation;Libelle simplifie;Libelle operation;Reference;Informations complementaires;Type operation;Categorie;Sous categorie;Debit;Credit;Date operation;Date de valeur;Pointage operation';
+		const bpRow = (date: string, label: string, debit: string, credit: string, n: number) =>
+			`${date};${label};PAIEMENT ${label};REF00010${n};PAUL MERCIER;Virement;Divers;Divers;${debit};${credit};${date};${date};`;
+		const AMBIGUOUS_WITH_CREDIT = [
+			BP_HEADER,
+			bpRow('03/02/2026', 'PRIMEUR SAINTE ANNE', '-17,45', '', 0),
+			bpRow('05/02/2026', 'REMBOURSEMENT TELECONSULTATION', '', '49,00', 1)
+		].join('\n');
+
+		it('asks the date reading rather than refusing the file as split', async () => {
+			expect.assertions(3);
+			const result = (await runImportWithFile(AMBIGUOUS_WITH_CREDIT)) as unknown as {
+				data: { error: string; reading?: { dateColumn: number }; designation?: unknown };
+			};
+
+			expect(result.data.error).toBe(m.import_error_ambiguous_date_order());
+			expect(result.data.reading).toBeDefined();
+			expect(result.data.designation).toBeUndefined();
+		});
+
+		it('imports both rows, the credit included, once the reading is answered', async () => {
+			expect.assertions(2);
+			const result = await runImportWithFileAndFields(AMBIGUOUS_WITH_CREDIT, {
+				dateOrder: 'day-first'
+			});
+
+			expect(result.importResult.importedRows).toBe(2);
+			expect(db.state.transactions.map((row) => row.type).sort()).toEqual(['expense', 'income']);
+		});
+
+		/**
+		 * The other half of the same rule. With the split detector silent for this profile, a Banque
+		 * Populaire file whose dates nothing reads (a two-digit year, as the corpus's
+		 * `unreadable-dates-banque-populaire.csv`) must not be sent to the designation screen either:
+		 * the screen's one amount role cannot express the pair, and `/import/columns` would refuse it
+		 * as split AFTER the user did the work (plate 1q, table B). The sentence is the plain one,
+		 * because « BudgetPilot cannot read this shape yet » is false for a shape it reads.
+		 */
+		it('neither calls a file it reads split nor offers a screen that cannot express it', async () => {
+			expect.assertions(2);
+			const shortYear = [
+				BP_HEADER,
+				bpRow('03/02/26', 'PRIMEUR SAINTE ANNE', '-17,45', '', 0),
+				bpRow('05/02/26', 'REMBOURSEMENT TELECONSULTATION', '', '49,00', 1)
+			].join('\n');
+			const result = (await runImportWithFile(shortYear)) as unknown as {
+				data: { error: string; designation?: unknown };
+			};
+
+			expect(result.data.error).toBe(m.import_error_no_valid_transactions());
+			expect(result.data.designation).toBeUndefined();
+		});
 	});
 
 	describe('the reading offer, #433s auto-path remainder (plate 7l)', () => {
@@ -1745,6 +2132,180 @@ describe('/import actions', () => {
 		 * and it must not be confused with the ambiguous case merely because both are 0 rows away
 		 * from a normal import today: this file has 6 valid rows and no refusal at all.
 		 */
+		/**
+		 * #667: THE QUESTION NAMES THE COLUMN ITS EVIDENCE CAME FROM, not the profile's first-listed
+		 * date column. Inline synthetic literals, shaped on the two profiles that declare more than
+		 * one date column. Banque Populaire lists `Date operation` first; Revolut lists `Date de fin`
+		 * (`Completed Date`), which a pending row leaves blank.
+		 *
+		 * Measured before the fix, through this action: the offer pointed at the first-listed column
+		 * in all three shapes, so the row's line 2 read an empty cell (`firstRow[dateColumn]` was
+		 * `''`) and the sheet's cards carried 1, 0 and 1 values instead of 2. Zero is the empty
+		 * evidence cards the issue names: the question showing the user nothing to decide from.
+		 */
+		describe('on a profile with more than one date column (#667)', () => {
+			const BP_HEADER = [
+				'Date de comptabilisation',
+				'Libelle simplifie',
+				'Libelle operation',
+				'Reference',
+				'Informations complementaires',
+				'Type operation',
+				'Categorie',
+				'Sous categorie',
+				'Debit',
+				'Credit',
+				'Date operation',
+				'Date de valeur',
+				'Pointage operation'
+			].join(';');
+			const bp = (booked: string, operation: string, value: string, n: number) =>
+				`${booked};MERCERIE;PAIEMENT CB MERCERIE;REF${n};;Carte;Loisirs;Divers;-24,90;;${operation};${value};`;
+			const REVOLUT_HEADER =
+				'Type,Produit,Date de début,Date de fin,Description,Montant,Frais,Devise,État,Solde';
+			const revolut = (started: string, completed: string, state: string) =>
+				`CARD_PAYMENT,Current,${started},${completed},PRIMEUR,-4.50,0.00,EUR,${state},100.00`;
+
+			type ReadingData = {
+				data: {
+					reading?: {
+						headers: string[];
+						samples: string[][];
+						firstRow: string[];
+						dateColumn: number;
+					};
+				};
+			};
+
+			/** What the sheet shows: the offer's column, its header, the row's raw cell, the cards. */
+			async function offerFor(content: string) {
+				const reading = ((await runImportWithFile(content)) as unknown as ReadingData).data.reading;
+				if (!reading) throw new Error('no reading offer: the fixture no longer asks');
+				const column = reading.dateColumn;
+				return {
+					header: reading.headers[column],
+					rowCell: reading.firstRow[column],
+					// `ColumnPicker`'s own filter, through the one definition of the padding.
+					cards: (reading.samples[column] ?? []).filter((value) => !isSamplePadding(value))
+				};
+			}
+
+			it('points at the column that carries the dates when the first-listed one is blank throughout', async () => {
+				expect.assertions(1);
+				const content = [
+					BP_HEADER,
+					bp('06/01/2026', '', '07/01/2026', 1),
+					bp('03/02/2026', '', '04/02/2026', 2)
+				].join('\n');
+
+				expect(await offerFor(content)).toStrictEqual({
+					header: 'Date de comptabilisation',
+					rowCell: '06/01/2026',
+					cards: ['06/01/2026', '03/02/2026']
+				});
+			});
+
+			it('points at the column the first ambiguous cell sits in when the first-listed one is blank on that row', async () => {
+				expect.assertions(1);
+				const content = [
+					BP_HEADER,
+					bp('06/01/2026', '', '07/01/2026', 1),
+					bp('03/02/2026', '02/02/2026', '04/02/2026', 2)
+				].join('\n');
+
+				expect(await offerFor(content)).toStrictEqual({
+					header: 'Date de comptabilisation',
+					rowCell: '06/01/2026',
+					cards: ['06/01/2026', '03/02/2026']
+				});
+			});
+
+			it('points at the start date of a Revolut file whose first row is pending', async () => {
+				expect.assertions(1);
+				const content = [
+					REVOLUT_HEADER,
+					revolut('06/01/2026 10:00:00', '', 'EN ATTENTE'),
+					revolut('03/02/2026 10:00:00', '03/02/2026 11:00:00', 'TERMINÉ')
+				].join('\n');
+
+				expect(await offerFor(content)).toStrictEqual({
+					header: 'Date de début',
+					rowCell: '06/01/2026 10:00:00',
+					cards: ['06/01/2026 10:00:00', '03/02/2026 10:00:00']
+				});
+			});
+
+			/**
+			 * A SHORT ROW BEFORE THE EVIDENCE. Row 1 stops after its second cell, so it carries no
+			 * `Date operation` and no `Date de valeur` at all, and the detector's input has fewer cells
+			 * than the declared columns times the rows. Separates « each cell's column recorded beside
+			 * it » from « columns recorded per declared slot, shifting against the cells as soon as one
+			 * is missing », which points the question at `Date operation` here. Found by the break
+			 * suite: no other test has a ragged row ahead of the sample.
+			 */
+			it('points at the right column when a short row precedes the evidence', async () => {
+				expect.assertions(1);
+				const content = [
+					BP_HEADER,
+					'05/01/2026;MERCERIE',
+					bp('06/01/2026', '', '07/01/2026', 1),
+					bp('03/02/2026', '', '04/02/2026', 2)
+				].join('\n');
+
+				expect(await offerFor(content)).toStrictEqual({
+					header: 'Date de comptabilisation',
+					rowCell: '05/01/2026',
+					cards: ['05/01/2026', '06/01/2026', '03/02/2026']
+				});
+			});
+
+			/**
+			 * The calibration, and the guard on the other side: a file whose first-listed column
+			 * carries the first ambiguous cell keeps pointing at it. Separates « the question follows
+			 * the evidence » from « the question moved off the profile's preferred column ».
+			 */
+			it('keeps the first-listed column when that column supplies the evidence', async () => {
+				expect.assertions(1);
+				const content = [
+					BP_HEADER,
+					bp('06/01/2026', '05/01/2026', '07/01/2026', 1),
+					bp('03/02/2026', '02/02/2026', '04/02/2026', 2)
+				].join('\n');
+
+				expect(await offerFor(content)).toStrictEqual({
+					header: 'Date operation',
+					rowCell: '05/01/2026',
+					cards: ['05/01/2026', '02/02/2026']
+				});
+			});
+
+			/**
+			 * The summary line after the answer names the same column the question did (plate 7l's
+			 * disclosure). Separates « one column for the question and the disclosure » from « the
+			 * question fixed, the disclosure still naming the blank column ».
+			 */
+			it('names the same column in the summary once the reading is answered', async () => {
+				expect.assertions(1);
+				const content = [
+					BP_HEADER,
+					bp('06/01/2026', '', '07/01/2026', 1),
+					bp('03/02/2026', '', '04/02/2026', 2)
+				].join('\n');
+
+				const result = (await runImportWithFileAndFields(content, {
+					dateOrder: 'month-first'
+				})) as unknown as {
+					importResult?: { dateOrderDisclosure?: unknown };
+				};
+
+				expect(result.importResult?.dateOrderDisclosure).toStrictEqual({
+					kind: 'answered',
+					header: 'Date de comptabilisation',
+					order: 'month-first'
+				});
+			});
+		});
+
 		it('does not offer the reading sheet for a column that proves its own order', async () => {
 			const result = await runImportWithFile('Date,Description,Amount\n24/06/2026,COFFEE,-4.50');
 
@@ -1797,6 +2358,24 @@ describe('/import actions', () => {
 		});
 
 		/**
+		 * D3: « utilisée N fois » counts designations that WORKED, so a run whose write failed is not
+		 * one. The use used to be counted before the write, so a failed write still incremented it.
+		 * Separates « counted after the rows landed » from « counted before the write ».
+		 */
+		it('counts no use when the write fails', async () => {
+			expect.assertions(2);
+			vi.spyOn(console, 'error').mockImplementation(() => {});
+			const row = rememberFor(testUser.id);
+			db.state.failCreateOnLabel = 'CARREFOUR MARKET';
+
+			const result = await runImportWithFile(UNRECOGNISED);
+
+			// CALIBRATION: the write did fail, through the sentence and not a 500.
+			expect(result.status).toBe(500);
+			expect(row.useCount).toBe(0);
+		});
+
+		/**
 		 * #433's CONTRADICTION-PASS FINDING, closed. A remembered mapping is reapplied SILENTLY —
 		 * no designation screen opens for this reuse — and `ColumnMapping` carries no `dateOrder`
 		 * field, so nothing was ever asked or remembered about this file's reading. Before this,
@@ -1815,6 +2394,71 @@ describe('/import actions', () => {
 			expect(result.data.error).toBe(m.import_error_ambiguous_date_order());
 			expect(result.data.reading).toBeDefined();
 			expect(db.state.transactions).toHaveLength(0);
+		});
+
+		/**
+		 * #619, THROUGH THE ROUTE THAT STILL PRODUCES IT ON THIS DOOR. An answer is bound to the
+		 * file's bytes (`answerBinding.ts`), not to the columns it was asked about, so a mapping
+		 * remembered BETWEEN the question and the answer changes which column the answer meets.
+		 *
+		 * Request 1: no mapping; the file is read by the generic profile, whose `Date` column
+		 * carries only `06/01/2026`, and the question is asked. Between the two requests the user
+		 * designates the same header shape elsewhere with `Valeur` as the date, which carries
+		 * `24/01/2026` and proves day-first. Request 2 posts the bound answer « month-first » and
+		 * is read through that mapping. The proof wins, and the summary says so.
+		 *
+		 * Separates « the summary names the overruled answer and its proof » from « the answer was
+		 * discarded in silence », and « the proof won » from « the answer won ».
+		 */
+		describe('when a mapping remembered between question and answer overrules it', () => {
+			const CONTENT = 'Date,Valeur,Description,Amount\n06/01/2026,24/01/2026,COFFEE,-4.50';
+
+			async function askThenAnswerThroughMapping() {
+				const asked = (await runImportWithFile(CONTENT)) as unknown as {
+					data: { reading?: unknown };
+				};
+				if (!asked.data.reading) throw new Error('request 1 no longer asks the reading question');
+				db.state.columnMappings.push({
+					id: `mapping-valeur-${testUser.id}`,
+					userId: testUser.id,
+					fingerprint: fingerprintFor(['Date', 'Valeur', 'Description', 'Amount'], 'name'),
+					matchBy: 'name',
+					dateColumn: 'valeur',
+					labelColumn: 'description',
+					amountColumn: 'amount',
+					categoryColumn: null,
+					dateIndex: null,
+					labelIndex: null,
+					amountIndex: null,
+					categoryIndex: null,
+					columnCount: 4,
+					useCount: 0,
+					lastUsedAt: null
+				});
+				return (await runImportWithFileAndFields(CONTENT, {
+					dateOrder: 'month-first'
+				})) as unknown as {
+					importResult?: { dateOrderDisclosure?: unknown };
+				};
+			}
+
+			it('tells the user the file overruled the answer', async () => {
+				expect.assertions(1);
+				const answered = await askThenAnswerThroughMapping();
+				expect(answered.importResult?.dateOrderDisclosure).toStrictEqual({
+					kind: 'overruled',
+					order: 'day-first',
+					proof: '24/01/2026'
+				});
+			});
+
+			it('still reads the file the way it proves', async () => {
+				expect.assertions(1);
+				await askThenAnswerThroughMapping();
+				expect(db.state.transactions.map((row) => row.date)).toStrictEqual([
+					new Date('2026-01-24T00:00:00.000Z')
+				]);
+			});
 		});
 
 		/**
@@ -1944,6 +2588,98 @@ describe('/import actions', () => {
 	});
 });
 
+/**
+ * D3: the write step owns its failures, seen from the route. Before it, `persistImportedTransactions`
+ * was called with no catch around it, so a throw reached SvelteKit's default handler: a bare 500,
+ * the same page a database outage shows, while rows it had already written stayed in the ledger
+ * (#662), and a real archive that is not a workbook did the same one call earlier (#595).
+ *
+ * The fault is injected into the fake (`failCreateOnLabel`) because no file this fake can parse
+ * makes a write throw; what is under test is what the ROUTE says once one does. The counts against
+ * real engines are `writeStep.db-smoke.ts`.
+ */
+describe('/import: a failed write answers with a sentence, never a 500', () => {
+	const THREE_ROWS =
+		'date;label;amount\n2026-06-01;CAFE FICTIF;-2,50\n2026-06-02;PANNE FICTIVE;-3,00\n2026-06-03;EPICERIE FICTIVE;-4,00';
+
+	beforeEach(() => {
+		db.reset();
+		vi.clearAllMocks();
+		// The write step logs a sanitised line for an operator; silenced so the run stays readable.
+		vi.spyOn(console, 'error').mockImplementation(() => {});
+	});
+
+	it('names the 1 row saved before the second one failed, and the batch they are in', async () => {
+		expect.assertions(2);
+		db.state.failCreateOnLabel = 'PANNE FICTIVE';
+
+		const result = await runImportWithFile(THREE_ROWS);
+
+		expect(result.status).toBe(500);
+		// The FAILURE, not a sentence (D3): the page renders it, naming the import by the instant of
+		// the batch the row landed in, formatted with the history's own function. The sentence is
+		// `write-failure-banner.svelte.spec.ts`'s claim.
+		expect(result.data.writeFailure).toEqual({
+			kind: 'partly-saved',
+			landedRows: 1,
+			createdAt: (db.state.batches[0].createdAt as Date).toISOString()
+		});
+	});
+
+	it('leaves the history saying 1, which is what the ledger holds (#660)', async () => {
+		expect.assertions(2);
+		db.state.failCreateOnLabel = 'PANNE FICTIVE';
+
+		await runImportWithFile(THREE_ROWS);
+
+		// CALIBRATION: one row reached the ledger before the fault.
+		expect(db.state.transactions).toHaveLength(1);
+		expect(db.state.batches[0].importedRows).toBe(1);
+	});
+
+	it('says nothing was saved when the first row fails', async () => {
+		expect.assertions(2);
+		db.state.failCreateOnLabel = 'CAFE FICTIF';
+
+		const result = await runImportWithFile(THREE_ROWS);
+
+		expect(result.status).toBe(500);
+		expect(result.data.writeFailure).toEqual({ kind: 'nothing-saved' });
+	});
+
+	it('leaves no « Importé 0 » batch behind when nothing was saved', async () => {
+		expect.assertions(2);
+		db.state.failCreateOnLabel = 'CAFE FICTIF';
+
+		await runImportWithFile(THREE_ROWS);
+
+		// CALIBRATION: nothing reached the ledger.
+		expect(db.state.transactions).toHaveLength(0);
+		expect(db.state.batches).toHaveLength(0);
+	});
+
+	it('refuses an archive that is not a workbook with its own sentence (#595)', async () => {
+		expect.assertions(2);
+		// fflate writes a real central directory; `zipStored` below is hand-assembled, and the issue
+		// records a hand-assembled archive being refused earlier, as malformed, for another reason.
+		const archive = zipSync({ 'notes.txt': strToU8('une archive, pas un classeur') });
+		const formData = new FormData();
+		formData.set(
+			'csvFile',
+			new File([archive as Uint8Array<ArrayBuffer>], 'export.xlsx', {
+				type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+			})
+		);
+
+		const result = await runImport(formData);
+
+		expect(result.status).toBe(400);
+		expect(result.data.error).toBe(
+			"Ce fichier .xlsx n'est pas un classeur lisible. Exportez-le de nouveau, ou en CSV."
+		);
+	});
+});
+
 async function runImportWithFile(content: string) {
 	const formData = new FormData();
 	formData.set('csvFile', new File([content], 'export.csv', { type: 'text/csv' }));
@@ -2002,6 +2738,7 @@ async function runImport(formData: FormData) {
 		status?: number;
 		data: {
 			error: string;
+			writeFailure?: unknown;
 			correction?: { batchId: string; deleteOldImport: boolean } | null;
 			importResult?: {
 				fileName?: string;

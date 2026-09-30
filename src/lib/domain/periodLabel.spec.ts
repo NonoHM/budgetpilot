@@ -11,7 +11,8 @@ const copy: PeriodCopy = {
 	openStart: (d) => `depuis le ${d}`,
 	openEnd: (d) => `jusqu'au ${d}`,
 	custom: 'période personnalisée',
-	invalid: 'saisie invalide'
+	invalid: 'saisie invalide',
+	allTime: 'Toujours'
 };
 
 const label = (from: string, to: string, over: Partial<{ allowCustomRung: boolean }> = {}) =>
@@ -21,6 +22,7 @@ const label = (from: string, to: string, over: Partial<{ allowCustomRung: boolea
 		invalid: false,
 		locale: 'fr',
 		allowCustomRung: true,
+		todayIso: '2026-06-17',
 		copy,
 		...over
 	});
@@ -169,6 +171,7 @@ describe('the shapes', () => {
 			invalid: true,
 			locale: 'fr',
 			allowCustomRung: true,
+			todayIso: '2026-06-17',
 			copy
 		});
 		expect(result.text).toBe('saisie invalide');
@@ -179,5 +182,28 @@ describe('the shapes', () => {
 		const result = label('2026-09-30', '2027-02-28');
 		expect(result.full).toBe('30 septembre 2026 → 28 février 2027');
 		expect(result.shortened).toBe(result.text !== result.full);
+	});
+});
+
+/**
+ * #758: the all-time period starts on an INTERNAL floor (`PERIOD_FLOOR`, 1000-01-01) that the query
+ * needs and the reader does not. The trigger never prints it: a range from the floor to today IS
+ * « Toujours », the preset's own label, and a range from the floor to another day has no chosen
+ * start, which is the open-end rung. Separates « the floor is read as no start » from
+ * « 1 janvier 1000 → … » (and the « 1 janvier 1970 → … » the epoch floor printed before).
+ *
+ * Break: the floor no longer recognised reddens both, each reading a two-date range.
+ */
+describe('the internal floor is never printed', () => {
+	it('reads a range from the floor to today as « Toujours »', () => {
+		expect.assertions(2);
+		const result = label('1000-01-01', '2026-06-17');
+		expect(result.text).toBe('Toujours');
+		expect(result.full).toBe('Toujours');
+	});
+
+	it('reads a range from the floor to another day as open at the start', () => {
+		expect.assertions(1);
+		expect(label('1000-01-01', '2026-02-28').text).toBe("jusqu'au 28 février 2026");
 	});
 });

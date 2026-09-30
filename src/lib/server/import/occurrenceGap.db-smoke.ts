@@ -68,6 +68,9 @@ describe('a row refused after the fingerprint consumes an ordinal', () => {
 		const batch = await prisma.importBatch.create({
 			data: {
 				userId,
+				// Filed on the account written to, as `createImportBatch` always files it: the write step
+				// refuses a batch filed elsewhere, or on none (#596).
+				accountId: bucket.accountId,
 				source: 'csv',
 				fileName: 'occurrence-gap.csv',
 				profile: 'generic',

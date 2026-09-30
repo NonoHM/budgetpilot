@@ -1,4 +1,9 @@
-import type { DesignationFile, ResolvedDesignationFile } from './columnDesignation';
+import {
+	DESIGNATION_ROW_FACTS,
+	type DesignationFile,
+	type DesignationRowFacts,
+	type ResolvedDesignationFile
+} from './columnDesignation';
 
 /**
  * The file AS THE USER HAS DECLARED IT, rather than as detection guessed it.
@@ -14,35 +19,74 @@ import type { DesignationFile, ResolvedDesignationFile } from './columnDesignati
  * A button promising two rows to a server that reads three is a false figure on the primary of this
  * path, and it is the same family as the counters the previous wave repaired.
  *
- * ## One direction, because only one exists
+ * ## And the facts the first repair left behind (#735)
  *
- * `/import`'s action always sends `hasHeaderRow: true` and a `rowCount` already reduced by that
- * header line, so the user can only ever flip it to « data ». The opposite flip is unrepresentable
- * from this route, and inventing a branch for it would be a state no route produces.
- *
- * ## What the client already holds is enough
- *
- * `headers` IS the first line when detection read one, so declaring it data means putting it back at
- * the top of the preview and counting it. Nothing has to be re-read from the server, which matters:
- * the file lives in the browser for the length of one import and there is no second request to make.
+ * That repair moved the count and the preview and nothing else. The Date column's state, the row's
+ * first line, the cards and their readings, and the coverage went on describing the file with line 1
+ * skipped: a headerless file whose only date proof was on line 1 was asked how its dates read, the
+ * row stated a conversion the import did not write, and the answer was discarded at the import.
+ * Every per-row fact now follows the answer, by SWAPPING in the set the server computed for it
+ * (`DesignationFile.otherHeaderRowFacts`), never by recomputing one here: the column verdict needs
+ * the whole column, which the browser does not hold, and a second implementation here would be a
+ * second answer. `DESIGNATION_ROW_FACTS` is the list swapped.
  */
 export function readWithHeaderRow(
 	file: DesignationFile,
 	hasHeaderRow: boolean
 ): ResolvedDesignationFile {
-	const { detectedHeaderRow, ...rest } = file;
-	if (hasHeaderRow === detectedHeaderRow) return { ...rest, hasHeaderRow };
-	if (hasHeaderRow) {
-		// Unreachable from `/import`, which always declares a header row, and the invariant is
-		// ASSERTED in that route's own spec rather than trusted here: the day the payload sends
-		// `false`, the test that names the precondition reddens where the cause is, instead of this
-		// branch silently returning a reading that is wrong in the other direction.
-		return { ...rest, hasHeaderRow };
-	}
+	const {
+		detectedHeaderRow: _guess,
+		otherHeaderRowFacts: _other,
+		...rest
+	} = declareHeaderRow(file, hasHeaderRow);
+	return { ...rest, hasHeaderRow };
+}
+
+/**
+ * The same file with `hasHeaderRow` as its detection: the per-row facts swapped with the other set,
+ * and the count moved by the one line that changed sides.
+ *
+ * Exported for the duplicate-statement repost, which reopens the screen with the user's answer as
+ * the guess. Rewriting only `detectedHeaderRow` there left every fact describing the other reading,
+ * with nothing on screen able to tell.
+ *
+ * ## The count moves by one line, both ways
+ *
+ * `rowCount` is the parse's own count and the payload cannot rebuild it for the other answer, so it
+ * moves by the line that changed sides: one more when line 1 becomes data, one fewer when it becomes
+ * headers again.
+ */
+export function declareHeaderRow(file: DesignationFile, hasHeaderRow: boolean): DesignationFile {
+	if (hasHeaderRow === file.detectedHeaderRow) return file;
+	const current = rowFactsOf(file);
+	const other = file.otherHeaderRowFacts ?? unknownRowFacts(file);
 	return {
-		...rest,
-		hasHeaderRow,
-		rowCount: file.rowCount + 1,
-		previewRows: [file.headers, ...(file.previewRows ?? [])]
+		...file,
+		...other,
+		otherHeaderRowFacts: current,
+		detectedHeaderRow: hasHeaderRow,
+		rowCount: Math.max(0, file.rowCount + (hasHeaderRow ? -1 : 1))
+	};
+}
+
+/** The file's per-row facts, read through the registry so a new one cannot be left behind. */
+function rowFactsOf(file: DesignationFile): DesignationRowFacts {
+	return Object.fromEntries(
+		DESIGNATION_ROW_FACTS.map((fact) => [fact, file[fact]])
+	) as DesignationRowFacts;
+}
+
+/**
+ * What a payload with no facts for the other answer shows once flipped: NO evidence, rather than
+ * evidence about the wrong lines. The recap is the only producer without them, and it has no rows.
+ */
+function unknownRowFacts(file: DesignationFile): DesignationRowFacts {
+	return {
+		samples: file.headers.map(() => []),
+		firstRow: undefined,
+		previewRows: undefined,
+		coverage: undefined,
+		dateStates: undefined,
+		dateReadings: undefined
 	};
 }

@@ -26,8 +26,8 @@ import type { UntrustedColumnMapping } from './mapping/model';
  *
  * ## THE PROPERTY, and why it is movement rather than the rule that reaches it
  *
- * An ambiguous fixture must do more than be shaped like a question. `detectDateOrder` takes
- * `ambiguousSample ??= match[0]`, so the FIRST ambiguous cell in file order becomes the evidence
+ * An ambiguous fixture must do more than be shaped like a question. `detectDateOrder` keeps the
+ * first ambiguous cell it meets, so the FIRST ambiguous cell in file order becomes the evidence
  * a question screen puts in front of a user. `02/02/2026` is perfectly ambiguous and reads
  * identically under both answers, so a ledger opening on it would illustrate the question with
  * the one cell where the question does not matter.
@@ -78,7 +78,8 @@ const REPO_ROOT = fileURLToPath(new URL('../../../../', import.meta.url));
  * the denominator #621 exists to settle. Adding a fixture should oblige the next person to state
  * the new denominator here rather than let it drift under a `toBeGreaterThan`.
  */
-const CORPUS_FILE_COUNT = 31;
+// 32 since `declared-eur.csv` (#600).
+const CORPUS_FILE_COUNT = 32;
 
 /** The fixtures whose every date must read both ways. See `AMBIGUOUS_LEDGER`. */
 const AMBIGUOUS_FIXTURES = [
@@ -305,8 +306,9 @@ describe('the tracked generators produce the corpus the date-order figures are c
 	 * CAUSE B of #622: one declared column contradicting itself, and nothing left to try.
 	 *
 	 * Separates "designating repairs it" from "designating the same column again is the only move
-	 * available and it changes nothing". This is the row `DESIGNATION_CANNOT_REPAIR` exists to
-	 * prevent offering, and the one it cannot recognise today.
+	 * available and it changes nothing". This is the row the designation gate exists to
+	 * refuse offering, and the one it cannot recognise today: `DESIGNATION_REACH` classifies a CODE,
+	 * and this row shares `mixed-date-order` with cause A, which designating does repair.
 	 */
 	it('refuses a file whose only date column contradicts itself, designation or not', () => {
 		expect.assertions(2);

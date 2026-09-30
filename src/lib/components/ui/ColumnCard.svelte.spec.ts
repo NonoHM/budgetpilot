@@ -21,7 +21,16 @@ const BASE = {
 	forRole: 'date'
 } as const;
 
-async function mount(props: Record<string, unknown>) {
+/**
+ * THE VIEWPORT IS SET, NOT INHERITED (#720, the same finding as #709 on `DateReadingCard`). A
+ * container width moves the card and never a media query, so an `lg:` class applies only when the
+ * VIEWPORT is at `lg`. `page.viewport` also persists from one test to the next in this file, so a
+ * mount that set nothing would measure whichever width the previous test left behind. Every mount
+ * here is the 390 phone, holding a 350 px card; the 1280 test sets its own viewport.
+ */
+async function mount(props: Record<string, unknown>, viewport: 390 | 1280 = 390) {
+	await page.viewport(viewport, viewport === 390 ? 844 : 800);
+	expect(window.innerWidth).toBe(viewport);
 	const { container } = await render(ColumnCard, { ...BASE, ...props });
 	container.style.width = '350px';
 	const card = container.querySelector('[role="option"]') as HTMLElement;
@@ -87,6 +96,21 @@ describe('ColumnCard.svelte: 107 px, and it does not move', () => {
 		// absence of the value they displaced. The second is what holds the 107.
 		expect(card.textContent).toContain('M�ntant');
 		expect(card.textContent).not.toContain('5,10');
+	});
+
+	it('is 107 px at a 1280 px viewport too, because a data card does not scale with the viewport', async () => {
+		// Planche 7b, registered in the design referential: « rows scale, data cards do not ». A row
+		// is a target and shrinks at 1280 (68 -> 56, 86 -> 74); this card is evidence and holds 107.
+		// The card keeps its 350 px width so that the VIEWPORT is the only thing this test moves.
+		//
+		// #720, break-checked on 2026-09-25, one clause each, against the four 390 tests above:
+		// `lg:py-2` on the card (a card that scales at `lg`) left all 18 tests green before this test
+		// existed, and now reddens this test alone, 99 px; `max-lg:py-2` (a card that changes below
+		// `lg` only) reddens the four 390 tests and leaves this one green.
+		const { card } = await mount({}, 1280);
+
+		expect(card.getBoundingClientRect().height).toBe(107);
+		expect(card.getBoundingClientRect().width).toBe(350);
 	});
 });
 

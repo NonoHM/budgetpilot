@@ -197,6 +197,19 @@ describe('periodKeyOfPreset', () => {
 	});
 });
 
+/**
+ * #758: « Toujours » starts on the first storable day, not on the epoch. Every engine stores 1000
+ * to 1969 exactly, so a floor at 1970 dropped those rows from the transactions list and from every
+ * all-time total, while the page said « Toujours ». Separates the floor at the range's first day
+ * from the epoch floor; the literal is the ruling, and `storableYears.spec.ts` owns its bound.
+ */
+describe('the all-time preset reaches every storable row', () => {
+	it('starts on 1000-01-01', () => {
+		expect.assertions(1);
+		expect(periodPresetRange('allTime', TODAY)).toEqual({ from: '1000-01-01', to: TODAY });
+	});
+});
+
 describe('matchPeriodPreset over a caller-chosen set', () => {
 	// Separates "matching honours the set the caller mounted" from "matching always walks set A".
 	// The control is the same range under the default set: it must NOT light, because allTime is

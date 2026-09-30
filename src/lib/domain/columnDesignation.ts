@@ -31,9 +31,69 @@ import { MAPPING_ROLES, REQUIRED_MAPPING_ROLES, type MappingRole } from './mappi
  *
  * Built by `readWithHeaderRow`, which is also where the row count and the preview follow the answer.
  */
-export type ResolvedDesignationFile = Omit<DesignationFile, 'detectedHeaderRow'> & {
+export type ResolvedDesignationFile = Omit<
+	DesignationFile,
+	'detectedHeaderRow' | 'otherHeaderRowFacts'
+> & {
 	hasHeaderRow: boolean;
 };
+
+/**
+ * THE PER-ROW FACTS: every field of `DesignationFile` whose value depends on which line is the
+ * first DATA line, and therefore on the « Première ligne » answer.
+ *
+ * The registry, not a description. `readWithHeaderRow` swaps exactly these when the answer differs
+ * from detection, the server computes exactly these for both answers (`designationRowFacts`), and
+ * the specs enumerate this list rather than a hand-written one. `DESIGNATION_FIXED_FIELDS` below
+ * names the rest, and the type check under it fails the build when a field of `DesignationFile`
+ * is in neither list, so a new fact cannot be added that ignores the switch (#735).
+ */
+export const DESIGNATION_ROW_FACTS = [
+	'samples',
+	'firstRow',
+	'previewRows',
+	'coverage',
+	'dateStates',
+	'dateReadings'
+] as const;
+export type DesignationRowFact = (typeof DESIGNATION_ROW_FACTS)[number];
+
+/**
+ * The fields that do NOT follow the switch, each for its own reason:
+ *
+ * - `name`: the file's name.
+ * - `headers`: line 1's cells either way. Under « données » the screen names columns by position
+ *   and never reads these as names (`titleFor`).
+ * - `rowCount`: follows the switch, but by ONE line and not by a recomputation: it is the parse's
+ *   own count (`summary.totalRows` on the offer), which the payload cannot rebuild for the other
+ *   answer. `readWithHeaderRow` moves it by that line.
+ * - `detectedHeaderRow`: the guess the facts were computed under.
+ * - `otherHeaderRowFacts`: the facts under the other answer, which is what the swap reads.
+ */
+export const DESIGNATION_FIXED_FIELDS = [
+	'name',
+	'headers',
+	'rowCount',
+	'detectedHeaderRow',
+	'otherHeaderRowFacts'
+] as const;
+
+/** The per-row facts under ONE answer about line 1. Every key required, `undefined` allowed. */
+export type DesignationRowFacts = { [K in DesignationRowFact]: DesignationFile[K] };
+
+/**
+ * Every field of `DesignationFile` is classified exactly once. Resolves to `true` only when the two
+ * lists above cover `keyof DesignationFile` and name nothing else; the assignment below it is what
+ * turns a miss into a build failure rather than a comment.
+ */
+type Classified = DesignationRowFact | (typeof DESIGNATION_FIXED_FIELDS)[number];
+type ExactlyClassified = [Exclude<keyof DesignationFile, Classified>] extends [never]
+	? [Exclude<Classified, keyof DesignationFile>] extends [never]
+		? true
+		: false
+	: false;
+const everyFieldClassified: ExactlyClassified = true;
+void everyFieldClassified;
 
 /** Which column index, if any, each role currently holds. */
 export type RoleAssignment = Readonly<Record<MappingRole, number | null>>;
@@ -125,6 +185,15 @@ export interface DesignationFile {
 	 * type-checks.
 	 */
 	detectedHeaderRow: boolean;
+	/**
+	 * The per-row facts under the OTHER answer about line 1: the file read with line 1 as data when
+	 * detection read it as headers, computed by the server's same function (`designationRowFacts`).
+	 * `readWithHeaderRow` swaps them in when the user's answer differs from detection (#735).
+	 *
+	 * Optional because the recap has no file to compute them from. A payload without them that the
+	 * user flips anyway degrades to showing no evidence rather than evidence about the wrong lines.
+	 */
+	otherHeaderRowFacts?: DesignationRowFacts;
 }
 
 /**
@@ -212,7 +281,8 @@ export function designationView(payload: DesignationFile): DesignationFile {
 		dateStates: payload.dateStates,
 		dateReadings: payload.dateReadings,
 		rowCount: payload.rowCount,
-		detectedHeaderRow: payload.detectedHeaderRow
+		detectedHeaderRow: payload.detectedHeaderRow,
+		otherHeaderRowFacts: payload.otherHeaderRowFacts
 	};
 	return view;
 }

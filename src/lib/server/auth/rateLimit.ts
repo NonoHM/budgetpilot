@@ -1,6 +1,7 @@
 import { createHmac } from 'node:crypto';
 import { env } from '$env/dynamic/private';
 import { prisma } from '$lib/server/db';
+import { readOperatorBound } from '$lib/server/env/operatorBound';
 
 const WINDOW_MS = 15 * 60 * 1000;
 // REAUTH is deliberately shorter than the 15-minute LOGIN/etc window. Every REAUTH action sits
@@ -75,15 +76,12 @@ export const IMPORT_MAX_ATTEMPTS_ENV = 'IMPORT_RATE_LIMIT_MAX_ATTEMPTS';
  * falling back, because a fallback would mean the limit in force is not the one configured.
  */
 export function resolveImportMaxAttempts(): number {
-	const raw = process.env[IMPORT_MAX_ATTEMPTS_ENV];
-	if (raw === undefined || raw.trim() === '') return IMPORT_DEFAULT_MAX_ATTEMPTS;
-
-	const attempts = Number(raw);
-	if (!Number.isInteger(attempts) || attempts < 1) {
-		throw new Error(
-			`${IMPORT_MAX_ATTEMPTS_ENV} must be a whole number of at least 1 (got ${JSON.stringify(raw)}). It bounds how many uploads the import pages accept per account, and per address, in 15 minutes. The default is ${IMPORT_DEFAULT_MAX_ATTEMPTS}.`
-		);
-	}
+	const attempts = readOperatorBound({
+		name: IMPORT_MAX_ATTEMPTS_ENV,
+		fallback: IMPORT_DEFAULT_MAX_ATTEMPTS,
+		purpose:
+			'It bounds how many uploads the import pages accept per account, and per address, in 15 minutes.'
+	});
 
 	if (attempts > IMPORT_MAX_ATTEMPTS_CEILING) {
 		throw new Error(

@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { env } from '$env/dynamic/private';
 import { prisma } from '$lib/server/db';
+import { N26_LEGACY_HEADERS, REAL_HEADERS } from '$lib/server/import/profiles/realHeaders.fixture';
 import { POST } from './+server';
 
 /**
@@ -127,6 +128,23 @@ describe('creating an account from the designation screen', () => {
 		expect(await prisma.account.count({ where: { userId: mine, name: 'Livret A' } })).toBe(1);
 	});
 
+	it('hands back the currency the created account holds (#600)', async () => {
+		// SEPARATES: « the new option says its currency like every other » FROM « the freshly created
+		// account is the one line in the panel with no currency », which the second contradiction
+		// pass on #600 found (F3): the panel leads each line with the currency after a currency
+		// refusal, and this option was appended without one. The figure is read back from the ROW,
+		// so the answer cannot drift from what was written.
+		expect.assertions(2);
+		const response = await POST(eventOf(mine, { name: 'Compte en euros' }));
+		const body = (await response.json()) as { account: { id: string; currency?: string } };
+		const stored = await prisma.account.findUniqueOrThrow({
+			where: { id: body.account.id },
+			select: { currency: true }
+		});
+		expect(stored.currency).toBe('EUR');
+		expect(body.account.currency).toBe(stored.currency);
+	});
+
 	it('cannot set a field the sheet does not show', async () => {
 		// SEPARATES: « the create wrote only the name » FROM « a posted field reached the column ».
 		// The calibration is the first assertion: the row EXISTS, so the nulls below are refusals
@@ -176,6 +194,41 @@ describe('creating an account from the designation screen', () => {
 		});
 		expect(created.discriminant).toBe('5678');
 		expect(created.discriminant).not.toBe('9999');
+	});
+
+	// The same, for N26's LEGACY layouts (`N26_LEGACY_HEADERS`), whose counterparty column is
+	// spelled like an ordinary account number: `Account number`, `Kontonummer`, `Numéro de compte`.
+	// Only the payee column in the same header row says whose it is. Synthetic one-row statements.
+	it.each(N26_LEGACY_HEADERS)(
+		'does not store the counterparty’s fragment from a %s statement (#702)',
+		async (name, header) => {
+			expect.assertions(2);
+			const row =
+				'"2026-08-01","Paul Mercier","FR7630001007941234567890185","Outgoing Transfer","","","-10.00","","",""';
+			await POST(eventOf(mine, { name: `Compte ${name}`, csvFile: fileOf(`${header}\n${row}`) }));
+			const created = await prisma.account.findFirstOrThrow({
+				where: { userId: mine, name: `Compte ${name}` }
+			});
+			expect(created.name).toBe(`Compte ${name}`);
+			expect(created.discriminant).toBeNull();
+		}
+	);
+
+	it('does not store the counterparty’s fragment as the new account’s own (#702)', async () => {
+		// SEPARATES: « the fragment is read from a column naming the holder's account » FROM « a
+		// constant counterparty IBAN becomes the new account's discriminant », which rank 1 then
+		// treats as CERTAIN on every later statement. N26's recorded header and row
+		// (`realHeaders.fixture.ts`): a one-row statement, so `Partner Iban` is constant by
+		// construction. The calibration is the row existing, so the null is a refusal to read the
+		// column rather than the absence of a row.
+		expect.assertions(2);
+		const [, n26Header, n26Row] = REAL_HEADERS.find(([name]) => name === 'N26')!;
+		await POST(eventOf(mine, { name: 'Compte N26', csvFile: fileOf(`${n26Header}\n${n26Row}`) }));
+		const created = await prisma.account.findFirstOrThrow({
+			where: { userId: mine, name: 'Compte N26' }
+		});
+		expect(created.name).toBe('Compte N26');
+		expect(created.discriminant).toBeNull();
 	});
 
 	it('refuses a missing name, and says what to do', async () => {
@@ -235,7 +288,21 @@ describe('creating an account from the designation screen', () => {
 		// Written as a property over the cases rather than case by case, because the case that
 		// regresses is the one nobody thought to list. The last audit drove 49 actions through two
 		// hostile passes with zero 5xx and that standard does not regress.
-		expect.assertions(2);
+		//
+		// THE CALIBRATION IS IN THE SAME PASS (#721). The limiter answers before the handler reads
+		// anything, and its 429 is not a 5xx, so a battery refused wholesale by the limiter reported
+		// « zero server errors » having read nothing: measured green with
+		// `IMPORT_RATE_LIMIT_MAX_ATTEMPTS=1` while 10 of this file's 12 tests were red on 429s. So
+		// each case must have got past the limiter, counted rather than assumed. The three figures
+		// are asserted as ONE value so all three are always computed and shown, rather than the
+		// second being skipped whenever the first is red.
+		//
+		// Break-checked on 2026-09-25 (SQLite), one clause each: the limiter forced to refuse
+		// (`IMPORT_RATE_LIMIT_MAX_ATTEMPTS=1`) separates « the battery reached the handler » from « it
+		// read only the limiter », and is red on `pastLimiter` 0 of 10; the handler's name refusal
+		// answering 500 instead of 400 separates « no refusal is a server error » from « one is », and
+		// is red on `serverErrors`.
+		expect.assertions(1);
 		const hostile: Record<string, string | File>[] = [
 			{},
 			{ name: '' },
@@ -252,9 +319,14 @@ describe('creating an account from the designation screen', () => {
 		for (const fields of hostile) {
 			statuses.push((await POST(eventOf(mine, fields))).status);
 		}
-		// The absolute figure beside the emptiness claim: a loop that ran zero times reports zero
-		// 5xx just as loudly as one that ran ten.
-		expect(statuses).toHaveLength(10);
-		expect(statuses.filter((status) => status >= 500)).toStrictEqual([]);
+		// `sent` is the absolute figure beside the emptiness claim: a loop that ran zero times reports
+		// zero 5xx just as loudly as one that ran ten. `pastLimiter` is the calibration: 429 is the
+		// limiter's answer in `+server.ts` and the handler never gives it, so every other status was
+		// produced by code that read the request.
+		expect({
+			sent: statuses.length,
+			pastLimiter: statuses.filter((status) => status !== 429).length,
+			serverErrors: statuses.filter((status) => status >= 500)
+		}).toStrictEqual({ sent: 10, pastLimiter: 10, serverErrors: [] });
 	});
 });

@@ -166,6 +166,12 @@ export async function restoreBackup(userId: string, payload: BackupExport): Prom
 		// always "to reconnect", never functional with imported secrets.
 		const bankConnectionIdMap = new Map<string, string>();
 		for (const connection of payload.bankConnections) {
+			// The fetch cursor (#763), restored as written. A file written before the cursor existed
+			// carries none, and its `lastSyncAt` is not one: a backup carries no sync status, so it
+			// cannot say whether that sync completed, and before #763 a failure or a bare throttle
+			// claim wrote the same column. No cursor then, so the first sync after reconnecting asks
+			// for the whole lookback, bounded in `syncFetchRange`, and deduplication absorbs the rest.
+			const syncCursor = connection.lastCompleteSyncAt ?? null;
 			const created = await tx.bankConnection.create({
 				data: {
 					userId,
@@ -176,7 +182,8 @@ export async function restoreBackup(userId: string, payload: BackupExport): Prom
 					consentExpiresAt: connection.consentExpiresAt
 						? new Date(connection.consentExpiresAt)
 						: null,
-					lastSyncAt: connection.lastSyncAt ? new Date(connection.lastSyncAt) : null
+					lastSyncAt: connection.lastSyncAt ? new Date(connection.lastSyncAt) : null,
+					lastCompleteSyncAt: syncCursor ? new Date(syncCursor) : null
 				},
 				select: { id: true }
 			});
@@ -731,8 +738,10 @@ function assertReferentialIntegrity(payload: BackupExport): void {
 	// The PER-ARRAY bound, and it is owed separately from the document-wide one. BACKUP_MAX_JSON_NODES
 	// bounds this array incidentally, and an incidental bound is not the bound for this array: the
 	// same argument that gave the split count its own MIN/MAX check rather than leaning on the node
-	// count. Nothing deletes a mapping yet (#326), so a restore is the one path that could plant
-	// thousands in a single request.
+	// count. An import saves at most one mapping per request and `saveColumnMapping` counts against
+	// the cap first, so a restore is the one path that could plant thousands in a single request.
+	// (The restore deletes the user's own mappings before writing these, which is why the cap is
+	// compared with this array alone rather than with what the user held.)
 	const mappingCap = resolveColumnMappingsPerUser();
 	if (payload.columnMappings.length > mappingCap) {
 		throw new BackupImportError(

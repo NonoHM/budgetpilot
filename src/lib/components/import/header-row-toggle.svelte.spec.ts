@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import ColumnDesignationScreen from './ColumnDesignationScreen.svelte';
 import * as m from '$lib/paraglide/messages';
+import { getLocale } from '$lib/paraglide/runtime';
+import { formatReadingDate } from '$lib/domain/dateFormat';
 import type { DesignationFile, RoleAssignment } from '$lib/domain/columnDesignation';
 
 /**
@@ -223,5 +225,132 @@ describe('the count follows the answer', () => {
 		// together: a repair reaching only the button would leave the screen disagreeing with itself.
 		const meta = document.body.textContent?.replace(/\s+/g, ' ') ?? '';
 		expect(meta).toContain(`${FILE.rowCount + 1} lignes`);
+	});
+});
+
+/**
+ * #735, AT THE SEAM THE SCREEN READS: the Date row after the switch.
+ *
+ * A headerless file whose only date proof is on line 1 (`24/05/2025`). Under detection's guess the
+ * Date column reads lines 2 and 3 only and is ambiguous; under the answer « données » it reads all
+ * three and is proven day-first. The payload carries both fact sets, as `/import` sends them, and the
+ * screen must read the one for the answer the user gave. Before the fix it read the raw prop: the
+ * row stayed « ordre à confirmer » and stated line 2 as the first row.
+ *
+ * Separates « the screen reads the declared file » from « the screen reads the detected one »,
+ * which `readWithHeaderRow`'s own spec cannot see because it never renders the row.
+ */
+describe('the Date row once line 1 is declared data (#735)', () => {
+	const LINES = [
+		['24/05/2025', 'Fleuriste Bellevue', '-31.00'],
+		['06/01/2025', 'Pharmacie du Pont', '-18.90'],
+		['03/02/2025', 'Primeur Sainte Anne', '-17.45']
+	];
+	const NONE = { dayFirst: [null, null, null, null], monthFirst: [null, null, null, null] };
+	const HEADERLESS_FILE: DesignationFile = {
+		name: 'releve.csv',
+		headers: LINES[0],
+		samples: [
+			[LINES[1][0], LINES[2][0], ''],
+			[LINES[1][1], LINES[2][1], ''],
+			[LINES[1][2], LINES[2][2], '']
+		],
+		firstRow: LINES[1],
+		dateStates: ['ambiguous', 'no-dates', 'no-dates'],
+		dateReadings: [
+			{
+				dayFirst: ['2025-01-06', '2025-01-06', '2025-02-03', null],
+				monthFirst: ['2025-06-01', '2025-06-01', '2025-03-02', null]
+			},
+			NONE,
+			NONE
+		],
+		rowCount: 2,
+		detectedHeaderRow: true,
+		otherHeaderRowFacts: {
+			samples: [
+				[LINES[0][0], LINES[1][0], LINES[2][0]],
+				[LINES[0][1], LINES[1][1], LINES[2][1]],
+				[LINES[0][2], LINES[1][2], LINES[2][2]]
+			],
+			firstRow: LINES[0],
+			previewRows: LINES,
+			coverage: [3, 3, 3],
+			dateStates: ['proven-day', 'no-dates', 'no-dates'],
+			dateReadings: [
+				{
+					dayFirst: ['2025-05-24', '2025-05-24', '2025-01-06', '2025-02-03'],
+					monthFirst: [null, null, '2025-06-01', '2025-03-02']
+				},
+				NONE,
+				NONE
+			]
+		}
+	};
+
+	async function openAndDeclareData() {
+		await page.viewport(390, 844);
+		await render(ColumnDesignationScreen, {
+			file: HEADERLESS_FILE,
+			initialAssignment: ASSIGNMENT,
+			candidates: {},
+			accounts: [
+				{
+					id: 'account-1',
+					name: 'BP · Compte courant',
+					discriminant: '4417',
+					transactionCount: 128
+				}
+			],
+			initialAccountId: 'account-1'
+		} as never);
+
+		// Through the Libellé row: the Date row of an unanswered ambiguous column opens its QUESTION,
+		// which carries no switch.
+		await page
+			.getByRole('button', { name: /^Libellé,/ })
+			.first()
+			.click();
+		await page.getByRole('switch').first().click();
+		await page.getByRole('button', { name: m.import_columns_picker_close() }).first().click();
+		return page.getByRole('button', { name: /^Date,/ }).first();
+	}
+
+	// Formatted by the app's own formatter; the date it formats, line 1's `24/05/2025` read
+	// day-first, is the claim under test.
+	const LINE_1_PRETTY = () => formatReadingDate('2025-05-24', getLocale());
+	// The catalogue's French typography puts narrow no-break spaces before « : », and both an
+	// accessible name and a collapsed text content read them as plain spaces.
+	const collapse = (text: string) => text.replace(/\s+/g, ' ').trim();
+
+	// The row's NAME: the reading line 1 proves, and line 1's date. Separates the screen reading
+	// the declared file's state and readings from reading the detected file's.
+	it('names the reading line 1 proves, and line 1', async () => {
+		expect.assertions(1);
+		const row = await openAndDeclareData();
+
+		await expect.element(row).toHaveAccessibleName(
+			collapse(
+				m.import_designate_date_row_aria_confirmed({
+					header: m.import_columns_positional_name({ index: 1 }),
+					order: m.import_datesheet_reading_in_sentence_day_first(),
+					pretty: LINE_1_PRETTY()
+				})
+			)
+		);
+	});
+
+	// The row's VISIBLE line 3, compared as a sentence: line 1's raw cell beside its own conversion.
+	// Separates it from line 2's cell printed beside line 1's conversion, which the name above cannot
+	// see because the name carries no raw cell.
+	it('prints line 1 beside its own conversion', async () => {
+		expect.assertions(2);
+		const row = await openAndDeclareData();
+		await expect.element(row).toBeInTheDocument();
+
+		const line = row.element().querySelector('span.block');
+		expect(collapse(line?.textContent ?? '')).toBe(
+			collapse(m.import_designate_date_reading({ raw: '24/05/2025', pretty: LINE_1_PRETTY() }))
+		);
 	});
 });

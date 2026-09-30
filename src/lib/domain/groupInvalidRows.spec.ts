@@ -78,12 +78,60 @@ describe('groupInvalidRows', () => {
 		expect.assertions(2);
 
 		const groups = groupInvalidRows([
-			row(2, { code: 'unsupported-currency', currency: 'GBP' }),
-			row(3, { code: 'unsupported-currency', currency: 'JPY' })
+			row(2, { code: 'invalid-nature', value: 'wibble' }),
+			row(3, { code: 'invalid-nature', value: 'wobble' })
 		]);
 
 		expect(groups).toHaveLength(1);
 		expect(groups[0].count).toBe(2);
+	});
+
+	/**
+	 * #692: a value the heading's SENTENCE names is part of the reason, so it keys the group.
+	 *
+	 * The currency used to be left out of the key because its sentence named no currency. Once it
+	 * names one, a group of GBP and JPY rows would print « GBP » over a JPY row: the heading is the
+	 * first member's sentence. Break: put `currency` back in `PER_ROW_PAYLOAD` and this reddens
+	 * (two headings / one heading naming the first row's value).
+	 */
+	it('keeps rows refused for two different currencies apart', () => {
+		expect.assertions(2);
+
+		const groups = groupInvalidRows([
+			row(2, { code: 'unsupported-currency', currency: 'GBP' }),
+			row(3, { code: 'unsupported-currency', currency: 'JPY' }),
+			row(4, { code: 'unsupported-currency', currency: 'GBP' })
+		]);
+
+		expect(groups.map((g) => g.head.fact)).toEqual([
+			{ code: 'unsupported-currency', currency: 'GBP' },
+			{ code: 'unsupported-currency', currency: 'JPY' }
+		]);
+		expect(groups.map((g) => g.count)).toEqual([2, 1]);
+	});
+
+	/** Same reason as the currency pair, for the Revolut state its sentence now names. */
+	it('keeps rows in two different Revolut states apart', () => {
+		expect.assertions(1);
+
+		const groups = groupInvalidRows([
+			row(2, { code: 'state-not-completed', state: 'PENDING' }),
+			row(3, { code: 'state-not-completed', state: 'REVERTED' })
+		]);
+
+		expect(groups.map((g) => g.count)).toEqual([1, 1]);
+	});
+
+	/** And for the column count a row actually had, which its sentence now names. */
+	it('keeps rows with two different column counts apart', () => {
+		expect.assertions(1);
+
+		const groups = groupInvalidRows([
+			row(2, { code: 'bad-column-count', expected: 10, actual: 9 }),
+			row(3, { code: 'bad-column-count', expected: 10, actual: 11 })
+		]);
+
+		expect(groups.map((g) => g.count)).toEqual([1, 1]);
 	});
 
 	it('keeps two different reasons apart', () => {

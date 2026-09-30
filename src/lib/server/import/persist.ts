@@ -13,6 +13,11 @@ import { assignDedupeKeysForBatch } from '$lib/server/import/dedupeRecompute';
 import { isUniqueConstraintViolation, withConcurrentWriteRetry } from '$lib/server/database/upsert';
 import { replaceSplits } from '$lib/server/transactions/splits';
 import type { ImportedTransaction } from './types';
+import {
+	declaredCurrencyRefusal,
+	DeclaredCurrencyMismatchError,
+	rowDeclarations
+} from './declaredCurrency';
 
 /**
  * Shared import persistence — the single write path for every transaction source that
@@ -552,8 +557,99 @@ export interface CreateImportBatchInput {
 	dateOrder?: DateOrder | null;
 }
 
-/** Creates the ImportBatch row a persistence run reports into; returns its id. */
+/**
+ * How the write step failed, as a closed set, and the whole of what a caller may branch on.
+ *
+ * `not-found`: a reference this step was handed (`accountId`, `importBatchId`) does not resolve
+ * for this user, so NOTHING was written. Not-yours and not-found are one answer, for the reason
+ * `ImportBucketAccountError` gives (an oracle for other users' ids), and the refusal names no id.
+ *
+ * `failed`: something threw once the step was under way. `landedRows` is what the LEDGER holds
+ * for this batch, read back rather than accumulated, or `null` when the ledger could not be read
+ * either. Null is a real state and not a zero: the database that failed the row may be the one
+ * that fails the count, and « nothing was saved » would then be a guess stated as a fact (#662).
+ */
+export type ImportWriteFailure =
+	{ kind: 'not-found' } | { kind: 'failed'; landedRows: number | null };
+
+/**
+ * The only exception the write step lets out besides `DeclaredCurrencyMismatchError`.
+ *
+ * A class carrying a closed union rather than a message to match on, for the reason
+ * `ImportBucketAccountError` gives. The underlying error travels as `cause` and is never part of
+ * the message: a Prisma message can quote the arguments of the call that failed, which here are a
+ * user's transactions, so it must not reach a page (ASVS v5.0.0-16.5.1).
+ */
+export class ImportWriteError extends Error {
+	readonly failure: ImportWriteFailure;
+
+	constructor(failure: ImportWriteFailure, options?: { cause?: unknown }) {
+		super(
+			failure.kind === 'not-found'
+				? 'Import reference not found for this user'
+				: 'Import write step failed',
+			options
+		);
+		this.failure = failure;
+		this.name = 'ImportWriteError';
+	}
+}
+
+/**
+ * Removes a batch the write step created and filed nothing under (#662, D3 contradiction pass).
+ *
+ * « Holds no rows » is a clause of the DELETE itself, not a check before it, so this cannot remove a
+ * batch that has transactions, whatever its caller believed: a row landing between a count and a
+ * delete would otherwise be orphaned. Scoped by `userId` in the same where clause (#596). Returns
+ * whether a batch was removed.
+ */
+export async function deleteEmptyImportBatch(
+	userId: string,
+	importBatchId: string
+): Promise<boolean> {
+	const removed = await prisma.importBatch.deleteMany({
+		where: { id: importBatchId, userId, transactions: { none: {} } }
+	});
+	return removed.count === 1;
+}
+
+/**
+ * Creates the ImportBatch row a persistence run reports into; returns its id.
+ *
+ * #596, one function over: the account the batch is filed on, and the correspondance it links to
+ * when there is one, are read with `userId` in the SAME where clause before the batch exists, so a
+ * foreign `accountId` or `columnMappingId` creates no batch at all. Every
+ * caller resolves the account first today; this makes the property the function's own rather than
+ * its callers', which is the shape #596 names. `writeStep.db-smoke.ts` is the attack.
+ */
 export async function createImportBatch(input: CreateImportBatchInput): Promise<string> {
+	return (await createImportBatchRow(input)).id;
+}
+
+/**
+ * `createImportBatch`, returning the instant the batch was created as well: the timestamp `/imports`
+ * names the import BY (`CONTEXT.md`, « Import »), which the write step's failure sentence needs to
+ * say which import to delete (D3). Read off the row the database wrote, never the clock here.
+ */
+export async function createImportBatchRow(
+	input: CreateImportBatchInput
+): Promise<{ id: string; createdAt: Date }> {
+	const account = await prisma.account.findFirst({
+		where: { id: input.accountId, userId: input.userId },
+		select: { id: true }
+	});
+	if (!account) throw new ImportWriteError({ kind: 'not-found' });
+	// The same claim for the correspondance the batch links to: a batch of this user's linked to
+	// another user's mapping would open THAT user's recap from this user's `/imports`. Checked only
+	// when one is named; null is the ordinary case of every auto-detected profile.
+	if (input.columnMappingId) {
+		const mapping = await prisma.columnMapping.findFirst({
+			where: { id: input.columnMappingId, userId: input.userId },
+			select: { id: true }
+		});
+		if (!mapping) throw new ImportWriteError({ kind: 'not-found' });
+	}
+
 	const batch = await prisma.importBatch.create({
 		data: {
 			userId: input.userId,
@@ -569,7 +665,7 @@ export async function createImportBatch(input: CreateImportBatchInput): Promise<
 			dateOrder: input.dateOrder ?? null
 		}
 	});
-	return batch.id;
+	return { id: batch.id, createdAt: batch.createdAt };
 }
 
 export interface PersistImportedTransactionsInput {
@@ -599,20 +695,128 @@ export interface PersistImportedTransactionsResult {
 }
 
 /**
- * Persists a parsed batch: per-transaction dedup + insert, then category rules over the
- * newly inserted rows, then the batch's imported/duplicate counters. Rows whose
- * deduplicationKey already exists for this user are silently skipped (counted as
- * duplicates), matching the historical CSV behavior.
+ * Persists a parsed batch: per-transaction dedup + insert, then the batch's imported/duplicate
+ * counters, then category rules over the newly inserted rows. Rows whose deduplicationKey already
+ * exists for this user are silently skipped (counted as duplicates), matching the historical CSV
+ * behavior.
+ *
+ * ## NOT ONE TRANSACTION, AND THAT IS A RECORDED DEVIATION RATHER THAN AN OVERSIGHT
+ *
+ * ASVS v5.0.0-2.3.3 asks that a business operation succeed in its entirety or roll back. This one
+ * deliberately does not: `persistTransaction` catches a unique violation and carries on, and on
+ * PostgreSQL a constraint violation aborts the enclosing transaction, so wrapping the loop would
+ * turn ONE duplicate into a failed import (see `persistTransaction`'s own docstring). What stands
+ * in for the rollback is disclosure: the batch's `importedRows` is read back from the ledger, never
+ * from an accumulator a throw can discard (#660), and a failure leaves as an `ImportWriteError`
+ * naming how many rows landed, so the screen can say so rather than claim nothing happened (#662).
+ * The user's repair is the one `/imports` already offers: delete the import, then try again.
+ *
+ * ## WHAT IT LETS OUT
+ *
+ * `DeclaredCurrencyMismatchError` (before any row) or `ImportWriteError`, and nothing else. Every
+ * other throw is wrapped, which is what lets the two routes translate a failure without a
+ * catch-all of their own.
  */
 export async function persistImportedTransactions(
 	input: PersistImportedTransactionsInput
 ): Promise<PersistImportedTransactionsResult> {
-	let importedRows = 0;
+	// Nothing is written before the loop, so a raw failure here is « nothing landed », known.
+	let prepared: Awaited<ReturnType<typeof prepareWrite>>;
+	try {
+		prepared = await prepareWrite(input);
+	} catch (caught) {
+		if (caught instanceof ImportWriteError || caught instanceof DeclaredCurrencyMismatchError) {
+			throw caught;
+		}
+		throw new ImportWriteError({ kind: 'failed', landedRows: 0 }, { cause: caught });
+	}
+	const { dedupeKeys, denomination } = prepared;
+
 	let duplicateRows = input.parseDuplicateRows ?? 0;
 	let importedDebitCents = 0;
 	let importedCreditCents = 0;
 	const importedTransactionIds: string[] = [];
 
+	// The loop's own failure is HELD rather than thrown, because the count below has to be written
+	// whatever happened here. That write used to sit after the loop with nothing around it, so any
+	// throw skipped it and left `importedRows` at its `@default(0)` over rows already in the ledger.
+	let interrupted: { cause: unknown } | null = null;
+	try {
+		for (const [index, transaction] of input.transactions.entries()) {
+			const importedTransactionId = await persistTransaction(
+				input.userId,
+				transaction,
+				input.accountId,
+				input.importBatchId,
+				input.source,
+				denomination,
+				dedupeKeys[index]
+			);
+			if (!importedTransactionId) {
+				duplicateRows += 1;
+				continue;
+			}
+
+			importedTransactionIds.push(importedTransactionId);
+			if (transaction.metadata.type === 'expense')
+				importedDebitCents += Math.abs(transaction.amountCents);
+			if (transaction.metadata.type === 'income')
+				importedCreditCents += Math.abs(transaction.amountCents);
+		}
+	} catch (caught) {
+		interrupted = { cause: caught };
+	}
+
+	let importedRows: number;
+	try {
+		importedRows = await recordBatchCounts(input.userId, input.importBatchId, duplicateRows);
+	} catch (caught) {
+		// The ledger could not be read, so how much landed is UNKNOWN. The loop's own failure, when
+		// there was one, is the cause worth keeping: it is why the database is being asked at all.
+		throw new ImportWriteError(
+			{ kind: 'failed', landedRows: null },
+			{ cause: interrupted ? interrupted.cause : caught }
+		);
+	}
+	if (interrupted) {
+		throw new ImportWriteError({ kind: 'failed', landedRows: importedRows }, interrupted);
+	}
+
+	// The figure the import summary discloses. `applyCategoryRules` has always returned how many
+	// rows it rewrote and the count was always dropped here, so the one screen that reports what an
+	// import did to the user's money could not mention the part of it the user did not ask for.
+	//
+	// AFTER the count, so a failure here cannot cost the batch its count. Every row has landed by
+	// now; what did not happen is the rules, and the sentence the routes show for this says the
+	// import stopped with this many rows saved, which is true.
+	let autoCategorizedRows: number;
+	try {
+		autoCategorizedRows = await applyCategoryRules(input.userId, {
+			transactionIds: importedTransactionIds
+		});
+	} catch (caught) {
+		throw new ImportWriteError({ kind: 'failed', landedRows: importedRows }, { cause: caught });
+	}
+
+	return {
+		importedRows,
+		duplicateRows,
+		importedDebitCents,
+		importedCreditCents,
+		importedTransactionIds,
+		autoCategorizedRows
+	};
+}
+
+/**
+ * Everything the write step reads before its first write. It writes nothing.
+ *
+ * #596: both references are resolved with `userId` in the SAME where clause, and BEFORE the loop,
+ * because the loop is where a foreign reference does its damage. An `importBatchId` only checked at
+ * the final counter update would already have had rows filed under it: `Transaction.importBatchId`
+ * is a foreign key, which proves the batch EXISTS and says nothing about whose it is.
+ */
+async function prepareWrite(input: PersistImportedTransactionsInput) {
 	// Read ONCE, before the loop, and passed down: every row of an import lands in one bucket, and
 	// a transaction is denominated by the bucket it lands in. `DEFAULT_DENOMINATION` here would
 	// make every row of a non-euro bucket positively assert something false, which is exactly what
@@ -620,10 +824,37 @@ export async function persistImportedTransactions(
 	//
 	// `providerAccountId` joins the read because the deduplication key needs it: a bank row keys on
 	// the provider's per-account entry reference, scoped by that account.
-	const bucket = await prisma.account.findUniqueOrThrow({
-		where: { id: input.accountId },
+	//
+	// `findFirst` with `userId` rather than `findUniqueOrThrow` on the id (#596). The currency read
+	// here denominates every row the import writes, so a bucket read from the wrong tenant would not
+	// throw: it would silently denominate the rows in somebody else's currency.
+	const bucket = await prisma.account.findFirst({
+		where: { id: input.accountId, userId: input.userId },
 		select: { currency: true, exponent: true, providerAccountId: true }
 	});
+	if (!bucket) throw new ImportWriteError({ kind: 'not-found' });
+
+	// #600, a BACKSTOP and not the control. The control is the routes' own call, before anything is
+	// written. This one sees only the rows it is handed, so it protects TRANSACTION ROWS, and only
+	// from a writer whose rows carry `declaredCurrency`: it cannot see a declaration made on a row the
+	// parse refused (the file-level `declaredCurrencies` can, and only the routes hold it).
+	//
+	// What it does NOT protect, stated rather than implied: by the time it runs, both routes have
+	// created the batch, `/import` may have created a by-source bucket, and either route may have
+	// counted a use of a column mapping (`/import/columns` may have saved one). The routes translate
+	// the throw into the same sentence as their own refusal (`writeImport.ts`), so no caller reaching
+	// it answers with a 500; the empty batch it leaves behind still says « 0 », which is true.
+	const contradicted = declaredCurrencyRefusal(rowDeclarations(input.transactions), bucket);
+	if (contradicted) throw new DeclaredCurrencyMismatchError(contradicted);
+
+	// The batch is the user's AND filed on the account being written to. The second clause is the
+	// same claim one field over: rows landing in one account under a batch the history files under
+	// another would make `/imports` describe an import that did not happen where it says.
+	const batch = await prisma.importBatch.findFirst({
+		where: { id: input.importBatchId, userId: input.userId, accountId: input.accountId },
+		select: { id: true }
+	});
+	if (!batch) throw new ImportWriteError({ kind: 'not-found' });
 
 	// Every key for this batch, computed HERE rather than at parse time, and the reasons are in
 	// `dedupeRecompute.ts`. The short version: the CSV path cannot know its `accountId` at parse
@@ -646,48 +877,31 @@ export async function persistImportedTransactions(
 	// mock has no column list to disagree with. An e2e import found it.
 	const denomination = { currency: bucket.currency, exponent: bucket.exponent };
 
-	for (const [index, transaction] of input.transactions.entries()) {
-		const importedTransactionId = await persistTransaction(
-			input.userId,
-			transaction,
-			input.accountId,
-			input.importBatchId,
-			input.source,
-			denomination,
-			dedupeKeys[index]
-		);
-		if (!importedTransactionId) {
-			duplicateRows += 1;
-			continue;
-		}
+	return { dedupeKeys, denomination };
+}
 
-		importedRows += 1;
-		importedTransactionIds.push(importedTransactionId);
-		if (transaction.metadata.type === 'expense')
-			importedDebitCents += Math.abs(transaction.amountCents);
-		if (transaction.metadata.type === 'income')
-			importedCreditCents += Math.abs(transaction.amountCents);
-	}
-
-	// The figure the import summary discloses. `applyCategoryRules` has always returned how many
-	// rows it rewrote and the count was always dropped here, so the one screen that reports what an
-	// import did to the user's money could not mention the part of it the user did not ask for.
-	const autoCategorizedRows = await applyCategoryRules(input.userId, {
-		transactionIds: importedTransactionIds
-	});
-	await prisma.importBatch.update({
-		where: { id: input.importBatchId },
+/**
+ * Writes the batch's counters and returns the imported figure it wrote.
+ *
+ * `importedRows` is COUNTED FROM THE LEDGER, never taken from the loop (#660). An accumulator is
+ * wrong by exactly the row that matters: a répartition refused after its parent committed leaves
+ * the parent in the ledger, and `persistTransaction` never returned to be counted. The count is the
+ * one number that cannot disagree with what `/imports` will offer to delete.
+ *
+ * `userId` in both where clauses (#596). `prepareWrite` already refused a foreign batch, so on the
+ * update it is the same claim stated where the write is, not the only line holding it.
+ */
+async function recordBatchCounts(
+	userId: string,
+	importBatchId: string,
+	duplicateRows: number
+): Promise<number> {
+	const importedRows = await prisma.transaction.count({ where: { userId, importBatchId } });
+	await prisma.importBatch.updateMany({
+		where: { id: importBatchId, userId },
 		data: { importedRows, duplicateRows }
 	});
-
-	return {
-		importedRows,
-		duplicateRows,
-		importedDebitCents,
-		importedCreditCents,
-		importedTransactionIds,
-		autoCategorizedRows
-	};
+	return importedRows;
 }
 
 /**
@@ -696,7 +910,8 @@ export async function persistImportedTransactions(
  * Must never run inside a `prisma.$transaction`. It relies on catching a unique violation and
  * carrying on with the next row, and on PostgreSQL a constraint violation aborts the enclosing
  * transaction: every later statement would fail too, turning one duplicate into a failed
- * import. Both callers (routes/import, the bank-sync service) invoke it outside one.
+ * import. Every caller (`writeImport.ts` for both import routes, the bank-sync service) invokes
+ * it outside one.
  */
 async function persistTransaction(
 	userId: string,

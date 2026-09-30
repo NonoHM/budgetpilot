@@ -1,4 +1,4 @@
-import { isValidIsoDate, validateTransaction } from '$lib/domain/transaction';
+import { validateTransaction } from '$lib/domain/transaction';
 import { applyCategorizationRules } from '$lib/server/categorization/rules';
 import type {
 	CsvImportResult,
@@ -11,7 +11,7 @@ import {
 	addRefusal,
 	buildSummary,
 	emptyResult,
-	normalizeFirstValidDate,
+	readRowDate,
 	normalizeHeaderCells,
 	toRecord
 } from '../utils/csv';
@@ -27,6 +27,7 @@ import {
 	UNCLASSIFIED_CATEGORY
 } from '../utils/safety';
 import { foldComparableHeader } from '../utils/encoding';
+import { acceptedDeclarations, currencyOfCell } from '../currencyDeclaration';
 
 /**
  * Revolut's ten columns, in the spellings this profile accepts.
@@ -139,7 +140,6 @@ export function revolutDateColumns(headers: string[]): number[] {
 
 export function parseRevolutRows({
 	rows,
-	warnings,
 	categorizationRules,
 	dateOrder
 }: CsvProfileParseInput): CsvImportResult {
@@ -147,7 +147,6 @@ export function parseRevolutRows({
 	if (!matchesRevolutHeader(headers)) {
 		return emptyResult(
 			[{ code: 'header-not-recognized', profile: 'Revolut' }],
-			warnings,
 			'revolut',
 			rows.length - 1
 		);
@@ -161,6 +160,17 @@ export function parseRevolutRows({
 	let totalDebitCents = 0;
 	let totalCreditCents = 0;
 	const validDates: string[] = [];
+
+	// THE FILE'S DECLARATION, read off every row of the right width before any row is judged, so a
+	// row refused below for its state, date or amount still declares (#600, contradiction pass F2).
+	// Through `currencyOfCell`, the same reading the row loop applies. See `currencyDeclaration.ts`.
+	const declaredCurrencies = acceptedDeclarations(
+		rows
+			.slice(1)
+			.filter((parsedRow) => parsedRow.cells.length === headers.length)
+			.map((parsedRow) => normalizeRevolutRecord(toRecord(headers, parsedRow.cells)).Devise ?? ''),
+		'EUR'
+	);
 
 	rows.slice(1).forEach((parsedRow) => {
 		const row = parsedRow.cells;
@@ -189,7 +199,9 @@ export function parseRevolutRows({
 			return;
 		}
 
-		if (currency !== 'EUR') {
+		// `currencyOfCell`, the one reading of a currency cell shared with `generic` and `mapped`
+		// (#600, F4): Revolut writes `EUR`, and a file saying `€` or `Euro` is read the same way.
+		if (currencyOfCell(currency) !== 'EUR') {
 			addRefusal(
 				refusals,
 				{ kind: 'row', line },
@@ -199,27 +211,18 @@ export function parseRevolutRows({
 			return;
 		}
 
-		const date = normalizeFirstValidDate(
-			REVOLUT_DATE_COLUMNS.map((column) => record[column]),
+		// `readRowDate` names `Date de fin` and the first present cell for an unreadable date, as
+		// this profile always did, and the column actually read for a year outside the storable
+		// range (#758).
+		const dateReading = readRowDate(
+			REVOLUT_DATE_COLUMNS.map((column) => ({ column, value: record[column] })),
 			dateOrder
 		);
-		if (!isValidIsoDate(date)) {
-			addRefusal(
-				refusals,
-				{ kind: 'row', line },
-				{
-					code: 'invalid-date',
-					column: 'Date de fin',
-					// What `normalizeFirstValidDate` fell back to, in its own order, so the value
-					// shown is the one it last tried to read rather than a column it skipped.
-					value: refusalCellValue(
-						firstPresent(...REVOLUT_DATE_COLUMNS.map((column) => record[column]))
-					)
-				},
-				'Date de fin'
-			);
+		if (dateReading.kind === 'refused') {
+			addRefusal(refusals, { kind: 'row', line }, dateReading.fact, dateReading.fact.column);
 			return;
 		}
+		const date = dateReading.date;
 
 		const amountCents = parseAmountCents(record.Montant ?? '');
 		if (amountCents === null) {
@@ -289,6 +292,10 @@ export function parseRevolutRows({
 			amountCents: absAmountCents,
 			category: effectiveCategory,
 			source: 'csv',
+			// The `Devise` cell as the check above READ it, which is EUR, and never the cell's raw text:
+			// a cell writing `€` passed that check, and carrying `€` here would make the persist
+			// backstop compare `€` with `EUR`. Carried out so the destination can be compared (#600).
+			declaredCurrency: 'EUR',
 			metadata: {
 				reference: '',
 				notes,
@@ -324,19 +331,21 @@ export function parseRevolutRows({
 
 	return {
 		transactions,
-		warnings,
 		invalidRows: refusals,
-		summary: buildSummary({
-			profile: 'revolut',
-			totalRows: rows.length - 1,
-			validRows: transactions.length,
-			invalidRows: refusals.length,
-			fileLevelRefusals: 0,
-			duplicateRows,
-			totalDebitCents,
-			totalCreditCents,
-			dates: validDates
-		})
+		summary: {
+			...buildSummary({
+				profile: 'revolut',
+				totalRows: rows.length - 1,
+				validRows: transactions.length,
+				invalidRows: refusals.length,
+				fileLevelRefusals: 0,
+				duplicateRows,
+				totalDebitCents,
+				totalCreditCents,
+				dates: validDates
+			}),
+			declaredCurrencies
+		}
 	};
 }
 

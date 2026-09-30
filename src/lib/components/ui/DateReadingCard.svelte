@@ -43,7 +43,8 @@
 	 * The raw side is identical between the two cards: same three file values, read two ways.
 	 * Announcing it a second time would spend three spoken values distinguishing nothing. The name
 	 * is built from `order` and the three converted `pretty` values alone, and carries no role word
-	 * (assistive technology contributes "option" on its own).
+	 * (assistive technology contributes "option" on its own). A cell that does not convert under
+	 * this order is spoken as « pas une date », the same words the line draws (#705), never as a gap.
 	 */
 	let {
 		order,
@@ -56,7 +57,8 @@
 		/**
 		 * The file's own raw values, read this way: ONE TO THREE, one per line. Fewer than three is
 		 * a short column, never padding (#669): the caller drops `SAMPLE_PADDING` before it gets here,
-		 * and the card reserves the missing lines rather than drawing them.
+		 * and the card reserves the missing lines rather than drawing them. `pretty: ''` is a REAL cell
+		 * that is not a date read this way; the card names it (#705).
 		 */
 		pairs: { raw: string; pretty: string }[];
 		/** Whether this is the retained reading: the one already assumed or confirmed. */
@@ -78,9 +80,31 @@
 	const ariaLabel = $derived(
 		m.import_datesheet_option_aria({
 			order: title,
-			examples: pairs.map((pair) => pair.pretty).join(', ')
+			examples: pairs.map(converted).join(', ')
 		})
 	);
+
+	/**
+	 * What follows the arrow for one pair: its date read this way, or the words for a cell that is
+	 * not one (#705). THE ONE DEFINITION, so the spoken list and the drawn line cannot disagree.
+	 *
+	 * `pretty === ''` is the producers' contract for a REAL cell that does not convert under this
+	 * order: both callers map a null ISO to `''` rather than drop it, because a dropped value would
+	 * shift every later cell against its neighbour's conversion. Padding never reaches here (#669),
+	 * so an empty `pretty` is always this verdict. Spoken empty, it was a gap in the list,
+	 * « 3 avril 2026, , 2 avril 2026 », with no word for it.
+	 *
+	 * Reachable today as a cell that is a date under NEITHER reading (`Solde` in an ambiguous
+	 * column), so both cards say it. A cell failing ONE reading only (`13/01/2026`) proves the order
+	 * over the whole column and the question is not asked; the card names it all the same, because
+	 * it cannot know which of the two its caller has.
+	 */
+	function notADate(pair: { pretty: string }): boolean {
+		return pair.pretty === '';
+	}
+	function converted(pair: { pretty: string }): string {
+		return notADate(pair) ? m.import_datesheet_not_a_date() : pair.pretty;
+	}
 
 	/**
 	 * The lines this card holds whatever it is given: 107 px is three line boxes, and the plate rules
@@ -152,7 +176,15 @@
 				>
 					<span class="text-zinc-500 tabular-nums">{pair.raw}</span>
 					<span class="text-zinc-400">→</span>
-					<span class="text-zinc-900">{pair.pretty}</span>
+					<!--
+						A cell that is not a date under this reading shows the verdict, not a bare arrow
+						(#705; canvas « Carte de lecture, valeur non convertible »). Zinc-500 AND italic:
+						grey alone would tell the verdict from a date by colour only (WCAG 1.4.1), and
+						zinc-500 is the raw side's grey, 4.8:1 on white, where zinc-400 would fail 4.5:1.
+					-->
+					<span class={notADate(pair) ? 'text-zinc-500 italic' : 'text-zinc-900'}
+						>{converted(pair)}</span
+					>
 				</span>
 			{/each}
 			{#each { length: reserved }, position (position)}

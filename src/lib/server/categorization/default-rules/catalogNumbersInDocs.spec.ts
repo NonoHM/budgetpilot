@@ -20,6 +20,10 @@ import { loadDefaultRuleCatalog } from './catalog';
  *
  * The numbers are read out of the prose rather than out of a data file on purpose: the prose is
  * what a reader believes, and a machine-readable sidecar would be a fourth place to drift.
+ *
+ * **README.md carries no figure at all** (owner, 2026-09-26: a README is read once and re-read by
+ * nobody, so a count there goes stale whatever gates it). It used to be the third page here; its
+ * sentences now name the catalogue without counting it, and the test at the end keeps it so.
  */
 
 const CATALOGUE = loadDefaultRuleCatalog();
@@ -45,18 +49,6 @@ function numbersIn(text: string): number[] {
 
 /** The sentences that make a numeric claim about the catalogue, one entry per claim. */
 const CLAIMS: { file: string; match: RegExp; expected: () => number; about: string }[] = [
-	{
-		file: 'README.md',
-		match: /^.*ship with the app.*$/m,
-		expected: () => TOTAL,
-		about: 'how many rules ship'
-	},
-	{
-		file: 'README.md',
-		match: /^.*ship switched on.*$/m,
-		expected: () => TOTAL,
-		about: 'how many rules ship, in the known limitations list'
-	},
 	{
 		file: 'docs/using/rules.md',
 		match: /^.*BudgetPilot ships.*$/m,
@@ -101,5 +93,21 @@ describe('the catalogue figures printed in the docs', () => {
 
 		expect(sentence).toBeDefined();
 		expect(numbersIn(sentence as string)).toContain(REGEX);
+	});
+
+	it('README.md names the rule catalogue without counting it', () => {
+		// The two README sentences that used to carry the total. Found by what they SAY about the
+		// catalogue, so a count added back to either turns this red, whichever number it is.
+		// Break-checked 2026-09-26, one clause each: « …ships with the app, 157 rules in all. » (the
+		// phrase kept, a count added) reddens the number check with [157]; the old wording « 157 ship
+		// with the app » restored, or the phrase reworded away, reddens `toHaveLength(2)` instead, so
+		// a rewording cannot pass silently.
+		expect.assertions(2);
+
+		const text = readFileSync(new URL('../../../../../README.md', import.meta.url), 'utf8');
+		const sentences = text.match(/^.*ready-made set ships.*$/gm) ?? [];
+
+		expect(sentences).toHaveLength(2);
+		expect(sentences.flatMap(numbersIn)).toStrictEqual([]);
 	});
 });
