@@ -159,6 +159,24 @@ N26's export it names the other party because a `Bénéficiaire` column sits bes
 > one-row statement stored the counterparty's four characters as its own. An ordinary N26 statement
 > paying two people was refused as a file spanning two accounts.
 
+## Remembered account, and the correspondance
+
+Two things an import remembers for the user, both listed and forgotten in Settings.
+
+- **A correspondance** remembers which COLUMN holds what, keyed on a file's header shape.
+- **A remembered account** remembers which ACCOUNT a statement belongs to, keyed on the account
+  number the statement's own account column names, as the user answered it (#599). The key is a
+  keyed hash of the whole number; the `···0185` a screen shows is a separate column and never a
+  key.
+
+The shape cannot stand in for the number: every statement of one bank shares its header row, so a
+memory keyed on the shape cannot tell two accounts of that bank apart.
+
+> **What confusing this cost.** The first account memory was keyed like a correspondance, on the
+> shape (#480). Nothing in production wrote it (#696), so « Mémorisé » never appeared; and had it
+> been written, it could not have told apart the two accounts of one bank, which is the one
+> question #599 needed it to answer.
+
 ## Pressed
 
 The state a control shows while a finger or a pointer is on it. Distinct from **selected**

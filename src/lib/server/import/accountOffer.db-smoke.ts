@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { env } from '$env/dynamic/private';
 import { prisma } from '$lib/server/db';
 import { GENERIC_BUCKET_STORED_NAME } from '$lib/domain/account';
 import * as m from '$lib/paraglide/messages';
@@ -15,6 +16,11 @@ const ROWS: ParsedCsvRow[] = [
 ];
 
 let mine = '';
+
+// The memory key's secret, as an explicit fixture (`vitest.db.env-stub.ts` is empty on purpose).
+beforeAll(() => {
+	env.RATE_LIMIT_HASH_SECRET = 'd4'.repeat(32);
+});
 
 beforeEach(async () => {
 	const u = await prisma.user.create({
@@ -132,7 +138,45 @@ describe('the account offer the designation screen is given', () => {
 		expect.assertions(2);
 		await makeAccount('BP · Compte courant', 'banque_populaire');
 		const offer = await buildAccountOffer({ userId: mine, rows: ROWS });
-		expect(offer.resolution).toStrictEqual({ rank: 3, candidates: [] });
+		expect(offer.resolution).toStrictEqual({ rank: 3, kind: 'unknown' });
 		expect(offer.options).toHaveLength(1);
+	});
+});
+
+describe('« Nouveau compte » and the fragment the create refuses (third contradiction pass)', () => {
+	/** A statement whose account column names ···0185 on every row. */
+	const NAMING_0185: ParsedCsvRow[] = [
+		{ cells: ['date', 'libelle', 'montant', 'compte'], line: 1 },
+		{ cells: ['2026-08-01', 'CARTE', '-3,10', '00012340185'], line: 2 },
+		{ cells: ['2026-08-02', 'VIREMENT', '12,00', '00012340185'], line: 3 }
+	];
+
+	it('does not offer it when an ARCHIVED account holds the fragment', async () => {
+		// SEPARATES « the offer reads the set the create checks » FROM « offered, then refused with
+		// « Vous avez déjà un compte pour cet identifiant » over an account the picker does not list ».
+		expect.assertions(1);
+		await makeAccount('Compte courant', 'csv');
+		await makeAccount('Ancien livret', 'csv', {
+			discriminant: '0185',
+			archivedAt: new Date('2026-01-01T00:00:00.000Z')
+		});
+		const offer = await buildAccountOffer({ userId: mine, rows: NAMING_0185 });
+		expect(offer.offersNewAccount).toBe(false);
+	});
+
+	it('does not offer it when a live account of another source holds the fragment', async () => {
+		expect.assertions(1);
+		await makeAccount('Compte courant', 'csv');
+		await makeAccount('Revolut', 'revolut', { discriminant: '0185' });
+		const offer = await buildAccountOffer({ userId: mine, rows: NAMING_0185 });
+		expect(offer.offersNewAccount).toBe(false);
+	});
+
+	it('offers it when no account holds the fragment', async () => {
+		// The calibration: the same fixture with no holder does offer it.
+		expect.assertions(1);
+		await makeAccount('Compte courant', 'csv');
+		const offer = await buildAccountOffer({ userId: mine, rows: NAMING_0185 });
+		expect(offer.offersNewAccount).toBe(true);
 	});
 });

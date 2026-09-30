@@ -25,6 +25,9 @@ const NOT_EXPORTED: Record<string, string> = {
 	Invitation: 'addressed to a person, not owned data; carries a token hash',
 	LoginAttempt: 'rate-limiting state, keyed by HMAC, not user data',
 	BankAuthorizationRequest: 'ephemeral OAuth state with encrypted payloads',
+	// #599: keyed by a hash under this instance's secret, so it never matches on another one, and
+	// every row carries an account identifier fragment, which a plaintext file must not (#468).
+	RememberedAccount: 'instance-keyed memory carrying account identifier fragments (#468)',
 	// Join model with a composite primary key: it has no id of its own and is carried by the
 	// `transactionTags` pair array rather than as a keyed table.
 	TransactionTag: 'exported as the transactionTags pair array, not as a keyed table'

@@ -408,7 +408,16 @@ const backupColumnMappingSchema = z
 	.strict();
 
 /**
- * The import memory: "a file with THIS header shape belongs in THAT account".
+ * The RETIRED import memory: "a file with THIS header shape belongs in THAT account".
+ *
+ * READ AND DISCARDED since #599. The memory is now keyed on the file's own account identifier
+ * (`RememberedAccount`), under a key derived from this instance's secret, and is not carried by a
+ * backup at all: on another instance the key would never match, and its fragment is the data class
+ * the text below keeps out of a plaintext file. The export writes this array empty, and a restore
+ * validates it (so a hand-edited file still cannot smuggle a `discriminant` in) and then ignores
+ * it. Kept in the schema because the export object is `.strict()`: dropping the key would refuse
+ * every backup written since #480 as malformed. What follows is the ruling this shape was built
+ * on (#468), kept because it is why the rows never carried a fragment.
  *
  * ONLY THE ROWS THAT CARRY NO ACCOUNT IDENTIFIER FRAGMENT TRAVEL, and the field that would carry
  * one is absent from this object rather than present and nulled. `Account.discriminant` and
@@ -637,7 +646,8 @@ export const backupExportSchema = z
 			.max(MAX_IMPORTED_RECURRING_STREAM_ACTIONS)
 			.default([]),
 		// Absent from exports predating the import memory: defaulted to empty, like every other
-		// array added after 1.0, so a file written before it still restores.
+		// array added after 1.0, so a file written before it still restores. EMPTY in every export
+		// since #599 and ignored by the restore: see `backupImportSourceSignatureSchema` above.
 		//
 		// NO per-array bound, and the absence is reasoned rather than forgotten. The three arrays
 		// that carry one (recurringStreamActions, transactionTags, transactionSplits) all leave

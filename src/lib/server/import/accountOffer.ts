@@ -1,14 +1,10 @@
 import { prisma } from '$lib/server/db';
-import { findDiscriminantColumn } from './discriminant';
+import { findDiscriminantColumn, fragmentIsHeld } from './discriminant';
 import { institutionForSource } from './accountBackfill';
 import { prefillAccountName } from '$lib/server/accounts/service';
 import { accountsForPicker, displayAccountName } from '$lib/server/accounts/projection';
-import {
-	headersOf,
-	resolveStatementAccount,
-	sourceFingerprintFor,
-	type AccountResolution
-} from './sourceSignature';
+import { accountMemoryKeyOf, readRememberedAccount } from './accountMemory';
+import { resolveStatementAccount, type AccountResolution } from './sourceSignature';
 import type { ParsedCsvRow } from './types';
 
 /**
@@ -63,7 +59,8 @@ export interface AccountOfferOption {
  */
 export interface AccountMemory {
 	useCount: number;
-	lastUsedAt: Date | null;
+	/** When the answer was given, which is what « depuis le » means in the hint. */
+	rememberedAt: Date;
 }
 
 export interface AccountOffer {
@@ -79,6 +76,13 @@ export interface AccountOffer {
 	 * not be assembled twice.
 	 */
 	prefillName: string;
+	/**
+	 * Whether « Nouveau compte » answers this question: the file names one account identifier that
+	 * none of the user's accounts holds, so the statement may belong to an account they do not have
+	 * yet. Whatever the question's cause (second contradiction pass): offering only existing
+	 * accounts there made the user misfile it, and the misfile was then remembered.
+	 */
+	offersNewAccount: boolean;
 }
 
 export async function buildAccountOffer(input: {
@@ -129,20 +133,14 @@ export async function buildAccountOffer(input: {
 	});
 	/**
 	 * The figures behind « Mémorisé, 3 imports depuis le 15 août », and only when memory is what
-	 * answered with a single account. Any other rank has nothing to count: rank 1 read the file
-	 * itself, and a rank 3 with several candidates is a question rather than a recollection.
+	 * answered. Any other rank has nothing to count: rank 1 read the file itself.
 	 */
-	const memory =
-		resolution.rank === 3 && 'candidates' in resolution && resolution.candidates.length === 1
-			? await prisma.importSourceSignature.findFirst({
-					where: {
-						userId: input.userId,
-						fingerprint: sourceFingerprintFor(headersOf(input.rows)),
-						accountId: resolution.candidates[0]
-					},
-					select: { useCount: true, lastUsedAt: true }
-				})
-			: null;
+	let memory: AccountMemory | null = null;
+	if (resolution.rank === 3 && resolution.kind === 'remembered') {
+		const key = accountMemoryKeyOf(input.userId, input.rows, destinations);
+		const remembered = key === null ? null : await readRememberedAccount(input.userId, key);
+		memory = remembered && { useCount: remembered.useCount, rememberedAt: remembered.rememberedAt };
+	}
 
 	/**
 	 * Read a second time rather than threaded out of `resolveStatementAccount`, and that is the
@@ -154,6 +152,18 @@ export async function buildAccountOffer(input: {
 	const named = findDiscriminantColumn(input.rows);
 
 	return {
+		// Over EVERY account, archived included: the set `assertDiscriminantFree` refuses the create
+		// on (third contradiction pass). Offered over the picker's set, it was refused with « Vous
+		// avez déjà un compte pour cet identifiant » for an account the picker does not list.
+		offersNewAccount:
+			named.kind === 'resolved' &&
+			!fragmentIsHeld(
+				named.fragment,
+				await prisma.account.findMany({
+					where: { userId: input.userId },
+					select: { discriminant: true }
+				})
+			),
 		prefillName: prefillAccountName({
 			institution: input.source ? institutionForSource(input.source) : null,
 			fragment: named.kind === 'resolved' ? named.fragment : null
