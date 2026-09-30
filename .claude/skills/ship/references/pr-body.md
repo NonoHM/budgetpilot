@@ -30,12 +30,13 @@ absolute local path, no personal address, nothing derived from a real statement.
 The repository's hook refuses a publishing command it cannot vouch for, and a refused call runs
 nothing at all:
 
-1. Write the body with the Write tool to a literal path: `docs/superpowers/tools/body-<n>.md`
-   (gitignored).
-2. Scan it: `node docs/superpowers/tools/scan_text.mjs docs/superpowers/tools/body-<n>.md`. It
-   calibrates in the same run. `node scripts/private-references.mjs <file>` scans nothing and exits 0.
+1. Write the body with the Write tool to a literal path under `docs/superpowers/tools/` (gitignored;
+   create the folder on a fresh clone): `docs/superpowers/tools/body-<n>.md`.
+2. The tracked hook (`.claude/hooks/private-references.mjs`) scans that body when you post it and
+   refuses on a finding. A maintainer's local `docs/superpowers/tools/scan_text.mjs <file>` scans it
+   earlier, calibrated in the same run; `node scripts/private-references.mjs <file>` scans nothing.
 3. `gh pr create --base main --title "<title>" --body-file docs/superpowers/tools/body-<n>.md`: a
    literal path, one publishing command per Bash call. Never an inline body: a backtick inside double
    quotes executes.
-4. Read it back: `gh pr view <n> --json body,commits`, and scan the commit messages with
-   `scan_text.mjs` too: it calibrates on a planted private address in the same run.
+4. Read it back: `gh pr view <n> --json body,commits`. Commit messages were scanned by the
+   `.githooks/` hooks when committed (`git config core.hooksPath .githooks` enables them).

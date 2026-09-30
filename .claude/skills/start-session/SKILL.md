@@ -36,8 +36,7 @@ Owner's note: $ARGUMENTS
 
 - Report per PR, one screen: PR and state, what it closes and does NOT, gate figures as read, what is
   left. Detail in the PR body, not chat.
-- Owner: cybersecurity student, not a developer. Explain as before/after, in integrity,
-  confidentiality, availability terms.
+- Explain a change as before/after, in integrity, confidentiality, availability terms.
 - A figure carries the command that re-derives it; an estimate carries its method in the same
   sentence.
 

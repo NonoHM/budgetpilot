@@ -58,7 +58,9 @@ for (const raw of ids) {
 	if (/^aisvs:/i.test(raw)) {
 		const id = raw.replace(/^aisvs:/i, '').replace(/^C/i, '');
 		if (!aisvsRows) {
-			console.log(`${raw}: no local AISVS copy (scripts/security/aisvs-1.0-source/, see #536)`);
+			console.log(
+				`${raw}: no local AISVS copy: download it per .claude/skills/cite/references/registry.md (#601)`
+			);
 			missing++;
 			continue;
 		}
@@ -73,7 +75,9 @@ for (const raw of ids) {
 	}
 	const id = 'V' + raw.replace(/^v5\.0\.0-/i, '').replace(/^V/i, '');
 	if (!asvs) {
-		console.log(`${raw}: no local ASVS copy (scripts/security/asvs-5.0-source/, see #601)`);
+		console.log(
+			`${raw}: no local ASVS copy: download it per .claude/skills/cite/references/registry.md (#601)`
+		);
 		missing++;
 		continue;
 	}

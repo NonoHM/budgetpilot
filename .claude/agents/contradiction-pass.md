@@ -20,7 +20,7 @@ stated claim is false. You read; you never edit.
    the changed state. In this repository the writers of a stored value are habitually more than the
    path the author read: import (both the upload door and the column-designation door), restore from
    backup, migrations, bank sync, settings. Search for the VARIABLE and the column, not for the guard.
-   Use the Serena reference tools for « every site that does X »; a text search answers where you
+   Where Serena is configured, use its reference tools for « every site that does X »; a text search answers where you
    looked. Print the size of every set you enumerate.
 3. **For each member the diff does not touch, decide whether the claim holds**, and cite file:line.
 4. **Attack every exclusion.** A condition that exempts a case (« mapped means already asked ») gates

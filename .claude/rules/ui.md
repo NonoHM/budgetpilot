@@ -26,7 +26,9 @@ The order: any process skill first, then those two, then the design, then the co
   composition, a new state, a changed visible line. Where a plate section rules the screen, cite it
   and build to it. The main session creates the canvas, never a subagent, at 390x844 and 1280x800
   from the registered bricks; an implementation session stops, pushes what is ready, and reports what
-  the screen must show. Published text names it only as « a private Claude Design canvas ».
+  the screen must show. Published text names it only as « a private Claude Design canvas ». Plates
+  and canvases live outside the repository: without them, build from
+  `docs/reference/design-referential.md` and ask in the PR for a design review of the new screen.
 - **Every string is essential.** The fewest words that say what the server knows and the reader
   needs, checked against AGENTS.md « Writing a sentence for the interface ». Three lines at most at
   390 px. Reuse a key before adding one.

@@ -33,10 +33,11 @@ barrier lies.
     - **Implementation session under a controller**: never merge, never arm `gh pr merge --auto`,
       never push to `main`. Tier 3: push the branch, open no PR; the controller runs the pass.
     - **Controller, or alone**: an agent merges its own work only if the owner's settings grant it,
-      and only by one path: read the PR, then exactly `docs/superpowers/tools/merge_pr.sh <n>` (waits
-      for every check job, runs leak, PII and gitleaks scans calibrated, squash-merges). Never
-      `gh pr merge` directly. Call refused, grant absent, or owner said so: stop at green, hand the
-      merge. Never add or widen a permission yourself; never route around a refusal.
+      and only by one path: read the PR, then exactly `docs/superpowers/tools/merge_pr.sh <n>`, the
+      maintainer's local script, absent from a clone (waits for every check job, runs leak, PII and
+      gitleaks scans calibrated, squash-merges). Never `gh pr merge` directly. Call refused, grant
+      absent, or owner said so: stop at green, hand the merge. Never add or widen a permission
+      yourself; never route around a refusal.
 11. **Report, one screen**: PR and state; closes and does NOT do; first measurement with its
     calibration; each break (clause, red or green, the two states it separates); gate figures as
     read; screenshots by path and what the eye would fail; findings filed. Never overstate.

@@ -20,17 +20,14 @@ as satisfied.
 1. **ASVS and AISVS: resolve before writing.**
    `node .claude/skills/cite/scripts/resolve.mjs 8.2.2 2.3.1 aisvs:9.2.1` prints each identifier in
    full form with its level and text, marks a level above 2, and exits 1 on any identifier that does
-   not exist. The copies it reads: `scripts/security/asvs-5.0-source/` (#601) and
-   `scripts/security/aisvs-1.0-source/` (#536, pinned commit in its `PROVENANCE.md`).
+   not exist. No local copy (a fresh clone has none until #601): download it from
+   [references/registry.md](references/registry.md), which says where it goes.
 2. **Write the full form with the text quoted**: `ASVS v5.0.0-8.2.2` (Level 1): « Verify that ... ».
    Say whether the change SATISFIES the line, CONTRIBUTES to it, or leaves a deviation, and name what
    is still missing. A partial control is not a satisfied requirement.
-3. **Everything else** (WCAG 2.2, CWE, ATT&CK, ATLAS, NIST, CIS, ANSSI, ISO/IEC): local copy first.
-   `scr/references/guards/` and `scr/references/gates/` each carry a `MANIFEST.md` (URL, date, size,
-   sha256): quote the saved file with its MANIFEST URL and date. `scr/` is gitignored, so a linked
-   worktree has none: read it in the main checkout (`$(git rev-parse --git-common-dir)/..`). Not
-   saved: read the primary page, quote it with URL and date read, and add it to a MANIFEST. Never
-   from memory.
+3. **Everything else** (OWASP, MITRE, NIST, CIS, ANSSI, ISO/IEC, W3C, SLSA, vendor docs): find it in
+   [references/registry.md](references/registry.md), read the local copy it points to, or download it
+   there with a MANIFEST row, then quote it with its URL and the date read. Never from memory.
 
 ## What the comparable products do
 

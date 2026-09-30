@@ -28,7 +28,7 @@ maintainable, future-proof.
 - A value that can be derived is not stored.
 - No abstraction for a single caller.
 - Maintainability is a first criterion (ISO/IEC 25010: modularity, reusability, analysability,
-  modifiability, testability; local copy `scr/references/gates/iso25010-maintainability.html`).
+  modifiability, testability; source in the `cite` skill's reference list).
 - Before writing a component, look in `src/lib/components/ui/` and
   `docs/reference/design-referential.md`; reuse or register, never inline a copy.
 
