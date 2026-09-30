@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import * as m from '$lib/paraglide/messages';
 
 vi.hoisted(() => {
 	process.env.TOTP_ENCRYPTION_KEY ??=
@@ -105,6 +106,16 @@ vi.mock('$lib/server/backup/import', () => backupImport);
 vi.mock('$lib/server/tags/service', () => tagsService);
 vi.mock('$lib/server/auth/rateLimit', () => rateLimit);
 vi.mock('$lib/server/import/mapping/store', () => mappingStore);
+// #599: the remembered accounts. Their `userId` scoping is proven on three engines in
+// `import/accountMemory.db-smoke.ts` and through this route in `rememberedAccounts.db-smoke.ts`;
+// here only the load's wiring and the action's mapping of outcomes to responses.
+const accountMemory = vi.hoisted(() => ({
+	listRememberedAccounts: vi.fn<() => Promise<Record<string, unknown>[]>>(async () => []),
+	forgetRememberedAccount: vi.fn<
+		(userId: string, id: string) => Promise<'forgotten' | 'not-found'>
+	>(async () => 'forgotten')
+}));
+vi.mock('$lib/server/import/accountMemory', () => accountMemory);
 vi.mock('$lib/server/net-worth/service', () => netWorthService);
 
 const { hashPassword, hashSessionToken, SESSION_COOKIE } = await import('$lib/server/auth');
@@ -1605,6 +1616,51 @@ describe('/settings', () => {
 			});
 
 			expect(belongsToSomeoneElse).toEqual(neverExisted);
+		});
+	});
+
+	describe('the remembered accounts (#599)', () => {
+		it('hands the page the rows listed for the CALLER', async () => {
+			expect.assertions(2);
+			accountMemory.listRememberedAccounts.mockResolvedValue([
+				{ id: 'ra-1', fragment: '0185', accountName: 'Compte joint', useCount: 3 }
+			]);
+			db.prisma.session.findMany.mockResolvedValue([]);
+			tagsService.listTagsWithCounts.mockResolvedValue([]);
+
+			const result = (await load(buildLoadEvent({ token: 'session-courante' }) as never)) as {
+				rememberedAccounts: Array<Record<string, unknown>>;
+			};
+
+			expect(accountMemory.listRememberedAccounts).toHaveBeenCalledWith('user-a');
+			expect(result.rememberedAccounts).toHaveLength(1);
+		});
+
+		it('forgets one with the caller id, and says so', async () => {
+			expect.assertions(2);
+			accountMemory.forgetRememberedAccount.mockResolvedValue('forgotten');
+
+			const result = await runAction('forgetRememberedAccount', {
+				token: 'session-courante',
+				input: { id: 'remembered-1' }
+			});
+
+			expect(accountMemory.forgetRememberedAccount).toHaveBeenCalledWith('user-a', 'remembered-1');
+			expect(result).toMatchObject({
+				rememberedAccountSuccess: m.settings_remembered_accounts_success_forgotten()
+			});
+		});
+
+		it('answers not-found, and never reaches the store, for an empty id', async () => {
+			expect.assertions(2);
+
+			const result = await runAction('forgetRememberedAccount', {
+				token: 'session-courante',
+				input: { id: '  ' }
+			});
+
+			expect(accountMemory.forgetRememberedAccount).not.toHaveBeenCalled();
+			expect(result.status).toBe(404);
 		});
 	});
 });

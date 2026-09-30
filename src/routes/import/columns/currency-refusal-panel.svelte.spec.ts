@@ -97,3 +97,49 @@ describe('the columns page after the currency refusal', () => {
 			.toBeInTheDocument();
 	});
 });
+
+describe('the remembered account after the currency refusal (second contradiction pass)', () => {
+	it('drops « Mémorisé » once the refusal names the currency, keeping the refusal visible', async () => {
+		// SEPARATES « the refusal is the only sentence about the refused account » FROM « a
+		// « Mémorisé » provenance stays beside the refusal of that same account ». The memory
+		// pre-filled a USD account for an EUR file (`/import` cannot know the currency of a file no
+		// profile recognises), and the first press was refused.
+		expect.assertions(2);
+		await page.viewport(1280, 800);
+		const refusal = refusalLabel({
+			code: 'declared-currency-mismatch',
+			declared: 'EUR',
+			destination: 'USD'
+		});
+		setPendingDesignation({
+			file: new File(['Jour,Intitule,Somme,Devise\n'], 'releve.csv'),
+			view: VIEW,
+			initialAssignment: COMPLETE,
+			candidates: {},
+			dateOrder: null,
+			account: {
+				options: [
+					{
+						id: 'usd-1',
+						name: 'Checking USD',
+						discriminant: null,
+						transactionCount: 18,
+						currency: 'USD'
+					}
+				],
+				resolution: { rank: 3 as const, kind: 'remembered' as const, accountId: 'usd-1' },
+				memory: { useCount: 2, rememberedAt: '2026-08-15T12:00:00.000Z' },
+				prefillName: '',
+				chosenId: null
+			},
+			correction: null
+		} as never);
+		await render(Page, {
+			form: { error: refusal, keepDesignation: true, declaredCurrency: 'EUR' } as never
+		});
+		await expect.element(page.getByText(refusal).first()).toBeVisible();
+		expect(document.body.textContent).not.toContain(
+			m.import_account_hint_from_memory({ count: 2, date: '15 août' })
+		);
+	});
+});

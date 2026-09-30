@@ -31,6 +31,7 @@ import {
 	resolveImportBucketAccountById
 } from '$lib/server/import/persist';
 import { writeImport } from '$lib/server/import/writeImport';
+import { rememberAnsweredAccount } from '$lib/server/import/accountMemory';
 import { importFileErrorLabel } from '$lib/i18n/importFileErrorLabel';
 import { describeIncomingBatch, findCollidingBatch } from '$lib/server/import/collision';
 import { deleteImportBatch } from '$lib/server/import/deleteBatch';
@@ -469,6 +470,24 @@ export const actions: Actions = {
 		// import they are looking at never happened. Counted AFTER the write succeeded (D3): a run
 		// whose write failed did not use the correspondance to import anything.
 		if (columnMappingId) await recordColumnMappingUse(user.id, columnMappingId);
+
+		/**
+		 * The memory's writer on THIS door too (M3, contradiction pass), with the auto path's
+		 * condition: the account is the USER's answer, which on this screen it always is (the row is
+		 * the only way `accountId` arrives, resolved above against the user's own accounts). The
+		 * writer itself refuses a file that names no identifier, or one another account holds. After
+		 * the write, and unable to undo it: a failure costs one question next time, and is logged
+		 * without any identifier (ASVS v5.0.0-16.2.5).
+		 */
+		try {
+			await rememberAnsweredAccount({
+				userId: user.id,
+				rows: importData.rows,
+				accountId: bucket.accountId
+			});
+		} catch {
+			console.warn('[budgetpilot] an answered import account could not be remembered');
+		}
 
 		/**
 		 * The replace, and the one guard between it and a silent loss of transactions.

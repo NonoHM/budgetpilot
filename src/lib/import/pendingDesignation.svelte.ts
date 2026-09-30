@@ -79,9 +79,11 @@ export interface PendingDesignation {
 		 * the accounts held in another one. Absent everywhere else.
 		 */
 		declaredCurrency?: string;
+		/** Set on #599's question (the file names another account): offer « Nouveau compte ». */
+		allowCreate?: boolean;
 		resolution: AccountResolution;
 		/** ISO, formatted on the screen where the negotiated locale is known. */
-		memory: { useCount: number; lastUsedAt: string | null } | null;
+		memory: { useCount: number; rememberedAt: string } | null;
 		/**
 		 * The name the create sheet opens with, composed on the server from what the file said.
 		 *

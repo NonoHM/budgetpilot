@@ -237,9 +237,9 @@ describe('a file at the exact previous header', () => {
 	it('falls to rank 3 with no accountId in the answer', async () => {
 		expect.assertions(3);
 
-		const findMany = vi.fn().mockResolvedValue([]);
+		const findFirst = vi.fn().mockResolvedValue(null);
 		vi.doMock('$lib/server/db', () => ({
-			prisma: { importSourceSignature: { findMany }, account: { findFirst: vi.fn() } }
+			prisma: { rememberedAccount: { findFirst }, account: { findFirst: vi.fn() } }
 		}));
 		const { resolveStatementAccount } = await import('../sourceSignature');
 
@@ -261,9 +261,9 @@ describe('a file at the exact previous header', () => {
 		// are the two states that decide whether the user is shown a statement or a question.
 		expect(resolution.rank).toBe(3);
 		expect('accountId' in resolution).toBe(false);
-		// The companion figure: rank 3 with an empty candidate list is « never seen before », and it
-		// is reached only because the memory was actually consulted.
-		expect(findMany).toHaveBeenCalledTimes(1);
+		// The companion figure: a V2 file names no account identifier, so there is no key to read
+		// the memory under (#599), and rank 3 answers « unknown » without consulting it.
+		expect(findFirst).not.toHaveBeenCalled();
 
 		vi.doUnmock('$lib/server/db');
 		vi.resetModules();

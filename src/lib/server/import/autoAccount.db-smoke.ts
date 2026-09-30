@@ -1,8 +1,9 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { env } from '$env/dynamic/private';
 import { prisma } from '$lib/server/db';
 import { decideAutoAccount } from './autoAccount';
+import { accountMemoryKeyOf, rememberAnsweredAccount } from './accountMemory';
 import { N26_LEGACY_HEADERS, REAL_HEADERS } from './profiles/realHeaders.fixture';
-import { headersOf, sourceFingerprintFor } from './sourceSignature';
 import type { ParsedCsvRow } from './types';
 import { parseRows } from './utils/csv';
 
@@ -20,6 +21,11 @@ import { parseRows } from './utils/csv';
 
 let mine = '';
 let other = '';
+
+// The memory key's secret, as an explicit fixture (`vitest.db.env-stub.ts` is empty on purpose).
+beforeAll(() => {
+	env.RATE_LIMIT_HASH_SECRET = 'a7'.repeat(32);
+});
 
 beforeEach(async () => {
 	const stamp = `${Date.now()}-${Math.round(performance.now() * 1000)}`;
@@ -132,36 +138,107 @@ describe('the auto path’s destination, now that the file is read too', () => {
 		expect(ids).toContain(livret.id);
 	});
 
-	it('does not let a memory decide on a path that shows the user nothing', async () => {
-		// SEPARATES: « only the file's own account column short-circuits » FROM « anything the
-		// resolver answers with an account short-circuits ». A rank 3 answer is a memory written by
-		// the designation screen, where it PRE-FILLS a control the user can see and change. There is
-		// no control here, so a memory deciding would replay a memorised mistake unattended, which is
-		// what `sourceSignature.ts` refuses under « THE FILE BEATS THE MEMORY, ALWAYS ». Without this
-		// the rule lives only in a docstring, and a docstring is not a check.
+	it('lets a memory PRE-FILL the question, never decide it', async () => {
+		// SEPARATES: « the memory is read only once the path has decided to ask, and pre-fills that
+		// question » FROM « a memory decides on a path that shows the user nothing » and from « the
+		// memory is never read at all » (#696's dead reader). The decision stays `ask`: the user sees
+		// the remembered account on the row and still presses « Importer ».
 		expect.assertions(3);
 		const courant = await makeAccount(mine, 'BP Compte courant', 'banque_populaire');
 		await makeAccount(mine, 'BP Livret A', 'banque_populaire');
-		await prisma.importSourceSignature.create({
-			data: {
-				userId: mine,
-				fingerprint: sourceFingerprintFor(headersOf(SILENT)),
-				discriminant: null,
-				accountId: courant.id,
-				useCount: 3,
-				lastUsedAt: new Date('2026-08-01T00:00:00.000Z')
-			}
+		await rememberAnsweredAccount({
+			userId: mine,
+			rows: statement('12340185'),
+			accountId: courant.id
 		});
 		const decision = await decideAutoAccount({
 			userId: mine,
 			source: 'banque_populaire',
-			rows: SILENT
+			rows: statement('12340185')
 		});
-		// The memory WAS found, so this separates « read and declined » from « never looked up »,
-		// which would pass the line below for the wrong reason.
-		expect(decision.kind === 'ask' && decision.offer.memory?.useCount).toBe(3);
 		expect(decision.kind).toBe('ask');
-		expect(decision.kind === 'account' && decision.bucket.accountId).not.toBe(courant.id);
+		expect(decision.kind === 'ask' && decision.offer.resolution).toStrictEqual({
+			rank: 3,
+			kind: 'remembered',
+			accountId: courant.id
+		});
+		expect(decision.kind === 'ask' && decision.offer.memory?.useCount).toBe(1);
+	});
+
+	it('lets the file outrank a memory that names another account', async () => {
+		// EVIDENCE OUTRANKS MEMORY. A memory for this very identifier names the savings account (a
+		// row written directly, as a restore or an older answer could leave it); the file's own
+		// fragment is held by the current account, which decides. SEPARATES « rank 1 short-circuits
+		// ahead of the memory » FROM « the memory's answer wins ».
+		expect.assertions(2);
+		const livret = await makeAccount(mine, 'BP Livret A', 'banque_populaire', '9032');
+		const courant = await makeAccount(mine, 'BP Compte courant', 'banque_populaire', '0185');
+		const key = accountMemoryKeyOf(mine, statement('12340185'), [])!;
+		await prisma.rememberedAccount.create({
+			data: { userId: mine, ...key, accountId: livret.id, useCount: 5 }
+		});
+		const decision = await decideAutoAccount({
+			userId: mine,
+			source: 'banque_populaire',
+			rows: statement('12340185')
+		});
+		expect(decision.kind).toBe('account');
+		expect(decision.kind === 'account' && decision.bucket.accountId).toBe(courant.id);
+	});
+
+	it('asks when the one account of the source holds another identifier (#599)', async () => {
+		// SEPARATES: « a file naming ···0185 is asked about when the only account of its bank holds
+		// ···4417 » FROM « filed into ···4417 silently », which is what #599 measured through the
+		// route (status 200, 2 rows in the held account). The cause travels with the question so
+		// the banner does not tell this user they hold several accounts.
+		expect.assertions(3);
+		const courant = await makeAccount(mine, 'BP Compte courant', 'banque_populaire', '4417');
+		const decision = await decideAutoAccount({
+			userId: mine,
+			source: 'banque_populaire',
+			rows: statement('12340185')
+		});
+		expect(decision.kind).toBe('ask');
+		expect(decision.kind === 'ask' && decision.cause).toBe('names-another-account');
+		expect(
+			decision.kind === 'ask' && decision.offer.options.map((option) => option.id)
+		).toStrictEqual([courant.id]);
+	});
+
+	it('files by source when the one account holds the identifier the file names', async () => {
+		// The calibration of the case above, in the same file: the SAME configuration with the file
+		// naming ···4417. SEPARATES « the rule compares the fragments » FROM « any file with an
+		// account column is asked about ».
+		expect.assertions(2);
+		const courant = await makeAccount(mine, 'BP Compte courant', 'banque_populaire', '4417');
+		const decision = await decideAutoAccount({
+			userId: mine,
+			source: 'banque_populaire',
+			rows: statement('12344417')
+		});
+		expect(decision.kind).toBe('by-source');
+		expect(decision.kind === 'by-source' && decision.existing?.accountId).toBe(courant.id);
+	});
+
+	it('does not read the memory when the source lookup is not ambiguous', async () => {
+		// MEMORY IS READ ONLY ON THE AMBIGUOUS BRANCH. The one account of the source carries no
+		// fragment, so nothing is in question and the path files by source, even though a memory
+		// for this identifier names another account. SEPARATES « the memory waits for a question »
+		// FROM « a memory redirects an import nobody asked about ».
+		expect.assertions(2);
+		const courant = await makeAccount(mine, 'BP Compte courant', 'banque_populaire');
+		const revolut = await makeAccount(mine, 'Revolut', 'revolut');
+		const key = accountMemoryKeyOf(mine, statement('12340185'), [])!;
+		await prisma.rememberedAccount.create({
+			data: { userId: mine, ...key, accountId: revolut.id }
+		});
+		const decision = await decideAutoAccount({
+			userId: mine,
+			source: 'banque_populaire',
+			rows: statement('12340185')
+		});
+		expect(decision.kind).toBe('by-source');
+		expect(decision.kind === 'by-source' && decision.existing?.accountId).toBe(courant.id);
 	});
 
 	it('refuses a fragment held by an account of a DIFFERENT source', async () => {

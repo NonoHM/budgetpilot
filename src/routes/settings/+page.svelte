@@ -342,6 +342,16 @@
 	const mappingName = (mapping: MappingRow) =>
 		mapping.columns.label ?? mapping.columns.date ?? m.settings_mappings_by_position();
 
+	// #599 — the remembered accounts: which account a statement's own account number goes to, as
+	// the user answered it. VISIBLE and REVOCABLE is the owner's condition for remembering at all.
+	type RememberedAccountRow = PageProps['data']['rememberedAccounts'][number];
+	let forgettingAccount = $state<RememberedAccountRow | null>(null);
+	let forgetAccountSubmitting = $state(false);
+	const rememberedUsed = (n: number) =>
+		n > 1
+			? m.settings_remembered_accounts_used({ count: n })
+			: m.settings_remembered_accounts_used_one({ count: n });
+
 	const formatDay = (value: Date | string) =>
 		new Date(value).toLocaleDateString(getLocale(), { day: 'numeric', month: 'long' });
 
@@ -1396,6 +1406,78 @@
 			{/if}
 		</div>
 
+		<!--
+		#599. « Comptes mémorisés », built to a private Claude Design canvas: the same card, row and
+		button styles as « Colonnes mémorisées » directly above, because it is the same kind of
+		record (something an import remembered for the user) with the same one action. Each row names
+		the file's account number by its last four, never the key it is stored under.
+
+		Deviation from the section above, deliberate: the meta line is zinc-500, not zinc-400 (#734,
+		zinc-400 on white fails 4.5:1 for 12 px text). The section above keeps its colour; #734 owns it.
+		-->
+		<div id="remembered-accounts" class={card}>
+			<h2 class="text-[11px] font-semibold tracking-wide text-zinc-500 uppercase">
+				{m.settings_remembered_accounts_heading()}
+			</h2>
+
+			{#if form?.rememberedAccountError}
+				<AlertBanner variant="error" class="mt-3">{form.rememberedAccountError}</AlertBanner>
+			{/if}
+			{#if form?.rememberedAccountSuccess}
+				<AlertBanner variant="success" class="mt-3">{form.rememberedAccountSuccess}</AlertBanner>
+			{/if}
+
+			{#if data.rememberedAccounts.length === 0}
+				<EmptyState
+					card={false}
+					title={m.settings_remembered_accounts_empty_title()}
+					description={m.settings_remembered_accounts_empty()}
+				/>
+			{:else}
+				<ul class="mt-3 space-y-2.5" data-testid="remembered-accounts">
+					{#each data.rememberedAccounts as remembered (remembered.id)}
+						<li class="rounded-xl border border-zinc-200 p-3.5">
+							<div class="flex flex-wrap items-start justify-between gap-3">
+								<div class="min-w-0">
+									<p class="flex min-w-0 items-center gap-2 text-sm text-zinc-700">
+										<span class="font-medium tabular-nums">···{remembered.fragment}</span>
+										<svg
+											aria-hidden="true"
+											viewBox="0 0 16 16"
+											class="h-3.5 w-3.5 shrink-0 text-zinc-400"
+											fill="none"
+											stroke="currentColor"
+											stroke-width="1.5"
+											stroke-linecap="round"
+											stroke-linejoin="round"><path d="M3 8h10M9 4l4 4-4 4" /></svg
+										>
+										<span class="truncate font-medium">{remembered.accountName}</span>
+									</p>
+									<p class="mt-1.5 text-xs text-zinc-500">
+										{m.settings_remembered_accounts_remembered_on({
+											date: formatDay(remembered.rememberedAt)
+										})} · {rememberedUsed(remembered.useCount)}
+									</p>
+								</div>
+								<Button
+									type="button"
+									variant="ghost"
+									size="sm"
+									class="shrink-0"
+									aria-label={m.settings_remembered_accounts_forget_aria({
+										fragment: remembered.fragment
+									})}
+									onclick={() => (forgettingAccount = remembered)}
+								>
+									{m.settings_mappings_forget()}
+								</Button>
+							</div>
+						</li>
+					{/each}
+				</ul>
+			{/if}
+		</div>
+
 		<!-- ZONE DANGER -->
 		<div>
 			<div class="flex items-center gap-2">
@@ -1916,5 +1998,35 @@ true and would still surprise them.
 				{mappingBatches(forgettingMapping!.importBatchCount)}
 			</p>
 		{/if}
+	</ConfirmDialog>
+</form>
+
+<!--
+#599's confirmation, the same ConfirmDialog brique and tone as the correspondance's above. The body
+says what forgetting changes (the next statement of that account asks again) and what it does not
+(imported transactions stay where they are), which is the half a user cannot guess.
+-->
+<form
+	method="POST"
+	action="?/forgetRememberedAccount"
+	use:enhance={() => {
+		forgetAccountSubmitting = true;
+		return async ({ result, update }) => {
+			await update();
+			forgetAccountSubmitting = false;
+			if (result.type === 'success') forgettingAccount = null;
+		};
+	}}
+>
+	<input type="hidden" name="id" value={forgettingAccount?.id ?? ''} />
+	<ConfirmDialog
+		open={forgettingAccount !== null}
+		title={m.settings_remembered_accounts_confirm_title()}
+		confirmLabel={m.settings_mappings_forget()}
+		tone="danger"
+		confirmLoading={forgetAccountSubmitting}
+		onClose={() => (forgettingAccount = null)}
+	>
+		<p class="text-sm text-zinc-600">{m.settings_remembered_accounts_confirm_body()}</p>
 	</ConfirmDialog>
 </form>

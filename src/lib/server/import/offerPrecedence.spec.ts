@@ -66,7 +66,8 @@ const ACCOUNT_OFFER: AccountOffer = {
 	],
 	resolution: { rank: 3, kind: 'orphan' },
 	memory: null,
-	prefillName: 'CSV'
+	prefillName: 'CSV',
+	offersNewAccount: false
 };
 
 /**

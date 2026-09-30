@@ -56,6 +56,7 @@ function baseData(overrides: Partial<PageData> = {}): PageData {
 		aiSettings: { insightsEnabled: false, includeLabels: false, llmGloballyEnabled: false },
 		columnMappings: [],
 		columnMappingCap: 50,
+		rememberedAccounts: [],
 		accounts: [CSV_ROW, BP_ROW],
 		accountsInvitation: true,
 		accountNameMaxLength: 120,
