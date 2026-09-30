@@ -371,8 +371,10 @@ jobs:
   #                             image has ZERO findings at any severity, so a Debian-unfixed
   #                             finding cannot put a red X on an unrelated pull request. Without
   #                             it, every PR would be red for something no rebuild can remove.
-  #   TRIVY_IGNOREFILE          `.trivyignore` must not be able to make this check disagree with
-  #                             the release gate, in either direction.
+  #   TRIVY_IGNOREFILE          `.trivy-waivers.yaml`, the file the release gate reads too, so
+  #                             `.trivyignore` still cannot make this check disagree with the
+  #                             release gate in either direction. A waiver is a dated ruling that
+  #                             expires by itself (#788); the daily scan does not read it.
   #
   # The noise mode this DOES have, stated rather than discovered: a CVE published upstream
   # overnight turns every open pull request red at once, with no commit to blame. That reading is
@@ -440,7 +442,8 @@ jobs:
         id: gate
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         env:
-          TRIVY_IGNOREFILE: /dev/null # must not be able to disagree with the release gate
+          # The same waiver file as the release gate, so the two cannot disagree (see its header).
+          TRIVY_IGNOREFILE: .trivy-waivers.yaml
         with:
           scan-type: image
           image-ref: budgetpilot:cve-scan
