@@ -47,7 +47,7 @@ const ACCOUNT_OFFER = {
 			currency: 'USD'
 		}
 	],
-	resolution: { rank: 3, candidates: [] },
+	resolution: { rank: 3, kind: 'unknown' },
 	prefillName: 'CSV',
 	memory: null,
 	chosenId: null

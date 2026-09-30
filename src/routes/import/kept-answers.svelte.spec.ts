@@ -35,7 +35,7 @@ const ACCOUNT_OFFER = {
 		{ id: 'acc-courant', name: 'BP · Compte courant', discriminant: '4417', transactionCount: 128 },
 		{ id: 'acc-livret', name: 'BP · Livret A', discriminant: '9032', transactionCount: 12 }
 	],
-	resolution: { rank: 3, candidates: [] },
+	resolution: { rank: 3, kind: 'unknown' },
 	prefillName: 'Banque Populaire',
 	memory: null,
 	chosenId: null

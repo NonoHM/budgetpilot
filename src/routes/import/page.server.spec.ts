@@ -217,13 +217,12 @@ const db = vi.hoisted(() => {
 				)
 			},
 			/**
-			 * The source-signature memory the account offer reads. Empty, which is the first-import
-			 * case: nothing has been memorised, so resolution answers rank 3 with no candidates and
-			 * the row asks. Modelled rather than omitted because an absent model is not an empty
-			 * table, it is a crash.
+			 * The remembered-account memory the account offer reads. Empty, which is the first-import
+			 * case: nothing has been answered, so resolution answers rank 3 `unknown` and the row
+			 * asks. Modelled rather than omitted because an absent model is not an empty table, it is
+			 * a crash.
 			 */
-			importSourceSignature: {
-				findMany: vi.fn(async () => []),
+			rememberedAccount: {
 				findFirst: vi.fn(async () => null)
 			},
 			account: {
