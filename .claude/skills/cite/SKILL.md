@@ -27,8 +27,10 @@ as satisfied.
    is still missing. A partial control is not a satisfied requirement.
 3. **Everything else** (WCAG 2.2, CWE, ATT&CK, ATLAS, NIST, CIS, ANSSI, ISO/IEC): local copy first.
    `scr/references/guards/` and `scr/references/gates/` each carry a `MANIFEST.md` (URL, date, size,
-   sha256): quote the saved file with its MANIFEST URL and date. Not saved: read the primary page,
-   quote it with URL and date read, and add it to a MANIFEST. Never from memory.
+   sha256): quote the saved file with its MANIFEST URL and date. `scr/` is gitignored, so a linked
+   worktree has none: read it in the main checkout (`$(git rev-parse --git-common-dir)/..`). Not
+   saved: read the primary page, quote it with URL and date read, and add it to a MANIFEST. Never
+   from memory.
 
 ## What the comparable products do
 
@@ -38,7 +40,8 @@ primary source.
 
 1. **Check the tracker for a ruling first**: `gh issue list --state all --search "<topic>"`. A question
    already ruled is quoted with its issue number, not reopened.
-2. **Read each product's own text.** Source: `git ls-remote` for the commit, then cite
+2. **Read every product AGENTS.md lists, or mark it « not read » with the reason.** Each one's own
+   text. Source: `git ls-remote` for the commit, then cite
    `repo@<sha>:<path>`. Documentation: the URL and the date read. A summarising fetch that finds no
    mention covers only the pages it read: say which pages.
 3. **Write what each does, and why if it says why, in a small table**; then where BudgetPilot matches,

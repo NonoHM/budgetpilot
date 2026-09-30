@@ -10,9 +10,6 @@ maintainable, future-proof.
   resolved from the local copy first: the `cite` skill.
 - Untrusted cell content that reaches the page is bounded (`refusalCellValue`).
 - No banking data, token or raw imported metadata in a log, an error page or a test fixture.
-- Store the minimum the purpose needs: data minimisation is law (GDPR Art. 5(1)(c)), not style. A
-  new personal field (an IP, a user agent, an identifier) states its purpose and retention, or is
-  not stored.
 - A PR that adds or changes a gate (hook, permission rule, CI job, a spec that scans the tree): the
   personal `guardrails` skill where installed; this repository's gates are
   `docs/explanation/confidentiality-guards.md` and the milestone « Gates that do not gate ».
