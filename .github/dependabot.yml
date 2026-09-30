@@ -2,11 +2,27 @@ version: 2
 updates:
   - package-ecosystem: npm
     directory: /
+    # One weekly batch instead of updates trickling in all week: with a required, up-to-date
+    # branch, every merge re-runs CI on every other open pull request (Prisma's own setup).
     schedule:
       interval: weekly
-    open-pull-requests-limit: 10
+      day: monday
+      time: '06:00'
+      timezone: Etc/UTC
+    # A release must be 7 days old (14 for a major) before it is proposed: most compromised npm
+    # releases were pulled within that window. Security updates bypass cooldown by design.
+    cooldown:
+      default-days: 7
+      semver-major-days: 14
+      include: ['*']
+    open-pull-requests-limit: 5
+    # AGENTS.md: a type is visible in the changelog if it can reach a running install. A
+    # production dependency does, so its bump is `fix(deps)` from the start, and Dependabot
+    # restoring its own title after a branch update can no longer file a CVE fix as `chore`.
+    # Development dependencies never ship, so they stay `chore(deps-dev)`.
     commit-message:
-      prefix: chore
+      prefix: fix(deps)
+      prefix-development: chore(deps-dev)
     groups:
       npm-lint-tooling:
         patterns:
@@ -43,7 +59,10 @@ updates:
           - 'vitest'
           - '@vitest/*'
           - 'vitest-browser-svelte'
-      npm-patch-minor:
+      # The rest, split by whether it ships: one PR for runtime dependencies, one for
+      # development tooling, each patch and minor only. Majors still arrive one per PR.
+      npm-runtime:
+        dependency-type: production
         exclude-patterns:
           - 'eslint*'
           - 'prettier*'
@@ -58,6 +77,26 @@ updates:
         update-types:
           - patch
           - minor
+      npm-dev:
+        dependency-type: development
+        exclude-patterns:
+          - 'eslint*'
+          - 'prettier*'
+          - '@typescript-eslint/*'
+          - 'typescript-eslint'
+          - 'prisma'
+          - '@prisma/client'
+          - '@prisma/adapter-*'
+          - 'vitest'
+          - '@vitest/*'
+          - 'vitest-browser-svelte'
+        update-types:
+          - patch
+          - minor
+      # Several advisories on one day become one pull request, still opened immediately.
+      npm-security:
+        applies-to: security-updates
+        patterns: ['*']
     ignore:
       # @types/node tracks the Node runtime major, which is pinned at 24
       # (.nvmrc, CI's node-version-file, four Dockerfile stages). Typing the
@@ -95,8 +134,14 @@ updates:
     directory: /
     schedule:
       interval: weekly
+      day: monday
+      time: '06:00'
+      timezone: Etc/UTC
+    cooldown:
+      default-days: 7
+    # Actions never reach a running install, so their bumps are `ci`, hidden from the changelog.
     commit-message:
-      prefix: chore
+      prefix: ci(deps)
     groups:
       actions-patch-minor:
         update-types:
@@ -110,8 +155,11 @@ updates:
     # so a weekly check can hold every merge for up to six extra days (#785).
     schedule:
       interval: daily
+    # No cooldown here, deliberately: a base image digest moves when upstream rebuilds for a
+    # security fix, and the image-cve gate may be waiting on exactly that rebuild (#785, #788).
+    # The base image ships, so its bump is `fix(deps)`.
     commit-message:
-      prefix: chore
+      prefix: fix(deps)
     groups:
       docker-patch-minor:
         update-types:
