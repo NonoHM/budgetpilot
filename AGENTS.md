@@ -194,8 +194,8 @@ a contradiction with a decision already written down. A number a test can assert
 
 Tooling enforces formatting; do not restate it. What tooling cannot check:
 
-- **Code, comments, docstrings, test names and commit messages in English.** UI strings in
-  French through Paraglide, both catalogues moved together.
+- **Code, comments, docstrings, test names and commit messages in English.** UI strings go
+  through Paraglide, English base and French, both catalogues moved together.
 - **No em dashes in prose a reader meets**: UI strings, documentation, commit messages, PR and
   issue bodies. They make text read as generated, which is a fact about prose and not about code.
   **Code comments are deliberately out of scope**; a string the DESIGN specifies is quoted verbatim
