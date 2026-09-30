@@ -128,8 +128,7 @@ description of which guard owns what; update it with any guard.
   **Asserted in `db-smoke`, never only in a unit spec**, because a unit spec's fake decides what
   `findFirst` returns, so removing the ownership clause leaves it green.
 - Never log or expose: banking data, passwords, tokens, session internals, password hashes,
-  raw imported-transaction metadata. Store the minimum a purpose needs (GDPR Art. 5(1)(c)): a new
-  personal field (an IP, a user agent) states its purpose and retention, or is not stored.
+  raw imported-transaction metadata.
 - Secrets live in `.env` (gitignored) and nowhere else. Never commit one.
 - No external host is called without an explicit configurable allowlist.
 - CSP is nonce-based with no `'unsafe-inline'` in `script-src` or `style-src`. A dynamic
@@ -442,8 +441,7 @@ clean refusals; a scanner seeing zero packages passes; a fuzzer reaching no acce
 
 - **Conventional Commits.** A type is visible in the changelog if it can reach a running
   install, so a dependency bump carrying a CVE fix is `fix(deps):` and never `chore(deps):`.
-  Only `ci`, `test` and `style` are hidden. `release-please-config.json` is authoritative. `!` or
-  `BREAKING CHANGE` cuts a major version: only for a change an install or an operator must act on.
+  Only `ci`, `test` and `style` are hidden. `release-please-config.json` is authoritative.
 - One PR per unit of work, atomic commits inside. A security fix always gets its own PR.
 - Branch protection is on and is never bypassed. `main` is never committed to directly.
 - **Never arm `gh pr merge --auto` before the PR has been read.** Treat an armed PR as
