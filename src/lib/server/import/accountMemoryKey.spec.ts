@@ -81,6 +81,13 @@ describe('the memory key', () => {
 		);
 	});
 
+	it('keeps two pairs apart that plain concatenation would merge', () => {
+		// SEPARATES « the (user, identifier) pair is serialised unambiguously » FROM « user id and
+		// identifier are concatenated », under which ("ab", "c123") and ("a", "bc123") are one input.
+		env.RATE_LIMIT_HASH_SECRET = SECRET;
+		expect(accountMemoryKeyFor('ab', 'c123')).not.toBe(accountMemoryKeyFor('a', 'bc123'));
+	});
+
 	it('changes when the secret is rotated, which is what makes the app ask again', () => {
 		// The documented consequence of a rotation, asserted rather than claimed.
 		env.RATE_LIMIT_HASH_SECRET = SECRET;

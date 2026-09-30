@@ -128,10 +128,19 @@ export async function rememberAnsweredAccount(input: {
 	// the file has since overruled, typically a misfile answered before the user created the
 	// account this file belongs to. One rule for `/import` and `/import/columns`, which is what
 	// makes the two doors store the same memory for the same file.
-	if (named.holder(accountsForPicker(held)) !== null) {
-		await prisma.rememberedAccount.deleteMany({
-			where: { userId: input.userId, identifierKey: named.key.identifierKey }
-		});
+	//
+	// REMOVED ONLY WHEN THE ANSWERED ACCOUNT IS THE HOLDER (third contradiction pass). The row is
+	// keyed on the FULL identifier and the holder is found by its four-character FRAGMENT, so a
+	// holder that is some other account (another bank's card ending in the same digits, which the
+	// auto door refuses across banks and asks about) says nothing against the row, and deleting on
+	// the fragment alone erased the user's correct answer.
+	const holder = named.holder(accountsForPicker(held));
+	if (holder !== null) {
+		if (holder === input.accountId) {
+			await prisma.rememberedAccount.deleteMany({
+				where: { userId: input.userId, identifierKey: named.key.identifierKey }
+			});
+		}
 		return 'not-applicable';
 	}
 	const key = named.key;

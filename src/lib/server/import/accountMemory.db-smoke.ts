@@ -294,3 +294,42 @@ describe('Settings: listed and forgotten, by the owner only', () => {
 		expect(await prisma.rememberedAccount.count({ where: { userId: mine } })).toBe(0);
 	});
 });
+
+describe('the removal is scoped to its owner (third contradiction pass)', () => {
+	it("leaves another user's row carrying the same key value when this user's row is removed", async () => {
+		// SEPARATES « the removal names `userId` in its where clause » FROM « it deletes every row
+		// with that key ». Keys are per user, so two rows share a key value only if the binding ever
+		// failed; the row is planted with B's key to prove the clause holds on its own.
+		const a = await freshUser();
+		const b = await freshUser();
+		const aAccount = await account(a, 'Compte courant');
+		const bAccount = await account(b, 'Compte joint', '0185');
+		const bKey = accountMemoryKeyOf(b, statement(IDENTIFIER), [])!;
+		await prisma.rememberedAccount.create({
+			data: {
+				userId: a,
+				identifierKey: bKey.identifierKey,
+				fragment: '0185',
+				accountId: aAccount.id
+			}
+		});
+		await prisma.rememberedAccount.create({
+			data: {
+				userId: b,
+				identifierKey: bKey.identifierKey,
+				fragment: '0185',
+				accountId: bAccount.id
+			}
+		});
+
+		// B answers with the account holding ···0185: B's row is removed (the file decides).
+		await rememberAnsweredAccount({
+			userId: b,
+			rows: statement(IDENTIFIER),
+			accountId: bAccount.id
+		});
+
+		expect(await prisma.rememberedAccount.count({ where: { userId: b } })).toBe(0);
+		expect(await prisma.rememberedAccount.count({ where: { userId: a } })).toBe(1);
+	});
+});

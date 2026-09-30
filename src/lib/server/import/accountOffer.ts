@@ -1,5 +1,5 @@
 import { prisma } from '$lib/server/db';
-import { accountHoldingFragment, findDiscriminantColumn } from './discriminant';
+import { findDiscriminantColumn, fragmentIsHeld } from './discriminant';
 import { institutionForSource } from './accountBackfill';
 import { prefillAccountName } from '$lib/server/accounts/service';
 import { accountsForPicker, displayAccountName } from '$lib/server/accounts/projection';
@@ -152,8 +152,18 @@ export async function buildAccountOffer(input: {
 	const named = findDiscriminantColumn(input.rows);
 
 	return {
+		// Over EVERY account, archived included: the set `assertDiscriminantFree` refuses the create
+		// on (third contradiction pass). Offered over the picker's set, it was refused with « Vous
+		// avez déjà un compte pour cet identifiant » for an account the picker does not list.
 		offersNewAccount:
-			named.kind === 'resolved' && accountHoldingFragment(named.fragment, destinations) === null,
+			named.kind === 'resolved' &&
+			!fragmentIsHeld(
+				named.fragment,
+				await prisma.account.findMany({
+					where: { userId: input.userId },
+					select: { discriminant: true }
+				})
+			),
 		prefillName: prefillAccountName({
 			institution: input.source ? institutionForSource(input.source) : null,
 			fragment: named.kind === 'resolved' ? named.fragment : null

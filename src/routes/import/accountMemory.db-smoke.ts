@@ -457,3 +457,35 @@ describe('second contradiction pass', () => {
 		expect((offerOf(asked) as { allowCreate?: boolean } | undefined)?.allowCreate).toBe(false);
 	});
 });
+
+describe('third contradiction pass', () => {
+	it('keeps the right memory when the fragment is held by an account of another bank', async () => {
+		// SEPARATES « the writer removes a row only when the answered account is the one holding
+		// the fragment » FROM « it deletes on the fragment alone ». Revolut holds ···0185 too, so the
+		// auto door refuses rank 1 across banks and asks; the user answers the same account again.
+		// Measured before: rows 1 -> 0, and the next statement came back `unknown`.
+		expect.assertions(3);
+		const userId = await seedUser('r5');
+		const courant = await createStatementAccount({ userId, name: 'Compte courant' });
+		await createStatementAccount({ userId, name: 'Compte joint' });
+		await postImport(userId, { csvFile: statement(OTHER), accountId: courant.id });
+		expect(await prisma.rememberedAccount.count({ where: { userId } })).toBe(1);
+
+		await prisma.account.create({
+			data: {
+				userId,
+				name: 'Revolut',
+				source: 'revolut',
+				currency: 'EUR',
+				exponent: 2,
+				discriminant: '0185'
+			},
+			select: { id: true }
+		});
+		await postImport(userId, { csvFile: statement(OTHER, '15'), accountId: courant.id });
+
+		const rows = await prisma.rememberedAccount.findMany({ where: { userId } });
+		expect(rows.map((row) => row.accountId)).toStrictEqual([courant.id]);
+		expect(await landedIn(userId, courant.id)).toBe(4);
+	});
+});

@@ -228,13 +228,9 @@ export function findDiscriminantColumn(rows: ParsedCsvRow[]): DiscriminantResult
  */
 export function assertDiscriminantFree(
 	fragment: string,
-	existing: Array<{ discriminant: string | null }>
+	existing: ReadonlyArray<{ discriminant?: string | null }>
 ): void {
-	const wanted = fragment.trim().toUpperCase();
-	const held = existing.some(
-		(account) => (account.discriminant ?? '').trim().toUpperCase() === wanted
-	);
-	if (held) {
+	if (fragmentIsHeld(fragment, existing)) {
 		throw new Error('Another account already holds this account identifier fragment');
 	}
 }
@@ -279,6 +275,20 @@ export function statementIdentifier(
 	verdict: Extract<DiscriminantResult, { kind: 'resolved' }>
 ): string {
 	return canonicalize(rows[1]?.cells[verdict.index] ?? '');
+}
+
+/**
+ * Whether any of `accounts` holds this fragment: the rule `assertDiscriminantFree` refuses a new
+ * account on, and the one « Nouveau compte » is offered on (`AccountOffer.offersNewAccount`), so the
+ * offer can never promise an account the create then refuses. Called over EVERY account the user
+ * has, archived ones included, because that is the set the create checks.
+ */
+export function fragmentIsHeld(
+	fragment: string,
+	accounts: ReadonlyArray<{ discriminant?: string | null }>
+): boolean {
+	const wanted = fragment.trim().toUpperCase();
+	return accounts.some((account) => (account.discriminant ?? '').trim().toUpperCase() === wanted);
 }
 
 /** Whitespace removed and upper cased, so a grouped IBAN and a run-together one are one value. */
