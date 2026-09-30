@@ -35,8 +35,7 @@ as satisfied.
 ## What the comparable products do
 
 The rule, and the products in their order, is AGENTS.md « Before citing an industry pattern ». Their
-own documentation or source, never a generic search. Unsure of a fact: research it online, from the
-primary source.
+own documentation or source, never a generic search.
 
 1. **Check the tracker for a ruling first**: `gh issue list --state all --search "<topic>"`. A question
    already ruled is quoted with its issue number, not reopened.
@@ -46,9 +45,8 @@ primary source.
    mention covers only the pages it read: say which pages.
 3. **Write what each does, and why if it says why, in a small table**; then where BudgetPilot matches,
    where it does better, and the reason. « Nobody does X » needs every product's reading behind it.
-4. **Literature review only for a real open question** (a method, an algorithm, a usability figure
-   no product settles): `literature-review` or `paper-lookup`, naming the databases searched and the
-   identifiers retrieved.
+4. **An academic question** (a method, an algorithm, a usability figure) goes to `literature-review`
+   or `paper-lookup`; name the databases searched and the identifiers retrieved.
 
 ## Figures
 
