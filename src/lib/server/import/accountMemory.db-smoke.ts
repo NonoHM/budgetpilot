@@ -14,7 +14,7 @@ import type { ParsedCsvRow } from './types';
 /**
  * The remembered accounts (#599, #696) against a real engine: every read, write and delete is
  * scoped by `userId` in the SAME where clause (ASVS v5.0.0-8.2.2), proven with two real users who
- * import the SAME identifier and therefore compute the SAME key. A fake decides what `findFirst`
+ * import the SAME identifier, one reading under the other's key. A fake decides what `findFirst`
  * returns, so a dropped `userId` would leave a unit spec green; here it reads the other user's row.
  */
 
@@ -151,7 +151,7 @@ describe('the writer', () => {
 
 describe('the reader is scoped to its owner', () => {
 	it('never answers with the other user, who imported the SAME identifier', async () => {
-		// Both users compute the same key: calibrated below, so the scoping is what separates them.
+		// Their key under my user: the `userId` clause is the only thing separating the two.
 		const mine = await freshUser();
 		const theirs = await freshUser();
 		const myAccount = await account(mine, 'Compte courant', '4417');
@@ -162,11 +162,9 @@ describe('the reader is scoped to its owner', () => {
 			accountId: theirAccount.id
 		});
 
-		const myKey = accountMemoryKeyOf(statement(IDENTIFIER), [myAccount]);
-		const theirKey = accountMemoryKeyOf(statement(IDENTIFIER), [theirAccount]);
-		expect(myKey?.identifierKey).toBe(theirKey?.identifierKey);
-
-		expect(await readRememberedAccount(mine, myKey!)).toBeNull();
+		// Reading THEIR key under MY user: only the `userId` clause stands between the two.
+		const theirKey = accountMemoryKeyOf(theirs, statement(IDENTIFIER), [theirAccount]);
+		expect(await readRememberedAccount(mine, theirKey!)).toBeNull();
 		expect(
 			await resolveStatementAccount({
 				userId: mine,
@@ -174,6 +172,27 @@ describe('the reader is scoped to its owner', () => {
 				accounts: [myAccount]
 			})
 		).toStrictEqual({ rank: 3, kind: 'unknown' });
+	});
+
+	it('stores different keys for two users who hold the same account (joint accounts)', async () => {
+		// SEPARATES « the key is bound to its user » FROM « two users holding one joint account
+		// store the same key, so a database reader can link them » (contradiction pass).
+		const mine = await freshUser();
+		const theirs = await freshUser();
+		const myAccount = await account(mine, 'Compte joint', '4417');
+		const theirAccount = await account(theirs, 'Compte joint', '4417');
+		for (const [userId, accountId] of [
+			[mine, myAccount.id],
+			[theirs, theirAccount.id]
+		]) {
+			await rememberAnsweredAccount({ userId, rows: statement(IDENTIFIER), accountId });
+		}
+		const keys = await prisma.rememberedAccount.findMany({
+			where: { userId: { in: [mine, theirs] } },
+			select: { identifierKey: true }
+		});
+		expect(keys).toHaveLength(2);
+		expect(keys[0].identifierKey).not.toBe(keys[1].identifierKey);
 	});
 
 	it('answers each user with their own account for the same identifier', async () => {

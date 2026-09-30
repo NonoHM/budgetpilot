@@ -173,7 +173,7 @@ describe('the auto path’s destination, now that the file is read too', () => {
 		expect.assertions(2);
 		const livret = await makeAccount(mine, 'BP Livret A', 'banque_populaire', '9032');
 		const courant = await makeAccount(mine, 'BP Compte courant', 'banque_populaire', '0185');
-		const key = accountMemoryKeyOf(statement('12340185'), [])!;
+		const key = accountMemoryKeyOf(mine, statement('12340185'), [])!;
 		await prisma.rememberedAccount.create({
 			data: { userId: mine, ...key, accountId: livret.id, useCount: 5 }
 		});
@@ -228,7 +228,7 @@ describe('the auto path’s destination, now that the file is read too', () => {
 		expect.assertions(2);
 		const courant = await makeAccount(mine, 'BP Compte courant', 'banque_populaire');
 		const revolut = await makeAccount(mine, 'Revolut', 'revolut');
-		const key = accountMemoryKeyOf(statement('12340185'), [])!;
+		const key = accountMemoryKeyOf(mine, statement('12340185'), [])!;
 		await prisma.rememberedAccount.create({
 			data: { userId: mine, ...key, accountId: revolut.id }
 		});

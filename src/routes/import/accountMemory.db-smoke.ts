@@ -290,7 +290,7 @@ describe('contradiction pass: the memory and the rest of the question', () => {
 		expect((offerOf(asked) as { allowCreate?: boolean } | undefined)?.allowCreate).toBe(true);
 	});
 
-	it('M2: an account created for the file replaces a misfiled answer in the memory', async () => {
+	it('M2: an account created for the file removes a misfiled answer from the memory', async () => {
 		// SEPARATES « the NEW account is what is remembered » FROM « the old answer stays listed ».
 		// The created account holds the file's own fragment (the sheet reads it from the file).
 		expect.assertions(2);
@@ -309,8 +309,10 @@ describe('contradiction pass: the memory and the rest of the question', () => {
 
 		await postImport(userId, { csvFile: statement(OTHER, '15'), accountId: created.id });
 
-		const rows = await prisma.rememberedAccount.findMany({ where: { userId } });
-		expect(rows.map((row) => row.accountId)).toStrictEqual([created.id]);
+		// The file now proves its account (the created one holds ···0185), so the remembered
+		// misfile is REMOVED rather than rewritten: the reader would never consult it again, and
+		// Settings must not keep naming the withdrawn answer (second contradiction pass).
+		expect(await prisma.rememberedAccount.count({ where: { userId } })).toBe(0);
 		expect(await landedIn(userId, created.id)).toBe(2);
 	});
 });
@@ -354,5 +356,104 @@ describe('M3: the designation door writes the memory too', () => {
 		expect(await landedIn(userId, joint.id)).toBe(2);
 		const rows = await prisma.rememberedAccount.findMany({ where: { userId } });
 		expect(rows.map((row) => [row.fragment, row.accountId])).toStrictEqual([['0185', joint.id]]);
+	});
+});
+
+describe('second contradiction pass', () => {
+	/** Headers no profile recognises, the fourth column naming the account (designation door). */
+	function opaqueFile(identifier: string): File {
+		const text = [
+			'poste_1,poste_2,poste_3,compte',
+			`2026-09-03,CARTE MONOPRIX,-32.10,${identifier}`,
+			`2026-09-14,VIR SALAIRE PAUL MERCIER,1850.00,${identifier}`
+		].join('\n');
+		return new File([text], 'opaque.csv', { type: 'text/csv' });
+	}
+	/** The same rows under headers the generic profile reads, for the auto door. */
+	function genericFile(identifier: string): File {
+		const text = [
+			'date,label,amount,compte',
+			`2026-09-03,CARTE MONOPRIX,-32.10,${identifier}`,
+			`2026-09-14,VIR SALAIRE PAUL MERCIER,1850.00,${identifier}`
+		].join('\n');
+		return new File([text], 'generic.csv', { type: 'text/csv' });
+	}
+
+	async function throughColumns(userId: string, file: File, accountId: string) {
+		const body = new FormData();
+		const fields: Record<string, string | File> = {
+			csvFile: file,
+			dateIndex: '0',
+			labelIndex: '1',
+			amountIndex: '2',
+			remember: 'false',
+			accountId
+		};
+		for (const [key, value] of Object.entries(fields)) body.set(key, value);
+		return columnsActions.default!({
+			locals: { user: { id: userId } },
+			request: new Request('http://localhost/import/columns', { method: 'POST', body }),
+			getClientAddress: () => `client-${userId}`
+		} as never);
+	}
+
+	const stored = async (userId: string) =>
+		(
+			await prisma.rememberedAccount.findMany({
+				where: { userId },
+				select: { fragment: true, useCount: true, account: { select: { name: true } } }
+			})
+		).map((row) => [row.fragment, row.account.name, row.useCount]);
+
+	it('both doors store the same memory for a file whose account the file itself proves', async () => {
+		// SEPARATES « one condition decides the write on both doors » FROM « the designation door
+		// writes a row the auto door never writes » (measured [["4417", Compte courant, 1]] vs []).
+		// Calibration: the rows landed on both doors, so the equality is not two empty runs.
+		expect.assertions(3);
+		const auto = await seedUser('r1-auto');
+		const autoCourant = await createStatementAccount({
+			userId: auto,
+			name: 'Compte courant',
+			discriminant: HELD
+		});
+		await postImport(auto, { csvFile: genericFile(HELD) });
+		const columns = await seedUser('r1-columns');
+		const columnsCourant = await createStatementAccount({
+			userId: columns,
+			name: 'Compte courant',
+			discriminant: HELD
+		});
+		await throughColumns(columns, opaqueFile(HELD), columnsCourant.id);
+
+		expect(await landedIn(auto, autoCourant.id)).toBe(2);
+		expect(await landedIn(columns, columnsCourant.id)).toBe(2);
+		expect(await stored(columns)).toStrictEqual(await stored(auto));
+	});
+
+	it('offers « Nouveau compte » on the several-accounts question when the file names an unheld identifier', async () => {
+		// SEPARATES « a statement of an account the user does not hold yet can be answered with a new
+		// account » FROM « only existing accounts, one of which is then remembered as a misfile ».
+		expect.assertions(2);
+		const userId = await seedUser('r2');
+		await createStatementAccount({ userId, name: 'Compte courant' });
+		await createStatementAccount({ userId, name: 'Compte joint' });
+		const asked = await postImport(userId, { csvFile: statement(OTHER) });
+		expect(asked.data?.error).toBe(m.import_account_error_ambiguous_auto());
+		expect((offerOf(asked) as { allowCreate?: boolean } | undefined)?.allowCreate).toBe(true);
+	});
+
+	it('calibration: no « Nouveau compte » when the file names no identifier', async () => {
+		expect.assertions(2);
+		const userId = await seedUser('r2-cal');
+		await createStatementAccount({ userId, name: 'Compte courant' });
+		await createStatementAccount({ userId, name: 'Compte joint' });
+		const silent = new File(
+			['date,label,amount\n2026-09-03,CARTE MONOPRIX,-32.10\n'],
+			'silent.csv',
+			{ type: 'text/csv' }
+		);
+		const asked = await postImport(userId, { csvFile: silent });
+		expect(asked.status).toBe(400);
+		expect((offerOf(asked) as { allowCreate?: boolean } | undefined)?.allowCreate).toBe(false);
 	});
 });

@@ -521,10 +521,9 @@ export const actions: Actions = {
 					...accountOfferFrom(
 						withoutRefusedMemory(offer.question.fact, result.summary.declaredCurrencies ?? [])
 					),
-					// M2 (contradiction pass): « Nouveau compte » on #599's question. The file names
-					// an account the user may not hold yet; offering only the accounts they hold made
-					// them pick one, and the memory then remembered that misfile.
-					allowCreate: cause === 'names-another-account'
+					// « Nouveau compte » whenever the file names an identifier no account holds, on
+					// either cause (`AccountOffer.offersNewAccount`).
+					allowCreate: offer.question.fact.offersNewAccount
 				},
 				answers: kept
 			});

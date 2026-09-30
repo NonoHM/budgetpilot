@@ -16,9 +16,9 @@ import type { ParsedCsvRow } from './types';
  * ## The owner's conditions, and where each one lives
  *
  * - **Evidence outranks memory.** A file whose identifier an account already holds decides by
- *   itself (`accountHoldingFragment`, rank 1), and this memory is neither read nor written for it.
- *   One predicate for both directions, so a row can never be written that the reader would skip,
- *   nor read where the writer would have refused.
+ *   itself (`accountHoldingFragment`, rank 1), and this memory is neither read nor written for it;
+ *   a row left from an earlier answer is removed. One predicate for both directions and both import
+ *   doors, so a row can never be written that the reader would skip.
  * - **Read only on the ambiguous branch.** The reader is rank 3 of `resolveStatementAccount`, which
  *   the auto path consults only once it has decided to ASK (`autoAccount.ts`); there the memory
  *   pre-fills the question, and the user still presses « Importer ».
@@ -48,22 +48,23 @@ export interface AccountMemoryKey {
  * own account, and the memory is not consulted for it at all.
  */
 export function accountMemoryKeyOf(
+	userId: string,
 	rows: ParsedCsvRow[],
 	destinations: readonly ResolvableAccount[]
 ): AccountMemoryKey | null {
-	const named = namedIdentifierOf(rows);
+	const named = namedIdentifierOf(userId, rows);
 	if (named === null) return null;
 	if (named.holder(destinations) !== null) return null;
 	return named.key;
 }
 
 /** The file's one constant identifier, keyed, and a way to ask which destination holds it. */
-function namedIdentifierOf(rows: ParsedCsvRow[]) {
+function namedIdentifierOf(userId: string, rows: ParsedCsvRow[]) {
 	const verdict = findDiscriminantColumn(rows);
 	if (verdict.kind !== 'resolved') return null;
 	return {
 		key: {
-			identifierKey: accountMemoryKeyFor(statementIdentifier(rows, verdict)),
+			identifierKey: accountMemoryKeyFor(userId, statementIdentifier(rows, verdict)),
 			fragment: verdict.fragment
 		} satisfies AccountMemoryKey,
 		holder: (destinations: readonly ResolvableAccount[]) =>
@@ -79,9 +80,8 @@ export interface RememberedAnswer {
 
 /**
  * The answer remembered under this key, for THIS user. `userId` is in the same where clause as the
- * key, never checked afterwards: the key is a function of the identifier and the instance secret
- * alone, so two users of one instance importing the same identifier compute the same key
- * (ASVS v5.0.0-8.2.2).
+ * key, never checked afterwards (ASVS v5.0.0-8.2.2). The key is bound to the user as well
+ * (`accountMemoryKeyWith`), and the clause does not rely on that: it is the control.
  */
 export async function readRememberedAccount(
 	userId: string,
@@ -120,15 +120,20 @@ export async function rememberAnsweredAccount(input: {
 
 	// The destinations the READER compares against (`buildAccountOffer` hands the resolver
 	// `accountsForPicker`), so the two sides of « the file decides » read one set.
-	//
-	// ONE EXCEPTION to « no row where the file decides » (M2, contradiction pass): when the account
-	// the user answered IS the one holding the file's fragment, typically an account just created
-	// from this file after an earlier answer misfiled it, the answer is written. The reader never
-	// consults it (rank 1 answers first), but Settings then names the account the statements really
-	// go to, instead of keeping the withdrawn answer listed. Held by ANOTHER account: nothing.
-	const named = namedIdentifierOf(input.rows);
-	const holder = named?.holder(accountsForPicker(held)) ?? null;
-	if (named === null || (holder !== null && holder !== input.accountId)) return 'not-applicable';
+	const named = namedIdentifierOf(input.userId, input.rows);
+	if (named === null) return 'not-applicable';
+	// THE FILE DECIDES, on every door and whatever was answered: no row is written, and one left
+	// from an earlier answer is REMOVED (second contradiction pass). The reader would never consult
+	// it again (rank 1 answers first), so keeping it would only leave Settings naming an answer
+	// the file has since overruled, typically a misfile answered before the user created the
+	// account this file belongs to. One rule for `/import` and `/import/columns`, which is what
+	// makes the two doors store the same memory for the same file.
+	if (named.holder(accountsForPicker(held)) !== null) {
+		await prisma.rememberedAccount.deleteMany({
+			where: { userId: input.userId, identifierKey: named.key.identifierKey }
+		});
+		return 'not-applicable';
+	}
 	const key = named.key;
 
 	for (let attempt = 0; attempt < 2; attempt += 1) {

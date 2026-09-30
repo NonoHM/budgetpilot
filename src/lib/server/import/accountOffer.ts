@@ -1,5 +1,5 @@
 import { prisma } from '$lib/server/db';
-import { findDiscriminantColumn } from './discriminant';
+import { accountHoldingFragment, findDiscriminantColumn } from './discriminant';
 import { institutionForSource } from './accountBackfill';
 import { prefillAccountName } from '$lib/server/accounts/service';
 import { accountsForPicker, displayAccountName } from '$lib/server/accounts/projection';
@@ -76,6 +76,13 @@ export interface AccountOffer {
 	 * not be assembled twice.
 	 */
 	prefillName: string;
+	/**
+	 * Whether « Nouveau compte » answers this question: the file names one account identifier that
+	 * none of the user's accounts holds, so the statement may belong to an account they do not have
+	 * yet. Whatever the question's cause (second contradiction pass): offering only existing
+	 * accounts there made the user misfile it, and the misfile was then remembered.
+	 */
+	offersNewAccount: boolean;
 }
 
 export async function buildAccountOffer(input: {
@@ -130,7 +137,7 @@ export async function buildAccountOffer(input: {
 	 */
 	let memory: AccountMemory | null = null;
 	if (resolution.rank === 3 && resolution.kind === 'remembered') {
-		const key = accountMemoryKeyOf(input.rows, destinations);
+		const key = accountMemoryKeyOf(input.userId, input.rows, destinations);
 		const remembered = key === null ? null : await readRememberedAccount(input.userId, key);
 		memory = remembered && { useCount: remembered.useCount, rememberedAt: remembered.rememberedAt };
 	}
@@ -145,6 +152,8 @@ export async function buildAccountOffer(input: {
 	const named = findDiscriminantColumn(input.rows);
 
 	return {
+		offersNewAccount:
+			named.kind === 'resolved' && accountHoldingFragment(named.fragment, destinations) === null,
 		prefillName: prefillAccountName({
 			institution: input.source ? institutionForSource(input.source) : null,
 			fragment: named.kind === 'resolved' ? named.fragment : null

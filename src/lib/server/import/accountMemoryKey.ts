@@ -41,8 +41,17 @@ export function deriveAccountMemoryKey(secretHex: string): Buffer {
 }
 
 /** The stored key for one canonical identifier, under a given derived key. Lowercase hex. */
-export function accountMemoryKeyWith(key: Buffer, identifier: string): string {
-	return createHmac('sha256', key).update(identifier, 'utf8').digest('hex');
+/**
+ * The stored key for one user's canonical identifier, under a given derived key. Lowercase hex.
+ *
+ * BOUND TO THE USER (contradiction pass): two users of one instance holding the same joint account
+ * would otherwise store the same key, and anyone reading the table could link them. The pair is
+ * serialised as a JSON array, so no choice of user id and identifier can collide with another pair.
+ */
+export function accountMemoryKeyWith(key: Buffer, userId: string, identifier: string): string {
+	return createHmac('sha256', key)
+		.update(JSON.stringify([userId, identifier]), 'utf8')
+		.digest('hex');
 }
 
 let cached: { secret: string; key: Buffer } | undefined;
@@ -54,9 +63,9 @@ let cached: { secret: string; key: Buffer } | undefined;
  * sentence when the secret is absent or malformed, so a missing secret fails at the first use
  * rather than keying on `undefined`. Cached per secret value, so a changed value is picked up.
  */
-export function accountMemoryKeyFor(identifier: string): string {
+export function accountMemoryKeyFor(userId: string, identifier: string): string {
 	assertRateLimitSecretConfigured(env);
 	const secret = env.RATE_LIMIT_HASH_SECRET!.trim();
 	if (cached?.secret !== secret) cached = { secret, key: deriveAccountMemoryKey(secret) };
-	return accountMemoryKeyWith(cached.key, identifier);
+	return accountMemoryKeyWith(cached.key, userId, identifier);
 }

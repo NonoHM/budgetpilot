@@ -158,9 +158,8 @@ export async function resolveStatementAccount({
 	// which is the same predicate as the rank above, so the memory can never outrank the file.
 	//
 	// `userId` is in the SAME where clause as the key (`readRememberedAccount`), never a check
-	// performed afterwards: two users of one instance importing one identifier compute one key.
-	// ASVS v5.0.0-8.2.2.
-	const key = accountMemoryKeyOf(rows, destinations);
+	// performed afterwards. ASVS v5.0.0-8.2.2.
+	const key = accountMemoryKeyOf(userId, rows, destinations);
 	if (key === null) return { rank: 3, kind: 'unknown' };
 	const remembered = await readRememberedAccount(userId, key);
 	if (remembered === null) return { rank: 3, kind: 'unknown' };

@@ -838,10 +838,10 @@ model RememberedAccount {
   user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   account       Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
 
-  /// COMPOSITE, for ColumnMapping's reason: the key is a function of the identifier and the
-  /// instance secret alone, so two users of one instance importing the same account identifier
-  /// compute the SAME key. `userId` in every where clause is the control (ASVS v5.0.0-8.2.2); this
-  /// constraint makes the scoped query the shortest one to write.
+  /// COMPOSITE. The key is bound to its user (the HMAC input includes `userId`), so two users of one
+  /// instance holding the same joint account store different keys and the table cannot link them.
+  /// `userId` in every where clause is still the control (ASVS v5.0.0-8.2.2); this constraint makes
+  /// the scoped query the shortest one to write.
   @@unique([userId, identifierKey])
   @@index([accountId])
 }

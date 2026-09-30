@@ -308,9 +308,8 @@ describe("rank 3, what the user answered for the file's identifier", () => {
 describe('the read is scoped', () => {
 	/**
 	 * The unit HALF, and it is deliberately not the control: the fake decides what `findFirst`
-	 * returns, so dropping `userId` leaves every other test here green. The key is a function of
-	 * the identifier and the instance secret alone, so two users importing one identifier compute
-	 * one key; `accountMemory.db-smoke.ts` proves the scoping against two real users.
+	 * returns, so dropping `userId` leaves every other test here green.
+	 * `accountMemory.db-smoke.ts` proves the scoping against two real users.
 	 */
 	it('names userId in the same where clause as the key of the FULL identifier', async () => {
 		await resolveStatementAccount({
@@ -322,7 +321,7 @@ describe('the read is scoped', () => {
 		expect(findFirst).toHaveBeenCalledOnce();
 		expect(findFirst.mock.calls[0][0].where).toStrictEqual({
 			userId,
-			identifierKey: accountMemoryKeyFor('12347777')
+			identifierKey: accountMemoryKeyFor(userId, '12347777')
 		});
 	});
 });

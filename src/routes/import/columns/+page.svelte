@@ -148,10 +148,16 @@
 			carried.options,
 			accountMemoryLabel(carried.memory, getLocale())
 		);
+		// The memory's provenance is dropped once the currency refusal shows: the refusal is then
+		// the one sentence about that account, as on `/import` (M1). `/import` cannot know the
+		// currency of a file no profile recognises, so a remembered account in another currency can
+		// be pre-filled here and refused on the first press (second contradiction pass).
+		const refusedCurrency = form !== null && form !== undefined && 'declaredCurrency' in form;
+		const remembered = carried.resolution.rank === 3 && carried.resolution.kind === 'remembered';
 		return {
 			options: carried.options,
 			chosenId: carried.chosenId ?? answer.accountId,
-			hint: answer.hint,
+			hint: refusedCurrency && remembered ? undefined : answer.hint,
 			hintAboutFile: answer.aboutTheFile
 		};
 	});
