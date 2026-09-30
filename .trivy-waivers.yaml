@@ -1,0 +1,46 @@
+# Time-boxed risk acceptances for the image-cve GATES, and only for them.
+#
+# WHAT THIS IS. The one file that can let a pull request or a release pass a fixable
+# CRITICAL/HIGH finding, for a stated reason, until a stated date. It is read by the three gate
+# steps (ci.yml `image-cve`, docker-publish.yml amd64 and arm64) and by nothing else. The daily
+# scan (trivy-scheduled.yml) does NOT read it, so a waived finding keeps failing that run red and
+# keeps its `cve-alert` issue open: a waiver accepts a risk, it never hides one.
+#
+# The three sibling files answer three different questions:
+#   .trivyignore        is this a vulnerability at all?     (upstream declined it; never clears)
+#   .cve-acknowledged   has a human ruled on this alert?    (stops duplicate issues, no gate)
+#   .trivy-waivers.yaml may we ship with it, and until when? (gates only, always expires)
+#
+# ADMISSION, all four, written in the statement so a reviewer can check them:
+#   1. the fix is not obtainable by us (for the base image: no upstream digest carries it yet);
+#   2. an exposure argument naming the vulnerable code path and why this app does not reach it;
+#   3. absent from CISA's Known Exploited Vulnerabilities catalogue on the day it is granted;
+#   4. the owner's ruling and the tracking issue that removes it.
+#
+# EXPIRY IS MANDATORY AND SHORT. `expired_at` is Trivy's own field: past that date Trivy stops
+# honouring the entry and the gate reddens again by itself, with no one having to remember.
+# Measured on 2026-09-30 with the gate's flags: no entry, red (2 findings); expiry in the
+# future, green; expiry in the past, red (2 findings). At most 14 days from the grant, asserted by
+# src/lib/server/security/trivyWaivers.spec.ts. Renewing is a new ruling and a visible diff.
+#
+# References: NIST SP 800-40 Rev. 4 (risk responses to vulnerabilities, including temporary
+# acceptance); NIST SP 800-53 Rev. 5 RA-7 (risk response) and CA-5 (plan of action and
+# milestones); ISO/IEC 27002:2022 control 8.8 (management of technical vulnerabilities); OWASP
+# ASVS 5.0.0 V15.2.1 (documented remediation time frames); Trivy documentation, « Filtering »,
+# `.trivyignore.yaml` with `expired_at`.
+
+vulnerabilities:
+  - id: CVE-2026-84782
+    statement: >-
+      Granted 2026-09-30 by the owner (#788). libssl3t64 in the distroless base, fixed in Debian
+      3.5.7-1~deb13u3 (DSA-6531-1) but in no nonroot digest yet. OpenSSL DTLS retransmission
+      flaw; the app serves HTTP over TCP and opens no DTLS session. Not in CISA KEV on the grant
+      date.
+    expired_at: 2026-10-07
+  - id: CVE-2026-75804
+    statement: >-
+      Granted 2026-09-30 by the owner (#788). libssl3t64 in the distroless base, fixed in Debian
+      3.5.7-1~deb13u3 (DSA-6531-1) but in no nonroot digest yet. OpenSSL QUIC flow-control flaw;
+      the app runs no QUIC endpoint and Node's QUIC is not enabled. Not in CISA KEV on the grant
+      date.
+    expired_at: 2026-10-07
