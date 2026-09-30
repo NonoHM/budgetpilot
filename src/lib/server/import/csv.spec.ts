@@ -254,8 +254,10 @@ describe('parseCsvTransactions', () => {
 		expect(result.transactions[0].metadata.banquePopulaireCategory).toBe('Transaction exclue');
 	});
 
-	it('imports a negative Banque Populaire credit with a warning', () => {
-		expect.assertions(3);
+	// #308: this used to also assert a `warnings` entry, on a channel nothing ever read
+	// (`CsvImportResult.warnings`, deleted in D2). The import itself is the behaviour that survives.
+	it('imports a negative Banque Populaire credit as income, its magnitude', () => {
+		expect.assertions(2);
 
 		const result = parseBanquePopulaireLine(
 			'24/06/2026;REMBOURSEMENT;REMBOURSEMENT;REFNEG;;Virement;Revenus;;;-1200,00;24/06/2026;24/06/2026;0'
@@ -263,7 +265,6 @@ describe('parseCsvTransactions', () => {
 
 		expect(result.transactions[0].metadata.type).toBe('income');
 		expect(result.transactions[0].amountCents).toBe(120_000);
-		expect(result.warnings).toContain('Ligne 2: crédit négatif');
 	});
 
 	it('parses French Banque Populaire amount formats and formats with spaces', () => {

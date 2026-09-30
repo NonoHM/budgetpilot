@@ -35,7 +35,9 @@ describe('refusal catalogue coverage', () => {
 		// row is written rather than reported after the fact.
 		// 45 since `declared-currency-mismatch` (#600): a currency the file declares, contradicted by
 		// the account it is filed into, refused before anything is written.
-		expect(CSV_REFUSAL_CODES).toHaveLength(45);
+		// 46 since `date-out-of-range` (#758): a calendar date whose year no engine stores faithfully,
+		// refused on its row.
+		expect(CSV_REFUSAL_CODES).toHaveLength(46);
 
 		const missingFr = CSV_REFUSAL_CODES.filter((c) => !(KEY(c) in fr));
 		const missingEn = CSV_REFUSAL_CODES.filter((c) => !(KEY(c) in en));

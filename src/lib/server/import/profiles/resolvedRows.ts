@@ -12,7 +12,7 @@ import type {
 } from '../types';
 import type { CsvRefusal } from '../refusals';
 import type { DateOrder } from '../dateOrder';
-import { addRefusal, buildSummary, firstDataRowIndex, readDateCell, toRecord } from '../utils/csv';
+import { addRefusal, buildSummary, firstDataRowIndex, readRowDate, toRecord } from '../utils/csv';
 import { parseAmountCents } from '../utils/money';
 import {
 	buildCsvFields,
@@ -54,7 +54,6 @@ export interface ResolvedRowsInput {
 	currencyColumns: string[];
 	acceptedCurrency: string;
 	profile: ResolvedCsvImportProfile;
-	warnings: string[];
 	categorizationRules: CategorizationRuleInput[];
 }
 
@@ -84,7 +83,6 @@ export function parseResolvedRows({
 	currencyColumns,
 	acceptedCurrency,
 	profile,
-	warnings,
 	categorizationRules
 }: ResolvedRowsInput): CsvImportResult {
 	const resolvedFields = [columns.date, columns.label, columns.amount, columns.category].filter(
@@ -141,11 +139,14 @@ export function parseResolvedRows({
 		// whole widening. `columns.date` is `dateop` for a Boursorama file, `started date` for a
 		// Revolut one, and whatever the user designated for a mapped one.
 		const amountCents = parseAmountCents(record[columns.amount] ?? '');
-		// Through the SHARED predicate, not a local composition of `normalizeDate` and
-		// `isValidIsoDate`. The designation screen asks the same question about the same column,
-		// and two compositions would let it state a reading this loop then refuses. See
-		// `readDateCell`.
-		const date = readDateCell(record[columns.date] ?? '', dateOrder);
+		// Through the SHARED reading, not a local composition of `normalizeDate` and
+		// `isValidIsoDate`. The designation screen asks the same question about the same column
+		// through `readDateCell`, which `readRowDate` agrees with on what a date is; the row adds
+		// only the storable range (#758), which the screen deliberately does not judge.
+		const dateReading = readRowDate(
+			[{ column: columns.date, value: record[columns.date] }],
+			dateOrder
+		);
 		// Checked on the RAW cell, before sanitizing strips it: #652, a control character reaching
 		// a stored label crashes the write on PostgreSQL, and this refuses the row rather than
 		// silently importing an altered one. See `hasStrandedControlCharacter`'s own docstring.
@@ -200,22 +201,14 @@ export function parseResolvedRows({
 			if (code) declaredCurrency = acceptedCurrency;
 		}
 
-		if (date === null) {
+		if (dateReading.kind === 'refused') {
 			// The RESOLVED column, like every other read in this loop. A Boursorama file names
 			// `dateop` and a mapped one names whatever the user designated, so a hardcoded `date`
 			// would point at a column their file does not contain.
-			addRefusal(
-				refusals,
-				{ kind: 'row', line },
-				{
-					code: 'invalid-date',
-					column: columns.date,
-					value: refusalCellValue(record[columns.date] ?? '')
-				},
-				columns.date
-			);
+			addRefusal(refusals, { kind: 'row', line }, dateReading.fact, dateReading.fact.column);
 			return;
 		}
+		const date = dateReading.date;
 
 		if (amountCents === null) {
 			addRefusal(
@@ -289,7 +282,6 @@ export function parseResolvedRows({
 
 	return {
 		transactions,
-		warnings,
 		invalidRows: refusals,
 		summary: {
 			...buildSummary({

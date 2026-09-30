@@ -168,6 +168,10 @@ export const actions: Actions = {
 					return fail(409, { error: m.bank_connections_sync_consent_expired() });
 				case 'unavailable':
 					return fail(409, { error: m.bank_connections_sync_unavailable() });
+				case 'window_refused':
+					// The bank refuses the history asked for, even the default: waiting never helps,
+					// lowering the setting does. The sentence names it.
+					return fail(502, { error: m.bank_connections_sync_window_refused() });
 				case 'error':
 					return fail(502, { error: m.bank_connections_sync_error() });
 			}

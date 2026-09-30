@@ -27,7 +27,8 @@ const boot = vi.hoisted(() => {
 		ensureDedupeKeyHashesBackfilled: step('ensureDedupeKeyHashesBackfilled'),
 		ensureDedupeKeysAtCurrentVersion: step('ensureDedupeKeysAtCurrentVersion'),
 		ensureStatementAccountsBackfilled: step('ensureStatementAccountsBackfilled'),
-		ensureNoContestedNetWorthLinks: step('ensureNoContestedNetWorthLinks')
+		ensureNoContestedNetWorthLinks: step('ensureNoContestedNetWorthLinks'),
+		reportDatesOutsideStorableRange: step('reportDatesOutsideStorableRange')
 	};
 });
 
@@ -49,6 +50,9 @@ vi.mock('$lib/server/import/accountBoot', () => ({
 }));
 vi.mock('$lib/server/net-worth/contestedBoot', () => ({
 	ensureNoContestedNetWorthLinks: boot.ensureNoContestedNetWorthLinks
+}));
+vi.mock('$lib/server/database/storableDatesBoot', () => ({
+	reportDatesOutsideStorableRange: boot.reportDatesOutsideStorableRange
 }));
 // Nothing here opens a database; the mock only keeps the module graph from constructing a client.
 vi.mock('$lib/server/db', () => ({ prisma: {} }));

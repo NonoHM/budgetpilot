@@ -1,4 +1,4 @@
-import { isValidIsoDate, validateTransaction } from '$lib/domain/transaction';
+import { validateTransaction } from '$lib/domain/transaction';
 import { applyCategorizationRules } from '$lib/server/categorization/rules';
 import type {
 	CsvImportResult,
@@ -11,7 +11,7 @@ import {
 	addRefusal,
 	buildSummary,
 	emptyResult,
-	normalizeFirstValidDate,
+	readRowDate,
 	normalizeHeaderCells,
 	toRecord
 } from '../utils/csv';
@@ -140,7 +140,6 @@ export function revolutDateColumns(headers: string[]): number[] {
 
 export function parseRevolutRows({
 	rows,
-	warnings,
 	categorizationRules,
 	dateOrder
 }: CsvProfileParseInput): CsvImportResult {
@@ -148,7 +147,6 @@ export function parseRevolutRows({
 	if (!matchesRevolutHeader(headers)) {
 		return emptyResult(
 			[{ code: 'header-not-recognized', profile: 'Revolut' }],
-			warnings,
 			'revolut',
 			rows.length - 1
 		);
@@ -213,27 +211,18 @@ export function parseRevolutRows({
 			return;
 		}
 
-		const date = normalizeFirstValidDate(
-			REVOLUT_DATE_COLUMNS.map((column) => record[column]),
+		// `readRowDate` names `Date de fin` and the first present cell for an unreadable date, as
+		// this profile always did, and the column actually read for a year outside the storable
+		// range (#758).
+		const dateReading = readRowDate(
+			REVOLUT_DATE_COLUMNS.map((column) => ({ column, value: record[column] })),
 			dateOrder
 		);
-		if (!isValidIsoDate(date)) {
-			addRefusal(
-				refusals,
-				{ kind: 'row', line },
-				{
-					code: 'invalid-date',
-					column: 'Date de fin',
-					// What `normalizeFirstValidDate` fell back to, in its own order, so the value
-					// shown is the one it last tried to read rather than a column it skipped.
-					value: refusalCellValue(
-						firstPresent(...REVOLUT_DATE_COLUMNS.map((column) => record[column]))
-					)
-				},
-				'Date de fin'
-			);
+		if (dateReading.kind === 'refused') {
+			addRefusal(refusals, { kind: 'row', line }, dateReading.fact, dateReading.fact.column);
 			return;
 		}
+		const date = dateReading.date;
 
 		const amountCents = parseAmountCents(record.Montant ?? '');
 		if (amountCents === null) {
@@ -342,7 +331,6 @@ export function parseRevolutRows({
 
 	return {
 		transactions,
-		warnings,
 		invalidRows: refusals,
 		summary: {
 			...buildSummary({

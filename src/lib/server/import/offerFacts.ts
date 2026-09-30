@@ -84,6 +84,18 @@ export function splitAmountFact(
 }
 
 /**
+ * A code that already has its OWN typed field below (`multiAccount`, `accountColumn`,
+ * `dateOrder`), so `fileScoped` must not also claim it: each of those is an interactive
+ * QUESTION a door can ask about, and folding one back into `fileScoped` would let a `find` answer
+ * it silently instead of leaving it for the door that can.
+ */
+const INTERACTIVE_CODES: ReadonlySet<CsvRefusalCode> = new Set([
+	'multi-account-file',
+	'ambiguous-account-column',
+	'ambiguous-date-order'
+]);
+
+/**
  * The facts an EMPTY parse raised, as the typed offers `resolveImportOffer` takes.
  *
  * ONE definition of the predicates both routes used to write inline (`/import` and
@@ -92,11 +104,26 @@ export function splitAmountFact(
  * and `dateOrder` never arrive together and their mutual order is `csv.ts`'s. #717 records moving
  * that order into the ladder; this function is the one place that change would land.
  *
- * `header` is the first header-scoped refusal, which only `/import/columns` surfaces
- * (`offerPrecedence.ts`'s docstring says why the auto path does not).
+ * `fileScoped` is the first refusal that is about the file or its header rather than about one
+ * row, and is not already one of the three interactive questions above. Only `/import/columns`
+ * surfaces it (`offerPrecedence.ts`'s docstring says why the auto path does not).
+ *
+ * ## #648, and why this is `scope.kind !== 'row'` rather than `=== 'header'`
+ *
+ * Before D2 this only matched `{ kind: 'header' }`, which `header-not-recognized` and every
+ * structural refusal (`missing-required-column`, `amount-sign-in-separate-column`, ...) already
+ * carry. A file refused on its SIZE (`file-too-large`, `file-empty`, `too-many-rows`,
+ * `too-many-columns`) or on a date column proving both readings (`mixed-date-order`) is scoped
+ * `{ kind: 'file' }` by `emptyResult` (`utils/csv.ts`), so none of those ever matched, and the
+ * door fell through to the generic « Aucune transaction valide à importer » — the same sentence a
+ * file with no recognisable header gets, on a file no designation can repair (#648, #622).
+ * `refusalLabel` already renders every one of these; the gap was here, not there.
+ *
+ * Row-scoped refusals are still deliberately excluded: sixty-six of them are a summary, not a
+ * banner (#343).
  */
 export function emptyParseFacts(result: CsvImportResult): {
-	header: CsvRefusalFact | null;
+	fileScoped: CsvRefusalFact | null;
 	multiAccount: MultiAccountFact | null;
 	accountColumn: AccountColumnFact | null;
 	dateOrder: DateOrderFact | null;
@@ -104,8 +131,10 @@ export function emptyParseFacts(result: CsvImportResult): {
 	const empty = result.transactions.length === 0;
 	const only = empty && result.invalidRows.length === 1 ? result.invalidRows[0].fact : null;
 	return {
-		header: empty
-			? (result.invalidRows.find((refusal) => refusal.scope.kind === 'header')?.fact ?? null)
+		fileScoped: empty
+			? (result.invalidRows.find(
+					(refusal) => refusal.scope.kind !== 'row' && !INTERACTIVE_CODES.has(refusal.fact.code)
+				)?.fact ?? null)
 			: null,
 		multiAccount: only?.code === 'multi-account-file' ? only : null,
 		accountColumn: only?.code === 'ambiguous-account-column' ? only : null,

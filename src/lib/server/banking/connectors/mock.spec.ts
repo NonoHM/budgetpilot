@@ -64,6 +64,19 @@ describe('MockBankConnector', () => {
 			expect(daysAhead).toBeLessThan(181);
 		});
 
+		it('returns the accounts on the authorisation, as the real connector does (#769)', async () => {
+			// `completeBankAuthorization` creates buckets from this list only, so a mock returning none
+			// left every bucket path of the sync service unreachable through it.
+			const connector = new MockBankConnector();
+			const pending = await connector.createConnection({ redirectUrl: 'http://localhost/cb' });
+			const established = await connector.completeAuthorization({
+				params: { state: pending.state, code: 'auth-code-123' },
+				expectedState: pending.state
+			});
+			expect(established.accounts).toEqual(await connector.listAccounts(established));
+			expect(established.accounts?.length).toBeGreaterThan(1);
+		});
+
 		it('rejette un state absent dans les params du callback', async () => {
 			const connector = new MockBankConnector();
 			await expect(

@@ -92,7 +92,6 @@ export function mappedDateColumns(
  */
 export function parseMappedRows({
 	rows,
-	warnings,
 	categorizationRules,
 	columnMapping,
 	hasHeaderRow,
@@ -164,8 +163,7 @@ export function parseMappedRows({
 			);
 	}
 
-	if (headerRefusals.length > 0 || !verdict)
-		return refusedResult(rows, warnings, headerRefusals, headerRow);
+	if (headerRefusals.length > 0 || !verdict) return refusedResult(rows, headerRefusals, headerRow);
 
 	return parseResolvedRows({
 		rows,
@@ -177,7 +175,6 @@ export function parseMappedRows({
 		currencyColumns: currencyColumnsIn(headers),
 		acceptedCurrency: ACCEPTED_CURRENCY,
 		profile: 'mapped',
-		warnings,
 		categorizationRules
 	});
 }
@@ -269,13 +266,11 @@ function mappedRoleIsSet(mapping: UntrustedColumnMapping, role: MappingRole): bo
 
 function refusedResult(
 	rows: ParsedCsvRow[],
-	warnings: string[],
 	refusals: CsvRefusal[],
 	headerRow: boolean
 ): CsvImportResult {
 	return {
 		transactions: [],
-		warnings,
 		invalidRows: refusals,
 		summary: buildSummary({
 			profile: 'mapped',

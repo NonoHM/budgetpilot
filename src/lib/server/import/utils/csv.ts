@@ -1,4 +1,5 @@
-import { isValidIsoDate } from '$lib/domain/transaction';
+import { isStorableIsoDate, isValidIsoDate } from '$lib/domain/transaction';
+import { refusalCellValue } from './safety';
 import type {
 	CsvImportResult,
 	CsvImportSummary,
@@ -192,8 +193,8 @@ export function isDateCellUnderEitherReading(value: string): boolean {
 }
 
 /**
- * Returns the first candidate that normalises to a valid ISO date, falling back to the first
- * PRESENT value's best effort so the caller still has something to refuse on.
+ * THE FALL-THROUGH: the first candidate that reads as a calendar date, with its index so
+ * `readRowDate` can name the cell it came from, or `null` when none does.
  *
  * **`normalizeDate`'s narrowing does not survive this loop, and this is the shape that shows it.**
  * `normalizeDate` alone only ever moves a value from normalised to refused, so nothing that
@@ -201,36 +202,107 @@ export function isDateCellUnderEitherReading(value: string): boolean {
  * fall-through set, so a row whose first column stops being readable lands on a LATER column's
  * date rather than on a wrong one. That is a value change, not a refusal, and it is silent.
  *
- * `banque-populaire.ts:112` is the case to reason about, because it passes THREE candidates —
- * `Date operation`, then `Date de comptabilisation`, then `Date de valeur` — and on a real
+ * `banque-populaire.ts` is the case to reason about, because it passes THREE candidates:
+ * `Date operation`, then `Date de comptabilisation`, then `Date de valeur`, and on a real
  * statement those are three genuinely different dates. A two-candidate fixture whose second
  * column is obviously the right answer cannot distinguish "fell through correctly" from
  * "fell through at all"; that fixture was chosen once for legibility and it is why the
  * property above was first recorded as strictly safe, which it is not. `dateFallThrough.spec.ts`
  * pins the fall-through against a control where the first column IS readable, and the two
  * columns carry different dates on purpose.
+ *
+ * This was `normalizeFirstValidDate`, which returned the date or an unreadable best effort for the
+ * caller to test again. #758 needed to know WHICH candidate the date came from, and with
+ * `readRowDate` as its only reader the best effort had no consumer left, so it went.
  */
-export function normalizeFirstValidDate(
-	values: Array<string | undefined>,
+function firstReadableDate(
+	values: ReadonlyArray<string | undefined>,
 	dateOrder?: DateOrder
-): string {
-	for (const value of values) {
+): { date: string; index: number } | null {
+	for (const [index, value] of values.entries()) {
 		const normalized = normalizeDate(value ?? '', dateOrder);
-		if (isValidIsoDate(normalized)) return normalized;
+		if (isValidIsoDate(normalized)) return { date: normalized, index };
 	}
+	return null;
+}
 
-	return normalizeDate(firstPresentValue(...values), dateOrder);
+/** A row's date, or the fact that refuses the row. */
+export type RowDate =
+	| { kind: 'date'; date: string }
+	| {
+			kind: 'refused';
+			fact: Extract<CsvRefusalFact, { code: 'invalid-date' | 'date-out-of-range' }>;
+	  };
+
+/**
+ * THE ONE READING OF A ROW'S DATE, on every parse path (#758). Every profile reads its row date
+ * here, whether it has one candidate column or three, and `dateYearRange.spec.ts` enumerates the
+ * registry to hold them to it.
+ *
+ * Two refusals, in this order, and the order is the point:
+ *
+ * 1. No candidate reads as a calendar date: `invalid-date`, naming the FIRST candidate and the
+ *    first present value, exactly as each profile did before this function existed.
+ * 2. The candidate that DID read carries a year outside `STORABLE_YEARS`: `date-out-of-range`,
+ *    naming that candidate's column and cell.
+ *
+ * ## THE RANGE IS JUDGED AFTER THE FALL-THROUGH, NEVER INSIDE IT
+ *
+ * Folding the range into « is this a date » would make an out-of-range first column count as
+ * unreadable, and the row would import under the NEXT column's date, a different date, without a
+ * word: the silent value change `firstReadableDate`'s docstring already warns the fall-through
+ * can produce. A year the file wrote is refused where it was written.
+ *
+ * ## Why this is not `readDateCell`
+ *
+ * `readDateCell` answers « is this cell a date », which the designation screen asks about a whole
+ * column (`columnDateState.ts`). A year 0000 cell IS a date, so the screen correctly calls its
+ * column a date column, and the row is refused here with the reason. Putting the range there would
+ * make the screen call a date column « no dates ».
+ *
+ * Pure: no clock, no locale, no ambient state.
+ */
+export function readRowDate(
+	candidates: ReadonlyArray<{ column: string; value: string | undefined }>,
+	dateOrder?: DateOrder
+): RowDate {
+	const values = candidates.map((candidate) => candidate.value);
+	const read = firstReadableDate(values, dateOrder);
+	if (!read) {
+		return {
+			kind: 'refused',
+			fact: {
+				code: 'invalid-date',
+				// #623: a HEADER CELL, not a literal role name, on the `mapped` profile (the user's
+				// own file's header, through `columns.date`). `value` beside it was already bounded;
+				// this closes the asymmetry so both halves of the fact obey the same rule before
+				// either reaches the page's data.
+				column: refusalCellValue(candidates[0]?.column ?? ''),
+				value: refusalCellValue(firstPresentValue(...values))
+			}
+		};
+	}
+	if (!isStorableIsoDate(read.date)) {
+		const source = candidates[read.index];
+		return {
+			kind: 'refused',
+			fact: {
+				code: 'date-out-of-range',
+				column: refusalCellValue(source.column),
+				value: refusalCellValue(source.value ?? '')
+			}
+		};
+	}
+	return { kind: 'date', date: read.date };
 }
 
 export function emptyResult(
 	facts: CsvRefusalFact[],
-	warnings: string[],
 	profile: ResolvedCsvImportProfile = 'generic',
 	totalRows = 0
 ): CsvImportResult {
 	return {
 		transactions: [],
-		warnings,
 		// header-not-recognized has nowhere to point but the header row, never the file as a
 		// whole: the catalogue calls this out as the one exception to the { kind: 'file' } default.
 		invalidRows: facts.map((fact) => ({

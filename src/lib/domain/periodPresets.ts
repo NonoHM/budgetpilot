@@ -1,3 +1,5 @@
+import { FIRST_STORABLE_DAY } from './transaction';
+
 /**
  * The Période panel's presets, and the ONLY place that turns one into a date range.
  *
@@ -38,9 +40,9 @@ export type PeriodPresetId =
  * for the reason the money widening records: a second copy is free to agree today and diverge on
  * the next change, and nothing would go red in between.
  *
- * This module still imports nothing. A preset that reached for a clock, a locale or `$lib` could
- * not be tested at a boundary, and `todayIso` being a parameter is the same rule applied one level
- * down.
+ * This module imports one pure constant, `FIRST_STORABLE_DAY` from `./transaction` (#758), and
+ * nothing else. A preset that reached for a clock, a locale or `$lib` could not be tested at a
+ * boundary, and `todayIso` being a parameter is the same rule applied one level down.
  */
 export type PeriodKey =
 	'this-month' | 'last-month' | 'last-30-days' | 'last-90-days' | 'all-time' | 'custom';
@@ -114,13 +116,17 @@ export function periodKeyOfPreset(id: PeriodPresetId): PeriodKey | null {
 
 /**
  * The lower bound of the all-time period. Not a date anybody chose: it is the floor `?period=all-time`
- * resolves to, and no transaction predates it.
+ * resolves to, and no stored row predates it, because it is `FIRST_STORABLE_DAY` (#758).
+ *
+ * It was the epoch, `1970-01-01`, on the belief that no transaction predates 1970. Every engine
+ * stores 1000 to 1969 exactly and the import accepts them, so that floor dropped real rows from
+ * « Toujours » and from every all-time total with nothing on screen to say so.
  *
  * Exported because two other modules need to RECOGNISE it rather than merely produce it.
  * `reopeningMonthAnchor` treats a range starting here as unbounded below, so the grid opens on the
- * end instead of on January 1970.
+ * end instead of on the floor's January.
  */
-export const PERIOD_EPOCH_FLOOR = '1970-01-01';
+export const PERIOD_FLOOR = FIRST_STORABLE_DAY;
 
 export interface PeriodRange {
 	from: string;
@@ -161,10 +167,9 @@ export function periodPresetRange(id: PeriodPresetId, todayIso: string): PeriodR
 			return { from: start.toISOString().slice(0, 10), to: todayIso };
 		}
 		case 'allTime':
-			// The epoch, because `?period=all-time` resolves to `new Date(0)` and no transaction
-			// predates 1970. Written as a literal rather than derived: it is a floor, not a date
-			// anybody chose, and deriving it from a clock would make it drift.
-			return { from: PERIOD_EPOCH_FLOOR, to: todayIso };
+			// The first storable day, which is what `?period=all-time` resolves to (#758). Derived from
+			// the range, never from a clock: it is a floor, not a date anybody chose.
+			return { from: PERIOD_FLOOR, to: todayIso };
 		case 'thisQuarter': {
 			// The WHOLE calendar quarter, like `thisMonth` and `thisYear` and unlike the two rolling
 			// windows: "ce trimestre" names a period, it does not measure backwards from today.

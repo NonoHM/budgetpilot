@@ -621,6 +621,8 @@ describe('completeBankAuthorization', () => {
 				})
 			});
 			persistMock.resolveImportBucketAccount.mockResolvedValue({ accountId: 'x', created: false });
+			// The same bucket before and after: the consent attached nothing new.
+			prismaMock.account.findMany.mockResolvedValue([{ id: 'x' }]);
 
 			const result = await completeBankAuthorization(
 				{ userId: 'user-1', params: { state: 'raw-state', code: 'auth-code' } },
@@ -643,6 +645,43 @@ describe('completeBankAuthorization', () => {
 			expect(persistMock.resolveImportBucketAccount).toHaveBeenCalledWith(
 				expect.objectContaining({ bankConnectionId: 'conn-1', providerAccountId: 'acc-1' })
 			);
+			// No new bucket, so the cursor is kept: the renewal update is the only connection write.
+			expect(prismaMock.bankConnection.updateMany).toHaveBeenCalledTimes(1);
+		});
+
+		it('clears the fetch cursor, scoped to the owner, when the renewal attaches a bucket the connection did not feed (#769)', async () => {
+			// Reddened by removing the reset: the new bucket's first fetch starts at the overlap.
+			prismaMock.bankAuthorizationRequest.findUnique.mockResolvedValueOnce({
+				...baseRequest,
+				renewsConnectionId: 'conn-1'
+			});
+			prismaMock.bankAuthorizationRequest.updateMany.mockResolvedValueOnce({ count: 1 });
+			prismaMock.bankConnection.updateMany.mockResolvedValue({ count: 1 });
+			const connector = fakeConnector({
+				completeAuthorization: vi.fn().mockResolvedValue({
+					providerSessionId: 'sess-renewed',
+					credentialsEncrypted: 'enc-renewed',
+					consentExpiresAt: null,
+					accounts: [
+						{ id: 'acc-1', name: 'Compte courant', currency: 'EUR' },
+						{ id: 'acc-2', name: 'Livret', currency: 'EUR' }
+					]
+				})
+			});
+			persistMock.resolveImportBucketAccount.mockResolvedValue({ accountId: 'x', created: false });
+			prismaMock.account.findMany
+				.mockResolvedValueOnce([{ id: 'bucket-1' }])
+				.mockResolvedValueOnce([{ id: 'bucket-1' }, { id: 'bucket-2' }]);
+
+			await completeBankAuthorization(
+				{ userId: 'user-1', params: { state: 'raw-state', code: 'auth-code' } },
+				{ env: ENABLED_ENV, now: () => NOW, getConnector: () => connector }
+			);
+
+			expect(prismaMock.bankConnection.updateMany).toHaveBeenLastCalledWith({
+				where: { id: 'conn-1', userId: 'user-1' },
+				data: { lastCompleteSyncAt: null }
+			});
 		});
 
 		it('falls back to creating a new connection when the renewal target was deleted meanwhile (updateMany count 0)', async () => {
@@ -800,7 +839,8 @@ describe('syncBankConnection', () => {
 		status: 'active' as const,
 		aspspName: 'Bank A',
 		consentExpiresAt: new Date(NOW.getTime() + 1000 * 60 * 60 * 24 * 30),
-		lastSyncAt: null as Date | null
+		lastSyncAt: null as Date | null,
+		lastCompleteSyncAt: null as Date | null
 	};
 
 	it('throws not_found for a connection belonging to another user', async () => {
@@ -890,7 +930,9 @@ describe('syncBankConnection', () => {
 
 	it('fetches only buckets with a non-null providerAccountId, persists via the shared module, and marks lastSyncStatus ok', async () => {
 		prismaMock.bankConnection.findFirst.mockResolvedValueOnce(activeConnection);
-		prismaMock.account.findMany.mockResolvedValueOnce([
+		// Every read of the buckets, including the re-read before the cursor write, sees the same
+		// set: no renewal lands during this sync.
+		prismaMock.account.findMany.mockResolvedValue([
 			{ id: 'account-1', providerAccountId: 'acc-1' },
 			{ id: 'account-2', providerAccountId: 'acc-2' }
 		]);
@@ -931,11 +973,27 @@ describe('syncBankConnection', () => {
 		expect(result).toEqual({ outcome: 'synced', importedRows: 6, duplicateRows: 2 });
 		expect(prismaMock.bankConnection.update).toHaveBeenCalledWith({
 			where: { id: 'conn-1' },
-			data: { lastSyncAt: NOW, lastSyncStatus: 'ok', lastSyncError: null }
+			data: {
+				lastSyncAt: NOW,
+				lastCompleteSyncAt: NOW,
+				lastSyncStatus: 'ok',
+				lastSyncError: null
+			}
 		});
 	});
 
-	it('uses a ~90 day lookback range on the first sync (no lastSyncAt)', async () => {
+	/**
+	 * How many calendar days a range asks the bank for, both ends included: what an ASPSP
+	 * counts when it caps history at N days. Exact, with no tolerance, because the defect this
+	 * separates is exactly one day wide: `today - 90` is a 91-day span, which a bank capping at
+	 * 90 days refuses (422 WRONG_TRANSACTIONS_PERIOD at Enable Banking).
+	 */
+	const calendarDaysAsked = (range: { from: string; to: string }) =>
+		(Date.parse(`${range.to}T00:00:00.000Z`) - Date.parse(`${range.from}T00:00:00.000Z`)) /
+			(24 * 60 * 60 * 1000) +
+		1;
+
+	it('asks for exactly 90 calendar days, today included, on the first sync', async () => {
 		prismaMock.bankConnection.findFirst.mockResolvedValueOnce({
 			...activeConnection,
 			lastSyncAt: null
@@ -959,10 +1017,7 @@ describe('syncBankConnection', () => {
 
 		const [, , range] = fetchTransactions.mock.calls[0];
 		expect(range.to).toBe('2026-07-19');
-		const fromDate = new Date(`${range.from}T00:00:00.000Z`);
-		const daysBack = (NOW.getTime() - fromDate.getTime()) / (24 * 60 * 60 * 1000);
-		expect(daysBack).toBeGreaterThan(89);
-		expect(daysBack).toBeLessThan(91);
+		expect(calendarDaysAsked(range)).toBe(90);
 	});
 
 	it('honors BANK_SYNC_FIRST_LOOKBACK_DAYS on the first sync, ignoring out-of-bounds values', async () => {
@@ -991,24 +1046,26 @@ describe('syncBankConnection', () => {
 				}
 			);
 			const [, , range] = fetchTransactions.mock.calls[0];
-			const fromDate = new Date(`${range.from}T00:00:00.000Z`);
-			return (NOW.getTime() - fromDate.getTime()) / (24 * 60 * 60 * 1000);
+			return calendarDaysAsked(range);
 		};
 
-		// ±1 day tolerance: the range's `from` is truncated to an ISO date.
-		expect(await runFirstSync('2200')).toBeGreaterThan(2199);
-		expect(await runFirstSync('2200')).toBeLessThan(2201);
+		expect(await runFirstSync('2200')).toBe(2200);
+		// The lower bound: one day is today alone.
+		expect(await runFirstSync('1')).toBe(1);
 		// Invalid or out-of-bounds values fall back to the 90-day default.
 		for (const invalid of ['0', '999999', 'not-a-number']) {
-			const daysBack = await runFirstSync(invalid);
-			expect(daysBack).toBeGreaterThan(89);
-			expect(daysBack).toBeLessThan(91);
+			expect(await runFirstSync(invalid)).toBe(90);
 		}
 	});
 
-	it('uses a lastSyncAt - 7 day overlap range on a subsequent sync', async () => {
-		const lastSyncAt = new Date('2026-07-10T00:00:00.000Z');
-		prismaMock.bankConnection.findFirst.mockResolvedValueOnce({ ...activeConnection, lastSyncAt });
+	it('starts a subsequent sync from the last COMPLETE sync minus 7 days, never from lastSyncAt (#763)', async () => {
+		// Two different instants: an attempt after the last complete sync. A window read off
+		// `lastSyncAt` would start on 2026-07-08; the cursor's starts on 2026-07-03.
+		prismaMock.bankConnection.findFirst.mockResolvedValueOnce({
+			...activeConnection,
+			lastSyncAt: new Date('2026-07-15T00:00:00.000Z'),
+			lastCompleteSyncAt: new Date('2026-07-10T00:00:00.000Z')
+		});
 		prismaMock.account.findMany.mockResolvedValueOnce([
 			{ id: 'account-1', providerAccountId: 'acc-1' }
 		]);
@@ -1027,7 +1084,220 @@ describe('syncBankConnection', () => {
 		);
 
 		const [, , range] = fetchTransactions.mock.calls[0];
-		expect(range.from).toBe('2026-07-03'); // lastSyncAt - 7 days
+		expect(range.from).toBe('2026-07-03'); // lastCompleteSyncAt - 7 days
+	});
+
+	describe('the window never asks for more than the lookback, and never ends before it starts', () => {
+		/** The range one sync asks for, given what the connection row holds. */
+		const rangeWith = async (lastCompleteSyncAt: Date | null) => {
+			prismaMock.bankConnection.findFirst.mockResolvedValueOnce({
+				...activeConnection,
+				lastSyncAt: lastCompleteSyncAt,
+				lastCompleteSyncAt
+			});
+			prismaMock.account.findMany.mockResolvedValueOnce([
+				{ id: 'account-1', providerAccountId: 'acc-1' }
+			]);
+			prismaMock.bankConnection.update.mockResolvedValue({});
+			const fetchTransactions = vi.fn().mockResolvedValue([]);
+			await syncBankConnection(
+				{ userId: 'user-1', connectionId: 'conn-1', force: true },
+				{
+					env: ENABLED_ENV,
+					now: () => NOW,
+					getConnector: () => fakeConnector({ fetchTransactions })
+				}
+			);
+			return fetchTransactions.mock.calls[0][2] as { from: string; to: string };
+		};
+		const daysAgo = (days: number) => new Date(NOW.getTime() - days * 24 * 60 * 60 * 1000);
+
+		// Reddened by removing the lower clamp: a cursor older than the lookback asked for more
+		// history than a bank capping at the lookback serves, which it refuses on every sync.
+		it('a cursor older than the lookback asks for exactly the first-sync window', async () => {
+			const firstSync = await rangeWith(null);
+			expect(await rangeWith(daysAgo(200))).toEqual(firstSync);
+			// The boundary, from the other side: a cursor whose overlap still fits inside the
+			// lookback keeps its own start, one day short of the full window.
+			expect(calendarDaysAsked(await rangeWith(daysAgo(81)))).toBe(
+				calendarDaysAsked(firstSync) - 1
+			);
+		});
+
+		// Reddened by removing the future-cursor rule: a cursor after now gave `from` after `to`,
+		// which the connector refuses as an invalid range on every sync.
+		it('a cursor in the future (clock skew, a restore) is not trusted: the first-sync window', async () => {
+			const firstSync = await rangeWith(null);
+			const future = await rangeWith(new Date(NOW.getTime() + 30 * 24 * 60 * 60 * 1000));
+			expect(future.from <= future.to).toBe(true);
+			expect(future).toEqual(firstSync);
+		});
+	});
+
+	// This case and the one before it are reddened by a window read off `lastSyncAt`: anchored on
+	// the attempt vs. on the last complete sync.
+	it('asks for the whole first-sync window again after a first sync that failed (#763)', async () => {
+		// The shape #763 leaves behind: an attempt on record and no complete sync. The window must
+		// be the one a never-attempted connection gets, so the oracle is that run, not a constant.
+		const rangeFor = async (lastSyncAt: Date | null) => {
+			prismaMock.bankConnection.findFirst.mockResolvedValueOnce({
+				...activeConnection,
+				lastSyncAt,
+				lastCompleteSyncAt: null
+			});
+			prismaMock.account.findMany.mockResolvedValueOnce([
+				{ id: 'account-1', providerAccountId: 'acc-1' }
+			]);
+			prismaMock.bankConnection.update.mockResolvedValue({});
+			persistMock.createImportBatch.mockResolvedValue('batch-1');
+			persistMock.persistImportedTransactions.mockResolvedValue({
+				importedRows: 0,
+				duplicateRows: 0
+			});
+			const fetchTransactions = vi.fn().mockResolvedValue([{ id: 't1' }]);
+			await syncBankConnection(
+				{ userId: 'user-1', connectionId: 'conn-1', force: true },
+				{
+					env: ENABLED_ENV,
+					now: () => NOW,
+					getConnector: () => fakeConnector({ fetchTransactions })
+				}
+			);
+			return fetchTransactions.mock.calls[0][2];
+		};
+
+		const neverAttempted = await rangeFor(null);
+		const afterFailedFirstSync = await rangeFor(new Date(NOW.getTime() - 60 * 60 * 1000));
+		expect(afterFailedFirstSync).toEqual(neverAttempted);
+		// Calibration: the two ranges are not equal because the window ignores its input. A
+		// complete sync one hour ago gives a different, narrower window.
+		prismaMock.bankConnection.findFirst.mockResolvedValueOnce({
+			...activeConnection,
+			lastSyncAt: new Date(NOW.getTime() - 60 * 60 * 1000),
+			lastCompleteSyncAt: new Date(NOW.getTime() - 60 * 60 * 1000)
+		});
+		prismaMock.account.findMany.mockResolvedValueOnce([
+			{ id: 'account-1', providerAccountId: 'acc-1' }
+		]);
+		const fetchTransactions = vi.fn().mockResolvedValue([]);
+		await syncBankConnection(
+			{ userId: 'user-1', connectionId: 'conn-1', force: true },
+			{
+				env: ENABLED_ENV,
+				now: () => NOW,
+				getConnector: () => fakeConnector({ fetchTransactions })
+			}
+		);
+		expect(fetchTransactions.mock.calls[0][2].from > neverAttempted.from).toBe(true);
+	});
+
+	it('writes the fetch cursor on no path but a complete sync: not in the throttle claim, not on a failure (#763)', async () => {
+		// Reddened separately by the cursor written in the claim (moved before anything is
+		// persisted) and by the cursor written on the failure (moved over what was not fetched).
+		prismaMock.bankConnection.findFirst.mockResolvedValueOnce({
+			...activeConnection,
+			lastSyncAt: new Date(NOW.getTime() - 7 * 60 * 60 * 1000)
+		});
+		prismaMock.account.findMany.mockResolvedValueOnce([
+			{ id: 'account-1', providerAccountId: 'acc-1' },
+			{ id: 'account-2', providerAccountId: 'acc-2' }
+		]);
+		prismaMock.bankConnection.update.mockResolvedValue({});
+		persistMock.createImportBatch.mockResolvedValue('batch-1');
+		persistMock.persistImportedTransactions.mockResolvedValue({
+			importedRows: 1,
+			duplicateRows: 0
+		});
+		// The first bucket lands, the second one fails: the partial sync of the issue.
+		const fetchTransactions = vi
+			.fn()
+			.mockResolvedValueOnce([{ id: 't1' }])
+			.mockRejectedValueOnce(new Error('provider down'));
+
+		const result = await syncBankConnection(
+			{ userId: 'user-1', connectionId: 'conn-1' },
+			{ env: ENABLED_ENV, now: () => NOW, getConnector: () => fakeConnector({ fetchTransactions }) }
+		);
+
+		expect(result).toEqual({ outcome: 'error' });
+		expect(persistMock.persistImportedTransactions).toHaveBeenCalledTimes(1);
+		const writes = [
+			...prismaMock.bankConnection.updateMany.mock.calls,
+			...prismaMock.bankConnection.update.mock.calls
+		].map(([args]) => Object.keys((args as { data: object }).data));
+		// Calibration: the claim and the failure write were both seen, so an empty list cannot pass.
+		expect(writes).toEqual([['lastSyncAt'], ['lastSyncAt', 'lastSyncStatus', 'lastSyncError']]);
+	});
+
+	it('writes ok but no cursor when a bucket was attached after the sync read its buckets (#769)', async () => {
+		// Reddened by removing the re-read: the cursor then vouches for a bucket nothing fetched.
+		prismaMock.bankConnection.findFirst.mockResolvedValueOnce(activeConnection);
+		prismaMock.account.findMany
+			.mockResolvedValueOnce([{ id: 'account-1', providerAccountId: 'acc-1' }])
+			.mockResolvedValueOnce([{ id: 'account-1' }, { id: 'account-2' }]);
+		prismaMock.bankConnection.update.mockResolvedValue({});
+		const fetchTransactions = vi.fn().mockResolvedValue([]);
+
+		const result = await syncBankConnection(
+			{ userId: 'user-1', connectionId: 'conn-1' },
+			{ env: ENABLED_ENV, now: () => NOW, getConnector: () => fakeConnector({ fetchTransactions }) }
+		);
+
+		expect(result).toEqual({ outcome: 'synced', importedRows: 0, duplicateRows: 0 });
+		expect(prismaMock.bankConnection.update).toHaveBeenCalledWith({
+			where: { id: 'conn-1' },
+			data: { lastSyncAt: NOW, lastSyncStatus: 'ok', lastSyncError: null }
+		});
+	});
+
+	describe('a refused period (422 WRONG_TRANSACTIONS_PERIOD)', () => {
+		const refusal = () =>
+			new EnableBankingApiError(422, 'WRONG_TRANSACTIONS_PERIOD', 'Enable Banking API error');
+		const syncWith = async (
+			fetchTransactions: BankConnector['fetchTransactions'],
+			lookback: string
+		) => {
+			prismaMock.bankConnection.findFirst.mockResolvedValueOnce(activeConnection);
+			prismaMock.account.findMany.mockResolvedValue([
+				{ id: 'account-1', providerAccountId: 'acc-1' }
+			]);
+			prismaMock.bankConnection.update.mockResolvedValue({});
+			return syncBankConnection(
+				{ userId: 'user-1', connectionId: 'conn-1', force: true },
+				{
+					env: { ...ENABLED_ENV, BANK_SYNC_FIRST_LOOKBACK_DAYS: lookback },
+					now: () => NOW,
+					getConnector: () => fakeConnector({ fetchTransactions })
+				}
+			);
+		};
+
+		// Reddened by removing the retry: `error`, and the same wide window refused on every sync.
+		it('is retried once, in the same sync, with the default window when the refused one was wider', async () => {
+			const fetchTransactions = vi.fn().mockRejectedValueOnce(refusal()).mockResolvedValue([]);
+
+			expect((await syncWith(fetchTransactions, '400')).outcome).toBe('synced');
+			const [first, retry] = fetchTransactions.mock.calls.map((call) => call[2]);
+			expect(calendarDaysAsked(first)).toBe(400);
+			expect(calendarDaysAsked(retry)).toBe(90);
+			expect(retry.to).toBe(first.to);
+		});
+
+		it('is not retried when the refused window was already the default, and says so as its own outcome', async () => {
+			const fetchTransactions = vi.fn().mockRejectedValue(refusal());
+
+			expect(await syncWith(fetchTransactions, '90')).toEqual({ outcome: 'window_refused' });
+			expect(fetchTransactions).toHaveBeenCalledTimes(1);
+		});
+
+		it('keeps `error` for every other failure: only the refused period names the setting', async () => {
+			const fetchTransactions = vi
+				.fn()
+				.mockRejectedValue(new EnableBankingApiError(422, 'SOMETHING_ELSE', 'x'));
+
+			expect(await syncWith(fetchTransactions, '400')).toEqual({ outcome: 'error' });
+			expect(fetchTransactions).toHaveBeenCalledTimes(1);
+		});
 	});
 
 	it('skips createImportBatch/persistImportedTransactions when the bucket has no transactions', async () => {
@@ -1191,7 +1461,7 @@ describe('syncBankConnection', () => {
 
 		it('still completes as "synced" when fetchAccountBalance throws — the throw never propagates to the outer catch', async () => {
 			prismaMock.bankConnection.findFirst.mockResolvedValueOnce(activeConnection);
-			prismaMock.account.findMany.mockResolvedValueOnce([
+			prismaMock.account.findMany.mockResolvedValue([
 				{
 					id: 'account-1',
 					providerAccountId: 'acc-1',
@@ -1221,7 +1491,12 @@ describe('syncBankConnection', () => {
 			expect(netWorthMock.recordSyncedBalance).not.toHaveBeenCalled();
 			expect(prismaMock.bankConnection.update).toHaveBeenCalledWith({
 				where: { id: 'conn-1' },
-				data: { lastSyncAt: NOW, lastSyncStatus: 'ok', lastSyncError: null }
+				data: {
+					lastSyncAt: NOW,
+					lastCompleteSyncAt: NOW,
+					lastSyncStatus: 'ok',
+					lastSyncError: null
+				}
 			});
 			warnSpy.mockRestore();
 		});

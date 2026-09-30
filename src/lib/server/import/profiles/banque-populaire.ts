@@ -1,4 +1,4 @@
-import { isValidIsoDate, validateTransaction } from '$lib/domain/transaction';
+import { validateTransaction } from '$lib/domain/transaction';
 import { applyCategorizationRules } from '$lib/server/categorization/rules';
 import type {
 	CsvImportResult,
@@ -12,7 +12,7 @@ import {
 	buildSummary,
 	emptyResult,
 	isIgnorableBankingRow,
-	normalizeFirstValidDate,
+	readRowDate,
 	normalizeHeaderCells,
 	toRecord
 } from '../utils/csv';
@@ -23,7 +23,6 @@ import {
 	firstPresent,
 	buildPreviewRowId,
 	hasStrandedControlCharacter,
-	refusalCellValue,
 	sanitizeImportedText,
 	UNCLASSIFIED_CATEGORY
 } from '../utils/safety';
@@ -51,8 +50,8 @@ const BANQUE_POPULAIRE_AMOUNT_FIELDS = new Set(['Debit', 'Credit']);
 /**
  * The three columns this profile can take a date from, in the order it tries them.
  *
- * ONE definition, read by the row loop's `normalizeFirstValidDate`, by the refusal that shows
- * which cell was last tried, and by the date-column declaration below. It used to be typed out
+ * ONE definition, read by the row loop's `readRowDate` (which also names the cell a refusal shows) and by the
+ * date-column declaration below. It used to be typed out
  * at the first two, which is the copied-constant shape: the third use is what turns it into a
  * constant rather than a coincidence that they agreed.
  *
@@ -89,7 +88,6 @@ export function banquePopulaireDateColumns(headers: string[]): number[] {
 
 export function parseBanquePopulaireRows({
 	rows,
-	warnings,
 	categorizationRules,
 	dateOrder
 }: CsvProfileParseInput): CsvImportResult {
@@ -97,7 +95,6 @@ export function parseBanquePopulaireRows({
 	if (!matchesBanquePopulaireHeader(headers)) {
 		return emptyResult(
 			[{ code: 'header-not-recognized', profile: 'Banque Populaire' }],
-			warnings,
 			'banque-populaire',
 			rows.length - 1
 		);
@@ -141,15 +138,15 @@ export function parseBanquePopulaireRows({
 		}
 
 		const record = toRecord(headers, row);
-		const date = normalizeFirstValidDate(
-			BANQUE_POPULAIRE_DATE_COLUMNS.map((column) => record[column]),
+		const dateReading = readRowDate(
+			BANQUE_POPULAIRE_DATE_COLUMNS.map((column) => ({ column, value: record[column] })),
 			dateOrder
 		);
 		/**
 		 * The date, checked HERE rather than left to `validateTransaction` at the bottom.
 		 *
-		 * It used to fall through. `normalizeFirstValidDate` returns its best effort whatever
-		 * happens, so an unreadable date reached the validator and came back as
+		 * It used to fall through. `normalizeFirstValidDate` (since replaced by `readRowDate`) returned
+		 * its best effort whatever happened, so an unreadable date reached the validator and came back as
 		 * `transaction-invalid` carrying `invalid-iso-date` — a violation with no column, no
 		 * field and no expected form, rendered as « date ISO invalide ». The other three profiles
 		 * all guarded their date and emitted `invalid-date`, so this profile alone said something
@@ -160,24 +157,16 @@ export function parseBanquePopulaireRows({
 		 *
 		 * Measured through the route at 1280 before this guard: eight rows, eight identical
 		 * « date ISO invalide », the « Champ » column empty, and no next action on the screen.
+		 *
+		 * `readRowDate` now owns both refusals: an unreadable date names `Date operation` and the
+		 * first present cell as this guard did, and a year outside the storable range names the
+		 * column the date was actually read from (#758).
 		 */
-		if (!isValidIsoDate(date)) {
-			addRefusal(
-				refusals,
-				{ kind: 'row', line },
-				{
-					code: 'invalid-date',
-					column: 'Date operation',
-					// The value the fallback last tried, in its own order, so the sentence shows
-					// the cell that was read rather than one of the two columns it skipped.
-					value: refusalCellValue(
-						firstPresent(...BANQUE_POPULAIRE_DATE_COLUMNS.map((column) => record[column]))
-					)
-				},
-				'Date operation'
-			);
+		if (dateReading.kind === 'refused') {
+			addRefusal(refusals, { kind: 'row', line }, dateReading.fact, dateReading.fact.column);
 			return;
 		}
+		const date = dateReading.date;
 		const rawLabel = firstPresent(
 			record['Libelle simplifie'],
 			record['Libelle operation'],
@@ -210,10 +199,6 @@ export function parseBanquePopulaireRows({
 			subcategory ? `Sous-catégorie: ${subcategory}` : ''
 		]);
 		const amount = parseBanquePopulaireAmount(record.Debit ?? '', record.Credit ?? '');
-
-		if (amount.ok && amount.warning === 'negative-credit') {
-			warnings.push(`Ligne ${line}: crédit négatif`);
-		}
 
 		if (!amount.ok) {
 			addRefusal(refusals, { kind: 'row', line }, amount.fact, amount.field);
@@ -269,7 +254,6 @@ export function parseBanquePopulaireRows({
 
 	return {
 		transactions,
-		warnings,
 		invalidRows: refusals,
 		summary: buildSummary({
 			profile: 'banque-populaire',
@@ -292,7 +276,6 @@ type BanquePopulaireAmountResult =
 			ok: true;
 			amountCents: number;
 			type: ImportedTransactionType;
-			warning?: 'negative-credit';
 	  }
 	| {
 			ok: false;
@@ -326,10 +309,5 @@ function parseBanquePopulaireAmount(debit: string, credit: string): BanquePopula
 		return { ok: true, amountCents: Math.abs(parsedAmount), type: 'expense' };
 	}
 
-	return {
-		ok: true,
-		amountCents: Math.abs(parsedAmount),
-		type: 'income',
-		warning: parsedAmount < 0 ? 'negative-credit' : undefined
-	};
+	return { ok: true, amountCents: Math.abs(parsedAmount), type: 'income' };
 }

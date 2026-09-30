@@ -17,6 +17,7 @@ import {
 } from '$lib/server/import/dedupeBoot';
 import { ensureStatementAccountsBackfilled } from '$lib/server/import/accountBoot';
 import { ensureNoContestedNetWorthLinks } from '$lib/server/net-worth/contestedBoot';
+import { reportDatesOutsideStorableRange } from '$lib/server/database/storableDatesBoot';
 import { parseTrustedProxies } from '$lib/server/net/clientAddress';
 
 // One gate, one throw, every problem — see server/env/assertConfigured.ts for why this replaced
@@ -43,6 +44,9 @@ export const init: ServerInit = async () => {
 	// `Account.netWorthAccountId`, which no backfill above reads or writes. Placed after them so a
 	// pass that CAN move rows between buckets finishes before the pass that counts buckets per line.
 	await ensureNoContestedNetWorthLinks();
+	// Reports, never gates and never writes: counts rows dated before the storable range, written
+	// before #758 made every writer refuse them. Last because it reads what the passes above settle.
+	await reportDatesOutsideStorableRange();
 };
 
 // /setup/origin-mismatch is public because the operator it exists for has no account yet: an auth

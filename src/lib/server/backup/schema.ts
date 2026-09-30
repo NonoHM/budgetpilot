@@ -1,6 +1,6 @@
 import { isValidCurrencyCode } from '$lib/domain/money';
 import { z } from 'zod';
-import { TRANSACTION_NATURES } from '$lib/domain/transaction';
+import { isStorableYear, TRANSACTION_NATURES } from '$lib/domain/transaction';
 import { DEFAULT_CATEGORY_KEYS } from '$lib/domain/categories';
 import { NET_WORTH_ACCOUNT_TYPES } from '$lib/domain/netWorth';
 import { TAG_COLOR_TOKENS, MAX_TAGS_PER_TRANSACTION } from '$lib/domain/tags';
@@ -15,9 +15,85 @@ const categorizationRuleKind = z.enum(['income', 'expense', 'any']);
  * is automatically rejected, even if present in the payload.
  */
 
-const isoDateString = z.string().refine((value) => !Number.isNaN(Date.parse(value)), {
-	message: 'date ISO invalide'
-});
+/** Carried on the issue a date outside `STORABLE_YEARS` raises, so the route can say so. */
+const DATE_OUT_OF_RANGE = 'date-out-of-range';
+
+/**
+ * Every date a backup carries lands in a `DateTime` column, so every one of them is held to
+ * `STORABLE_YEARS` (#758), the same bound the import parser applies to a row: MariaDB reads a
+ * year 0000 value back as 2000, PostgreSQL throws `22008` for it and reads year 10000 back as an
+ * Invalid Date. The same principle as `MAX_PORTABLE_STRING` below: refuse, before any write, what
+ * one supported engine cannot store faithfully.
+ *
+ * Judged on the UTC year, because that is what is stored. The second refinement answers `true` for
+ * a string that is not a date at all, so an unparseable value raises ONE issue, the first one, and
+ * is never described as a date out of range.
+ */
+export const isoDateString = z
+	.string()
+	.refine((value) => !Number.isNaN(Date.parse(value)), {
+		message: 'date ISO invalide'
+	})
+	.refine(
+		(value) => {
+			const time = Date.parse(value);
+			return Number.isNaN(time) || isStorableYear(new Date(time).getUTCFullYear());
+		},
+		{ message: 'année hors plage', params: { refusal: DATE_OUT_OF_RANGE } }
+	);
+
+/**
+ * The top-level members of a backup that carry a date, in the file's order: the kinds of record a
+ * range refusal can name. `storableDateColumns.spec.ts` walks the schema and fails when a date
+ * field sits under a member missing here.
+ */
+export const RESTORE_DATE_KINDS = [
+	'exportedAt',
+	'bankConnections',
+	'importBatches',
+	'transactions',
+	'netWorthAccounts',
+	'netWorthSnapshots',
+	'savingsGoals',
+	'recurringStreamActions'
+] as const;
+export type RestoreDateKind = (typeof RESTORE_DATE_KINDS)[number];
+
+export type RestoreRefusal =
+	{ reason: 'date-out-of-range'; kinds: RestoreDateKind[] } | { reason: 'invalid' };
+
+function isRangeIssue(issue: z.core.$ZodIssue): boolean {
+	return (
+		issue.code === 'custom' &&
+		(issue.params as { refusal?: unknown } | undefined)?.refusal === DATE_OUT_OF_RANGE
+	);
+}
+
+/**
+ * Why a backup was refused, as the route needs it. Read off each issue's own `params`, never off
+ * its message text, and over EVERY issue Zod collected:
+ *
+ * - every issue is a date outside the storable years: `date-out-of-range`, naming each kind of
+ *   record at fault once, in the file's order. The owner of an export written before #758 (an
+ *   install on SQLite stored such rows faithfully) can find and correct them.
+ * - anything else, alone or beside a range issue: `invalid`. A file with a date to correct AND
+ *   another fault is not described by the date sentence, which would send its owner to fix one
+ *   date and meet the refusal again.
+ *
+ * « Only fault » means only the SCHEMA's faults, which are all this function sees. A file that
+ * passes the schema can still be refused afterwards by `restoreBackup`'s own checks
+ * (`BackupImportError`, referential integrity and the like), so a file whose dates are corrected
+ * is not promised to restore.
+ */
+export function restoreRefusal(error: z.ZodError): RestoreRefusal {
+	if (error.issues.length === 0 || !error.issues.every(isRangeIssue)) return { reason: 'invalid' };
+	const atFault = new Set(error.issues.map((issue) => issue.path[0]));
+	const kinds = RESTORE_DATE_KINDS.filter((kind) => atFault.has(kind));
+	// A range issue under a member this list does not know is a schema this function has not been
+	// told about; the generic sentence is the safe answer, and the spec above names the gap.
+	if (kinds.length !== atFault.size) return { reason: 'invalid' };
+	return { reason: 'date-out-of-range', kinds };
+}
 
 /**
  * The narrowest width any provider gives a `String` column that carries no native-type
@@ -237,7 +313,10 @@ const backupBankConnectionSchema = z
 		aspspName: z.string().max(200).nullable().optional(),
 		aspspCountry: z.string().max(10).nullable().optional(),
 		consentExpiresAt: isoDateString.nullable(),
-		lastSyncAt: isoDateString.nullable()
+		lastSyncAt: isoDateString.nullable(),
+		// The fetch cursor (#763). Absent from exports predating it, which restore with no cursor:
+		// see the restore in import.ts for why `lastSyncAt` is not used in its place.
+		lastCompleteSyncAt: isoDateString.nullable().optional()
 	})
 	.strict();
 

@@ -181,7 +181,7 @@ describe('/reports load', () => {
 		expect(data.report.previousMonth).toBeUndefined();
 	});
 
-	it('all-time interroge depuis epoch et moyenne sur les jours réellement couverts', async () => {
+	it('all-time interroge depuis le premier jour stockable et moyenne sur les jours réellement couverts', async () => {
 		expect.assertions(4);
 
 		db.prisma.transaction.findMany.mockClear();
@@ -193,10 +193,13 @@ describe('/reports load', () => {
 			report: { expenseAveragePerDayCents: number; previousMonth?: unknown };
 		};
 
-		// No comparison period for all-time → a single transaction query, epoch lower bound.
+		// No comparison period for all-time → a single transaction query, floored at the first storable
+		// day (#758): the epoch floor dropped every row from 1000 to 1969 out of the totals.
 		expect(db.prisma.transaction.findMany).toHaveBeenCalledTimes(1);
-		expect(db.prisma.transaction.findMany.mock.calls[0][0].where.date.gte).toEqual(new Date(0));
-		// dayCount falls back to the covered span (May 1 → May 2 = 2 days), not ~20k epoch days.
+		expect(db.prisma.transaction.findMany.mock.calls[0][0].where.date.gte).toEqual(
+			new Date('1000-01-01T00:00:00.000Z')
+		);
+		// dayCount falls back to the covered span (May 1 → May 2 = 2 days), not the floor's centuries.
 		expect(data.report.expenseAveragePerDayCents).toBe(20_000);
 		expect(data.report.previousMonth).toBeUndefined();
 	});

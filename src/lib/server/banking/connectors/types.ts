@@ -99,8 +99,9 @@ export interface EstablishedConnection {
 	/**
 	 * Accounts captured at authorization time, when the provider returns them richer
 	 * there than on later lookups (Enable Banking's POST /sessions returns full account
-	 * resources while GET /sessions/{id} only returns bare uids). Optional: connectors
-	 * without that asymmetry can omit it and rely on listAccounts().
+	 * resources while GET /sessions/{id} only returns bare uids). Optional in the type,
+	 * but `completeBankAuthorization` creates buckets from this list ONLY and never calls
+	 * listAccounts(): a connector that omits it creates no bucket at all (#769).
 	 */
 	accounts?: BankConnectorAccount[];
 }

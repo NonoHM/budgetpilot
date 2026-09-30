@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeDate, normalizeFirstValidDate } from './csv';
+import { normalizeDate, readRowDate } from './csv';
 import { parseCsvTransactions } from '../csv';
 
 /**
@@ -168,27 +168,32 @@ describe('what the user meets when they designate a période column as the date'
 });
 
 /**
- * `normalizeFirstValidDate` loops over candidate date columns and returns the first that
- * normalises to a VALID ISO date. The narrowing above is a narrowing of `normalizeDate`, but not
- * of this function: growing the set of values `normalizeDate` refuses grows the set that FALLS
+ * `readRowDate` loops over candidate date columns and takes the first that normalises to a VALID
+ * ISO date (`firstReadableDate`). The narrowing above is a narrowing of `normalizeDate`, but not
+ * of this loop: growing the set of values `normalizeDate` refuses grows the set that FALLS
  * THROUGH to the next candidate here. A row whose first date column just became unreadable does
- * not stop importing — it imports under a LATER column's date instead, silently. Two production
+ * not stop importing: it imports under a LATER column's date instead, silently. Two production
  * callers rely on exactly this: `revolut.ts` (`Date de fin`, `Date de début`) and
  * `banque-populaire.ts` (`Date operation`, `Date de comptabilisation`, `Date de valeur`), where
  * the three Banque Populaire columns are genuinely different dates on a real statement. The
- * fall-through is what the function is FOR, and this block exists so a regression in it is
- * visible here rather than discovered on a real file.
+ * fall-through is what the loop is FOR, and this block exists so a regression in it is visible
+ * here rather than discovered on a real file. Ported from `normalizeFirstValidDate` when #758
+ * removed it, with the same three fixtures.
  */
-describe('normalizeFirstValidDate falls through to the next valid column', () => {
+describe('readRowDate falls through to the next valid column', () => {
 	it('skips a candidate refused by the remainder rule and uses the next one', () => {
 		expect.assertions(1);
 
-		// Before this branch, `normalizeDate('01/01/2026 au 31/01/2026')` prefix-matched and won
-		// with `2026-01-01`: the first candidate was accepted even though it carried a second
-		// date. After the narrowing, that candidate is refused (returned unchanged, which is not
-		// a valid ISO date), so the loop moves on and the SECOND candidate wins instead. This is
-		// therefore a deliberate VALUE CHANGE for this input, not merely a new refusal.
-		expect(normalizeFirstValidDate(['01/01/2026 au 31/01/2026', '15/01/2026'])).toBe('2026-01-15');
+		// Before #366, `normalizeDate('01/01/2026 au 31/01/2026')` prefix-matched and won with
+		// `2026-01-01`: the first candidate was accepted even though it carried a second date.
+		// After the narrowing, that candidate is refused, so the loop moves on and the SECOND
+		// candidate wins instead. A deliberate VALUE CHANGE for this input, not merely a refusal.
+		expect(
+			readRowDate([
+				{ column: 'first', value: '01/01/2026 au 31/01/2026' },
+				{ column: 'second', value: '15/01/2026' }
+			])
+		).toEqual({ kind: 'date', date: '2026-01-15' });
 	});
 
 	it('still prefers the first candidate when it is readable', () => {
@@ -196,20 +201,27 @@ describe('normalizeFirstValidDate falls through to the next valid column', () =>
 
 		// Revolut's real two-column shape, both carrying a timestamp remainder. The first
 		// candidate is valid, so it wins and the second is never consulted.
-		expect(normalizeFirstValidDate(['2026-08-02 10:00:00', '2026-08-01 09:00:00'])).toBe(
-			'2026-08-02'
-		);
+		expect(
+			readRowDate([
+				{ column: 'first', value: '2026-08-02 10:00:00' },
+				{ column: 'second', value: '2026-08-01 09:00:00' }
+			])
+		).toEqual({ kind: 'date', date: '2026-08-02' });
 	});
 
-	it('returns an invalid best effort when every candidate is unreadable', () => {
-		expect.assertions(2);
+	it('refuses as invalid-date, naming the first candidate, when every candidate is unreadable', () => {
+		expect.assertions(1);
 
-		const result = normalizeFirstValidDate(['01/01/2026 au 31/01/2026', '01/01/2026-31/01/2026']);
-
-		// Neither candidate normalises to a valid ISO date, so the loop exhausts itself and falls
-		// back to `normalizeDate` on the first present value — itself refused, unchanged. The
-		// caller's own `isValidIsoDate` check is what turns this into a refusal.
-		expect(result).toBe('01/01/2026 au 31/01/2026');
-		expect(result.length > 0 && /^\d{4}-\d{2}-\d{2}$/.test(result)).toBe(false);
+		// Neither candidate normalises to a valid ISO date, so the loop exhausts itself and the
+		// refusal names the first candidate and the first present value, as it is shown to the user.
+		expect(
+			readRowDate([
+				{ column: 'first', value: '01/01/2026 au 31/01/2026' },
+				{ column: 'second', value: '01/01/2026-31/01/2026' }
+			])
+		).toEqual({
+			kind: 'refused',
+			fact: { code: 'invalid-date', column: 'first', value: '01/01/2026 au 31/01/2026' }
+		});
 	});
 });

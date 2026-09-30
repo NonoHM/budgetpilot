@@ -158,8 +158,12 @@ Don't want to build at all? Use the published image, see
 
 ## The interface is in French
 
-That's the default locale, not a bug. **Settings**, first option, switch to
-English. The choice is stored in a cookie per browser.
+The interface follows the language your browser asks for: French when your
+browser prefers French, English for any other language. English is the default.
+
+To change it, go to **Settings** > **Language** and choose it in **Interface
+language**. BudgetPilot keeps that choice for this browser, whatever language
+the browser asks for.
 
 ## No AI card on the dashboard
 
@@ -200,14 +204,29 @@ every row carried by the other, so BudgetPilot refuses the file instead of
 importing half your statement. Combine the two into one signed column, where
 an expense is negative.
 
-Two more refusals you can act on:
+More refusals you can act on:
 
 - **A date it can't read.** The message shows the value it read and the forms
   it accepts, for example `date non reconnue : « 01/06/26 » (attendu :
 JJ/MM/AAAA ou AAAA-MM-JJ)`. Accepted forms are listed in the
   [import reference](./reference/imports.md#accepted-date-formats).
 - **A currency that isn't euros.** BudgetPilot stores euros only, so a file
-  declaring `GBP` is refused rather than relabelled.
+  declaring `GBP` is refused rather than relabelled, one row at a time; the
+  other rows still import.
+- **A date whose year is before 1000 or after 9999.** The message names the
+  range, for example `année hors plage : « 16/01/0050 » (attendu : de 1000 à
+9999)`. No supported database stores such a year faithfully, and no column
+  you could designate instead changes what the file itself wrote, so this row
+  is refused on its own; the rest of the file still imports.
+
+If instead the message names two currencies (`Ce relevé est en {déclarée},
+ce compte en {destination}. Choisissez un compte en {déclarée}`), that's a
+different check: the file itself is fine, but the account you're importing
+into is held in another currency than the statement declares. Pick an
+account already in that currency, or use **New account**, which offers a
+currency field only in this situation and creates the account already set to
+it. This only comes up if you hold an account in another currency in the
+first place, so it never appears in an all-euro setup.
 
 If your statement has no header row at all, open **Designate the columns** and
 turn on **The first row contains data**. Without it, BudgetPilot reads your
@@ -215,6 +234,27 @@ first transaction as a title and you lose it.
 
 Still stuck? A new import profile is a welcome contribution, see
 [CONTRIBUTING.md](../CONTRIBUTING.md).
+
+## My import ran, but says it may not have saved
+
+This is different from every message above, all of which happen before
+anything is written. Very rarely, the database itself has a problem partway
+through writing the rows of a file that already passed every check. Three
+different sentences can show, and each says something different about how
+much landed:
+
+- **"The import did not complete, and no transaction was saved."** Nothing
+  landed. Import the file again.
+- **"Import of {date} stopped after N transactions."** Some rows landed
+  before the write stopped. Delete that run in **Imports**, then import the
+  file again.
+- **"The import stopped: some transactions may have been saved."** BudgetPilot
+  cannot tell what landed. Check **Imports** for a run with today's date
+  before importing again, so you don't create a second, overlapping one.
+
+None of these mean your file was wrong. Once you've acted on the sentence,
+importing the same statement again is safe: duplicate detection catches
+whatever already landed.
 
 ## I lost my two-factor device
 

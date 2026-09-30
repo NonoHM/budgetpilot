@@ -1,0 +1,11 @@
+-- The bank-sync fetch cursor, split off `lastSyncAt` (#763).
+--
+-- `lastSyncAt` was both the throttle anchor and the cursor the next fetch window started from, and
+-- the throttle claim and the error path both wrote it. A sync that failed partway therefore moved
+-- the window past days nothing had fetched, and a failed FIRST sync never fetched the rest of its
+-- lookback at all. `lastSyncAt` keeps the attempt; this column is written only by a sync that
+-- fetched and wrote every bucket, and by a backup restore.
+--
+-- ONE STATEMENT, because `prisma migrate deploy` wraps nothing in a transaction on any engine. The
+-- backfill is the next migration for the same reason.
+ALTER TABLE "BankConnection" ADD COLUMN "lastCompleteSyncAt" TIMESTAMP(3);
