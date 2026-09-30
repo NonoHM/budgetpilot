@@ -139,8 +139,8 @@ description of which guard owns what; update it with any guard.
   [SECURITY.md](./SECURITY.md) and is not restated anywhere else.
 
 **Only four things earn an immediate fix outside a task's scope**: a false displayed figure, a
-security risk, data loss, or data written wrong that looks right. Everything else is an issue,
-and you say so.
+security risk, data loss, or data written wrong that looks right. Everything else is an issue
+filed with a milestone, and you say so.
 
 The fourth is the test for the other three: the bar catches what a user cannot catch from the
 screen. A false figure is visible, a lost row is absent, a breach is discovered; a wrong value that
@@ -194,8 +194,8 @@ a contradiction with a decision already written down. A number a test can assert
 
 Tooling enforces formatting; do not restate it. What tooling cannot check:
 
-- **Code, comments, docstrings, test names and commit messages in English.** UI strings in
-  French through Paraglide, both catalogues moved together.
+- **Code, comments, docstrings, test names and commit messages in English.** UI strings go
+  through Paraglide, English base and French, both catalogues moved together.
 - **No em dashes in prose a reader meets**: UI strings, documentation, commit messages, PR and
   issue bodies. They make text read as generated, which is a fact about prose and not about code.
   **Code comments are deliberately out of scope**; a string the DESIGN specifies is quoted verbatim
@@ -457,11 +457,12 @@ clean refusals; a scanner seeing zero packages passes; a fuzzer reaching no acce
 
 Read what the closest comparable products actually do, before adopting a pattern retrieved from a
 generic search. For this repository that is **Actual Budget** and **Firefly III** first, both
-self-hosted and closest in shape, then **YNAB** and **Monarch**. A pattern from an unrelated
-repository is weaker evidence than one product's own documented behaviour, and citing it as
-established practice without checking is how a wrong requirement gets built: a session briefed
-#464's fix on a "UUIDs preserved same-instance, stripped cross-instance" conflict-resolution
-pattern that neither comparable actually implements, checked directly against both afterward.
+self-hosted and closest in shape, then **YNAB**, **Monarch**, **Lunch Money** and **Moneydance**. A
+pattern from an unrelated repository is weaker evidence than one product's own documented behaviour,
+and citing it as established practice without checking is how a wrong requirement gets built: a
+session briefed #464's fix on a "UUIDs preserved same-instance, stripped cross-instance"
+conflict-resolution pattern that neither comparable actually implements, checked directly against
+both afterward.
 
 ## References
 
