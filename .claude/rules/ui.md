@@ -31,7 +31,10 @@ The order: any process skill first, then those two, then the design, then the co
   needs, checked against AGENTS.md « Writing a sentence for the interface ». Three lines at most at
   390 px. Reuse a key before adding one.
   No em dash, and nothing that reads as generated: implicit beats explained.
+- **Built for a user who reads nothing**: what the screen is for and what to do first, understood in
+  under 30 seconds. The `walk` skill asks it on the build.
 - **An explanation longer than a line goes behind an info icon**, in `Tooltip` (brick 11,
-  `src/lib/components/ui/Tooltip.svelte`), not in a paragraph nobody reads. Reuse the component; a
-  variant is registered in `docs/reference/design-referential.md`, never inlined.
+  `src/lib/components/ui/Tooltip.svelte`), not in a paragraph nobody reads. Look in
+  `src/lib/components/ui/` and `docs/reference/design-referential.md` for an info-icon trigger first;
+  if none exists, build it once as a registered brick, and every later screen reuses it.
 - After adding a message key, open the page: a running `vite dev` holds the catalogue it started with.

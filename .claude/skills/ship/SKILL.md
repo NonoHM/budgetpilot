@@ -49,5 +49,5 @@ and the places where each barrier lies.
     separates); the gate figures as read; screenshots by path and what the eye would fail on; the
     findings filed. Never overstate what was verified.
 
-A finding outside the PR's scope is filed (`github-issues`, body written to a file), not fixed, unless
-it meets the bar in AGENTS.md « Security boundaries ». Say which in the report.
+A finding outside the PR's scope is filed with a milestone (`github-issues`, body written to a file),
+not fixed, unless it meets the bar in AGENTS.md « Security boundaries ». Say which in the report.

@@ -26,15 +26,21 @@ The owner's note for this session, if any: $ARGUMENTS
    clear a worktree from its diff alone, and never delete one you did not create.
 3. **Check what moved since the block was written.** The block is a snapshot too: read the open PRs
    and the runs on main above, and `gh issue list` for anything filed since. The tracker is
-   authoritative for open work.
-4. **Choose one piece.** Anything meeting the bar in AGENTS.md « Security boundaries » comes first,
-   whatever the block's order; otherwise the block's next step. One piece per sitting, merged by its
-   end if it can be. At most two implementation sessions at once, with `sonnet` for tier 1 and 2 and
-   `opus` for tier 3 and for contradiction passes.
-5. **Declare the tier in your first message, before the work,** with the clause of AGENTS.md « How
+   authoritative for open work. A recollection, the owner's, yours or a past session's (« #N is done
+   », « that was fixed »), is data to verify on the tracker or the tree, never a fact to act on.
+4. **Choose one piece, the most bearing, and say why it bears**: the bar in AGENTS.md « Security
+   boundaries » first, then a deadline or a blocker, then the block's next step. Never idle while
+   bearing work exists; never invent work or evidence to fill the time. Every piece you propose
+   carries an issue number or a named block item. One piece per sitting, merged by its end if it can
+   be. At most two implementation sessions at once, `sonnet` for tier 1 and 2, `opus` for tier 3 and
+   contradiction passes.
+5. **Parallel only what is independent.** Two pieces run in parallel sessions or subagents only if
+   they touch no common file (compare the files each touches first); otherwise they are a chain, run
+   in order. superpowers:dispatching-parallel-agents for the fan-out.
+6. **Declare the tier in your first message, before the work,** with the clause of AGENTS.md « How
    much rigour a change earns » that decides it. A tier found wrong later is reported, not silently
    raised.
-6. **Load the skill for the job**: `ship` for a PR, `plan-chantier` for a plan, `walk` for a browser
+7. **Load the skill for the job**: `ship` for a PR, `plan-chantier` for a plan, `walk` for a browser
    check. Decide anything reversible yourself (AGENTS.md, end of « How much rigour a change earns »);
    stop for the owner only where that paragraph says to.
 

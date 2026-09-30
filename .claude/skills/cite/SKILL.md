@@ -25,15 +25,16 @@ as satisfied.
 2. **Write the full form with the text quoted**: `ASVS v5.0.0-8.2.2` (Level 1): « Verify that ... ».
    Say whether the change SATISFIES the line, CONTRIBUTES to it, or leaves a deviation, and name what
    is still missing. A partial control is not a satisfied requirement.
-3. **Everything else** (WCAG 2.2, CWE, ATT&CK, ATLAS, NIST, CIS, ANSSI, ISO/IEC): read the primary page,
-   quote it, and give the URL and the date read. The saved copies under `scr/references/guards/` and
-   `scr/references/gates/` carry a `MANIFEST.md` with URL, date, size and sha256; read there first, and
-   add to a manifest anything you save.
+3. **Everything else** (WCAG 2.2, CWE, ATT&CK, ATLAS, NIST, CIS, ANSSI, ISO/IEC): local copy first.
+   `scr/references/guards/` and `scr/references/gates/` each carry a `MANIFEST.md` (URL, date, size,
+   sha256): quote the saved file with its MANIFEST URL and date. Not saved: read the primary page,
+   quote it with URL and date read, and add it to a MANIFEST. Never from memory.
 
 ## What the comparable products do
 
-The rule is AGENTS.md « Before citing an industry pattern »: Actual Budget and Firefly III first, then
-YNAB and Monarch, from their own documentation or source, never from a generic search.
+The rule, and the products in their order, is AGENTS.md « Before citing an industry pattern ». Their
+own documentation or source, never a generic search. Unsure of a fact: research it online, from the
+primary source.
 
 1. **Check the tracker for a ruling first**: `gh issue list --state all --search "<topic>"`. A question
    already ruled is quoted with its issue number, not reopened.
@@ -41,9 +42,10 @@ YNAB and Monarch, from their own documentation or source, never from a generic s
    `repo@<sha>:<path>`. Documentation: the URL and the date read. A summarising fetch that finds no
    mention covers only the pages it read: say which pages.
 3. **Write what each does, and why if it says why, in a small table**; then where BudgetPilot matches,
-   where it does better, and the reason. « Nobody does X » needs the four readings behind it.
-4. **An academic question** (a method, an algorithm, a usability figure) goes to `literature-review`
-   or `paper-lookup`; name the databases searched and the identifiers retrieved.
+   where it does better, and the reason. « Nobody does X » needs every product's reading behind it.
+4. **Literature review only for a real open question** (a method, an algorithm, a usability figure
+   no product settles): `literature-review` or `paper-lookup`, naming the databases searched and the
+   identifiers retrieved.
 
 ## Figures
 

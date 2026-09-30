@@ -4,6 +4,9 @@
 
 - Conventional Commits. The type follows `release-please-config.json`: anything that can reach a
   running install is visible, so a dependency bump carrying a CVE fix is `fix(deps):`.
+- `!` or a `BREAKING CHANGE` footer cuts a major version through release-please. Only for a change an
+  install or an operator must act on (a removed setting, a data format a restore rejects). Internal
+  API changes are not breaking: no 2.0 without a real break.
 - Every commit message ends with the `Co-Authored-By` line the harness gives. A commit message on a
   branch is already published: this repository squash-merges with the commit messages.
 
