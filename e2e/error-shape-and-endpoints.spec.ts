@@ -97,6 +97,12 @@ import { expect, test } from './fixtures';
  *    test this break is all green, which is a check that has stopped checking and says so nowhere.
  *  - `directory lists`, `TRACE echoes`, `runtime NODE_ENV dropped`, `dev-only token renamed
  *    upstream`, `nothing is reached at all`: one red each, on their own test, nowhere else.
+ *
+ * That matrix was read before #816, when the application exported no `handleError`. It now does,
+ * and it writes the error id and class on every failure, so a `handleError` that returned the stack
+ * would leave calibration 1 GREEN and be caught by the two leak tests alone. Five of the six
+ * `INTERNAL_TOKENS` are no longer shown to exist anywhere in a run (only the class is logged), so
+ * their absence from a body rests on the searcher's own test below, which plants each one.
  */
 
 const PORT = 4177;
@@ -107,10 +113,10 @@ const DATABASE_URL = 'file:./e2e/.data/errshape/errshape.sqlite';
 /**
  * Values this instance is configured with, held so the error bodies can be searched for them.
  *
- * `v5.0.0-16.5.1` names "secret keys, and tokens" alongside stack traces and queries. Unlike the
- * six tokens below, these are NOT proven present on stderr, because nothing logs them and that is
- * the point of check 3. They are carried by the same search whose ability to read the body is
- * proven by calibration 2, which is the honest statement of what covers them.
+ * `v5.0.0-16.5.1` names "secret keys, and tokens" alongside stack traces and queries. Like five of
+ * the six tokens below since #816, these are NOT proven present anywhere in a run, because nothing
+ * logs them and that is the point of check 3. They are carried by the same search whose ability to
+ * read the body is proven by calibration 2, which is the honest statement of what covers them.
  */
 const CONFIGURED_SECRETS = {
 	bootstrapToken: 'bp-errshape-bootstrap-4a17c9',
@@ -137,8 +143,9 @@ const SERVER_ENV = {
  * Internal system data that the failure genuinely produces, one entry per class named by
  * `v5.0.0-16.5.1`.
  *
- * Every one of these is asserted PRESENT in the server's stderr and ABSENT from both response
- * bodies. Chosen to be stable across ordinary refactoring: a schema model name, an ORM call
+ * Every one of these is asserted ABSENT from both response bodies. Until #816 each was also
+ * asserted PRESENT in the server's stderr, where SvelteKit's default printer wrote it; only
+ * `errorClass` is still logged, and calibration 1 reads it there. Chosen to be stable across ordinary refactoring: a schema model name, an ORM call
  * prefix, an error class, a dependency path, the bundle layout and a stack-frame marker. An
  * internal FUNCTION name was in the first draft and taken out, because it would be renamed by
  * unrelated work and the resulting red would say nothing about the boundary.
