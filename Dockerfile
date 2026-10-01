@@ -248,6 +248,7 @@ COPY --from=builder /app/src/lib/domain/normalize.ts \
 	/app/src/lib/domain/money.ts \
 	./src/lib/domain/
 COPY --from=builder /app/src/lib/server/dbTransaction.ts ./src/lib/server/dbTransaction.ts
+COPY --from=builder /app/src/lib/server/operatorFacingError.ts ./src/lib/server/operatorFacingError.ts
 COPY --from=builder /app/src/lib/server/database/adapter.ts \
 	/app/src/lib/server/database/advisoryLock.ts \
 	/app/src/lib/server/database/client.ts \
