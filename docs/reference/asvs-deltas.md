@@ -25,6 +25,57 @@ construction, `X` an argued exception, `N/A` not applicable with a stated reason
 
 ---
 
+## 2026-10-01, the sign-in redirect
+
+Branch `fix/redirect-target`, with a private security advisory. **Letters below are quoted from
+`scripts/security/asvs-5.0-l2-report.md`**, which describes the assessment of 2026-08-13 and not a
+current state. After signing in, a visitor is sent to the target carried by the `redirectTo` query
+parameter, and the check on that target let some values through to another host. The check now
+accepts only an internal path, and `auth.ts` is the only production file that reads or writes the
+parameter: no other `.ts` or `.svelte` file under `src/` names it, one comment quoting a measured
+response excepted. **No row's letter moves**: one row gains a site the assessment never recorded,
+and two rows change how they are held.
+
+### `v5.0.0-3.7.2`: `X` unchanged, a second site found and closed
+
+> Verify that the application will only automatically redirect the user to a different hostname or
+> domain (which is not controlled by the application) where the destination appears on an
+> allowlist.
+
+The assessment's evidence names one site, the bank authorization redirect (#245), and argues the
+exception there. **The sign-in redirect was a second site, unrecorded**, and on it the destination
+was any host. It now redirects only to a path on the application's own origin, so it no longer
+redirects off the domain at all. The `X` stands on #245 alone. `sign-in-exits.spec.ts` drives the
+four sign-in exits with the bypass corpus, and `e2e/redirect-target.spec.ts` follows the redirect
+in Chromium.
+
+### `v5.0.0-1.2.2`: `X` unchanged, the exception now rests on one site
+
+> Verify that when dynamically building URLs, untrusted data is encoded according to its context
+> (e.g., URL encoding or base64url encoding for query or path parameters). Ensure that only safe URL
+> protocols are permitted (e.g., disallow javascript: or data:).
+
+The sign-in target refuses every value that carries a scheme, with or without slashes, since only a
+path starting with a single slash is kept. The exception is now #245 alone.
+
+### `v5.0.0-2.2.1`: `A` unchanged, evidence added
+
+> Verify that input is validated to enforce business or functional expectations for that input.
+> This should either use positive validation against an allow list of values, patterns, and ranges,
+> or be based on comparing the input to an expected structure and logical limits according to
+> predefined rules. For L1, this can focus on input which is used to make specific business or
+> security decisions. For L2 and up, this should apply to all input.
+
+The redirect target is validated positively: one leading slash, then visible ASCII only, with
+backslashes, dot segments, encoded separators and a path that does not decode refused. The rule is `getSafeRedirect` in
+`src/lib/server/auth.ts`. Its property test is judged by the WHATWG URL parser and by SvelteKit's
+own `Redirect` constructor, neither of which the rule uses. It covers a target that would leave the
+origin, collapse to an empty authority, fail to parse, fail as a header or fail to decode. The
+refusals of targets that would stay on the origin (encoded separators, a space, DEL, a non-ASCII
+character) are guarded by named test cases only.
+
+---
+
 ## 2026-09-26, the write step owns its failures
 
 Branch `fix/d3-write-failures` (#660, #662, #596, #595). **Letters below are quoted from

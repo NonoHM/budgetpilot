@@ -1,6 +1,6 @@
 import { fail, redirect, type Actions } from '@sveltejs/kit';
 import * as m from '$lib/paraglide/messages';
-import { createSession, getSafeRedirect } from '$lib/server/auth';
+import { createSession, redirectAfterSignIn } from '$lib/server/auth';
 import { consumeMfaChallenge, readMfaChallenge } from '$lib/server/auth/mfaChallenge';
 import { isMfaRateLimited, recordMfaAttempt } from '$lib/server/auth/rateLimit';
 import { resolveClientAddress } from '$lib/server/net/clientAddress';
@@ -61,7 +61,7 @@ export const actions: Actions = {
 		await createSession(user.id, cookies);
 		await consumeMfaChallenge(challenge.id, cookies);
 
-		throw redirect(303, getSafeRedirect(url.searchParams.get('redirectTo')));
+		redirectAfterSignIn(url);
 	}
 };
 

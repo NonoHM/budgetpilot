@@ -181,12 +181,83 @@ export async function createSession(userId: string, cookies: Cookies): Promise<v
 	cookies.set(SESSION_COOKIE, token, getSessionCookieOptions(expiresAt));
 }
 
-// Anti open-redirect: only accepts a clean relative path ("//" would be interpreted
-// as a protocol-relative URL by the browser). Shared between /login and
-// /login/verify-totp — do not duplicate, this decision is security-sensitive.
+/**
+ * The query parameter carrying where a visitor goes once signed in. The three functions below are
+ * its only reader and writers, so a route cannot redirect to it without the check;
+ * `src/lib/server/security/redirect-param.spec.ts` fails when any other production line names it,
+ * one comment quoting a measured response excepted.
+ */
+const REDIRECT_PARAM = 'redirectTo';
+
+/** Where a sign-in with no usable target lands. */
+const SAFE_DEFAULT = '/';
+
+/** Clause 1. One leading slash and never two, then visible ASCII only: refuses absolute URLs,
+ * `//host`, schemes with or without slashes, whitespace, control characters and non-ASCII. */
+const SINGLE_SLASH_VISIBLE_ASCII = /^\/(?!\/)[\x21-\x7e]*$/;
+
+/** Clause 2. A browser's URL parser reads a backslash as a slash, so `/\host` is `//host`. Read
+ * over the whole value, query included: a target whose query carries a raw backslash, which the
+ * parser leaves unencoded there, is refused, and that visitor lands on `/`. A loss accepted so that
+ * the clause stays one test. */
+const BACKSLASH = /\\/;
+
+/** Clause 3. A dot segment, `%2e` included: resolved, `/.//host` collapses to `//host`. No producer
+ * here emits one, since the paths it carries were already resolved by the parser. */
+const DOT_SEGMENT = /\/(?:\.|%2e){1,2}(?=\/|$)/i;
+
+/** Clause 4. An encoded slash or backslash. No route here has one in its path, and a decoder
+ * downstream could turn either back into a separator. */
+const ENCODED_SEPARATOR = /%(?:2f|5c)/i;
+
+/** Clause 5. The path decodes. SvelteKit decodes every request path with `decodeURI` and answers
+ * 400 to one that fails (`/%`, `/%zz`, an escape that is not UTF-8), so a target that does not
+ * decode lands on an error page rather than on the default. */
+function decoded(path: string): string | null {
+	try {
+		// The decoded value is RETURNED to the caller, never discarded. The production bundler treats
+		// `decodeURI` as free of side effects and deleted a bare `decodeURI(path);` from this block,
+		// so the build kept every undecodable path while vitest, which runs the source, refused it.
+		// Measured 2026-10-01 (#842); `e2e/redirect-target.spec.ts` reads the build and sees it. No
+		// predicate on the result either: a second "starts with /" here hid clause 1 from its break.
+		return decodeURI(path);
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * Anti open-redirect (CWE-601): returns `value` unchanged when it is an internal path, and `/`
+ * otherwise. Never rewrites: a value is either sent as given or refused.
+ *
+ * Plain string clauses rather than a URL parser, so that `safeRedirect.spec.ts` can use the WHATWG
+ * parser as an oracle that shares nothing with the rule it judges. Clauses 3, 4 and 5 read the
+ * path only: the query of a legitimate target can carry `%2F` or `/../` as data.
+ */
 export function getSafeRedirect(value: string | null): string {
-	if (!value || !value.startsWith('/') || value.startsWith('//')) return '/';
+	if (!value || !SINGLE_SLASH_VISIBLE_ASCII.test(value)) return SAFE_DEFAULT;
+	if (BACKSLASH.test(value)) return SAFE_DEFAULT;
+	const path = value.split(/[?#]/, 1)[0];
+	if (DOT_SEGMENT.test(path)) return SAFE_DEFAULT;
+	if (ENCODED_SEPARATOR.test(path)) return SAFE_DEFAULT;
+	if (decoded(path) === null) return SAFE_DEFAULT;
 	return value;
+}
+
+/** Sends a visitor who has just signed in, or already was, to the target they asked for if safe. */
+export function redirectAfterSignIn(url: URL): never {
+	throw redirect(303, getSafeRedirect(url.searchParams.get(REDIRECT_PARAM)));
+}
+
+/** `/login`, remembering the page a signed-out visitor asked for. */
+export function signInUrl(requested: URL): string {
+	return `/login?${REDIRECT_PARAM}=${encodeURIComponent(requested.pathname + requested.search)}`;
+}
+
+/** The second-factor step, carrying the target forward already checked. */
+export function secondFactorUrl(url: URL): string {
+	const target = getSafeRedirect(url.searchParams.get(REDIRECT_PARAM));
+	return `/login/verify-totp?${new URLSearchParams({ [REDIRECT_PARAM]: target })}`;
 }
 
 export function requireUser(user: AuthUser | null): AuthUser {
