@@ -25,6 +25,49 @@ construction, `X` an argued exception, `N/A` not applicable with a stated reason
 
 ---
 
+## 2026-10-01, the error printer
+
+Branch `fix/816-error-printer` (#816). **Letters below are quoted from
+`scripts/security/asvs-5.0-l2-report.md`**, which describes the assessment of 2026-08-13 and not a
+current state. The 2026-09-26 entry below says `16.3.4` was met by the framework's default
+`handleError`, which printed the whole error. That printer, and Node's own for an error that ends
+the process, were the two places a database message reached the log. **No row's letter moves**: one
+row's holder changes, and one row gains the two paths it had not reached.
+
+### `v5.0.0-16.3.4`: `C` unchanged, now held by this code
+
+> Verify that the application logs unexpected errors and security control failures such as
+> backend TLS failures.
+
+`hooks.server.ts` defines `handleError`, which logs every unexpected request error with its status,
+method, path, an error id and the error's class and code, and returns the id to the 500 page. A
+failing `init` or any unhandled rejection reaches `lastResortErrors.ts`, which logs the class and
+code and exits 1, as Node's default did. The security control failures half of the row is not
+touched here; it is #250's.
+
+### `v5.0.0-16.2.5`: `A` unchanged, the two default printers closed
+
+> Verify that when logging sensitive data, the application enforces logging based on the data's
+> protection level. For example, it may not be allowed to log certain data, such as credentials or
+> payment details. Other data, such as session tokens, may only be logged by being hashed or
+> masked, either in full or partially.
+
+Measured on the built server before the change, with a database error forced by a trigger that
+quotes the refused row: a planted label reached the log on the boot path (SQLite and PostgreSQL)
+and on the request path (PostgreSQL). Both printers now go through one rule, `loggableError` in
+`server/errors.ts`: a class name and a short code, each checked against a pattern, and a message
+only from an `OperatorFacingError`, the class for text the application wrote for whoever runs the
+instance. `e2e/error-printer.spec.ts` asserts it on the built server.
+
+### `v5.0.0-16.5.4`: Level 3, not claimed
+
+> Verify that a "last resort" error handler is defined which will catch all unhandled exceptions.
+> This is both to avoid losing error details that must go to log files and to ensure that an error
+> does not take down the entire application process, leading to a loss of availability.
+
+Outside the Level 2 target, and recorded so the new handler is not read as meeting it: it exits
+the process, deliberately, because a boot that failed half way must not serve.
+
 ## 2026-10-01, the sign-in redirect
 
 Branch `fix/redirect-target`, with a private security advisory. **Letters below are quoted from
