@@ -182,9 +182,10 @@ export async function createSession(userId: string, cookies: Cookies): Promise<v
 }
 
 /**
- * The query parameter carrying where a visitor goes once signed in. Named in this file and nowhere
- * else in production code (`src/lib/server/security/redirect-param.spec.ts`): the three functions
- * below are its only reader and writers, so a route cannot redirect to it without the check.
+ * The query parameter carrying where a visitor goes once signed in. The three functions below are
+ * its only reader and writers, so a route cannot redirect to it without the check;
+ * `src/lib/server/security/redirect-param.spec.ts` fails when any other production line names it,
+ * one comment quoting a measured response excepted.
  */
 const REDIRECT_PARAM = 'redirectTo';
 
@@ -212,15 +213,16 @@ const ENCODED_SEPARATOR = /%(?:2f|5c)/i;
 /** Clause 5. The path decodes. SvelteKit decodes every request path with `decodeURI` and answers
  * 400 to one that fails (`/%`, `/%zz`, an escape that is not UTF-8), so a target that does not
  * decode lands on an error page rather than on the default. */
-function decodes(path: string): boolean {
+function decoded(path: string): string | null {
 	try {
-		// The result is RETURNED, never discarded. The production bundler treats `decodeURI` as free
-		// of side effects and deleted a bare `decodeURI(path);` from this block, so the build kept
-		// every undecodable path while vitest, which runs the source, refused it. Measured
-		// 2026-10-01; `e2e/redirect-target.spec.ts` reads the build and is the check that sees it.
-		return decodeURI(path).startsWith('/');
+		// The decoded value is RETURNED to the caller, never discarded. The production bundler treats
+		// `decodeURI` as free of side effects and deleted a bare `decodeURI(path);` from this block,
+		// so the build kept every undecodable path while vitest, which runs the source, refused it.
+		// Measured 2026-10-01 (#842); `e2e/redirect-target.spec.ts` reads the build and sees it. No
+		// predicate on the result either: a second "starts with /" here hid clause 1 from its break.
+		return decodeURI(path);
 	} catch {
-		return false;
+		return null;
 	}
 }
 
@@ -238,7 +240,7 @@ export function getSafeRedirect(value: string | null): string {
 	const path = value.split(/[?#]/, 1)[0];
 	if (DOT_SEGMENT.test(path)) return SAFE_DEFAULT;
 	if (ENCODED_SEPARATOR.test(path)) return SAFE_DEFAULT;
-	if (!decodes(path)) return SAFE_DEFAULT;
+	if (decoded(path) === null) return SAFE_DEFAULT;
 	return value;
 }
 
