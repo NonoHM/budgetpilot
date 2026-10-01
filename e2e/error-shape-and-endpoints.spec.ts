@@ -46,17 +46,21 @@ import { expect, test } from './fixtures';
  * For the ABSENCE of internals in an error body, an empty search is the failure mode, and it can
  * be empty for two entirely different reasons. So both are closed separately:
  *
- *  1. THE FAILURE WAS GENUINE AND INTERNAL. Every token in `INTERNAL_TOKENS` is asserted PRESENT
- *     in the server's own stderr. Without this, "no stack in the body" is equally consistent with
- *     "nothing went wrong", and a probe that quietly stopped causing a 500 would report the
- *     strongest possible result.
+ *  1. THE FAILURE WAS GENUINE AND INTERNAL. Each body carries an error id, and the server's own
+ *     stderr records that same id beside the error's class, `PrismaClientKnownRequestError`.
+ *     Without this, "no stack in the body" is equally consistent with "nothing went wrong", and a
+ *     probe that quietly stopped causing a 500 would report the strongest possible result.
+ *     Until #816 this read every token in `INTERNAL_TOKENS` on stderr, which SvelteKit's default
+ *     printer wrote there. That printer was the leak #816 closed: the application's `handleError`
+ *     now writes the class and code only, so the other five tokens exist nowhere outside the
+ *     process, and `e2e/error-printer.spec.ts` asserts the log side of that.
  *  2. THE BODY IS A HAYSTACK THE SEARCH CAN READ. The generic message is asserted PRESENT in each
  *     body before anything is asserted absent from it. Without this, searching an empty string, a
  *     failed request or an undefined variable all return the same clean answer.
  *
- * Those two are the whole design: the same six tokens are proven present on one side of the
- * boundary and proven absent on the other, in the same run, by the same search. That is what makes
- * the absence mean "suppressed" rather than "never happened".
+ * Those two are the whole design: a failure proven to have happened inside the process, under an
+ * id the log and the body share, and a body proven readable, in the same run. That is what makes
+ * the absence of the tokens mean "suppressed" rather than "never happened".
  *
  * For the ABSENCE of an endpoint, the failure mode is that everything 404s because nothing is
  * being reached at all. So `/login` and `/robots.txt` ride INSIDE the same status map as the
@@ -323,27 +327,27 @@ async function waitForServer(timeoutMs = 30_000): Promise<void> {
 }
 
 test.describe('v5.0.0-16.5.1, v5.0.0-13.4.2: an unexpected error discloses nothing', () => {
-	test('calibration: the failure was genuine, and every internal token IS on the server side', () => {
+	test('calibration: the failure was genuine, and the log recorded it under the id each body carries', () => {
 		// The half that makes every absence below mean something. If this is red, the bodies are
 		// clean because nothing broke, which is the strongest-looking result this file can produce
 		// and the only worthless one.
 		expect(renderedErrorPage.status).toBe(500);
 		expect(actionErrorResult.status).toBe(500);
 
-		const missing = Object.entries(INTERNAL_TOKENS)
-			.filter(([, token]) => !errorPhaseStderr.includes(token))
-			.map(([name]) => name);
-
+		const ids = [actionErrorResult.body, renderedErrorPage.body].map(
+			(body) => /errorId"?:"([0-9a-f-]{36})"/.exec(body)?.[1] ?? 'absent'
+		);
 		expect(
-			missing,
-			`internal detail the server never produced, so its absence from the body proves nothing: ${missing.join(', ')}`
-		).toEqual([]);
+			ids.map((id) => errorPhaseStderr.includes(`errorId=${id} ${INTERNAL_TOKENS.errorClass}(`))
+		).toEqual([true, true]);
 	});
 
 	test('calibration: each error body is a haystack the search can actually read', () => {
 		// Searching an empty string for a stack trace succeeds every time. Both bodies must be
 		// readable and must contain the one string they are supposed to contain.
-		expect(actionErrorResult.body).toBe('{"type":"error","error":{"message":"Internal Error"}}');
+		expect(actionErrorResult.body).toMatch(
+			/^\{"type":"error","error":\{"message":"Internal Error","errorId":"[0-9a-f-]{36}"\}\}$/
+		);
 		expect(renderedErrorPage.contentType).toContain('text/html');
 		expect(renderedErrorPage.body.length).toBeGreaterThan(500);
 		expect(renderedErrorPage.body).toContain('Internal Error');
