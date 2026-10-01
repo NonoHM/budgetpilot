@@ -195,7 +195,10 @@ const SAFE_DEFAULT = '/';
  * `//host`, schemes with or without slashes, whitespace, control characters and non-ASCII. */
 const SINGLE_SLASH_VISIBLE_ASCII = /^\/(?!\/)[\x21-\x7e]*$/;
 
-/** Clause 2. A browser's URL parser reads a backslash as a slash, so `/\host` is `//host`. */
+/** Clause 2. A browser's URL parser reads a backslash as a slash, so `/\host` is `//host`. Read
+ * over the whole value, query included: a target whose query carries a raw backslash, which the
+ * parser leaves unencoded there, is refused, and that visitor lands on `/`. A loss accepted so that
+ * the clause stays one test. */
 const BACKSLASH = /\\/;
 
 /** Clause 3. A dot segment, `%2e` included: resolved, `/.//host` collapses to `//host`. No producer

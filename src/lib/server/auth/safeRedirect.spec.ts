@@ -13,6 +13,10 @@ import { BYPASS_HOST, REDIRECT_BYPASSES, REDIRECT_KEPT } from './redirectBypasse
  * - a property over generated values, judged by two oracles that are not this repository's belief:
  *   the WHATWG URL parser (where a browser goes) and SvelteKit's own `Redirect` constructor (whether
  *   the value can be a `Location` header at all, or answers a 500 instead).
+ *
+ * What the property cannot see: a refusal of a value that would stay on the origin and land where
+ * it says. Clause 4 (encoded separators) and the space in clause 1 are policy rather than escapes,
+ * so only their named corpus entries guard them; a break of either leaves the property green.
  */
 
 const APP_ORIGIN = 'http://app.example.test';
@@ -37,6 +41,12 @@ describe('getSafeRedirect keeps what a legitimate flow produces', () => {
 			expect(getSafeRedirect(kept.value)).toBe(kept.value);
 		});
 	}
+
+	// A deliberate loss, pinned so that it stays a decision: clause 2 reads the query too, and the
+	// URL parser leaves a backslash unencoded there, so this target is refused although it is safe.
+	it('refuses a raw backslash even inside the query, sending that visitor to /', () => {
+		expect(getSafeRedirect('/transactions?q=a\\b')).toBe('/');
+	});
 
 	it('keeps what the sign-in hook builds from a request URL', () => {
 		// The producer is `hooks.server.ts`: pathname plus search of a parsed request URL, so the

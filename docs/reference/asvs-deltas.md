@@ -31,8 +31,7 @@ Branch `fix/redirect-target`, with a private security advisory. **Letters below 
 `scripts/security/asvs-5.0-l2-report.md`**, which describes the assessment of 2026-08-13 and not a
 current state. After signing in, a visitor is sent to the target carried by the `redirectTo` query
 parameter, and the check on that target let some values through to another host. The check now
-accepts only an internal path, and `auth.ts` is the only production file that reads or writes the
-parameter. **No row's letter moves**: one row gains a site the assessment never recorded, and two
+accepts only an internal path, and `auth.ts` is the only production file that names the parameter. **No row's letter moves**: one row gains a site the assessment never recorded, and two
 rows change how they are held.
 
 ### `v5.0.0-3.7.2`: `X` unchanged, a second site found and closed
@@ -66,9 +65,11 @@ path starting with a single slash is kept. The exception is now #245 alone.
 > security decisions. For L2 and up, this should apply to all input.
 
 The redirect target is validated positively: one leading slash, then visible ASCII only, with
-backslashes, dot segments and encoded separators refused. The rule is `getSafeRedirect` in
+backslashes, dot segments, encoded separators and a path that does not decode refused. The rule is `getSafeRedirect` in
 `src/lib/server/auth.ts`. Its property test is judged by the WHATWG URL parser and by SvelteKit's
-own `Redirect` constructor, neither of which the rule uses.
+own `Redirect` constructor, neither of which the rule uses. It covers a target that would leave the
+origin, collapse to an empty authority, fail to parse or fail as a header; the refusals of targets
+that would stay on the origin (encoded separators, a space) are guarded by named test cases only.
 
 ---
 
