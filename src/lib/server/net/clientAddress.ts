@@ -1,3 +1,5 @@
+import { OperatorFacingError } from '$lib/server/operatorFacingError';
+
 /**
  * Trustworthy client-IP resolution for the rate limiter.
  *
@@ -229,7 +231,7 @@ export function assertForwardingConfigSafe(env: NodeJS.ProcessEnv = process.env)
 		(name) => (env[name] ?? '').trim() !== ''
 	);
 	if (offenders.length === 0) return;
-	throw new Error(
+	throw new OperatorFacingError(
 		`${offenders.join(' and ')} must not be set: this app validates X-Forwarded-For against ` +
 			`${TRUSTED_PROXIES_ENV} itself, and ${ADDRESS_HEADER_ENV} makes the framework trust the ` +
 			`header blindly (see #219). Unset ${ADDRESS_HEADER_ENV}/${XFF_DEPTH_ENV} and set ` +

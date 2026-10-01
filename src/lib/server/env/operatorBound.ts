@@ -1,3 +1,5 @@
+import { OperatorFacingError } from '$lib/server/operatorFacingError';
+
 /**
  * THE ONE READING OF A NUMBER AN OPERATOR SETS IN THE ENVIRONMENT (#745).
  *
@@ -52,12 +54,12 @@ export function readOperatorBound(
 
 	const value = DECIMAL_DIGITS.test(written) ? Number(written) : Number.NaN;
 	if (!(value >= 1)) {
-		throw new Error(
+		throw new OperatorFacingError(
 			`${name} must be a whole number of at least 1, written in the digits 0 to 9 only (got ${JSON.stringify(raw)}). ${purpose} The default is ${fallback}.`
 		);
 	}
 	if (!Number.isSafeInteger(value)) {
-		throw new Error(
+		throw new OperatorFacingError(
 			`${name} is too large to be read exactly as a whole number (got ${JSON.stringify(raw)}). ${purpose} The default is ${fallback}.`
 		);
 	}

@@ -1,6 +1,7 @@
 import { timingSafeEqual } from 'node:crypto';
 import { env } from '$env/dynamic/private';
 import { getRegistrationMode, isSelfRegistrationOpen } from '$lib/server/auth/registration';
+import { OperatorFacingError } from '$lib/server/operatorFacingError';
 
 /**
  * BOOTSTRAP_TOKEN gates /register while registration is closed (admin_only): the very
@@ -54,7 +55,7 @@ export async function assertBootstrapTokenConfigured(): Promise<void> {
 		return;
 	}
 
-	throw new Error(
+	throw new OperatorFacingError(
 		'BOOTSTRAP_TOKEN is required to create the first account when REGISTRATION_MODE=admin_only (the default): without it, every account creation is rejected as an invalid token and this instance cannot be bootstrapped. Set it in your environment (generate one with `openssl rand -base64 32`), or set REGISTRATION_MODE=open if you deliberately want self-service registration.'
 	);
 }

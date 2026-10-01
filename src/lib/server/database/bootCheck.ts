@@ -3,6 +3,7 @@ import {
 	resolveDatabaseProvider,
 	type DatabaseEnv
 } from './provider';
+import { OperatorFacingError } from '$lib/server/operatorFacingError';
 
 /**
  * One name for the three database checks the boot collector has to run.
@@ -20,7 +21,7 @@ import {
 export function assertDatabaseConfigured(source: NodeJS.ProcessEnv = process.env): void {
 	const databaseUrl = source.DATABASE_URL?.trim();
 	if (!databaseUrl && source.NODE_ENV === 'production') {
-		throw new Error(
+		throw new OperatorFacingError(
 			'DATABASE_URL is required in production: without it the app would silently open a fresh, ' +
 				'empty SQLite file instead of your data. In the shipped container it is ' +
 				'`file:/data/budgetpilot.db`, which is on the mounted volume — a path outside /data is on the ' +

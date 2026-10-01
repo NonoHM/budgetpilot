@@ -21,11 +21,12 @@ const {
 	collectEnvironmentProblems,
 	ENVIRONMENT_CHECKS
 } = await import('./assertConfigured');
+const { OperatorFacingError } = await import('$lib/server/operatorFacingError');
 
 // A fake check is the right unit here: what this module contributes is the COLLECTION, and using
 // the nine real checks would make these cases a test of nine other modules instead.
 const failing = (message: string) => () => {
-	throw new Error(message);
+	throw new OperatorFacingError(message);
 };
 const passing = () => {};
 
@@ -52,15 +53,41 @@ describe('collectEnvironmentProblems', () => {
 
 	it('awaits async checks', async () => {
 		const problems = await collectEnvironmentProblems([
-			['A', async () => Promise.reject(new Error('async failure'))],
+			['A', async () => Promise.reject(new OperatorFacingError('async failure'))],
 			['B', failing('sync failure')]
 		]);
 		expect(problems).toEqual(['async failure', 'sync failure']);
 	});
 
-	it('names the check when something that is not an Error is thrown', async () => {
+	it('names the check, and only the type, when something that is not an Error is thrown', async () => {
 		const problems = await collectEnvironmentProblems([['WEIRD', () => Promise.reject('nope')]]);
-		expect(problems).toEqual(['WEIRD: nope']);
+		expect(problems).toEqual(['WEIRD: string']);
+	});
+
+	// #816, found by its contradiction pass. The report is thrown as an OperatorFacingError, whose
+	// message the log prints in full, so the collector is where an error nobody wrote for the
+	// operator must stop: `assertBootstrapTokenConfigured` reads the database, and a database error
+	// can quote a row.
+	it("reduces a check's error to its class and code unless the check wrote it for the operator", async () => {
+		const { PrismaClientKnownRequestError } = await import('@prisma/client/runtime/client');
+		const problems = await collectEnvironmentProblems([
+			[
+				'BOOTSTRAP_TOKEN',
+				() => {
+					throw new PrismaClientKnownRequestError('refused row Grocery L0MRK7c41q', {
+						code: 'P2003',
+						clientVersion: '7'
+					});
+				}
+			],
+			[
+				'X',
+				() => {
+					throw new Error('a library message, L0MRK7c41q');
+				}
+			]
+		]);
+		expect(problems).toEqual(['BOOTSTRAP_TOKEN: PrismaClientKnownRequestError(P2003)', 'X: Error']);
 	});
 
 	it('returns nothing when every check passes', async () => {
@@ -209,18 +236,22 @@ async function readingOf(name: string, run: () => void | Promise<void>, spelling
 	const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
 	process.env[name] = spelling;
 	try {
-		await run();
+		// Through the collector, not by calling the check: the refusal is read as it reaches the
+		// operator's report, which keeps a message only when the check threw it as an
+		// OperatorFacingError (#816). A bound whose refusal lost that class reads here as
+		// « refused otherwise: <name>: Error ».
+		const [problem] = await collectEnvironmentProblems([[name, run]]);
+		if (problem !== undefined) {
+			return problem.startsWith(
+				`${name} must be a whole number of at least 1, written in the digits 0 to 9 only (got ${JSON.stringify(spelling)}).`
+			)
+				? 'refused: not decimal digits'
+				: `refused otherwise: ${problem}`;
+		}
 		const first = warn.mock.calls[0]?.[0];
 		if (first === undefined) return 'the default';
 		const read = String(first).match(new RegExp(`${name}=(\\S+) differs from the default`));
 		return read ? `read as ${read[1]}` : `accepted, with an unexpected warning: ${String(first)}`;
-	} catch (caught) {
-		const message = caught instanceof Error ? caught.message : String(caught);
-		return message.startsWith(
-			`${name} must be a whole number of at least 1, written in the digits 0 to 9 only (got ${JSON.stringify(spelling)}).`
-		)
-			? 'refused: not decimal digits'
-			: `refused otherwise: ${message}`;
 	} finally {
 		if (previous === undefined) delete process.env[name];
 		else process.env[name] = previous;

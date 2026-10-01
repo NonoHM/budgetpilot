@@ -11,6 +11,7 @@ import { assertColumnMappingCapConfigured } from '$lib/server/import/mapping/sto
 import { assertXlsxBoundConfigured } from '$lib/server/import/zipBounds';
 import { assertForwardingConfigSafe } from '$lib/server/net/clientAddress';
 import { OperatorFacingError } from '$lib/server/operatorFacingError';
+import { describeErrorForLog } from '$lib/server/errors';
 
 type Check = [name: string, run: () => void | Promise<void>];
 
@@ -29,7 +30,14 @@ export async function collectEnvironmentProblems(checks: Check[]): Promise<strin
 		try {
 			await run();
 		} catch (caught) {
-			problems.push(caught instanceof Error ? caught.message : `${name}: ${String(caught)}`);
+			// Only a message a check wrote for the operator enters the report, because the report is
+			// itself an OperatorFacingError and the log prints it whole. A check that reads the
+			// database can fail with a message quoting a row (#816).
+			problems.push(
+				caught instanceof OperatorFacingError
+					? caught.message
+					: `${name}: ${describeErrorForLog(caught)}`
+			);
 		}
 	}
 	return problems;

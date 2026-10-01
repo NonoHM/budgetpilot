@@ -2,6 +2,7 @@ import { createHmac } from 'node:crypto';
 import { env } from '$env/dynamic/private';
 import { prisma } from '$lib/server/db';
 import { readOperatorBound } from '$lib/server/env/operatorBound';
+import { OperatorFacingError } from '$lib/server/operatorFacingError';
 
 const WINDOW_MS = 15 * 60 * 1000;
 // REAUTH is deliberately shorter than the 15-minute LOGIN/etc window. Every REAUTH action sits
@@ -84,7 +85,7 @@ export function resolveImportMaxAttempts(): number {
 	});
 
 	if (attempts > IMPORT_MAX_ATTEMPTS_CEILING) {
-		throw new Error(
+		throw new OperatorFacingError(
 			`${IMPORT_MAX_ATTEMPTS_ENV}=${attempts} is above the hard ceiling of ${IMPORT_MAX_ATTEMPTS_CEILING}. This is a rate limit on expensive work: at the ceiling, one account uploading the most expensive spreadsheet the configuration allows can already hold the server for about a quarter of every 15 minutes. The value is refused rather than clamped so that a limit you set is the limit that runs. The number and the measurements that chose it are in src/lib/server/auth/rateLimit.ts.`
 		);
 	}
@@ -142,14 +143,14 @@ function hashSecret(): string {
 export function assertRateLimitSecretConfigured(source: NodeJS.ProcessEnv = env): void {
 	const raw = source.RATE_LIMIT_HASH_SECRET?.trim();
 	if (!raw) {
-		throw new Error(
+		throw new OperatorFacingError(
 			'RATE_LIMIT_HASH_SECRET is required: it is the HMAC key that hashes the emails and IP ' +
 				'addresses recorded for login rate limiting, so without it the limiter has nothing to ' +
 				'key on. Set it to 64 hex characters (generate one with `openssl rand -hex 32`).'
 		);
 	}
 	if (!/^[0-9a-fA-F]{64}$/.test(raw)) {
-		throw new Error(
+		throw new OperatorFacingError(
 			`RATE_LIMIT_HASH_SECRET must be exactly 64 hex characters (received ${raw.length}). It is ` +
 				'used directly as an HMAC-SHA256 key, so a shorter value is a weaker key rather than a ' +
 				'shorter name. Generate one with `openssl rand -hex 32`.'

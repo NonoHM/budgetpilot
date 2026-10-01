@@ -1,4 +1,5 @@
 import { readOperatorBound } from '$lib/server/env/operatorBound';
+import { OperatorFacingError } from '$lib/server/operatorFacingError';
 
 /**
  * How many columns an imported file may declare.
@@ -74,7 +75,7 @@ export function resolveCsvMaxColumns(): number {
 	});
 
 	if (columns > CSV_MAX_COLUMNS_CEILING) {
-		throw new Error(
+		throw new OperatorFacingError(
 			`${CSV_MAX_COLUMNS_ENV}=${columns} is above the hard ceiling of ${CSV_MAX_COLUMNS_CEILING}. This bounds what the column designation screen has to render: one card and three preview values per column, all serialised into one page. The value is refused rather than clamped so that a bound you set is the bound that runs. The number and the measurements that chose it are in src/lib/server/import/columnBounds.ts.`
 		);
 	}
