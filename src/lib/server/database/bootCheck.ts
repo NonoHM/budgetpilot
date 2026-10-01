@@ -29,6 +29,14 @@ export function assertDatabaseConfigured(source: NodeJS.ProcessEnv = process.env
 				"your server's connection URL and set DATABASE_PROVIDER to match it."
 		);
 	}
-	const provider = resolveDatabaseProvider(source as DatabaseEnv);
-	assertDatabaseUrlMatchesProvider(provider, databaseUrl);
+	// provider.ts stays free of imports so the image can copy it alone into a stage with no
+	// application source, so its two refusals are plain Errors. They are the only things it throws,
+	// both written for the operator from configuration alone, and they are marked here for the boot
+	// report, which keeps a message only from an OperatorFacingError (#816).
+	try {
+		const provider = resolveDatabaseProvider(source as DatabaseEnv);
+		assertDatabaseUrlMatchesProvider(provider, databaseUrl);
+	} catch (caught) {
+		throw caught instanceof Error ? new OperatorFacingError(caught.message) : caught;
+	}
 }

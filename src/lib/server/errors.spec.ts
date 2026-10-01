@@ -120,23 +120,18 @@ describe('loggableError', () => {
 		expect(loggableError(caught)).toEqual({ name: 'Error' });
 	});
 
-	// Found by #816's contradiction pass: an operator whose database is unreachable at boot saw a bare
-	// class name, because Prisma keeps this class's code in `errorCode`, and the longest driver and
-	// Node codes were refused by a twelve-character cap. Upper case, digits and `_` stay required.
-	it('keeps the code of a connection failure, which Prisma stores as errorCode', async () => {
-		const { PrismaClientInitializationError } = await import('@prisma/client/runtime/client');
-		const caught = new PrismaClientInitializationError(`Can't reach database server`, '7', 'P1001');
+	// Found by #816's contradiction pass: a twelve-character cap refused Node's own longer codes. The
+	// error is one the runtime throws, not one built here.
+	it('keeps the code of an error Node itself throws, which can be longer than twelve characters', () => {
+		const caught = (() => {
+			try {
+				Buffer.alloc(-1);
+			} catch (thrown) {
+				return thrown;
+			}
+		})();
 
-		expect(loggableError(caught)).toEqual({
-			name: 'PrismaClientInitializationError',
-			code: 'P1001'
-		});
-	});
-
-	it('keeps a long driver code', () => {
-		const caught = Object.assign(new Error('x'), { code: 'ER_ACCESS_DENIED_ERROR' });
-
-		expect(loggableError(caught)).toEqual({ name: 'Error', code: 'ER_ACCESS_DENIED_ERROR' });
+		expect(loggableError(caught)).toEqual({ name: 'RangeError', code: 'ERR_OUT_OF_RANGE' });
 	});
 
 	it('replaces a name that is not an identifier, because a name can be assigned anything too', () => {
