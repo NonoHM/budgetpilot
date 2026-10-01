@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { productionSourceFiles } from './sourceScan';
@@ -15,25 +16,40 @@ import { productionSourceFiles } from './sourceScan';
  *
  * The population is `.ts` and `.svelte` under `src/` (`productionSourceFiles`); a `.js` file there
  * is not read. Specs are excluded, since they set the parameter to drive the routes.
- * Comment lines are excluded because they cannot read anything, and one of them quotes a measured
- * response that carries the name (`src/routes/transactions/split-save-failure.ts`).
+ *
+ * NO comment exemption. Two versions classified comment lines with a regex, and each was evaded by
+ * a reader written on a line that also carries a comment (after `/* x *\/`, then after ` * x *\/`).
+ * Every line naming the parameter outside `auth.ts` fails, except ONE, matched by the hash of its
+ * whole text, so code added to it is not exempt and a change to it fails the second test below.
  */
 
 const PARAMETER = /\bredirectTo\b/;
 const CORPUS_IMPORT = /redirectBypasses/;
-/**
- * A line that is comment and nothing else: a `//` line, a block-comment continuation, or a `/*`
- * whose block either stays open or closes with nothing after it. A line that opens with a closed
- * block comment and then carries code is code: the first version skipped every line starting with
- * `/*`, and a reader planted behind `/* x *\/` passed the gate.
- */
-const COMMENT_LINE = /^\s*(?:\/\/|\*(?!\/)|\/\*(?:(?!\*\/).)*(?:\*\/\s*)?$)/;
 
-/** Whether `path` names the parameter on a line that is code rather than comment. */
-function namesParameterInCode(path: string): boolean {
-	return readFileSync(path, 'utf8')
-		.split('\n')
-		.some((line) => PARAMETER.test(line) && !COMMENT_LINE.test(line));
+/** The single exempt line: a comment quoting a measured response that carries the parameter. */
+const EXEMPT = {
+	path: 'src/routes/transactions/split-save-failure.ts',
+	sha256: '440fa61ecad6ca98d29652164745bd66a5368ae5637a52491dff3a19a4542b40'
+};
+
+function sha256(text: string): string {
+	return createHash('sha256').update(text).digest('hex');
+}
+
+/** Every `path:line` naming the parameter, outside `auth.ts`, other than the exempt line. */
+function namingOutsideAuth(paths: readonly string[]): string[] {
+	return paths
+		.filter((path) => path !== 'src/lib/server/auth.ts')
+		.flatMap((path) =>
+			readFileSync(path, 'utf8')
+				.split('\n')
+				.flatMap((line, index) =>
+					PARAMETER.test(line) && !(path === EXEMPT.path && sha256(line) === EXEMPT.sha256)
+						? [`${path}:${index + 1}`]
+						: []
+				)
+		)
+		.sort();
 }
 
 const files = productionSourceFiles();
@@ -44,9 +60,15 @@ describe('the sign-in redirect parameter', () => {
 		expect(files.length).toBeGreaterThan(300);
 	});
 
-	it('is named in auth.ts and in no other production file', () => {
-		const naming = files.filter(namesParameterInCode).sort();
-		expect(naming).toEqual(['src/lib/server/auth.ts']);
+	it('is named in auth.ts and on no other production line but the exempt one', () => {
+		expect(files).toContain('src/lib/server/auth.ts');
+		expect(PARAMETER.test(readFileSync('src/lib/server/auth.ts', 'utf8'))).toBe(true);
+		expect(namingOutsideAuth(files)).toEqual([]);
+	});
+
+	it('still finds the exempt line unchanged, so the exemption cannot outlive its reason', () => {
+		const lines = readFileSync(EXEMPT.path, 'utf8').split('\n');
+		expect(lines.filter((line) => sha256(line) === EXEMPT.sha256)).toHaveLength(1);
 	});
 
 	it('takes its test corpus from a file no production code imports', () => {
