@@ -22,6 +22,13 @@
 
 			<h1 class="mt-8 text-xl font-semibold tracking-normal">{title}</h1>
 			<p class="mt-2 text-sm text-zinc-500">{description}</p>
+			<!-- The id handleError logged beside this failure (#816): the one thing a visitor can quote
+			     that lets the operator find the line. Not on a 404, where there is nothing to report. -->
+			{#if !isNotFound && page.error?.errorId}
+				<p class="mt-3 text-xs break-all text-zinc-500">
+					{m.error_reference({ id: page.error.errorId })}
+				</p>
+			{/if}
 
 			<div class="mt-6 flex justify-center gap-3">
 				{#if !isNotFound}

@@ -85,6 +85,7 @@
 	"error_not_found_description": "The requested address does not exist or no longer exists.",
 	"error_generic_description": "Something went wrong on our side. Try again in a moment.",
 	"error_retry": "Retry",
+	"error_reference": "Error reference: {id}",
 	"error_back_to_dashboard": "Back to dashboard",
 	"admin_page_title": "Admin panel - BudgetPilot",
 	"admin_heading": "Admin panel",

@@ -552,3 +552,46 @@ describe('escapeHtmlAttribute', () => {
 		expect(escapeHtmlAttribute('https://a"b')).toBe('https://a&quot;b');
 	});
 });
+
+/**
+ * #816, the request path. Without this hook SvelteKit's default printer wrote `error.stack` for
+ * every unexpected error, message first: measured on the built server against PostgreSQL, a
+ * category name carrying a marker, refused by the database, reached the captured log through
+ * Prisma's message. The page itself never showed it, so what the visitor receives is not what
+ * this covers; what the operator's log receives is.
+ */
+describe('handleError', () => {
+	const MARKER = 'L0MRK7c41q';
+
+	it('logs status, method, path, an error id and the class and code, and returns the id', async () => {
+		const { handleError } = await import('./hooks.server');
+		const { PrismaClientKnownRequestError } = await import('@prisma/client/runtime/client');
+		const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+		const caught = new PrismaClientKnownRequestError(`refused row Food ${MARKER}`, {
+			code: 'P2003',
+			clientVersion: '7'
+		});
+
+		const returned = await handleError({
+			error: caught,
+			event: {
+				...buildEvent('/categories', undefined),
+				request: new Request('http://localhost/categories', { method: 'POST' })
+			} as never,
+			status: 500,
+			message: 'Internal Error'
+		});
+
+		expect(returned).toEqual({
+			message: 'Internal Error',
+			errorId: expect.stringMatching(/^[0-9a-f-]{36}$/)
+		});
+		const errorId = (returned as { errorId: string }).errorId;
+		// The whole line, compared as a sentence: a fragment assertion would pass over the message
+		// riding along after the code.
+		expect(logged.mock.calls).toEqual([
+			[`[500] POST /categories errorId=${errorId} PrismaClientKnownRequestError(P2003)`]
+		]);
+		logged.mockRestore();
+	});
+});
