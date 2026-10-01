@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { createPrismaClient } from './client.ts';
 import { resolveDatabaseProvider, type DatabaseEnv } from './provider.ts';
+import { OperatorFacingError } from '../operatorFacingError.ts';
 
 /**
  * Serializes the boot-time backfills across application instances.
@@ -273,7 +274,7 @@ export function mysqlLockName(database: string, name: string): string {
 }
 
 function lockTimeout(name: string, waitSeconds: number): Error {
-	return new Error(
+	return new OperatorFacingError(
 		`Timed out after ${waitSeconds}s waiting for the "${name}" startup lock. ` +
 			'Another BudgetPilot instance on this database is most likely still running the ' +
 			'one-time backfill. This instance is stopping rather than writing alongside it; it ' +

@@ -7,6 +7,7 @@ import {
 	type ColumnMappingInput,
 	type ColumnMappingRefusal
 } from './model';
+import { OperatorFacingError } from '$lib/server/operatorFacingError';
 
 /**
  * The most column mappings one user may hold.
@@ -54,7 +55,7 @@ export function resolveColumnMappingsPerUser(): number {
 	});
 
 	if (cap > COLUMN_MAPPINGS_PER_USER_CEILING) {
-		throw new Error(
+		throw new OperatorFacingError(
 			`${COLUMN_MAPPINGS_PER_USER_ENV}=${cap} is above the hard ceiling of ${COLUMN_MAPPINGS_PER_USER_CEILING}. It bounds how many column mappings one user may hold, and nothing removes one automatically. The value is refused rather than clamped so that a bound you set is the bound that runs.`
 		);
 	}

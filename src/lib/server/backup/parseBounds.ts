@@ -1,4 +1,5 @@
 import { readOperatorBound } from '$lib/server/env/operatorBound';
+import { OperatorFacingError } from '$lib/server/operatorFacingError';
 
 /**
  * The structural bound on a restored backup, before `JSON.parse` runs: the fix for #276.
@@ -117,7 +118,7 @@ export function resolveBackupMaxJsonNodes(): number {
 	});
 
 	if (nodes > BACKUP_MAX_JSON_NODES_CEILING) {
-		throw new Error(
+		throw new OperatorFacingError(
 			`${BACKUP_MAX_JSON_NODES_ENV}=${nodes} is above the hard ceiling of ${BACKUP_MAX_JSON_NODES_CEILING}. This is a denial-of-service limit (#276): a backup carrying ${BACKUP_MAX_JSON_NODES_CEILING} values already costs about 214 MB of memory to parse, and the cost is paid before any validation runs. The value is refused rather than clamped so that a bound you set is the bound that runs. The number and the measurements that chose it are in src/lib/server/backup/parseBounds.ts.`
 		);
 	}

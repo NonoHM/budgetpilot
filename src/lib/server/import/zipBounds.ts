@@ -1,5 +1,6 @@
 import { inflateRawSync } from 'node:zlib';
 import { readOperatorBound } from '$lib/server/env/operatorBound';
+import { OperatorFacingError } from '$lib/server/operatorFacingError';
 
 /**
  * The uncompressed-size bound for `.xlsx` uploads: ASVS 5.0 `v5.0.0-5.2.3`, and the fix for #254.
@@ -145,7 +146,7 @@ export function resolveXlsxMaxUncompressedBytes(): number {
 	});
 
 	if (megabytes > XLSX_MAX_UNCOMPRESSED_CEILING_MB) {
-		throw new Error(
+		throw new OperatorFacingError(
 			`${XLSX_MAX_UNCOMPRESSED_ENV}=${megabytes} is above the hard ceiling of ${XLSX_MAX_UNCOMPRESSED_CEILING_MB}. This is a denial-of-service limit (#254): an .xlsx expanding to ${XLSX_MAX_UNCOMPRESSED_CEILING_MB} MB takes about a second to parse and holds the thread while it does, so raising it further lets one upload stall every other request for longer. The value is refused rather than clamped so that a bound you set is the bound that runs. The number and the measurements that chose it are in src/lib/server/import/zipBounds.ts.`
 		);
 	}

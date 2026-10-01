@@ -46,17 +46,21 @@ import { expect, test } from './fixtures';
  * For the ABSENCE of internals in an error body, an empty search is the failure mode, and it can
  * be empty for two entirely different reasons. So both are closed separately:
  *
- *  1. THE FAILURE WAS GENUINE AND INTERNAL. Every token in `INTERNAL_TOKENS` is asserted PRESENT
- *     in the server's own stderr. Without this, "no stack in the body" is equally consistent with
- *     "nothing went wrong", and a probe that quietly stopped causing a 500 would report the
- *     strongest possible result.
+ *  1. THE FAILURE WAS GENUINE AND INTERNAL. Each body carries an error id, and the server's own
+ *     stderr records that same id beside the error's class, `PrismaClientKnownRequestError`.
+ *     Without this, "no stack in the body" is equally consistent with "nothing went wrong", and a
+ *     probe that quietly stopped causing a 500 would report the strongest possible result.
+ *     Until #816 this read every token in `INTERNAL_TOKENS` on stderr, which SvelteKit's default
+ *     printer wrote there. That printer was the leak #816 closed: the application's `handleError`
+ *     now writes the class and code only, so the other five tokens exist nowhere outside the
+ *     process, and `e2e/error-printer.spec.ts` asserts the log side of that.
  *  2. THE BODY IS A HAYSTACK THE SEARCH CAN READ. The generic message is asserted PRESENT in each
  *     body before anything is asserted absent from it. Without this, searching an empty string, a
  *     failed request or an undefined variable all return the same clean answer.
  *
- * Those two are the whole design: the same six tokens are proven present on one side of the
- * boundary and proven absent on the other, in the same run, by the same search. That is what makes
- * the absence mean "suppressed" rather than "never happened".
+ * Those two are the whole design: a failure proven to have happened inside the process, under an
+ * id the log and the body share, and a body proven readable, in the same run. That is what makes
+ * the absence of the tokens mean "suppressed" rather than "never happened".
  *
  * For the ABSENCE of an endpoint, the failure mode is that everything 404s because nothing is
  * being reached at all. So `/login` and `/robots.txt` ride INSIDE the same status map as the
@@ -93,6 +97,12 @@ import { expect, test } from './fixtures';
  *    test this break is all green, which is a check that has stopped checking and says so nowhere.
  *  - `directory lists`, `TRACE echoes`, `runtime NODE_ENV dropped`, `dev-only token renamed
  *    upstream`, `nothing is reached at all`: one red each, on their own test, nowhere else.
+ *
+ * That matrix was read before #816, when the application exported no `handleError`. It now does,
+ * and it writes the error id and class on every failure, so a `handleError` that returned the stack
+ * would leave calibration 1 GREEN and be caught by the two leak tests alone. Five of the six
+ * `INTERNAL_TOKENS` are no longer shown to exist anywhere in a run (only the class is logged), so
+ * their absence from a body rests on the searcher's own test below, which plants each one.
  */
 
 const PORT = 4177;
@@ -103,10 +113,10 @@ const DATABASE_URL = 'file:./e2e/.data/errshape/errshape.sqlite';
 /**
  * Values this instance is configured with, held so the error bodies can be searched for them.
  *
- * `v5.0.0-16.5.1` names "secret keys, and tokens" alongside stack traces and queries. Unlike the
- * six tokens below, these are NOT proven present on stderr, because nothing logs them and that is
- * the point of check 3. They are carried by the same search whose ability to read the body is
- * proven by calibration 2, which is the honest statement of what covers them.
+ * `v5.0.0-16.5.1` names "secret keys, and tokens" alongside stack traces and queries. Like five of
+ * the six tokens below since #816, these are NOT proven present anywhere in a run, because nothing
+ * logs them and that is the point of check 3. They are carried by the same search whose ability to
+ * read the body is proven by calibration 2, which is the honest statement of what covers them.
  */
 const CONFIGURED_SECRETS = {
 	bootstrapToken: 'bp-errshape-bootstrap-4a17c9',
@@ -133,8 +143,9 @@ const SERVER_ENV = {
  * Internal system data that the failure genuinely produces, one entry per class named by
  * `v5.0.0-16.5.1`.
  *
- * Every one of these is asserted PRESENT in the server's stderr and ABSENT from both response
- * bodies. Chosen to be stable across ordinary refactoring: a schema model name, an ORM call
+ * Every one of these is asserted ABSENT from both response bodies. Until #816 each was also
+ * asserted PRESENT in the server's stderr, where SvelteKit's default printer wrote it; only
+ * `errorClass` is still logged, and calibration 1 reads it there. Chosen to be stable across ordinary refactoring: a schema model name, an ORM call
  * prefix, an error class, a dependency path, the bundle layout and a stack-frame marker. An
  * internal FUNCTION name was in the first draft and taken out, because it would be renamed by
  * unrelated work and the resulting red would say nothing about the boundary.
@@ -323,27 +334,27 @@ async function waitForServer(timeoutMs = 30_000): Promise<void> {
 }
 
 test.describe('v5.0.0-16.5.1, v5.0.0-13.4.2: an unexpected error discloses nothing', () => {
-	test('calibration: the failure was genuine, and every internal token IS on the server side', () => {
+	test('calibration: the failure was genuine, and the log recorded it under the id each body carries', () => {
 		// The half that makes every absence below mean something. If this is red, the bodies are
 		// clean because nothing broke, which is the strongest-looking result this file can produce
 		// and the only worthless one.
 		expect(renderedErrorPage.status).toBe(500);
 		expect(actionErrorResult.status).toBe(500);
 
-		const missing = Object.entries(INTERNAL_TOKENS)
-			.filter(([, token]) => !errorPhaseStderr.includes(token))
-			.map(([name]) => name);
-
+		const ids = [actionErrorResult.body, renderedErrorPage.body].map(
+			(body) => /errorId"?:"([0-9a-f-]{36})"/.exec(body)?.[1] ?? 'absent'
+		);
 		expect(
-			missing,
-			`internal detail the server never produced, so its absence from the body proves nothing: ${missing.join(', ')}`
-		).toEqual([]);
+			ids.map((id) => errorPhaseStderr.includes(`errorId=${id} ${INTERNAL_TOKENS.errorClass}(`))
+		).toEqual([true, true]);
 	});
 
 	test('calibration: each error body is a haystack the search can actually read', () => {
 		// Searching an empty string for a stack trace succeeds every time. Both bodies must be
 		// readable and must contain the one string they are supposed to contain.
-		expect(actionErrorResult.body).toBe('{"type":"error","error":{"message":"Internal Error"}}');
+		expect(actionErrorResult.body).toMatch(
+			/^\{"type":"error","error":\{"message":"Internal Error","errorId":"[0-9a-f-]{36}"\}\}$/
+		);
 		expect(renderedErrorPage.contentType).toContain('text/html');
 		expect(renderedErrorPage.body.length).toBeGreaterThan(500);
 		expect(renderedErrorPage.body).toContain('Internal Error');

@@ -4,6 +4,7 @@ import type { PrismaClient } from '../database/types.ts';
 // can be run and inspected outside the app.
 import { LONG_TRANSACTION_OPTIONS } from '../dbTransaction.ts';
 import { computeNameKey } from '../naming/nameKey.ts';
+import { OperatorFacingError } from '../operatorFacingError.ts';
 
 /**
  * The metadata migration that turns import buckets into named accounts.
@@ -174,7 +175,7 @@ export async function runStatementAccountBackfill(
 			where: { ...accountsPendingWhere(), id: { in: accounts.map((account) => account.id) } }
 		});
 		if (stillPending > 0) {
-			throw new Error(
+			throw new OperatorFacingError(
 				`[statement-accounts] backfill stalled: ${stillPending} account(s) could not be named`
 			);
 		}
@@ -206,7 +207,7 @@ export async function runStatementAccountBackfill(
 			where: { ...batchesPendingWhere(), id: { in: batches.map((batch) => batch.id) } }
 		});
 		if (stillPending > 0) {
-			throw new Error(
+			throw new OperatorFacingError(
 				`[statement-accounts] backfill stalled: ${stillPending} batch(es) could not be filed`
 			);
 		}

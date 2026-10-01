@@ -4,6 +4,7 @@ import type { PrismaClient } from '../database/types.ts';
 // outside the app.
 import { LONG_TRANSACTION_OPTIONS } from '../dbTransaction.ts';
 import { computeDedupeKeyHash } from './dedupeKey.ts';
+import { OperatorFacingError } from '../operatorFacingError.ts';
 
 /**
  * Fills `Transaction.dedupeKeyHash` on rows imported before the column existed.
@@ -105,7 +106,7 @@ export async function runDedupeKeyHashBackfill(
 				}
 			});
 			if (stillPending > 0) {
-				throw new Error(
+				throw new OperatorFacingError(
 					`[dedupe-keys] backfill stalled: ${stillPending} row(s) still missing a hash could not be written`
 				);
 			}

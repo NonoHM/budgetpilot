@@ -2,7 +2,11 @@
 // for information about these interfaces
 declare global {
 	namespace App {
-		// interface Error {}
+		interface Error {
+			message: string;
+			/** Set by `handleError` for an unexpected error, and logged beside it (#816). */
+			errorId?: string;
+		}
 		interface Locals {
 			user: import('$lib/server/auth').AuthUser | null;
 		}

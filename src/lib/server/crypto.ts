@@ -1,5 +1,6 @@
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 import { env } from '$env/dynamic/private';
+import { OperatorFacingError } from '$lib/server/operatorFacingError';
 
 /**
  * App-wide symmetric encryption for secrets at rest (TOTP secret, bank connection
@@ -44,7 +45,7 @@ function encryptionKey(): Buffer {
 export function assertEncryptionKeyConfigured(source: NodeJS.ProcessEnv = env): void {
 	const raw = source.TOTP_ENCRYPTION_KEY?.trim();
 	if (!raw) {
-		throw new Error(
+		throw new OperatorFacingError(
 			'TOTP_ENCRYPTION_KEY is required: it encrypts the two-factor secrets and the bank ' +
 				'credentials held in the database, so nothing that reads them can start without it. Set ' +
 				'it to 64 hex characters (generate one with `openssl rand -hex 32`, NOT -base64). Keep ' +
@@ -52,7 +53,7 @@ export function assertEncryptionKeyConfigured(source: NodeJS.ProcessEnv = env): 
 		);
 	}
 	if (!/^[0-9a-fA-F]{64}$/.test(raw)) {
-		throw new Error(
+		throw new OperatorFacingError(
 			`TOTP_ENCRYPTION_KEY must be exactly 64 hex characters, the 32 bytes AES-256 takes ` +
 				`(received ${raw.length}). A base64 value of the right byte length is 44 characters and ` +
 				'is refused here. Generate one with `openssl rand -hex 32`.'

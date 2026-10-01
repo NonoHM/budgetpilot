@@ -85,6 +85,7 @@
 	"error_not_found_description": "L'adresse demandée n'existe pas ou plus.",
 	"error_generic_description": "Quelque chose s'est mal passé de notre côté. Réessayez dans un instant.",
 	"error_retry": "Réessayer",
+	"error_reference": "Référence de l'erreur : {id}",
 	"error_back_to_dashboard": "Retour au tableau de bord",
 	"admin_page_title": "Panel admin - BudgetPilot",
 	"admin_heading": "Panel admin",

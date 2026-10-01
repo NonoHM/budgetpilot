@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { mysqlLockName, postgresLockKeys, withBootBackfillLock } from './advisoryLock';
+import { OperatorFacingError } from '../operatorFacingError.ts';
 
 /**
  * A stand-in for the dedicated Prisma client the lock builds.
@@ -100,6 +101,15 @@ describe('withBootBackfillLock', () => {
 				...fast
 			})
 		).rejects.toThrow(/startup lock/);
+		// The message is the operator's only explanation of why the instance stopped, so it must be one
+		// the log is allowed to print in full (#816), which only this class is.
+		await expect(
+			withBootBackfillLock('name-keys', work, {
+				env: { DATABASE_PROVIDER: 'postgresql', DATABASE_URL: 'postgresql://u:p@h:5432/b' },
+				createClient: () => fakeClient([[{ locked: false }]]).client as never,
+				...fast
+			})
+		).rejects.toBeInstanceOf(OperatorFacingError);
 
 		// The whole point: a backfill that cannot be serialized must not run at all.
 		expect(work).not.toHaveBeenCalled();

@@ -1,4 +1,5 @@
-import { redirect, type Handle, type ServerInit } from '@sveltejs/kit';
+import { redirect, type Handle, type HandleServerError, type ServerInit } from '@sveltejs/kit';
+import { building, dev } from '$app/environment';
 import { sequence } from '@sveltejs/kit/hooks';
 import { paraglideMiddleware } from '$lib/paraglide/server';
 import {
@@ -20,6 +21,13 @@ import { ensureStatementAccountsBackfilled } from '$lib/server/import/accountBoo
 import { ensureNoContestedNetWorthLinks } from '$lib/server/net-worth/contestedBoot';
 import { reportDatesOutsideStorableRange } from '$lib/server/database/storableDatesBoot';
 import { parseTrustedProxies } from '$lib/server/net/clientAddress';
+import { describeErrorForLog } from '$lib/server/errors';
+import { installLastResortErrorHandlers } from '$lib/server/lastResortErrors';
+
+// Before `init` can fail, which is the boot half of #816: Node's own printer would otherwise write a
+// failing backfill's nested database message, which can quote a user's transaction. Not in dev, whose
+// Vite process owns its handlers, and not during the build's analysis pass, which is not a server.
+if (!dev && !building) installLastResortErrorHandlers();
 
 // One gate, one throw, every problem — see server/env/assertConfigured.ts for why this replaced
 // nine fail-fast checks and two module-load throws. It has to live in `init` rather than at module
@@ -215,6 +223,23 @@ export const handleSecurityHeaders: Handle = async ({ event, resolve }) => {
 		response.headers.set('Strict-Transport-Security', 'max-age=15552000; includeSubDomains');
 	}
 	return response;
+};
+
+/**
+ * The request half of #816: SvelteKit's default printed `error.stack`, message first, and a database
+ * message can quote the row it refused. The first line keeps the default's status, method and path,
+ * which `e2e/log-secret-scan.spec.ts` reads back as its calibration; the error itself is reduced to
+ * its class and code by the one rule in server/errors.ts.
+ *
+ * The error id is the only thing joining the page a visitor reports to the line an operator finds.
+ * The message returned is SvelteKit's own generic one, never the error's (`v5.0.0-16.5.1`).
+ */
+export const handleError: HandleServerError = ({ error, event, status, message }) => {
+	const errorId = crypto.randomUUID();
+	console.error(
+		`[${status}] ${event.request.method} ${event.url.pathname} errorId=${errorId} ${describeErrorForLog(error)}`
+	);
+	return { message, errorId };
 };
 
 export const handle: Handle = sequence(handleParaglide, handleAuth, handleSecurityHeaders);

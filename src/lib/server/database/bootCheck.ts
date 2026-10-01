@@ -3,6 +3,7 @@ import {
 	resolveDatabaseProvider,
 	type DatabaseEnv
 } from './provider';
+import { OperatorFacingError } from '$lib/server/operatorFacingError';
 
 /**
  * One name for the three database checks the boot collector has to run.
@@ -20,7 +21,7 @@ import {
 export function assertDatabaseConfigured(source: NodeJS.ProcessEnv = process.env): void {
 	const databaseUrl = source.DATABASE_URL?.trim();
 	if (!databaseUrl && source.NODE_ENV === 'production') {
-		throw new Error(
+		throw new OperatorFacingError(
 			'DATABASE_URL is required in production: without it the app would silently open a fresh, ' +
 				'empty SQLite file instead of your data. In the shipped container it is ' +
 				'`file:/data/budgetpilot.db`, which is on the mounted volume — a path outside /data is on the ' +
@@ -28,6 +29,14 @@ export function assertDatabaseConfigured(source: NodeJS.ProcessEnv = process.env
 				"your server's connection URL and set DATABASE_PROVIDER to match it."
 		);
 	}
-	const provider = resolveDatabaseProvider(source as DatabaseEnv);
-	assertDatabaseUrlMatchesProvider(provider, databaseUrl);
+	// provider.ts stays free of imports so the image can copy it alone into a stage with no
+	// application source, so its two refusals are plain Errors. They are the only things it throws,
+	// both written for the operator from configuration alone, and they are marked here for the boot
+	// report, which keeps a message only from an OperatorFacingError (#816).
+	try {
+		const provider = resolveDatabaseProvider(source as DatabaseEnv);
+		assertDatabaseUrlMatchesProvider(provider, databaseUrl);
+	} catch (caught) {
+		throw caught instanceof Error ? new OperatorFacingError(caught.message) : caught;
+	}
 }
