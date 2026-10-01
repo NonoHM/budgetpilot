@@ -19,6 +19,7 @@ const DEL = String.fromCharCode(0x7f);
 const NBSP = String.fromCharCode(0xa0);
 const LINE_SEPARATOR = String.fromCharCode(0x2028);
 const FULLWIDTH_SOLIDUS = String.fromCharCode(0xff0f);
+const E_ACUTE = String.fromCharCode(0xe9);
 
 /** The host every bypass points at. A reserved name, so a leaked request resolves nowhere. */
 export const BYPASS_HOST = 'evil.test';
@@ -61,6 +62,7 @@ export const REDIRECT_BYPASSES: readonly RedirectBypass[] = [
 	{ name: 'a DEL in the path', value: `/${DEL}/${BYPASS_HOST}/` },
 	{ name: 'a line separator in the path', value: `/${LINE_SEPARATOR}/${BYPASS_HOST}/` },
 	{ name: 'a fullwidth solidus', value: `/${FULLWIDTH_SOLIDUS}${BYPASS_HOST}/` },
+	{ name: 'a Latin-1 letter after the slash', value: `/caf${E_ACUTE}` },
 	{ name: 'a space inside the path', value: `/ /${BYPASS_HOST}/` },
 	{ name: 'a lone percent sign', value: '/%' },
 	{ name: 'a percent escape that is not hexadecimal', value: '/%zz' },

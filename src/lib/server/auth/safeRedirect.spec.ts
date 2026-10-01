@@ -15,8 +15,9 @@ import { BYPASS_HOST, REDIRECT_BYPASSES, REDIRECT_KEPT } from './redirectBypasse
  *   the value can be a `Location` header at all, or answers a 500 instead).
  *
  * What the property cannot see: a refusal of a value that would stay on the origin and land where
- * it says. Clause 4 (encoded separators) and the space in clause 1 are policy rather than escapes,
- * so only their named corpus entries guard them; a break of either leaves the property green.
+ * it says. Clause 4 (encoded separators), and clause 1's refusal of a space, DEL or a non-ASCII
+ * character, are policy rather than escapes, so only their named corpus entries guard them; a
+ * break of any of them leaves the property green.
  */
 
 const APP_ORIGIN = 'http://app.example.test';
