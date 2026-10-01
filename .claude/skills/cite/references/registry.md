@@ -51,6 +51,7 @@ The list is tracked; the copies are not. Which of these bind the project, and ho
 - CWE-212: https://cwe.mitre.org/data/definitions/212.html
 - CWE-359: https://cwe.mitre.org/data/definitions/359.html
 - CWE-532: https://cwe.mitre.org/data/definitions/532.html
+- CWE-601: https://cwe.mitre.org/data/definitions/601.html
 - CWE-538: https://cwe.mitre.org/data/definitions/538.html
 - CWE-540: https://cwe.mitre.org/data/definitions/540.html
 - CWE-615: https://cwe.mitre.org/data/definitions/615.html
