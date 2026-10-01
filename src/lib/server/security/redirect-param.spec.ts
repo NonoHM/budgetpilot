@@ -13,14 +13,21 @@ import { productionSourceFiles } from './sourceScan';
  * parameter. The behavioural half, `src/routes/login/sign-in-exits.spec.ts`, drives each exit with
  * the bypass corpus and is the check that does not depend on spelling.
  *
- * Specs are excluded by `productionSourceFiles`, since they set the parameter to drive the routes.
+ * The population is `.ts` and `.svelte` under `src/` (`productionSourceFiles`); a `.js` file there
+ * is not read. Specs are excluded, since they set the parameter to drive the routes.
  * Comment lines are excluded because they cannot read anything, and one of them quotes a measured
  * response that carries the name (`src/routes/transactions/split-save-failure.ts`).
  */
 
 const PARAMETER = /\bredirectTo\b/;
 const CORPUS_IMPORT = /redirectBypasses/;
-const COMMENT_LINE = /^\s*(?:\/\/|\/\*|\*)/;
+/**
+ * A line that is comment and nothing else: a `//` line, a block-comment continuation, or a `/*`
+ * whose block either stays open or closes with nothing after it. A line that opens with a closed
+ * block comment and then carries code is code: the first version skipped every line starting with
+ * `/*`, and a reader planted behind `/* x *\/` passed the gate.
+ */
+const COMMENT_LINE = /^\s*(?:\/\/|\*(?!\/)|\/\*(?:(?!\*\/).)*(?:\*\/\s*)?$)/;
 
 /** Whether `path` names the parameter on a line that is code rather than comment. */
 function namesParameterInCode(path: string): boolean {
