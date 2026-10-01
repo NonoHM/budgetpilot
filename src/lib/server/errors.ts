@@ -1,4 +1,7 @@
 import { isHttpError } from '@sveltejs/kit';
+import { OperatorFacingError } from './operatorFacingError.ts';
+
+export { OperatorFacingError };
 
 /**
  * The one rule for what a caught error is allowed to say to a user: **only errors the application
@@ -78,4 +81,48 @@ export function isTimeoutError(caught: unknown): boolean {
 	if (typeof caught !== 'object' || caught === null || !('name' in caught)) return false;
 	const { name } = caught as { name?: unknown };
 	return name === 'TimeoutError' || name === 'AbortError';
+}
+
+/**
+ * The other face of the rule at the top of this file: what a caught error may say to the
+ * OPERATOR's log rather than to a user (#816).
+ *
+ * **A class name and a short code, never a message and never a stack.** A database message can
+ * quote the row it refused, and the row is a user's transaction: measured on the built server, a
+ * label planted in a failing write reached the log through SvelteKit's default printer (the
+ * message) and through Node's (the nested `meta` it walks). The name and the code are what an
+ * operator looks up, `PrismaClientKnownRequestError(P2003)` or a SQLSTATE, and neither can carry a
+ * label once both are checked against a pattern, because both are assignable properties.
+ *
+ * **The one message that passes is one the application wrote for the operator**, marked by
+ * throwing `OperatorFacingError`. A closed allow list rather than a scrub: personal data has no
+ * pattern to redact (#755), so the only message known to carry none is one somebody authored.
+ *
+ * Structured rather than a string so that the logger planned for #250 maps the fields instead of
+ * parsing them back out; `describeErrorForLog` is the one-line form for the `console` sites that
+ * exist until then.
+ */
+export interface LoggableError {
+	name: string;
+	code?: string;
+	message?: string;
+}
+
+const LOGGABLE_NAME = /^[A-Za-z][A-Za-z0-9_]{0,63}$/;
+const LOGGABLE_CODE = /^[A-Z0-9_]{1,12}$/;
+
+export function loggableError(caught: unknown): LoggableError {
+	if (!(caught instanceof Error)) return { name: typeof caught };
+
+	const name = LOGGABLE_NAME.test(caught.name) ? caught.name : 'Error';
+	if (caught instanceof OperatorFacingError) return { name, message: caught.message };
+
+	const code = (caught as { code?: unknown }).code;
+	return typeof code === 'string' && LOGGABLE_CODE.test(code) ? { name, code } : { name };
+}
+
+export function describeErrorForLog(caught: unknown): string {
+	const { name, code, message } = loggableError(caught);
+	if (message !== undefined) return `${name}: ${message}`;
+	return code === undefined ? name : `${name}(${code})`;
 }

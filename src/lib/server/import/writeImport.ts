@@ -1,3 +1,4 @@
+import { describeErrorForLog } from '$lib/server/errors';
 import { DeclaredCurrencyMismatchError, type DeclaredCurrencyMismatch } from './declaredCurrency';
 import {
 	createImportBatchRow,
@@ -116,21 +117,15 @@ export async function writeImport(input: {
  * call, which on this path are a user's transactions, and AGENTS.md forbids logging banking data.
  * The name and a short code (`P2003`, a SQLSTATE) are what an operator looks up; neither can carry
  * a label or an amount.
+ * The rule itself is `describeErrorForLog` in server/errors.ts, shared with the error hook and the
+ * last-resort handler (#816); this was its first copy.
  */
 function logWriteFailure(caught: unknown, stage: 'batch' | 'rows' | 'cleanup'): void {
 	const failure = caught instanceof ImportWriteError ? caught.failure : null;
 	const cause = caught instanceof ImportWriteError ? caught.cause : caught;
 	console.error(
-		`[import] write step failed at ${stage}: ${describe(caught)}` +
+		`[import] write step failed at ${stage}: ${describeErrorForLog(caught)}` +
 			(failure?.kind === 'failed' ? ` landedRows=${failure.landedRows ?? 'unknown'}` : '') +
-			(cause !== caught ? ` cause=${describe(cause)}` : '')
+			(cause !== caught ? ` cause=${describeErrorForLog(cause)}` : '')
 	);
-}
-
-const SAFE_CODE = /^[A-Z0-9_]{1,12}$/;
-
-function describe(value: unknown): string {
-	if (!(value instanceof Error)) return typeof value;
-	const code = (value as { code?: unknown }).code;
-	return typeof code === 'string' && SAFE_CODE.test(code) ? `${value.name}(${code})` : value.name;
 }

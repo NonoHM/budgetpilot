@@ -6,6 +6,7 @@ import { LONG_TRANSACTION_OPTIONS } from '../dbTransaction.ts';
 import { computeNullableDedupeKeyHash } from './dedupeKey.ts';
 import { DEDUPE_KEY_PREFIX } from './dedupeKeyVersion.ts';
 import { assignDedupeKeys, type KeyableRow } from './dedupeRecompute.ts';
+import { OperatorFacingError } from '../operatorFacingError.ts';
 
 /**
  * Carries every stored deduplication key to the version this build writes.
@@ -263,7 +264,7 @@ export async function runDedupeKeyRecompute(
 			where: { ...pendingWhere(scope), id: { in: rows.map((row) => row.id) } }
 		});
 		if (stillPending > 0) {
-			throw new Error(
+			throw new OperatorFacingError(
 				`[dedupe-keys] recompute stalled: ${stillPending} row(s) still on an older key version could not be rewritten`
 			);
 		}

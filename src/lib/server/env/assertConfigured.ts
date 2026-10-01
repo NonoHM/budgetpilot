@@ -10,6 +10,7 @@ import { assertCsvColumnBoundConfigured } from '$lib/server/import/columnBounds'
 import { assertColumnMappingCapConfigured } from '$lib/server/import/mapping/store';
 import { assertXlsxBoundConfigured } from '$lib/server/import/zipBounds';
 import { assertForwardingConfigSafe } from '$lib/server/net/clientAddress';
+import { OperatorFacingError } from '$lib/server/operatorFacingError';
 
 type Check = [name: string, run: () => void | Promise<void>];
 
@@ -63,7 +64,7 @@ export async function assertEnvironmentConfigured(): Promise<void> {
 	const problems = await collectEnvironmentProblems(ENVIRONMENT_CHECKS);
 	if (problems.length === 0) return;
 
-	throw new Error(buildEnvironmentReport(problems));
+	throw new OperatorFacingError(buildEnvironmentReport(problems));
 }
 
 /**
