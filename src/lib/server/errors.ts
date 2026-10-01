@@ -109,7 +109,9 @@ export interface LoggableError {
 }
 
 const LOGGABLE_NAME = /^[A-Za-z][A-Za-z0-9_]{0,63}$/;
-const LOGGABLE_CODE = /^[A-Z0-9_]{1,12}$/;
+// Long enough for `ER_ACCESS_DENIED_ERROR` and Node's `ERR_*` codes; the characters, not the
+// length, are what keep a label out.
+const LOGGABLE_CODE = /^[A-Z0-9_]{1,40}$/;
 
 export function loggableError(caught: unknown): LoggableError {
 	if (!(caught instanceof Error)) return { name: typeof caught };
@@ -117,8 +119,12 @@ export function loggableError(caught: unknown): LoggableError {
 	const name = LOGGABLE_NAME.test(caught.name) ? caught.name : 'Error';
 	if (caught instanceof OperatorFacingError) return { name, message: caught.message };
 
-	const code = (caught as { code?: unknown }).code;
-	return typeof code === 'string' && LOGGABLE_CODE.test(code) ? { name, code } : { name };
+	// `PrismaClientInitializationError` keeps its code (`P1001`, unreachable) in `errorCode`.
+	const { code, errorCode } = caught as { code?: unknown; errorCode?: unknown };
+	const candidate = code ?? errorCode;
+	return typeof candidate === 'string' && LOGGABLE_CODE.test(candidate)
+		? { name, code: candidate }
+		: { name };
 }
 
 export function describeErrorForLog(caught: unknown): string {

@@ -9,7 +9,9 @@ export interface ProcessLike {
 }
 
 /**
- * The printer of last resort, replacing Node's own (#816).
+ * The printer of last resort, replacing Node's own once `hooks.server.ts` has loaded (#816). An
+ * error thrown while modules are still being evaluated, before that, still reaches Node's printer;
+ * what runs then is configuration parsing (`db.ts`, `database/client.ts`), and no query.
  *
  * Node's default writes an uncaught error with `util.inspect`, which walks every nested property:
  * measured on the built server, a failing boot recompute put a user's transaction label in the log
@@ -19,8 +21,8 @@ export interface ProcessLike {
  * ordinary unhandled rejection arrives at the second listener.
  *
  * Exits 1, as Node's default does for both, so a container restart policy sees the same failure it
- * always did. Writes to stderr directly rather than through `console`, which is synchronous for a
- * file or a pipe on Linux and so is written before the exit.
+ * always did. Writes with `process.stderr.write`, which is synchronous for a file or a pipe on
+ * Linux, so the line is out before the exit.
  */
 export function installLastResortErrorHandlers(proc: ProcessLike = process): void {
 	const report = (caught: unknown, origin: string) => {
