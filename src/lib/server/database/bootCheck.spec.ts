@@ -1,5 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { assertDatabaseConfigured } from './bootCheck';
+
+// The collector imports every check's module, and several reach the Prisma client. Nothing here
+// queries, so the client is replaced, as in assertConfigured.spec.ts: constructing it made the
+// import slow enough to time out under the full suite.
+vi.mock('$lib/server/db', () => ({ prisma: {} }));
+const { collectEnvironmentProblems } = await import('$lib/server/env/assertConfigured');
 
 describe('assertDatabaseConfigured', () => {
 	it('refuses a missing DATABASE_URL in production and names the value to set', () => {
@@ -64,7 +70,6 @@ describe('assertDatabaseConfigured, as the boot report receives it', () => {
 			/^DATABASE_URL uses the "file" scheme, which does not match/
 		]
 	])('keeps the refusal for %s', async (_, source, expected) => {
-		const { collectEnvironmentProblems } = await import('$lib/server/env/assertConfigured');
 		const [problem] = await collectEnvironmentProblems([
 			['DATABASE_URL / DATABASE_PROVIDER', () => assertDatabaseConfigured(source)]
 		]);
