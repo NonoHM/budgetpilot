@@ -64,6 +64,8 @@ const PIECES = [
 	'%5c',
 	'%2e',
 	'%2e%2e',
+	'%',
+	'%E9',
 	String.fromCharCode(9),
 	String.fromCharCode(10),
 	String.fromCharCode(13),
@@ -86,7 +88,8 @@ const candidate = fc.oneof(
 	fc.string({ unit: 'binary', maxLength: 24 })
 );
 
-type EscapeKind = 'rewritten' | 'unparseable' | 'off-origin' | 'empty-authority' | 'not-a-header';
+type EscapeKind =
+	'rewritten' | 'unparseable' | 'off-origin' | 'empty-authority' | 'not-a-header' | 'undecodable';
 
 interface Escape {
 	readonly kind: EscapeKind;
@@ -118,6 +121,14 @@ function judge(input: string, output: string): Omit<Escape, 'input' | 'output'> 
 		if (!isRedirect(thrown)) {
 			return { kind: 'not-a-header', why: 'SvelteKit refuses it as a Location header' };
 		}
+	}
+	// SvelteKit answers 400 to a request path `decodeURI` cannot decode. This calls the same
+	// primitive the rule's clause 5 calls, so it is not independent of it: the e2e journey, which
+	// reads the built server's answer, is the check that is.
+	try {
+		decodeURI(landed.pathname);
+	} catch {
+		return { kind: 'undecodable', why: `SvelteKit answers 400 to the path ${landed.pathname}` };
 	}
 	return null;
 }
@@ -167,6 +178,7 @@ describe('CALIBRATION: each clause of the judge finds its own kind of escape', (
 		['unparseable', publishedGetSafeRedirect],
 		['empty-authority', publishedGetSafeRedirect],
 		['not-a-header', publishedGetSafeRedirect],
+		['undecodable', publishedGetSafeRedirect],
 		['rewritten', normalisingRule]
 	];
 	for (const [kind, rule] of cases) {

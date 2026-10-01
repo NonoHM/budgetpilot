@@ -62,6 +62,9 @@ export const REDIRECT_BYPASSES: readonly RedirectBypass[] = [
 	{ name: 'a line separator in the path', value: `/${LINE_SEPARATOR}/${BYPASS_HOST}/` },
 	{ name: 'a fullwidth solidus', value: `/${FULLWIDTH_SOLIDUS}${BYPASS_HOST}/` },
 	{ name: 'a space inside the path', value: `/ /${BYPASS_HOST}/` },
+	{ name: 'a lone percent sign', value: '/%' },
+	{ name: 'a percent escape that is not hexadecimal', value: '/%zz' },
+	{ name: 'a percent escape that is not UTF-8', value: '/%E9' },
 	{ name: 'an empty value', value: '' },
 	{ name: 'a relative path with no leading slash', value: `${BYPASS_HOST}/` }
 ];
@@ -76,6 +79,7 @@ export const REDIRECT_KEPT: readonly RedirectBypass[] = [
 	{ name: 'a fragment', value: '/settings#tags' },
 	{ name: 'dot segments inside the query, which are data', value: '/reports?path=/../x' },
 	{ name: 'a dot inside a segment', value: '/imports/v1.2/a..b' },
+	{ name: 'a lone percent sign inside the query', value: '/transactions?q=100%' },
 	{
 		name: 'a pipe in the query, which the URL parser leaves unencoded',
 		value: '/transactions?q=a|b'

@@ -206,13 +206,28 @@ const DOT_SEGMENT = /\/(?:\.|%2e){1,2}(?=\/|$)/i;
  * downstream could turn either back into a separator. */
 const ENCODED_SEPARATOR = /%(?:2f|5c)/i;
 
+/** Clause 5. The path decodes. SvelteKit decodes every request path with `decodeURI` and answers
+ * 400 to one that fails (`/%`, `/%zz`, an escape that is not UTF-8), so a target that does not
+ * decode lands on an error page rather than on the default. */
+function decodes(path: string): boolean {
+	try {
+		// The result is RETURNED, never discarded. The production bundler treats `decodeURI` as free
+		// of side effects and deleted a bare `decodeURI(path);` from this block, so the build kept
+		// every undecodable path while vitest, which runs the source, refused it. Measured
+		// 2026-10-01; `e2e/redirect-target.spec.ts` reads the build and is the check that sees it.
+		return decodeURI(path).startsWith('/');
+	} catch {
+		return false;
+	}
+}
+
 /**
  * Anti open-redirect (CWE-601): returns `value` unchanged when it is an internal path, and `/`
  * otherwise. Never rewrites: a value is either sent as given or refused.
  *
  * Plain string clauses rather than a URL parser, so that `safeRedirect.spec.ts` can use the WHATWG
- * parser as an oracle that shares nothing with the rule it judges. Clauses 3 and 4 read the path
- * only: the query of a legitimate target can carry `%2F` or `/../` as data.
+ * parser as an oracle that shares nothing with the rule it judges. Clauses 3, 4 and 5 read the
+ * path only: the query of a legitimate target can carry `%2F` or `/../` as data.
  */
 export function getSafeRedirect(value: string | null): string {
 	if (!value || !SINGLE_SLASH_VISIBLE_ASCII.test(value)) return SAFE_DEFAULT;
@@ -220,6 +235,7 @@ export function getSafeRedirect(value: string | null): string {
 	const path = value.split(/[?#]/, 1)[0];
 	if (DOT_SEGMENT.test(path)) return SAFE_DEFAULT;
 	if (ENCODED_SEPARATOR.test(path)) return SAFE_DEFAULT;
+	if (!decodes(path)) return SAFE_DEFAULT;
 	return value;
 }
 
