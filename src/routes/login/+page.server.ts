@@ -2,7 +2,8 @@ import { fail, redirect, type Actions } from '@sveltejs/kit';
 import * as m from '$lib/paraglide/messages';
 import {
 	createSession,
-	getSafeRedirect,
+	redirectAfterSignIn,
+	secondFactorUrl,
 	validateEmail,
 	verifyPasswordTimingSafe
 } from '$lib/server/auth';
@@ -26,7 +27,7 @@ const NOTICES = ['registration_closed'] as const;
 type Notice = (typeof NOTICES)[number];
 
 export const load: PageServerLoad = async ({ locals, url }) => {
-	if (locals.user) throw redirect(303, getSafeRedirect(url.searchParams.get('redirectTo')));
+	if (locals.user) redirectAfterSignIn(url);
 	const requested = url.searchParams.get('notice');
 	return {
 		canRegister: await isSelfRegistrationOpen(),
@@ -63,19 +64,15 @@ export const actions: Actions = {
 			return invalid();
 		}
 
-		const redirectTo = getSafeRedirect(url.searchParams.get('redirectTo'));
-
 		if (user.totpEnabled) {
 			await createMfaChallenge(user.id, cookies);
-			const target = new URL('/login/verify-totp', url);
-			target.searchParams.set('redirectTo', redirectTo);
-			throw redirect(303, target.pathname + target.search);
+			throw redirect(303, secondFactorUrl(url));
 		}
 
 		await ensureDefaultCategoriesSeeded(user.id);
 		await ensureDefaultRulesSeeded(user.id);
 		await createSession(user.id, cookies);
-		throw redirect(303, redirectTo);
+		redirectAfterSignIn(url);
 	}
 };
 

@@ -9,7 +9,12 @@ const auth = vi.hoisted(() => ({
 	SESSION_COOKIE: 'budgetpilot_session'
 }));
 
-vi.mock('$lib/server/auth', () => auth);
+// `signInUrl` is the real one: the redirect target is what these tests assert, and a stand-in
+// would assert the stand-in.
+vi.mock('$lib/server/auth', async (importOriginal) => {
+	const actual = await importOriginal<typeof import('$lib/server/auth')>();
+	return { ...auth, signInUrl: actual.signInUrl };
+});
 
 // handleAuth directement : le pipeline sequence() exige le request store interne de SvelteKit.
 const { handleAuth: handle } = await import('./hooks.server');

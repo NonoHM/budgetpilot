@@ -181,12 +181,62 @@ export async function createSession(userId: string, cookies: Cookies): Promise<v
 	cookies.set(SESSION_COOKIE, token, getSessionCookieOptions(expiresAt));
 }
 
-// Anti open-redirect: only accepts a clean relative path ("//" would be interpreted
-// as a protocol-relative URL by the browser). Shared between /login and
-// /login/verify-totp — do not duplicate, this decision is security-sensitive.
+/**
+ * The query parameter carrying where a visitor goes once signed in. Named in this file and nowhere
+ * else in production code (`src/lib/server/security/redirect-param.spec.ts`): the three functions
+ * below are its only reader and writers, so a route cannot redirect to it without the check.
+ */
+const REDIRECT_PARAM = 'redirectTo';
+
+/** Where a sign-in with no usable target lands. */
+const SAFE_DEFAULT = '/';
+
+/** Clause 1. One leading slash and never two, then visible ASCII only: refuses absolute URLs,
+ * `//host`, schemes with or without slashes, whitespace, control characters and non-ASCII. */
+const SINGLE_SLASH_VISIBLE_ASCII = /^\/(?!\/)[\x21-\x7e]*$/;
+
+/** Clause 2. A browser's URL parser reads a backslash as a slash, so `/\host` is `//host`. */
+const BACKSLASH = /\\/;
+
+/** Clause 3. A dot segment, `%2e` included: resolved, `/.//host` collapses to `//host`. No producer
+ * here emits one, since the paths it carries were already resolved by the parser. */
+const DOT_SEGMENT = /\/(?:\.|%2e){1,2}(?=\/|$)/i;
+
+/** Clause 4. An encoded slash or backslash. No route here has one in its path, and a decoder
+ * downstream could turn either back into a separator. */
+const ENCODED_SEPARATOR = /%(?:2f|5c)/i;
+
+/**
+ * Anti open-redirect (CWE-601): returns `value` unchanged when it is an internal path, and `/`
+ * otherwise. Never rewrites: a value is either sent as given or refused.
+ *
+ * Plain string clauses rather than a URL parser, so that `safeRedirect.spec.ts` can use the WHATWG
+ * parser as an oracle that shares nothing with the rule it judges. Clauses 3 and 4 read the path
+ * only: the query of a legitimate target can carry `%2F` or `/../` as data.
+ */
 export function getSafeRedirect(value: string | null): string {
-	if (!value || !value.startsWith('/') || value.startsWith('//')) return '/';
+	if (!value || !SINGLE_SLASH_VISIBLE_ASCII.test(value)) return SAFE_DEFAULT;
+	if (BACKSLASH.test(value)) return SAFE_DEFAULT;
+	const path = value.split(/[?#]/, 1)[0];
+	if (DOT_SEGMENT.test(path)) return SAFE_DEFAULT;
+	if (ENCODED_SEPARATOR.test(path)) return SAFE_DEFAULT;
 	return value;
+}
+
+/** Sends a visitor who has just signed in, or already was, to the target they asked for if safe. */
+export function redirectAfterSignIn(url: URL): never {
+	throw redirect(303, getSafeRedirect(url.searchParams.get(REDIRECT_PARAM)));
+}
+
+/** `/login`, remembering the page a signed-out visitor asked for. */
+export function signInUrl(requested: URL): string {
+	return `/login?${REDIRECT_PARAM}=${encodeURIComponent(requested.pathname + requested.search)}`;
+}
+
+/** The second-factor step, carrying the target forward already checked. */
+export function secondFactorUrl(url: URL): string {
+	const target = getSafeRedirect(url.searchParams.get(REDIRECT_PARAM));
+	return `/login/verify-totp?${new URLSearchParams({ [REDIRECT_PARAM]: target })}`;
 }
 
 export function requireUser(user: AuthUser | null): AuthUser {

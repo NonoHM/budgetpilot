@@ -5,7 +5,8 @@ import {
 	areSecureCookiesEnabled,
 	clearSessionCookie,
 	readSessionUser,
-	SESSION_COOKIE
+	SESSION_COOKIE,
+	signInUrl
 } from '$lib/server/auth';
 import { resolveDatabaseProvider } from '$lib/server/database/provider';
 import { warnIfDatabaseRoleIsOverprivileged } from '$lib/server/database/privileges';
@@ -188,10 +189,7 @@ export const handleAuth: Handle = async ({ event, resolve }) => {
 
 	const routeId = event.route.id;
 	if (routeId && !PUBLIC_ROUTES.has(routeId) && !user) {
-		throw redirect(
-			303,
-			`/login?redirectTo=${encodeURIComponent(event.url.pathname + event.url.search)}`
-		);
+		throw redirect(303, signInUrl(event.url));
 	}
 
 	// A user with forcePasswordChange active must always be able to log out
