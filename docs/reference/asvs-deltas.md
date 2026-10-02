@@ -25,6 +25,50 @@ construction, `X` an argued exception, `N/A` not applicable with a stated reason
 
 ---
 
+## 2026-10-02, the data classification
+
+Branch `docs/817-data-classification` (#817). **Letters below are quoted from
+`scripts/security/asvs-5.0-l2-report.md`**, which describes the assessment of 2026-08-13 and not a
+current state. [Data classification](../explanation/data-classification.md) classifies all 253 stored
+columns into five levels and states, per level, the requirements `14.1.2` lists. It is a document, so
+what it moves is documentation rows, and the controls those rows describe are not made true by it.
+
+### `v5.0.0-14.1.1`: `X` to `C`, a document with no gate behind it
+
+> Verify that all sensitive data created and processed by the application has been identified and
+> classified into protection levels. This includes data that is only encoded and therefore easily
+> decoded, such as Base64 strings or the plaintext payload inside a JWT. Protection levels need to
+> take into account any data protection and privacy regulations and standards which the application
+> is required to comply with.
+
+Every stored column, every field the prompt carries, every export field, every log source and every
+outbound request is classified. Nothing fails when the schema and the page disagree (#852), so the
+letter is `C` and not `A`, and it is point-in-time like the rest of this file.
+
+### `v5.0.0-14.1.2`: `X` to `C`, documented, several requirements unmet in code
+
+> Verify that all sensitive data protection levels have a documented set of protection requirements.
+> This must include (but not be limited to) requirements related to general encryption, integrity
+> verification, retention, how the data is to be logged, access controls around sensitive data in
+> logs, database-level encryption, privacy and privacy-enhancing technologies to be used, and other
+> confidentiality requirements.
+
+The requirements are documented. The page's gaps table lists those the code does not meet, each with
+its issue. The row "access controls around sensitive data in logs" has no rule yet: no stored event
+table exists (#250), and no document says the operator's container runtime holds the stdout log.
+Database-level encryption is documented as absent, and #850 files the missing operator-facing sentence.
+
+### `v5.0.0-14.2.4`: `X` unchanged
+
+> Verify that controls around sensitive data related to encryption, integrity verification,
+> retention, how the data is to be logged, access controls around sensitive data in logs, privacy and
+> privacy-enhancing technologies, are implemented as defined in the documentation for the specific
+> data's protection level.
+
+The assessment marked this `X` because `14.1.2` established there was no documentation to conform to.
+There is one now, and the controls do not yet conform to it: see the gaps table. The `X` stands, for
+a different reason.
+
 ## 2026-10-01, the error printer
 
 Branch `fix/816-error-printer` (#816). **Letters below are quoted from
