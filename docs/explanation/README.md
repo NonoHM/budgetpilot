@@ -16,6 +16,9 @@ design decision is not mistaken for a defect and undone.
 - **[What keeps private data out of what this repository publishes](./confidentiality-guards.md)**:
   which check owns each class of private data, where it runs, and what none
   of them catches.
+- **[How BudgetPilot classifies the data it stores](./data-classification.md)**:
+  five levels, what each may do in a log, an export, a prompt and after deletion, and
+  the level of every stored column.
 - **[What BudgetPilot deliberately does not do](./what-this-does-not-do.md)**:
   three capabilities other tools have that this one will not gain, and why.
 

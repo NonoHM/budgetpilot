@@ -25,6 +25,56 @@ construction, `X` an argued exception, `N/A` not applicable with a stated reason
 
 ---
 
+## 2026-10-02, the data classification
+
+Branch `docs/817-data-classification` (#817). **Letters below are quoted from
+`scripts/security/asvs-5.0-l2-report.md`**, which describes the assessment of 2026-08-13 and not a
+current state. [Data classification](../explanation/data-classification.md) classifies all 253 stored
+columns into five levels and states, per level, the requirements `14.1.2` lists. It is a document,
+and **no row's letter moves**: all three rows below stay `X`, with progress recorded and what is
+missing for each to move. An entry that reads as a movement where the letter has not moved is the
+drift this file exists to prevent.
+
+### `v5.0.0-14.1.1`: `X` unchanged, progress recorded
+
+> Verify that all sensitive data created and processed by the application has been identified and
+> classified into protection levels. This includes data that is only encoded and therefore easily
+> decoded, such as Base64 strings or the plaintext payload inside a JWT. Protection levels need to
+> take into account any data protection and privacy regulations and standards which the application
+> is required to comply with.
+
+Progress: every stored column, every field the prompt carries, every export field, the log sources
+in `src/` and `boot.mjs`, and every outbound request is classified, and the regulation is named.
+Missing for the row to move: the requirement names encoded data explicitly, and no search for
+Base64 strings or token payloads beyond the Enable Banking JWT was made. Nothing fails when the
+schema and the page disagree either (#852).
+
+### `v5.0.0-14.1.2`: `X` unchanged, progress recorded
+
+> Verify that all sensitive data protection levels have a documented set of protection requirements.
+> This must include (but not be limited to) requirements related to general encryption, integrity
+> verification, retention, how the data is to be logged, access controls around sensitive data in
+> logs, database-level encryption, privacy and privacy-enhancing technologies to be used, and other
+> confidentiality requirements.
+
+Progress: a requirements table per level covers encryption, integrity, retention, logging, export,
+the model, the bank API and deletion, and its gaps table names the issue for each requirement the
+code does not meet. Missing for the row to move: the row names « access controls around sensitive
+data in logs », and the page states no access requirement for the log. The stored event table that
+would carry an application rule does not exist (#250, 1.4). Database-level encryption is recorded as
+absent, and #850 files the missing operator-facing sentence.
+
+### `v5.0.0-14.2.4`: `X` unchanged
+
+> Verify that controls around sensitive data related to encryption, integrity verification,
+> retention, how the data is to be logged, access controls around sensitive data in logs, privacy and
+> privacy-enhancing technologies, are implemented as defined in the documentation for the specific
+> data's protection level.
+
+The assessment marked this `X` because `14.1.2` established there was no documentation to conform to.
+A definition exists now, and the controls do not yet conform to it: see the gaps table. The `X`
+stands, for a different reason.
+
 ## 2026-10-01, the error printer
 
 Branch `fix/816-error-printer` (#816). **Letters below are quoted from
