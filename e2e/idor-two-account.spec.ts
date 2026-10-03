@@ -304,15 +304,16 @@ async function seedVictimRows(): Promise<VictimIds> {
 /**
  * A real second session for the victim, so `revokeSession` has a genuine target.
  *
- * The settings page renders a revoke form only for sessions that are NOT the current one, which
- * is why a second login is needed rather than scraping the session already in hand.
+ * The settings page renders a revoke control only for sessions that are NOT the current one, which
+ * is why a second login is needed rather than scraping the session already in hand. The control
+ * carries the id as `data-session-id` since #253 moved the form into a password dialog.
  */
 async function secondVictimSessionId(): Promise<string> {
 	const second = await contextFor(VICTIM);
 	await second.dispose();
 
 	const html = await (await victim.get('/settings')).text();
-	const id = /name="sessionId" value="([^"]+)"/.exec(html)?.[1];
+	const id = /data-session-id="([^"]+)"/.exec(html)?.[1];
 	if (!id) throw new Error('secondVictimSessionId: no revocable session rendered on /settings');
 	return id;
 }
@@ -353,7 +354,12 @@ interface Probe {
 	label: string;
 	path: string;
 	outcome: AttackerOutcome;
-	fields: (ids: VictimIds) => Record<string, string>;
+	/**
+	 * `poster` is whichever account fires the leg. Only `revokeSession` reads it: it re-authenticates
+	 * (#253), so each leg posts ITS OWN password. The attacker must pass re-authentication for the
+	 * refusal to be the ownership clause rather than a wrong password.
+	 */
+	fields: (ids: VictimIds, poster: { password: string }) => Record<string, string>;
 }
 
 // Ported from the local, gitignored idor.sh, same actions and same field names. Ordered so the owner
@@ -478,7 +484,7 @@ const PROBES: Probe[] = [
 		label: 'revokeSession',
 		outcome: 'refused-404',
 		path: '/settings?/revokeSession',
-		fields: (i) => ({ sessionId: i.sessionId })
+		fields: (i, poster) => ({ sessionId: i.sessionId, currentPassword: poster.password })
 	},
 	// Destructive, last, so the owner leg reaches every mutation above first. This half is also
 	// this file's cleanup: it removes every row seeded for the probe.
@@ -552,7 +558,7 @@ test.describe('two-account authorization battery', () => {
 
 		const observed: Record<string, string> = {};
 		for (const probe of PROBES) {
-			const result = await submitForm(attacker, probe.path, probe.fields(ids));
+			const result = await submitForm(attacker, probe.path, probe.fields(ids, ATTACKER));
 			observed[probe.label] = classify(result);
 		}
 
@@ -579,7 +585,7 @@ test.describe('two-account authorization battery', () => {
 	test('calibration: the OWNER can perform every one of those actions on their own rows', async () => {
 		const failures: string[] = [];
 		for (const probe of PROBES) {
-			const result = await submitForm(victim, probe.path, probe.fields(ids));
+			const result = await submitForm(victim, probe.path, probe.fields(ids, VICTIM));
 			if (result.type !== 'success' && result.type !== 'redirect') {
 				failures.push(`${probe.label} -> ${result.type} ${result.status}`);
 			}
