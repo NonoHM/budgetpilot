@@ -101,12 +101,15 @@ const BANK_PRIVATE_KEY = generateKeyPairSync('rsa', {
 	privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
 	publicKeyEncoding: { type: 'spki', format: 'pem' }
 }).privateKey;
-// One whole 64-character line of the key's base64 body, from the middle. A slice of the joined
-// body would straddle a line break and miss the wrapped PEM; a whole line is a substring of both
-// the wrapped form and the unwrapped one, so a log line carrying the key either way carries it.
-const BANK_PRIVATE_KEY_LINE = BANK_PRIVATE_KEY.split('\n').filter(
+// Whole 64-character lines of the key's base64 body. A slice of the joined body would straddle a
+// line break and miss the wrapped PEM; a whole line is a substring of both the wrapped form and
+// the unwrapped one. The FIRST line as well as one from the middle, because a log that cuts a
+// value at a length keeps its beginning: a key printed through a capped field leaks its first
+// lines, and a canary taken only from the middle would not see that (measured on the logger
+// branch, where `budgetpilot.console.text` is capped at 256 characters).
+const BANK_PRIVATE_KEY_LINES = BANK_PRIVATE_KEY.split('\n').filter(
 	(line) => line && !line.startsWith('-----')
-)[3];
+);
 
 /**
  * Every configured value the scan must never find, chosen to be unmistakable.
@@ -126,7 +129,8 @@ const SECRETS = {
 	email: 'logscan-canary@budgetpilot.test',
 	memberEmail: 'logscan-member-canary@budgetpilot.test',
 	databasePath: DB_FILE,
-	bankPrivateKey: BANK_PRIVATE_KEY_LINE,
+	bankPrivateKeyFirstLine: BANK_PRIVATE_KEY_LINES[0],
+	bankPrivateKeyMiddleLine: BANK_PRIVATE_KEY_LINES[Math.floor(BANK_PRIVATE_KEY_LINES.length / 2)],
 	bankAuthorizationCode: 'logscan-canary-bank-code-61c0e7'
 };
 
@@ -651,17 +655,16 @@ test.describe('v5.0.0-16.2.5: no secret reaches the log', () => {
 	});
 
 	// The planted positive, permanent rather than a one-off: the two sweeps below are run over a copy
-	// of this capture with one configured and one minted value appended, and must name exactly
-	// those. A sweep that searched nothing, or searched for the wrong values, reports clean on the
-	// real capture and fails here.
+	// of this capture with one configured and one minted value appended, and must name both. A
+	// sweep that searched nothing, or searched for the wrong values, reports clean on the real
+	// capture and fails here. Inclusion rather than a difference against the real capture, so that
+	// a capture which already leaks the planted value does not turn this red as well.
 	test('calibration: both sweeps report a secret planted in a copy of this capture', () => {
-		const planted = `${captured}\n{"leak":"${minted.recoveryCodes[1]}"} ${SECRETS.bankPrivateKey}\n`;
+		const planted = `${captured}\n{"leak":"${minted.recoveryCodes[1]}"} ${SECRETS.bankPrivateKeyMiddleLine}\n`;
 		expect({
-			configured: configuredFoundIn(planted).filter(
-				(name) => !configuredFoundIn(captured).includes(name)
-			),
-			minted: mintedFoundIn(planted).filter((name) => !mintedFoundIn(captured).includes(name))
-		}).toEqual({ configured: ['bankPrivateKey'], minted: ['recoveryCode[1]'] });
+			configured: configuredFoundIn(planted).includes('bankPrivateKeyMiddleLine'),
+			minted: mintedFoundIn(planted).includes('recoveryCode[1]')
+		}).toEqual({ configured: true, minted: true });
 	});
 
 	test('no configured credential, token or key appears anywhere in the captured log', () => {
