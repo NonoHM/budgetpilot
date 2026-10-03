@@ -186,19 +186,31 @@ describe('escaping (v5.0.0-16.4.1)', () => {
 
 	it('holds for any string: one line, no raw unsafe character, the value decoded back', () => {
 		fc.assert(
-			fc.property(fc.string({ unit: 'binary', maxLength: 300 }), (value) => {
-				const { write, lines, parsed } = harness();
-				write(crash(value));
-				const line = lines[0].slice(0, -1);
-				expect({
-					lines: lines.length,
-					newline: line.includes('\n'),
-					raw: RAW_UNSAFE.test(line),
-					decoded:
-						parsed()[0][A.errorOperatorMessage] ===
-						Array.from(value).slice(0, MAX_OPERATOR_MESSAGE_LENGTH).join('')
-				}).toEqual({ lines: 1, newline: false, raw: false, decoded: true });
-			}),
+			// Half the characters drawn from the ones the serialiser exists for: drawn uniformly from all
+			// of Unicode, U+2028 and U+2029 almost never appear, and a property that cannot reach them
+			// stays green when their escaping is removed (measured: break B1 left it green).
+			fc.property(
+				fc.string({
+					unit: fc.oneof(
+						fc.constantFrom('\r', '\n', '\t', LS, PS, ESC, DEL, NEL, '"', '\\'),
+						fc.string({ unit: 'binary', minLength: 1, maxLength: 1 })
+					),
+					maxLength: 300
+				}),
+				(value) => {
+					const { write, lines, parsed } = harness();
+					write(crash(value));
+					const line = lines[0].slice(0, -1);
+					expect({
+						lines: lines.length,
+						newline: line.includes('\n'),
+						raw: RAW_UNSAFE.test(line),
+						decoded:
+							parsed()[0][A.errorOperatorMessage] ===
+							Array.from(value).slice(0, MAX_OPERATOR_MESSAGE_LENGTH).join('')
+					}).toEqual({ lines: 1, newline: false, raw: false, decoded: true });
+				}
+			),
 			{ numRuns: 500 }
 		);
 	});
