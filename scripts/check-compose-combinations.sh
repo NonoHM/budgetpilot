@@ -369,6 +369,30 @@ for case in "${DATABASE_OVERLAY_CASES[@]}"; do
 				continue
 			fi
 
+			# The server log must not collect what a user typed. A unique violation writes the
+			# clashing value as `DETAIL: Key (email)=(...)` unless verbosity is terse, and a statement
+			# sent with its values inline is appended unless the statement level is panic. Both
+			# arguments are asserted against the merged `command`, exactly as `up` would pass them.
+			# This proves the stack is CONFIGURED that way; that the log is then clean was measured
+			# with a planted value on a running stack, and is not what this line shows.
+			server_args=$(jq -r --arg s "$service" '(.services[$s].command // []) | join(" ")' <<<"$project")
+			case " $server_args " in
+			*" -c log_error_verbosity=terse "*) ;;
+			*)
+				echo "FAIL: $label does not start $service with log_error_verbosity=terse (command: \"$server_args\")" >&2
+				failed=1
+				continue
+				;;
+			esac
+			case " $server_args " in
+			*" -c log_min_error_statement=panic "*) ;;
+			*)
+				echo "FAIL: $label does not start $service with log_min_error_statement=panic (command: \"$server_args\")" >&2
+				failed=1
+				continue
+				;;
+			esac
+
 			echo "ok:   $label (app on $expected_provider as \"$app_role\", not the bootstrap superuser, $service port unpublished)"
 			continue
 		fi
@@ -434,6 +458,32 @@ for base in docker-compose.yml docker-compose.prebuilt.yml; do
 		fi
 		echo "ok:   $base $overlays (OLLAMA_NO_CLOUD=1)"
 	done
+done
+
+# The example Caddyfile's access-log filter. Each line is a promise the docs make, and deleting
+# one still produces a Caddyfile that Caddy accepts and a proxy that starts. Matched as UNCOMMENTED
+# lines only (the pattern is anchored after indentation, so a mention in a comment does not count,
+# and neither does the commented `ip_mask` block, which is deliberately not a default). This proves
+# the file CARRIES the lines. That the log is then clean was measured through the real app behind
+# the real proxy with a planted search term; this is not that measurement.
+echo
+echo "--- Caddyfile.example access-log filter ---"
+
+caddy_lines_read=$(wc -l <Caddyfile.example)
+for filter_line in \
+	'request>headers>Referer delete' \
+	'delete code' \
+	'delete state' \
+	'delete q' \
+	'delete redirectTo' \
+	'delete invite'; do
+	hits=$(grep -c -E "^[[:space:]]*${filter_line}[[:space:]]*$" Caddyfile.example || true)
+	if [ "$hits" != 1 ]; then
+		echo "FAIL: Caddyfile.example has $hits uncommented line(s) \"$filter_line\", expected exactly 1 (read $caddy_lines_read lines)" >&2
+		failed=1
+		continue
+	fi
+	echo "ok:   Caddyfile.example filters \"$filter_line\""
 done
 
 exit "$failed"

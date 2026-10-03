@@ -54,6 +54,26 @@ services:
     # password the only thing in front of every account's financial data. If you
     # genuinely need a host-side client, see the psql section of
     # docs/database-providers.md, which keeps the port inside the container.
+    # Two server settings, passed as the image's documented `-c` arguments, so that a failed
+    # statement does not copy what a user typed into this container's log.
+    #
+    # By default a unique violation is written to stderr, which is what `docker logs` shows,
+    # as `DETAIL:  Key (email)=(<the address>) already exists.` The app raises these on
+    # purpose: a concurrent get-or-create lets the database arbitrate and catches the error
+    # (P2002), and registering an address that already has an account is the same path. So the
+    # log would collect e-mail addresses and category names, in plaintext, in a file nobody
+    # scopes or rotates. docs/explanation/data-classification.md keeps both out of a log.
+    #
+    # `log_error_verbosity=terse` drops the DETAIL, HINT, QUERY and CONTEXT lines, which is
+    # where the value sits. `log_min_error_statement=panic` stops the failing statement's text
+    # being appended, which for a statement sent with the values inline would carry them too.
+    #
+    # The cost is real: an operator debugging a constraint failure no longer sees which key
+    # clashed or which statement failed. What stays is the line naming the constraint, which
+    # is a fact about the schema, and the client still receives the full error, so the app's
+    # own handling and its own log are unchanged. To diagnose something, remove these two
+    # arguments for as long as you need, and restart the container.
+    command: [postgres, -c, log_error_verbosity=terse, -c, log_min_error_statement=panic]
     volumes:
       - postgres_data:/var/lib/postgresql/data
     configs:
