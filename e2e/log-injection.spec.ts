@@ -48,6 +48,10 @@ import { expect, test } from './fixtures';
  * structured logger is the measurement this gate was written from.
  */
 
+// No retries, whatever the suite sets: a log line that splits on one run in three is a defect, and
+// a retry that passes would hide it.
+test.describe.configure({ retries: 0 });
+
 const PORT = 4181;
 const BASE_URL = `http://localhost:${PORT}`;
 const DB_DIR = path.resolve('e2e/.data/loginjection');
@@ -57,8 +61,12 @@ const EMAIL = 'loginjection@budgetpilot.test';
 const PASSWORD = 'LogInjection-Passw0rd!';
 
 /** The five splitters, in one value, around text a forger would want on a line of its own. */
+// DEL, NEL (U+0085) and CSI (U+009B, the one-byte form of ESC [) are what JSON.stringify leaves
+// raw besides U+2028 and U+2029, so only this logger's serialiser escapes them: without them the
+// probe stayed green with the serialiser's DEL and C1 escaping removed (contradiction pass on L2).
 const PAYLOAD =
-	'bp-inject-7f3e\r\n{"event_name":"forged"}\u2028FORGED-LS\u2029FORGED-PS\u001b[31mRED\u001b[0m';
+	'bp-inject-7f3e\r\n{"event_name":"forged"}\u2028FORGED-LS\u2029FORGED-PS\u001b[31mRED\u001b[0m' +
+	'DEL\u007fNEL\u0085CSI\u009b31mC1';
 const OVERLONG = 'L'.repeat(20_000);
 /** Header form: the payload without CR, LF and ESC, as the raw UTF-8 bytes a socket carries. */
 const HEADER_PAYLOAD = Buffer.from(
@@ -210,7 +218,12 @@ test.beforeAll(async () => {
 		stdio: 'ignore'
 	});
 
-	const server = boot();
+	// The one channel that reaches a logged field RAW, so the serialiser is the only thing between the
+	// planted characters and the line: `hooks.server.ts` writes the configured ORIGIN as
+	// `budgetpilot.config.origin`. adapter-node accepts it because the payload sits in the path of a
+	// valid URL (it percent-encodes the path and keeps only the origin), so forms keep working. The
+	// operator's environment is not attacker input: this is the planted control, end to end.
+	const server = boot({ ORIGIN: `${BASE_URL}/${PAYLOAD}` });
 	let client: APIRequestContext | undefined;
 	try {
 		await waitForServer(server);
@@ -378,6 +391,28 @@ test.describe('calibration', () => {
 });
 
 test.describe('v5.0.0-16.4.1: no input can split or repaint a log line', () => {
+	test('the planted control is in the startup origin line, escaped, every kind of it', () => {
+		// Seen, not merely absent: the line decodes to the planted characters, while the raw capture
+		// holds none of them (the raw-kind test below). Removing any range from the serialiser
+		// leaves its characters raw in this line.
+		const line = requestCapture
+			.split('\n')
+			.map((entry) => {
+				try {
+					return JSON.parse(entry) as Record<string, unknown>;
+				} catch {
+					return {};
+				}
+			})
+			.find((entry) => entry.event_name === 'budgetpilot.config.origin_set');
+		const origin = String(line?.['budgetpilot.config.origin'] ?? '');
+		expect(
+			[0x2028, 0x2029, 0x1b, 0x7f, 0x85, 0x9b].map((code) =>
+				origin.includes(String.fromCodePoint(code))
+			)
+		).toEqual([true, true, true, true, true, true]);
+	});
+
 	test('every line of the request capture is one JSON object', () => {
 		expect(measure(requestCapture).nonJsonLines).toBe(0);
 	});
