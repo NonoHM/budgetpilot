@@ -180,7 +180,8 @@ application contributes to them and leaves the rest to the operator.
   application adds is a log that a collector can read without conversion, and
   [recipes](../logging-collectors.md) for four of them.
 
-The application alone satisfies neither requirement. Whether an instance meets them depends on what
+`SECURITY.md` has no row for either requirement yet; adding them is part of
+[#250](https://github.com/NonoHM/budgetpilot/issues/250). The application alone satisfies neither. Whether an instance meets them depends on what
 its operator sets up around it: access to the host's log files, and a second system with its own
 protection. An instance with no collector has nothing separate to receive the log. That is a
 deliberate boundary and not a missing feature: a program that sent its own logs would need a
