@@ -15,8 +15,12 @@ import {
 
 /**
  * The application's log. `log(event)` is the only way to write a line, and `LogEvent` is the only
- * shape a line can take (`events.ts`). Bare `console.*` is refused by ESLint in `src/lib/server`,
- * `src/routes` and `src/hooks.server.ts`, so a line that bypasses this module fails the lint gate.
+ * shape a line can take (`events.ts`). In `src/lib/server`, `src/routes`, `src/hooks.server.ts` and
+ * `boot.mjs`, ESLint refuses every other way out that a rule can see (`eslint.config.js`): any
+ * reference to `console`, including through `globalThis`, a write to file descriptor 1 or 2, stdout
+ * or stderr from the process object or from `node:process`, and the writer's core imported
+ * directly. A dependency that writes to `process.stdout` itself is outside any lint rule: the console
+ * bridge below does not see it either, and the injection probe is what would.
  */
 export type { LogEvent };
 
@@ -111,6 +115,7 @@ export function requestErrorId(): string | undefined {
  * on » line is the measured instance. Built server only; in dev Vite owns the console. Our own code
  * cannot reach it, because the lint rule forbids it `console`.
  */
+// eslint-disable-next-line no-restricted-globals -- the bridge is the one place that must hold the console
 export function installConsoleBridge(target: Console = console): void {
 	let writing = false;
 	for (const method of ['log', 'info', 'debug', 'warn', 'error', 'trace'] as const) {
