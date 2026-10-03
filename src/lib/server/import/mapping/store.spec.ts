@@ -5,65 +5,73 @@ import {
 	COLUMN_MAPPINGS_PER_USER_DEFAULT
 } from './store';
 import { ENVIRONMENT_CHECKS } from '../../env/assertConfigured';
+import { ATTRIBUTE, EVENT } from '$lib/server/logging/names';
 
 // This module and the boot collector both reach the Prisma client. Nothing here queries a
 // database, so the client is replaced rather than constructed: the test needs the collector's
 // LIST, not a connection.
 vi.mock('$lib/server/db', () => ({ prisma: {} }));
 
+const logged = vi.hoisted(() => [] as unknown[]);
+vi.mock('$lib/server/logging', async (importOriginal) => ({
+	...(await importOriginal<typeof import('$lib/server/logging')>()),
+	log: (event: unknown) => {
+		logged.push(event);
+	}
+}));
+
 // The variable's NAME is written out rather than read from the module's constant: it is the
 // contract `.env.example` and `docs/configuration.md` document, so a rename must redden this file.
 // The default and the ceiling are policy and are read from the module, because what is under test
-// is the sentence built around them, not their values.
+// is the event built around them, not their values.
 const NAME = 'COLUMN_MAPPINGS_PER_USER';
 
 afterEach(() => {
 	delete process.env[NAME];
 });
 
-/** Every warning the boot check prints for the configured value, in order. */
-function bootWarnings(): string[] {
-	const warnings: string[] = [];
-	const spy = vi.spyOn(console, 'warn').mockImplementation((message: string) => {
-		warnings.push(message);
-	});
-	try {
-		assertColumnMappingCapConfigured();
-	} finally {
-		spy.mockRestore();
-	}
-	return warnings;
+/** Every event the boot check logs for the configured value, in order. */
+function bootEvents(): unknown[] {
+	logged.length = 0;
+	assertColumnMappingCapConfigured();
+	return [...logged];
 }
 
 /** The boot check's refusal as the operator reads it, or a marker saying it did not refuse. */
 function bootRefusal(): string {
-	// Muted, because an accepted value that differs from the default warns, and the warnings are
-	// asserted by the tests above rather than here.
-	const spy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+	// An accepted value that differs from the default logs an event, which the mocked `log` records
+	// and the tests above assert rather than here.
 	try {
 		assertColumnMappingCapConfigured();
 	} catch (caught) {
 		return caught instanceof Error ? caught.message : `not an Error: ${String(caught)}`;
-	} finally {
-		spy.mockRestore();
 	}
 	return 'no refusal';
 }
 
 describe('COLUMN_MAPPINGS_PER_USER at boot', () => {
-	// The whole sentences are compared, never a fragment: these are log lines an operator reads,
-	// and a fragment passes straight over a doubled or truncated tail.
-	const differs = (cap: number) =>
-		`[budgetpilot] ${NAME}=${cap} differs from the default of ${COLUMN_MAPPINGS_PER_USER_DEFAULT}. It bounds how many remembered column mappings one user may hold.`;
+	// The whole events are compared, never a fragment: these are log lines an operator reads, and a
+	// fragment passes straight over a wrong or extra attribute.
+	const changed = (cap: number, direction: 'raised' | 'lowered') => ({
+		event: EVENT.configBoundChanged,
+		attributes: {
+			[ATTRIBUTE.configName]: NAME,
+			[ATTRIBUTE.configValue]: cap,
+			[ATTRIBUTE.configDefault]: COLUMN_MAPPINGS_PER_USER_DEFAULT,
+			[ATTRIBUTE.configDirection]: direction,
+			// No honest minimum for this bound: a lowered cap refuses nothing that already works.
+			[ATTRIBUTE.configBelowHonestMinimum]: false
+		}
+	});
 
 	it('says nothing at the default, unset or blank', () => {
 		// The absence half. Its presence half is every test below: a check that never warned at all
 		// would pass this one perfectly.
-		const unset = bootWarnings();
+		const unset = bootEvents();
 		process.env[NAME] = '   ';
-		const blank = bootWarnings();
+		const blank = bootEvents();
 		process.env[NAME] = String(COLUMN_MAPPINGS_PER_USER_DEFAULT);
-		const explicit = bootWarnings();
+		const explicit = bootEvents();
 
 		expect({ unset, blank, explicit }).toStrictEqual({ unset: [], blank: [], explicit: [] });
 	});
@@ -74,23 +82,18 @@ describe('COLUMN_MAPPINGS_PER_USER at boot', () => {
 		const cap = COLUMN_MAPPINGS_PER_USER_DEFAULT - 1;
 		process.env[NAME] = String(cap);
 
-		expect(bootWarnings()).toStrictEqual([differs(cap)]);
+		expect(bootEvents()).toStrictEqual([changed(cap, 'lowered')]);
 	});
 
-	it('reports a raised cap, and says what raising it lets one user hold', () => {
-		// #737: this warning used to say that nothing deletes a column mapping (#326). #326 shipped
-		// `deleteColumnMapping` and the Settings « Colonnes mémorisées » list, so an operator was told
-		// something the application had stopped being true about. What stays true: no code path
-		// removes one on its own (the three that delete are the Settings action, a backup restore
-		// replacing the user's own, and the user's account going), so the cap is what bounds the
-		// table between a user's visits to Settings.
+	it('reports a raised cap, with the number one user may now hold', () => {
+		// No code path removes a column mapping on its own (the three that delete are the Settings
+		// action, a backup restore replacing the user's own, and the user's account going), so the
+		// cap is what bounds the table between a user's visits to Settings, and the value is the
+		// figure an operator compares against docs/configuration.md.
 		const cap = COLUMN_MAPPINGS_PER_USER_DEFAULT + 1;
 		process.env[NAME] = String(cap);
 
-		expect(bootWarnings()).toStrictEqual([
-			differs(cap),
-			`[budgetpilot] ${NAME} is RAISED above the default, so one user may now hold ${cap} column mappings. Nothing removes one automatically: the user deletes them in Settings.`
-		]);
+		expect(bootEvents()).toStrictEqual([changed(cap, 'raised')]);
 	});
 
 	it('refuses a value above the ceiling, rather than clamping it, and says why', () => {

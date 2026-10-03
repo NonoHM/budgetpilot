@@ -12,6 +12,7 @@ import { assertXlsxBoundConfigured } from '$lib/server/import/zipBounds';
 import { assertForwardingConfigSafe } from '$lib/server/net/clientAddress';
 import { OperatorFacingError } from '$lib/server/operatorFacingError';
 import { describeErrorForLog } from '$lib/server/errors';
+import { assertLoggingConfigured } from '$lib/server/logging';
 
 type Check = [name: string, run: () => void | Promise<void>];
 
@@ -100,7 +101,8 @@ export const ENVIRONMENT_CHECKS: Check[] = [
 	['BACKUP_MAX_JSON_NODES', assertBackupBoundConfigured],
 	['CSV_MAX_COLUMNS', assertCsvColumnBoundConfigured],
 	['COLUMN_MAPPINGS_PER_USER', assertColumnMappingCapConfigured],
-	['IMPORT_RATE_LIMIT_MAX_ATTEMPTS', assertImportRateLimitConfigured]
+	['IMPORT_RATE_LIMIT_MAX_ATTEMPTS', assertImportRateLimitConfigured],
+	['BP_LOG_LEVEL / BP_SECURITY_LOG', assertLoggingConfigured]
 ];
 
 /**

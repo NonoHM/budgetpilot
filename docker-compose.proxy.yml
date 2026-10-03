@@ -56,6 +56,12 @@ services:
       - caddy_data:/data
       - caddy_config:/config
     restart: unless-stopped
+    # Same size bound as the app service; see docker-compose.yml.
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '5'
 
 # Pinned so TRUSTED_PROXIES above is a fixed, knowable value rather than whatever subnet
 # Docker happens to assign. Caddy and the app both get an address in this /24.

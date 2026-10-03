@@ -269,6 +269,16 @@ COPY package.json package-lock.json ./
 # No --chmod on either: they are never executed directly, only read by node.
 COPY boot.mjs ./boot.mjs
 COPY healthcheck.mjs ./healthcheck.mjs
+# boot.mjs writes its lines through the logger's own core, imported as TypeScript source before
+# the server bundle loads (#250). These six and operatorFacingError.ts, copied above, are the whole
+# import graph; pino comes from the production node_modules.
+COPY --from=builder /app/src/lib/server/logging/core.ts \
+	/app/src/lib/server/logging/events.ts \
+	/app/src/lib/server/logging/flood.ts \
+	/app/src/lib/server/logging/names.ts \
+	/app/src/lib/server/logging/serialize.ts \
+	/app/src/lib/server/logging/settings.ts \
+	./src/lib/server/logging/
 
 # Restating what the :nonroot tag already sets, on purpose. Removing this line changes nothing
 # today — tried, and `docker inspect` still reported 65532 — which is exactly why it stays: it

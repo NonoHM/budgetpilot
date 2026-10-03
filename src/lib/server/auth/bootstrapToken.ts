@@ -2,6 +2,8 @@ import { timingSafeEqual } from 'node:crypto';
 import { env } from '$env/dynamic/private';
 import { getRegistrationMode, isSelfRegistrationOpen } from '$lib/server/auth/registration';
 import { OperatorFacingError } from '$lib/server/operatorFacingError';
+import { log } from '$lib/server/logging';
+import { EVENT } from '$lib/server/logging/names';
 
 /**
  * BOOTSTRAP_TOKEN gates /register while registration is closed (admin_only): the very
@@ -49,9 +51,7 @@ export async function assertBootstrapTokenConfigured(): Promise<void> {
 	if (env.BOOTSTRAP_TOKEN?.trim()) return;
 
 	if (!(await isSelfRegistrationOpen())) {
-		console.warn(
-			'[budgetpilot] BOOTSTRAP_TOKEN is empty while REGISTRATION_MODE=admin_only: no new account can be created except through an invitation link generated from the admin panel. Set a token if you want /register to work.'
-		);
+		log({ event: EVENT.configBootstrapTokenEmpty, attributes: {} });
 		return;
 	}
 

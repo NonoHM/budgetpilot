@@ -303,32 +303,38 @@ describe('runDedupeKeyRecompute', () => {
 		// A boot that takes a minute with no output is indistinguishable from a hung one, and
 		// `docker compose up -d` gives an operator no other window onto it.
 		rows = [makeRow({ id: 'a', accountId: 'acc-1' }), makeRow({ id: 'b', accountId: 'acc-2' })];
-		const messages: string[] = [];
+		const reports: { done: number; pending: number }[] = [];
 
 		await runDedupeKeyRecompute({
 			prisma,
 			pairBatchSize: 1,
-			onProgress: (message) => messages.push(message)
+			onProgress: (progress) => reports.push(progress)
 		});
 
-		expect(messages.length).toBeGreaterThan(1);
-		expect(messages[0]).toMatch(/\d+ done/);
-		expect(messages[0]).toMatch(/pending/);
+		// One account pair per batch: the first leaves the other account's row pending.
+		expect(reports).toEqual([
+			{ done: 1, pending: 1 },
+			{ done: 2, pending: 0 }
+		]);
 	});
 
 	it('never puts a key, a label or an id in what it reports', async () => {
 		// A deduplication key contains the transaction's own label, which is a merchant name and
 		// therefore personal financial data. ASVS 5.0.0 16.2.5.
 		rows = [makeRow({ id: 'secret-id', label: 'Docteur Fictif' })];
-		const messages: string[] = [];
+		const reports: { done: number; pending: number }[] = [];
 
-		await runDedupeKeyRecompute({ prisma, onProgress: (message) => messages.push(message) });
+		await runDedupeKeyRecompute({ prisma, onProgress: (progress) => reports.push(progress) });
+
+		// The absolute figure beside the absence assertions below: one report was made, and it is
+		// counts.
+		expect(reports).toEqual([{ done: 1, pending: 0 }]);
 
 		// LOWERCASED on both sides, and without it this test cannot fail either. The key carries the
 		// FOLDED label, so a message leaking the whole key contains `docteur fictif` and a check
 		// for `Docteur` misses it. MEASURED: appending the key to the progress line gave 0 red
 		// before this line was case-folded.
-		const reported = messages.join('\n').toLowerCase();
+		const reported = JSON.stringify(reports).toLowerCase();
 		expect(reported).not.toContain('docteur');
 		expect(reported).not.toContain('secret-id');
 		expect(reported).not.toContain('carrefour');

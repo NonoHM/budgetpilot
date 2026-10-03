@@ -34,6 +34,42 @@ export default defineConfig(
 		}
 	},
 	{
+		// The log has one writer (#250): `log(event)` in src/lib/server/logging, whose events are a
+		// closed type escaped on the way out. A bare console call, or a write to stdout or stderr,
+		// in server code would put a line in the log that bypasses the type, the escaping and the
+		// secret scan's assumptions. Specs, db-smoke files and the Enable Banking sandbox script are
+		// test code and are not shipped. `scripts/` and `boot.mjs` are outside these globs: the
+		// first are operator CLIs, the second writes through the logger's own core.
+		files: ['src/lib/server/**/*.{ts,js}', 'src/routes/**/*.{ts,js}', 'src/hooks.server.ts'],
+		ignores: ['**/*.spec.ts', '**/*.db-smoke.ts', '**/*.sandbox-validation.ts'],
+		rules: {
+			'no-console': 'error',
+			'no-restricted-properties': [
+				'error',
+				{
+					object: 'process',
+					property: 'stdout',
+					message: 'Write the log through log(event) in $lib/server/logging.'
+				},
+				{
+					object: 'process',
+					property: 'stderr',
+					message: 'Write the log through log(event) in $lib/server/logging.'
+				}
+			],
+			'no-restricted-imports': [
+				'error',
+				{
+					paths: [{ name: 'pino', message: 'Only src/lib/server/logging configures the writer.' }]
+				}
+			]
+		}
+	},
+	{
+		files: ['src/lib/server/logging/**/*.ts'],
+		rules: { 'no-restricted-imports': 'off' }
+	},
+	{
 		// Override or add rule settings here, such as:
 		// 'svelte/button-has-type': 'error'
 		rules: {

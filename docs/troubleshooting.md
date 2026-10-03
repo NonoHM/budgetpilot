@@ -93,7 +93,8 @@ Fix it by telling the app this is a LAN instance:
 PUBLIC_INSTANCE=false
 ```
 
-Restart, and the startup log should read `cookies-secure=false`. Your
+Restart, and the `sys_startup` line should read
+`"budgetpilot.config.cookies_secure":false`. Your
 session cookie then travels in clear text on your network, which is the
 trade you're making. Do it on a network you trust, never on an
 internet-reachable instance.

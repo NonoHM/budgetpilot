@@ -1,4 +1,7 @@
 import { fail, type Actions } from '@sveltejs/kit';
+import { log } from '$lib/server/logging';
+import { ATTRIBUTE, EVENT } from '$lib/server/logging/names';
+import { loggableError } from '$lib/server/errors';
 import * as m from '$lib/paraglide/messages';
 import {
 	TRANSACTION_NATURES,
@@ -473,7 +476,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 			// does not put in logs. Logged at all because the bare catch that preceded this made a
 			// systematic failure (an engine limit, a migration drift, a provider-specific groupBy
 			// incompatibility) indistinguishable from a transient one, and left no evidence.
-			console.warn('tagCounts unavailable:', error instanceof Error ? error.name : 'unknown error');
+			logCountsUnavailable('tags', error);
 			tagCounts = null;
 		}
 	}
@@ -494,10 +497,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 					// Best-effort, exactly like tagCounts above, and the name only for the same reason:
 					// a Prisma error on a transaction query embeds parameter values, which here means
 					// labels and amounts.
-					console.warn(
-						'splitCounts unavailable:',
-						error instanceof Error ? error.name : 'unknown error'
-					);
+					logCountsUnavailable('splits', error);
 					return null;
 				});
 
@@ -1417,4 +1417,17 @@ function getAllowedBankFields(csvFields: Record<string, string>) {
 		.map((label) => ({ label, value: csvFields[label] ?? '' }))
 		.filter((field) => field.value !== '')
 		.map((field) => ({ label: field.label, value: anonymizeDetailText(field.value) }));
+}
+
+/**
+ * Best-effort filter counts: the error's class name only, through `loggableError`, never the error.
+ * A Prisma error on a transaction query embeds parameter values, which here means labels and
+ * amounts. Logged at all because a bare catch made a systematic failure indistinguishable from a
+ * transient one.
+ */
+function logCountsUnavailable(kind: 'tags' | 'splits', error: unknown): void {
+	log({
+		event: EVENT.transactionsCountsUnavailable,
+		attributes: { [ATTRIBUTE.countsKind]: kind, [ATTRIBUTE.errorType]: loggableError(error).name }
+	});
 }

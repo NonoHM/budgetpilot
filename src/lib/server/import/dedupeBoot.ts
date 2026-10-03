@@ -1,5 +1,7 @@
 import { prisma } from '$lib/server/db';
 import { withBootBackfillLock } from '$lib/server/database/advisoryLock';
+import { log, logBackfillLockWait } from '$lib/server/logging';
+import { ATTRIBUTE, EVENT } from '$lib/server/logging/names';
 import { hasPendingDedupeKeyHashes, runDedupeKeyHashBackfill } from './dedupeBackfill.ts';
 import { hasPendingDedupeKeyVersions, runDedupeKeyRecompute } from './dedupeRecomputeBackfill.ts';
 
@@ -21,13 +23,26 @@ import { hasPendingDedupeKeyVersions, runDedupeKeyRecompute } from './dedupeReco
 export async function ensureDedupeKeyHashesBackfilled(): Promise<void> {
 	if (!(await hasPendingDedupeKeyHashes(prisma))) return;
 
-	await withBootBackfillLock('dedupe-keys', async () => {
-		if (!(await hasPendingDedupeKeyHashes(prisma))) return;
+	await withBootBackfillLock(
+		'dedupe-keys',
+		async () => {
+			if (!(await hasPendingDedupeKeyHashes(prisma))) return;
 
-		console.log('[dedupe-keys] hashing existing deduplication keys, this runs once');
-		const written = await runDedupeKeyHashBackfill({ prisma });
-		console.log(`[dedupe-keys] backfill complete: ${written} row(s) hashed`);
-	});
+			log({
+				event: EVENT.backfillStarted,
+				attributes: { [ATTRIBUTE.backfillName]: 'dedupe_key_hashes' }
+			});
+			const written = await runDedupeKeyHashBackfill({ prisma });
+			log({
+				event: EVENT.backfillCompleted,
+				attributes: {
+					[ATTRIBUTE.backfillName]: 'dedupe_key_hashes',
+					[ATTRIBUTE.backfillCount]: written
+				}
+			});
+		},
+		{ onWait: logBackfillLockWait }
+	);
 }
 
 /**
@@ -51,18 +66,38 @@ export async function ensureDedupeKeyHashesBackfilled(): Promise<void> {
 export async function ensureDedupeKeysAtCurrentVersion(): Promise<void> {
 	if (!(await hasPendingDedupeKeyVersions(prisma))) return;
 
-	await withBootBackfillLock('dedupe-key-version', async () => {
-		if (!(await hasPendingDedupeKeyVersions(prisma))) return;
+	await withBootBackfillLock(
+		'dedupe-key-version',
+		async () => {
+			if (!(await hasPendingDedupeKeyVersions(prisma))) return;
 
-		console.log(
-			'[dedupe-keys] recomputing deduplication keys to the current version, this runs once'
-		);
-		const { rewritten, unkeyed } = await runDedupeKeyRecompute({
-			prisma,
-			onProgress: (message) => console.log(`[dedupe-keys] ${message}`)
-		});
-		console.log(
-			`[dedupe-keys] recompute complete: ${rewritten} key(s) rewritten, ${unkeyed} row(s) left unkeyed for want of a direction`
-		);
-	});
+			log({
+				event: EVENT.backfillStarted,
+				attributes: { [ATTRIBUTE.backfillName]: 'dedupe_key_recompute' }
+			});
+			const { rewritten, unkeyed } = await runDedupeKeyRecompute({
+				prisma,
+				onProgress: ({ done, pending }) =>
+					log({
+						event: EVENT.backfillProgress,
+						attributes: {
+							[ATTRIBUTE.backfillName]: 'dedupe_key_recompute',
+							[ATTRIBUTE.backfillStage]: 'keys',
+							[ATTRIBUTE.backfillCount]: done,
+							[ATTRIBUTE.backfillPending]: pending
+						}
+					})
+			});
+			// `unkeyed`: rows left without a key for want of a direction.
+			log({
+				event: EVENT.backfillCompleted,
+				attributes: {
+					[ATTRIBUTE.backfillName]: 'dedupe_key_recompute',
+					[ATTRIBUTE.backfillCount]: rewritten,
+					[ATTRIBUTE.backfillUnkeyed]: unkeyed
+				}
+			});
+		},
+		{ onWait: logBackfillLockWait }
+	);
 }

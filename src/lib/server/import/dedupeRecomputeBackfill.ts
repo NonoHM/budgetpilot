@@ -74,7 +74,8 @@ export interface DedupeKeyRecomputeOptions {
 	pairBatchSize?: number;
 	/** Test seam: stop after N batches, which is the shape of a process that died. */
 	maxBatches?: number;
-	onProgress?: (message: string) => void;
+	/** Counts as they grow, for the boot log; numbers, never a sentence. */
+	onProgress?: (progress: { done: number; pending: number }) => void;
 }
 
 export interface DedupeKeyRecomputeResult {
@@ -271,7 +272,7 @@ export async function runDedupeKeyRecompute(
 
 		const pendingLeft = await prisma.transaction.count({ where: pendingWhere(scope) });
 		// COUNTS ONLY. A deduplication key contains the transaction's own label.
-		onProgress?.(`${rewritten + unkeyed} done, ${pendingLeft} pending`);
+		onProgress?.({ done: rewritten + unkeyed, pending: pendingLeft });
 
 		if (pendingLeft === 0) break;
 	}

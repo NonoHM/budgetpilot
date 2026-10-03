@@ -91,6 +91,39 @@ async function waitForServer(server: Server): Promise<void> {
 
 const count = (haystack: string, needle: string) => haystack.split(needle).length - 1;
 
+type LogLine = Record<string, unknown>;
+
+/** Every line of a capture that parses as a JSON object, in order. */
+function events(capture: string): LogLine[] {
+	return capture.split('\n').flatMap((line) => {
+		try {
+			const value: unknown = JSON.parse(line);
+			return value && typeof value === 'object' && !Array.isArray(value) ? [value as LogLine] : [];
+		} catch {
+			return [];
+		}
+	});
+}
+
+/**
+ * A line without the fields every line carries (time, severity, service, the integrity fields), so
+ * what is left is what this event says and an assertion on it is an assertion on the whole event.
+ */
+function withoutEnvelope(line: LogLine | undefined): LogLine | undefined {
+	if (!line) return line;
+	const envelope = new Set([
+		'timestamp',
+		'severity_text',
+		'severity_number',
+		'service.name',
+		'budgetpilot.log.schema',
+		'budgetpilot.log.boot_id',
+		'budgetpilot.log.seq',
+		'budgetpilot.log.prev'
+	]);
+	return Object.fromEntries(Object.entries(line).filter(([key]) => !envelope.has(key)));
+}
+
 interface Forced {
 	status: number;
 	message: string | undefined;
@@ -235,8 +268,18 @@ test.afterAll(() => {
 test.describe('calibration', () => {
 	test('the request capture holds the application output and request data', () => {
 		// Every absence below is meaningless if the pipe is empty or the search cannot see into it.
-		expect(requestCapture).toContain('[budgetpilot] startup:');
-		expect(requestCapture).toContain(`[404] GET /${CONTROL_PATH}`);
+		// The control path is not in the log by design (only the route template is); its request is
+		// the not-found line, and the forced failures below carry the ids the responses returned.
+		const lines = events(requestCapture);
+		expect(lines.some((line) => line.event_name === 'sys_startup')).toBe(true);
+		expect(
+			lines.filter(
+				(line) =>
+					line.event_name === 'budgetpilot.request.not_found' &&
+					line['http.request.method'] === 'GET' &&
+					!('http.route' in line)
+			).length
+		).toBeGreaterThan(0);
 	});
 
 	test('the forced action failed with a 500 and SvelteKit generic message', () => {
@@ -244,7 +287,13 @@ test.describe('calibration', () => {
 	});
 
 	test('the boot recompute was reached and the boot failed', () => {
-		expect(recomputeBoot.captured).toContain('[dedupe-keys] recomputing deduplication keys');
+		expect(
+			events(recomputeBoot.captured).some(
+				(line) =>
+					line.event_name === 'budgetpilot.backfill.started' &&
+					line['budgetpilot.backfill.name'] === 'dedupe_key_recompute'
+			)
+		).toBe(true);
 		expect(recomputeBoot.exitCode).toBe(1);
 	});
 });
@@ -254,11 +303,22 @@ test.describe('request path', () => {
 		expect(actionFailure.errorId).toMatch(ERROR_ID);
 	});
 
-	test('the log line for a failed action is status, method, path, that error id, class and code', () => {
-		// The whole line, so a message riding along after the code would fail it.
-		expect(requestCapture).toContain(
-			`[500] POST /categories errorId=${actionFailure.errorId} PrismaClientKnownRequestError(P2003)\n`
+	test('the log line for a failed action is status, method, route, that error id, class and code', () => {
+		// The whole line, compared as an object: a message riding along after the code would fail it.
+		const line = events(requestCapture).find(
+			(entry) => entry['budgetpilot.error.id'] === actionFailure.errorId
 		);
+		expect(withoutEnvelope(line)).toEqual({
+			event_name: 'budgetpilot.request.failed',
+			trace_id: actionFailure.errorId.replaceAll('-', ''),
+			'http.request.method': 'POST',
+			'http.route': '/categories',
+			'http.response.status_code': 500,
+			'budgetpilot.error.id': actionFailure.errorId,
+			'error.type': 'PrismaClientKnownRequestError',
+			'budgetpilot.error.code': 'P2003',
+			body: expect.any(String)
+		});
 	});
 
 	test('the database message is not in the log', () => {
@@ -277,15 +337,27 @@ test.describe('request path', () => {
 	});
 
 	test('the log carries the id the failed page shows', () => {
-		expect(requestCapture).toContain(`[500] GET /categories errorId=${shownErrorId()} `);
+		const line = events(requestCapture).find(
+			(entry) => entry['budgetpilot.error.id'] === shownErrorId()
+		);
+		expect([line?.event_name, line?.['http.request.method'], line?.['http.route']]).toEqual([
+			'budgetpilot.request.failed',
+			'GET',
+			'/categories'
+		]);
 	});
 });
 
 test.describe('boot path', () => {
 	test('a refused recompute write is logged by class and code', () => {
-		expect(recomputeBoot.captured).toContain(
-			'[budgetpilot] fatal unhandledRejection: PrismaClientKnownRequestError(P2003)\n'
-		);
+		const line = events(recomputeBoot.captured).find((entry) => entry.event_name === 'sys_crash');
+		expect(withoutEnvelope(line)).toEqual({
+			event_name: 'sys_crash',
+			'budgetpilot.crash.origin': 'unhandledRejection',
+			'error.type': 'PrismaClientKnownRequestError',
+			'budgetpilot.error.code': 'P2003',
+			body: expect.any(String)
+		});
 	});
 
 	test('the refused row is not in the log', () => {
@@ -297,13 +369,18 @@ test.describe('boot path', () => {
 		// The other side of the rule. Reduced to its class name, the environment report naming every
 		// missing variable would cost one restart per variable, which is what assertConfigured.ts
 		// exists to prevent.
-		expect(refusedBoot.captured).toContain(
-			'[budgetpilot] fatal unhandledRejection: OperatorFacingError: BudgetPilot cannot start: one configuration problem.'
-		);
+		const line = events(refusedBoot.captured).find((entry) => entry.event_name === 'sys_crash');
+		expect([line?.['error.type'], String(line?.['budgetpilot.error.operator_message'])]).toEqual([
+			'OperatorFacingError',
+			expect.stringMatching(/^BudgetPilot cannot start: one configuration problem\./)
+		]);
 	});
 
 	test('the refusal names the variable, and the boot exits 1', () => {
-		expect(refusedBoot.captured).toContain('RATE_LIMIT_HASH_SECRET is required');
+		const line = events(refusedBoot.captured).find((entry) => entry.event_name === 'sys_crash');
+		expect(String(line?.['budgetpilot.error.operator_message'])).toContain(
+			'RATE_LIMIT_HASH_SECRET is required'
+		);
 		expect(refusedBoot.exitCode).toBe(1);
 	});
 });

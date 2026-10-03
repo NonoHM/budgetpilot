@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { ENVIRONMENT_CHECKS } from '../env/assertConfigured';
+import { ATTRIBUTE, EVENT } from '$lib/server/logging/names';
 import {
 	assertBackupBoundConfigured,
 	BACKUP_DEFAULT_MAX_JSON_NODES,
@@ -15,6 +16,14 @@ import {
 // Nothing here queries a database, so the client is replaced rather than constructed: the wiring
 // test below needs the collector's LIST, not a connection.
 vi.mock('$lib/server/db', () => ({ prisma: {} }));
+
+const logged = vi.hoisted(() => [] as unknown[]);
+vi.mock('$lib/server/logging', async (importOriginal) => ({
+	...(await importOriginal<typeof import('$lib/server/logging')>()),
+	log: (event: unknown) => {
+		logged.push(event);
+	}
+}));
 
 /**
  * The structural bound on a restored backup (#276, ASVS 5.0 `v5.2.3` in spirit: bound the resource
@@ -84,16 +93,10 @@ function withEnv<T>(value: string | undefined, run: () => T): T {
 	}
 }
 
-function captureWarnings(run: () => void): string[] {
-	const lines: string[] = [];
-	const original = console.warn;
-	console.warn = (...args: unknown[]) => void lines.push(args.map(String).join(' '));
-	try {
-		run();
-	} finally {
-		console.warn = original;
-	}
-	return lines;
+function captureEvents(run: () => void): unknown[] {
+	logged.length = 0;
+	run();
+	return [...logged];
 }
 
 describe('the counter measures density, which is what separates the two payloads', () => {
@@ -220,16 +223,25 @@ describe('the bound is configurable, and the configuration cannot remove it', ()
 	});
 
 	it('says nothing at boot on the default, and names both values on any departure', () => {
-		expect.assertions(4);
+		expect.assertions(2);
 
 		// Presence control first: a logger that warned unconditionally would satisfy the rest, and an
 		// operator who sees a warning on a default install stops reading warnings.
-		expect(withEnv(undefined, () => captureWarnings(assertBackupBoundConfigured))).toEqual([]);
+		expect(withEnv(undefined, () => captureEvents(assertBackupBoundConfigured))).toEqual([]);
 
-		const raised = withEnv('3500000', () => captureWarnings(assertBackupBoundConfigured));
-		expect(raised.join('\n')).toContain('=3500000');
-		expect(raised.join('\n')).toContain(`default of ${BACKUP_DEFAULT_MAX_JSON_NODES}`);
-		expect(raised.join('\n')).toContain('RAISED');
+		const raised = withEnv('3500000', () => captureEvents(assertBackupBoundConfigured));
+		expect(raised).toEqual([
+			{
+				event: EVENT.configBoundChanged,
+				attributes: {
+					[ATTRIBUTE.configName]: BACKUP_MAX_JSON_NODES_ENV,
+					[ATTRIBUTE.configValue]: 3_500_000,
+					[ATTRIBUTE.configDefault]: BACKUP_DEFAULT_MAX_JSON_NODES,
+					[ATTRIBUTE.configDirection]: 'raised',
+					[ATTRIBUTE.configBelowHonestMinimum]: false
+				}
+			}
+		]);
 	});
 
 	it('warns when the bound is set below what this application can export', () => {
@@ -237,9 +249,20 @@ describe('the bound is configurable, and the configuration cannot remove it', ()
 
 		// The direction that matters more here than for the xlsx bound: below this figure the app
 		// refuses to restore files it wrote itself, and the user is told the backup is corrupted.
-		const lowered = withEnv('500000', () => captureWarnings(assertBackupBoundConfigured));
-		expect(lowered.join('\n')).toContain('LOWERED');
-		expect(lowered.join('\n')).toContain(String(LARGEST_EXPORTABLE_JSON_NODES));
+		expect(500_000).toBeLessThan(LARGEST_EXPORTABLE_JSON_NODES);
+		const lowered = withEnv('500000', () => captureEvents(assertBackupBoundConfigured));
+		expect(lowered).toEqual([
+			{
+				event: EVENT.configBoundChanged,
+				attributes: {
+					[ATTRIBUTE.configName]: BACKUP_MAX_JSON_NODES_ENV,
+					[ATTRIBUTE.configValue]: 500_000,
+					[ATTRIBUTE.configDefault]: BACKUP_DEFAULT_MAX_JSON_NODES,
+					[ATTRIBUTE.configDirection]: 'lowered',
+					[ATTRIBUTE.configBelowHonestMinimum]: true
+				}
+			}
+		]);
 	});
 
 	it('the boot check is registered with the boot collector, and the bound wired into the restore action', () => {

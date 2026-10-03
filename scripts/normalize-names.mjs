@@ -29,7 +29,12 @@ try {
 	// operator can now start it by hand. A dry run only reads, so it never waits for anything.
 	const report = dryRun
 		? await runNameKeyBackfill({ prisma, dryRun })
-		: await withBootBackfillLock('name-keys', () => runNameKeyBackfill({ prisma }));
+		: await withBootBackfillLock('name-keys', () => runNameKeyBackfill({ prisma }), {
+				onWait: (name, waitedSeconds) =>
+					console.log(
+						`[${name}] waiting for another instance to finish the one-time backfill (${waitedSeconds}s so far)`
+					)
+			});
 	console.log(renderNameKeyReport(report));
 } catch (error) {
 	console.error('Name normalization failed:', error instanceof Error ? error.message : error);

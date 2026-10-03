@@ -1,4 +1,6 @@
-import { describeErrorForLog } from '$lib/server/errors';
+import { loggableError } from '$lib/server/errors';
+import { errorFields, log } from '$lib/server/logging';
+import { ATTRIBUTE, EVENT } from '$lib/server/logging/names';
 import { DeclaredCurrencyMismatchError, type DeclaredCurrencyMismatch } from './declaredCurrency';
 import {
 	createImportBatchRow,
@@ -117,15 +119,23 @@ export async function writeImport(input: {
  * call, which on this path are a user's transactions, and AGENTS.md forbids logging banking data.
  * The name and a short code (`P2003`, a SQLSTATE) are what an operator looks up; neither can carry
  * a label or an amount.
- * The rule itself is `describeErrorForLog` in server/errors.ts, shared with the error hook and the
- * last-resort handler (#816); this was its first copy.
+ * The rule itself is `loggableError` in server/errors.ts, shared with the error hook and the
+ * last-resort handler (#816) through `errorFields`; this was its first copy.
  */
 function logWriteFailure(caught: unknown, stage: 'batch' | 'rows' | 'cleanup'): void {
 	const failure = caught instanceof ImportWriteError ? caught.failure : null;
 	const cause = caught instanceof ImportWriteError ? caught.cause : caught;
-	console.error(
-		`[import] write step failed at ${stage}: ${describeErrorForLog(caught)}` +
-			(failure?.kind === 'failed' ? ` landedRows=${failure.landedRows ?? 'unknown'}` : '') +
-			(cause !== caught ? ` cause=${describeErrorForLog(cause)}` : '')
-	);
+	const causeFields = cause === caught ? null : loggableError(cause);
+	log({
+		event: EVENT.importWriteFailed,
+		attributes: {
+			...errorFields(caught),
+			[ATTRIBUTE.importStage]: stage,
+			...(failure?.kind === 'failed' && typeof failure.landedRows === 'number'
+				? { [ATTRIBUTE.importLandedRows]: failure.landedRows }
+				: {}),
+			...(causeFields ? { [ATTRIBUTE.causeType]: causeFields.name } : {}),
+			...(causeFields?.code ? { [ATTRIBUTE.causeCode]: causeFields.code } : {})
+		}
+	});
 }

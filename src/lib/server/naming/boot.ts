@@ -1,7 +1,9 @@
 import { prisma } from '$lib/server/db';
 import { withBootBackfillLock } from '$lib/server/database/advisoryLock';
+import { log, logBackfillLockWait } from '$lib/server/logging';
+import { ATTRIBUTE, EVENT } from '$lib/server/logging/names';
 import { hasPendingNameKeys, runNameKeyBackfill } from './backfill.ts';
-import { renderSummaryLine } from './report.ts';
+import { summaryCounts } from './report.ts';
 
 /**
  * Runs the name-key backfill once, at startup, if it has not run yet.
@@ -35,28 +37,43 @@ import { renderSummaryLine } from './report.ts';
 export async function ensureNameKeysBackfilled(): Promise<void> {
 	if (!(await hasPendingNameKeys(prisma))) return;
 
-	await withBootBackfillLock('name-keys', async () => {
-		if (!(await hasPendingNameKeys(prisma))) return;
+	await withBootBackfillLock(
+		'name-keys',
+		async () => {
+			if (!(await hasPendingNameKeys(prisma))) return;
 
-		console.log('[name-keys] backfilling name keys, this runs once');
-		const report = await runNameKeyBackfill({ prisma });
-		console.log(renderSummaryLine(report));
+			log({ event: EVENT.backfillStarted, attributes: { [ATTRIBUTE.backfillName]: 'name_keys' } });
+			const report = await runNameKeyBackfill({ prisma });
+			const counts = summaryCounts(report);
+			log({
+				event: EVENT.backfillCompleted,
+				attributes: {
+					[ATTRIBUTE.backfillName]: 'name_keys',
+					[ATTRIBUTE.backfillCount]: counts.keysWritten,
+					[ATTRIBUTE.backfillUsers]: counts.users,
+					[ATTRIBUTE.backfillRowsMerged]: counts.rowsMerged,
+					[ATTRIBUTE.backfillRepointed]: counts.transactionsRepointed
+				}
+			});
 
-		const blocked = report.users.reduce(
-			(total, user) => total + user.accountMergesBlocked.length,
-			0
-		);
-		const netWorth = report.users.reduce(
-			(total, user) => total + user.netWorthCollisions.length,
-			0
-		);
-		if (blocked > 0 || netWorth > 0) {
-			console.warn(
-				`[name-keys] ${blocked} account group(s) and ${netWorth} net worth account group(s) have ` +
-					'names that now read as duplicates and were left untouched. Run ' +
-					'"docker compose run --rm budgetpilot scripts/normalize-names.mjs --dry-run" ' +
-					'(or "npm run db:normalize-names -- --dry-run" outside Docker) to see which ones.'
+			const blocked = report.users.reduce(
+				(total, user) => total + user.accountMergesBlocked.length,
+				0
 			);
-		}
-	});
+			const netWorth = report.users.reduce(
+				(total, user) => total + user.netWorthCollisions.length,
+				0
+			);
+			if (blocked > 0 || netWorth > 0) {
+				log({
+					event: EVENT.backfillMergesBlocked,
+					attributes: {
+						[ATTRIBUTE.backfillAccountGroups]: blocked,
+						[ATTRIBUTE.backfillNetWorthGroups]: netWorth
+					}
+				});
+			}
+		},
+		{ onWait: logBackfillLockWait }
+	);
 }

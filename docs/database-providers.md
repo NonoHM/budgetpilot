@@ -131,7 +131,10 @@ Neither is a password you have to store, rotate, or type.
 **If the app warns at startup that it has more privilege than it uses**, it
 means this setup did not apply: an operator's own server where the account
 was granted extra rights, or a volume created before this overlay existed.
-The warning names the fix for your case, and there are only three:
+The warning is a `budgetpilot.database.overprivileged` line whose two
+attributes say which of the three fixes is yours: `budgetpilot.database.bootstrap_role`
+true is the last case, otherwise `budgetpilot.database.owns_database` picks
+between the first two.
 
 - The role already owns its database: `ALTER ROLE "<role>" NOSUPERUSER;`, and
   revoke any `pg_execute_server_program`, `pg_write_server_files` or

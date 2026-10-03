@@ -412,9 +412,10 @@ nothing you can see. The app computes a fingerprint for each imported
 transaction, used to recognise a row you already have when you re-import a
 statement. It now compares those fingerprints itself instead of leaving the
 comparison to the database, which is what lets BudgetPilot run on PostgreSQL
-and MySQL. You get one log line, `[dedupe-keys] hashing existing
-deduplication keys, this runs once`, and nothing else: no transaction is
-merged, moved, or dropped.
+and MySQL. You get two log lines, `budgetpilot.backfill.started` and
+`budgetpilot.backfill.completed`, both with `budgetpilot.backfill.name`
+`dedupe_key_hashes`, and nothing else: no transaction is merged, moved, or
+dropped.
 
 **Account emails have to be ASCII from this version.** The rule applies when
 an account is created or invited, never when one signs in: an account already
@@ -647,6 +648,27 @@ file holds and what the validator checks are in the
 4. Restore the database with the matching command above (`docker compose cp`
    on SQLite, `pg_restore` or `mariadb` on a server engine).
 5. Adjust `ORIGIN` if the URL changed.
+
+## Logs
+
+The server writes one JSON object per line. To follow it:
+
+```bash
+docker compose logs -f --no-log-prefix budgetpilot
+```
+
+To read only warnings and errors, pipe it through `jq` on the host:
+
+```bash
+docker compose logs --no-log-prefix budgetpilot | jq -cR 'fromjson? | select(.severity_number >= 13)'
+```
+
+The `fromjson?` skips the plain-text lines `prisma migrate deploy` prints at
+start. The shipped Compose files keep at most five files of 10 MB per service
+and delete the oldest first: that is a size bound, not an age bound. If an
+error page showed you a reference, search the log for it: it is the line's
+`budgetpilot.error.id`. [Logs](./logging.md) lists every event and field, and
+how to set retention on a collector.
 
 ## Looking inside the container
 

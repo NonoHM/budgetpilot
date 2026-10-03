@@ -33,6 +33,15 @@ import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { existsSync, unlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+// The logger's own core, as TypeScript source (Node strips the types): this file runs before the
+// server bundle exists, and its lines belong to the same chain the server continues (#250).
+import { createLogWriter, stdoutSink } from './src/lib/server/logging/core.ts';
+import { ATTRIBUTE, EVENT } from './src/lib/server/logging/names.ts';
+import { readLogSettings } from './src/lib/server/logging/settings.ts';
+
+const log = createLogWriter({ ...readLogSettings(process.env), sink: stdoutSink() });
+/** A filesystem error code, admitted only in the shape of one. */
+const FS_ERROR_CODE = /^[A-Z0-9_]{1,40}$/;
 
 // The image default, and the one it replaced.
 //
@@ -77,15 +86,7 @@ function resolveDatabaseUrl(env) {
 	const legacy = LEGACY_DEFAULT_DATABASE_URL.slice('file:'.length);
 	if (existsSync(target) || !existsSync(legacy)) return configured;
 
-	console.log(
-		`Using ${legacy}, which is where this install's database already is.\n` +
-			`The default moved to ${target} because "dev.db" was never the right name for ` +
-			'production data. Your database is not moved and nothing is rewritten: this ' +
-			'message is what happens instead.\n' +
-			'To adopt the new name, stop the container and rename the file (and its -wal and ' +
-			'-shm siblings, if present) inside the volume. To keep the old one forever, set ' +
-			`DATABASE_URL=${LEGACY_DEFAULT_DATABASE_URL} explicitly and this message stops.`
-	);
+	log({ event: EVENT.bootLegacyDatabaseAdopted, attributes: {} });
 	return LEGACY_DEFAULT_DATABASE_URL;
 }
 
@@ -141,37 +142,27 @@ if (databaseUrl.startsWith('file:')) {
 	} catch (error) {
 		const uid = process.getuid();
 		if (error.code === 'EROFS') {
-			console.error(
-				`${directory} is on a read-only filesystem, so the SQLite database cannot be ` +
-					'written. The container runs with a read-only root filesystem by design, and ' +
-					`${directory} is expected to be a mounted volume — nothing is mounted there.\n` +
-					'In Compose that is the `budgetpilot_data:/data` volume the shipped files ' +
-					'declare; check it has not been removed. With plain docker run, add ' +
-					'`-v budgetpilot_data:/data`.' +
-					(directory === '/data'
-						? ''
-						: `\nNote that DATABASE_URL points at ${directory}, not at /data. Inside the ` +
-							'container the SQLite file has to live on the mounted volume: set ' +
-							`DATABASE_URL=${DEFAULT_DATABASE_URL}.`)
-			);
+			log({
+				event: EVENT.bootDataDirReadOnly,
+				attributes: { [ATTRIBUTE.bootDirectory]: directory }
+			});
 		} else if (error.code === 'EACCES' || error.code === 'EPERM') {
-			console.error(
-				`${directory} is not writable by uid ${uid}. If you upgraded from an image older ` +
-					'than the distroless one, the volume is still owned by the old uid.\n' +
-					"Fix it once, with the container stopped. Find the volume's real name first — " +
-					'Compose prefixes it with the project name, so what docker-compose.yml calls ' +
-					'budgetpilot_data is usually budgetpilot_budgetpilot_data:\n' +
-					'  docker volume ls\n' +
-					'  docker run --rm -v <that name>:/data busybox chown -R 65532:65532 /data\n' +
-					'Get the name wrong and this still exits 0: `-v` silently creates a volume that ' +
-					'does not exist, chowns that empty one, and changes nothing here. For a bind ' +
-					'mount instead: sudo chown -R 65532:65532 /your/host/path'
-			);
+			log({
+				event: EVENT.bootDataDirNotWritable,
+				attributes: { [ATTRIBUTE.bootDirectory]: directory, [ATTRIBUTE.bootUid]: uid }
+			});
 		} else {
-			console.error(
-				`${directory} could not be written by uid ${uid}: ${error.code ?? error.message}. ` +
-					'The SQLite database lives there, so the app cannot start.'
-			);
+			// The code only, never the message, which is a sentence the platform wrote around a path.
+			log({
+				event: EVENT.bootDataDirUnusable,
+				attributes: {
+					[ATTRIBUTE.bootDirectory]: directory,
+					[ATTRIBUTE.bootUid]: uid,
+					...(typeof error.code === 'string' && FS_ERROR_CODE.test(error.code)
+						? { [ATTRIBUTE.errorCode]: error.code }
+						: {})
+				}
+			});
 		}
 		process.exit(1);
 	}
@@ -198,7 +189,7 @@ process.off('SIGTERM', onSignal);
 process.off('SIGINT', onSignal);
 
 if (code !== 0) {
-	console.error(`prisma migrate deploy exited with ${code}; refusing to start`);
+	log({ event: EVENT.bootMigrateFailed, attributes: { [ATTRIBUTE.bootExitCode]: code ?? -1 } });
 	process.exit(code ?? 1);
 }
 

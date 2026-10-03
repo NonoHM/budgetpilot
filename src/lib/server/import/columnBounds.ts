@@ -1,4 +1,4 @@
-import { readOperatorBound } from '$lib/server/env/operatorBound';
+import { readOperatorBound, reportBoundDeparture } from '$lib/server/env/operatorBound';
 import { OperatorFacingError } from '$lib/server/operatorFacingError';
 
 /**
@@ -90,19 +90,12 @@ export function resolveCsvMaxColumns(): number {
  */
 export function assertCsvColumnBoundConfigured(): void {
 	const columns = resolveCsvMaxColumns();
-	if (columns === CSV_DEFAULT_MAX_COLUMNS) return;
-
-	console.warn(
-		`[budgetpilot] ${CSV_MAX_COLUMNS_ENV}=${columns} differs from the default of ${CSV_DEFAULT_MAX_COLUMNS}. It bounds how many columns an imported file may declare.`
+	// Below the width of an ordinary accounting package export, files this application should read
+	// are refused.
+	reportBoundDeparture(
+		CSV_MAX_COLUMNS_ENV,
+		columns,
+		CSV_DEFAULT_MAX_COLUMNS,
+		columns < WIDEST_REALISTIC_EXPORT_COLUMNS
 	);
-
-	if (columns > CSV_DEFAULT_MAX_COLUMNS) {
-		console.warn(
-			`[budgetpilot] ${CSV_MAX_COLUMNS_ENV} is RAISED above the default, so the column designation screen may be asked to render ${columns} cards and ${columns * 3} preview values in one page.`
-		);
-	} else if (columns < WIDEST_REALISTIC_EXPORT_COLUMNS) {
-		console.warn(
-			`[budgetpilot] ${CSV_MAX_COLUMNS_ENV} is LOWERED below ${WIDEST_REALISTIC_EXPORT_COLUMNS}, which is the width of an ordinary accounting package export. Files this application should be able to read will now be refused, and the user is told their file has too many columns rather than that a limit was lowered.`
-		);
-	}
 }

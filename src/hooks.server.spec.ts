@@ -1,6 +1,22 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { APP_VERSION } from '$lib/server/appVersion';
+import { REGISTRY } from '$lib/server/logging/events';
+import { ATTRIBUTE as A, EVENT as E } from '$lib/server/logging/names';
+
+const logged = vi.hoisted(() => [] as unknown[]);
+vi.mock('$lib/server/logging', async (importOriginal) => ({
+	...(await importOriginal<typeof import('$lib/server/logging')>()),
+	log: (event: unknown) => {
+		logged.push(event);
+	}
+}));
+
+// The module writes its startup events when it is imported, below; each test starts from none.
+beforeEach(() => {
+	logged.length = 0;
+});
 
 const auth = vi.hoisted(() => ({
 	readSessionUser: vi.fn(),
@@ -504,29 +520,66 @@ function buildEvent(pathname: string, token: string | undefined) {
 	};
 }
 
-describe('originStartupMessage', () => {
-	it('warns when ORIGIN is unset, naming the failure it predicts', async () => {
-		const { originStartupMessage } = await import('./hooks.server');
-		const message = originStartupMessage(undefined);
-		expect(message).toMatch(/ORIGIN is unset/);
-		expect(message).toMatch(/Cross-site POST form submissions are forbidden/);
-		// The remedy belongs in the message, not only in the docs: this is the one variable whose
+describe('startupEvents', () => {
+	function startup(over: {
+		originSet: boolean;
+		secureCookies: boolean;
+		trustedProxyRanges: number;
+	}) {
+		return {
+			event: E.sysStartup,
+			attributes: {
+				[A.serviceVersion]: APP_VERSION,
+				[A.configPublicInstance]: over.secureCookies ? 'secure' : 'lan',
+				[A.configCookiesSecure]: over.secureCookies,
+				[A.configDatabaseProvider]: 'sqlite',
+				[A.configTrustedProxyRanges]: over.trustedProxyRanges,
+				[A.configOriginSet]: over.originSet,
+				[A.configSecurityLog]: 'on',
+				[A.configLogLevel]: 'info'
+			}
+		};
+	}
+
+	it('reports ORIGIN unset as its own event, whose sentence names the failure and the remedy', async () => {
+		const { startupEvents } = await import('./hooks.server');
+		// No proxy range and insecure cookies, so the order of all four events is asserted too.
+		expect(startupEvents({}, { secureCookies: false, trustedProxyRanges: 0 })).toEqual([
+			startup({ originSet: false, secureCookies: false, trustedProxyRanges: 0 }),
+			{ event: E.configOriginUnset, attributes: {} },
+			{ event: E.configTrustedProxiesUnset, attributes: {} },
+			{ event: E.configInsecureCookies, attributes: {} }
+		]);
+		// The remedy belongs in the line, not only in the docs: this is the one variable whose
 		// absence produced a user-visible failure with no boot signal at all.
-		expect(message).toMatch(/Set ORIGIN to the exact URL you type/);
+		expect(REGISTRY[E.configOriginUnset].body).toMatch(/every form submission fails as cross-site/);
+		expect(REGISTRY[E.configOriginUnset].body).toMatch(/Set ORIGIN to the exact URL you type/);
 	});
 
 	it('treats a blank ORIGIN as unset', async () => {
-		const { originStartupMessage } = await import('./hooks.server');
-		expect(originStartupMessage('   ')).toMatch(/ORIGIN is unset/);
+		const { startupEvents } = await import('./hooks.server');
+		expect(
+			startupEvents({ ORIGIN: '   ' }, { secureCookies: true, trustedProxyRanges: 2 })
+		).toEqual([
+			startup({ originSet: false, secureCookies: true, trustedProxyRanges: 2 }),
+			{ event: E.configOriginUnset, attributes: {} }
+		]);
 	});
 
 	it('reports the configured value, and still says what a wrong one costs', async () => {
-		const { originStartupMessage } = await import('./hooks.server');
-		const message = originStartupMessage('http://localhost:3999');
-		expect(message).toContain('ORIGIN=http://localhost:3999');
+		const { startupEvents } = await import('./hooks.server');
+		expect(
+			startupEvents(
+				{ ORIGIN: 'http://localhost:3999' },
+				{ secureCookies: true, trustedProxyRanges: 2 }
+			)
+		).toEqual([
+			startup({ originSet: true, secureCookies: true, trustedProxyRanges: 2 }),
+			{ event: E.configOriginSet, attributes: { [A.configOrigin]: 'http://localhost:3999' } }
+		]);
 		// Set-but-wrong is the likelier failure than unset: docker-compose.yml defaults ORIGIN to
 		// http://localhost:3000, so moving APP_PORT alone produces exactly this state.
-		expect(message).toMatch(/refused as cross-site/);
+		expect(REGISTRY[E.configOriginSet].body).toMatch(/refused as cross-site/);
 	});
 });
 
@@ -563,10 +616,9 @@ describe('escapeHtmlAttribute', () => {
 describe('handleError', () => {
 	const MARKER = 'L0MRK7c41q';
 
-	it('logs status, method, path, an error id and the class and code, and returns the id', async () => {
+	it('logs status, an error id and the class and code, and returns the id', async () => {
 		const { handleError } = await import('./hooks.server');
 		const { PrismaClientKnownRequestError } = await import('@prisma/client/runtime/client');
-		const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
 		const caught = new PrismaClientKnownRequestError(`refused row Food ${MARKER}`, {
 			code: 'P2003',
 			clientVersion: '7'
@@ -587,11 +639,18 @@ describe('handleError', () => {
 			errorId: expect.stringMatching(/^[0-9a-f-]{36}$/)
 		});
 		const errorId = (returned as { errorId: string }).errorId;
-		// The whole line, compared as a sentence: a fragment assertion would pass over the message
-		// riding along after the code.
-		expect(logged.mock.calls).toEqual([
-			[`[500] POST /categories errorId=${errorId} PrismaClientKnownRequestError(P2003)`]
+		// The whole event: a fragment assertion would pass over the message riding along after the
+		// code, and over the path, which is no longer written.
+		expect(logged).toEqual([
+			{
+				event: E.requestFailed,
+				attributes: {
+					[A.errorType]: 'PrismaClientKnownRequestError',
+					[A.errorCode]: 'P2003',
+					[A.httpStatus]: 500,
+					[A.errorId]: errorId
+				}
+			}
 		]);
-		logged.mockRestore();
 	});
 });

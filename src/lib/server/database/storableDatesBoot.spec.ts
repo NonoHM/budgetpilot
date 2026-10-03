@@ -1,4 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { REGISTRY } from '$lib/server/logging/events';
+import { ATTRIBUTE, EVENT } from '$lib/server/logging/names';
 
 /**
  * #758's read-only boot report: rows written before the range existed.
@@ -7,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
  * TypeError the report's own guard would swallow into its « could not run » line, which the first
  * test below would then see instead of the counts. So the fake is the no-write assertion.
  *
- * Breaks, each separately: the log line printing a value instead of a count (red on the
+ * Breaks, each separately: the log event carrying a value instead of a count (red on the
  * no-value assertion); the report run when every count is 0 (red on the silence test,
  * separating « silent on a clean install » from « a line on every boot »); a column dropped from
  * the list (red on the six-column assertion).
@@ -38,16 +40,20 @@ vi.mock('$lib/server/db', () => {
 	};
 });
 
+const logged = vi.hoisted(() => [] as unknown[]);
+vi.mock('$lib/server/logging', async (importOriginal) => ({
+	...(await importOriginal<typeof import('$lib/server/logging')>()),
+	log: (event: unknown) => {
+		logged.push(event);
+	}
+}));
+
 const { reportDatesOutsideStorableRange } = await import('./storableDatesBoot');
 
-let warn: ReturnType<typeof vi.spyOn>;
 beforeEach(() => {
 	calls.wheres.length = 0;
 	counts.values = [0, 0, 0, 0, 0, 0];
-	warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-});
-afterEach(() => {
-	warn.mockRestore();
+	logged.length = 0;
 });
 
 describe('reportDatesOutsideStorableRange', () => {
@@ -71,27 +77,30 @@ describe('reportDatesOutsideStorableRange', () => {
 		).toEqual(Array(6).fill(JSON.stringify({ lt: new Date('1000-01-01T00:00:00.000Z') })));
 	});
 
-	it('logs one line of counts, saying nothing was changed, and no value', async () => {
+	it('logs one event of counts, saying nothing was changed, and no value', async () => {
 		expect.assertions(3);
 		counts.values = [3, 1, 0, 2, 0, 0];
 
 		await reportDatesOutsideStorableRange();
 
-		expect(warn).toHaveBeenCalledTimes(1);
-		const line = String(warn.mock.calls[0][0]);
-		expect(line).toBe(
-			'[dates] 6 row(s) carry a date before year 1000, outside what every supported engine ' +
-				'stores faithfully (#758): Transaction.date 3, ImportBatch.periodStart 1, ' +
-				'SavingsGoal.targetDate 2. They can display in the wrong century (MariaDB reads years ' +
-				'0001 to 0099 back as 1950 to 2049) and a backup holding them is refused on restore. ' +
-				'Nothing was changed: correct or delete them by hand.'
-		);
-		expect(line).not.toMatch(/\d{4}-\d{2}-\d{2}/);
+		expect(logged).toEqual([
+			{
+				event: EVENT.datesOutsideStorableRange,
+				attributes: {
+					[ATTRIBUTE.datesTotal]: 6,
+					[ATTRIBUTE.datesCounts]:
+						'Transaction.date=3,ImportBatch.periodStart=1,SavingsGoal.targetDate=2',
+					[ATTRIBUTE.datesFirstStorableYear]: 1000
+				}
+			}
+		]);
+		expect(REGISTRY[EVENT.datesOutsideStorableRange].body).toMatch(/Nothing was changed\./);
+		expect(JSON.stringify(logged)).not.toMatch(/\d{4}-\d{2}-\d{2}/);
 	});
 
 	it('is silent on an install with no such row', async () => {
 		expect.assertions(1);
 		await reportDatesOutsideStorableRange();
-		expect(warn).not.toHaveBeenCalled();
+		expect(logged).toEqual([]);
 	});
 });

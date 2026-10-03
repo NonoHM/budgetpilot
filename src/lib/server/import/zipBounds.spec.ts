@@ -13,11 +13,20 @@ import {
 } from './zipBounds';
 import { ImportFileError, readImportFile } from './file';
 import { ENVIRONMENT_CHECKS } from '../env/assertConfigured';
+import { ATTRIBUTE, EVENT } from '$lib/server/logging/names';
 
 // The boot collector imports every check's module, and several of them reach the Prisma client.
 // Nothing here queries a database, so the client is replaced rather than constructed: the wiring
 // test below needs the collector's LIST, not a connection.
 vi.mock('$lib/server/db', () => ({ prisma: {} }));
+
+const logged = vi.hoisted(() => [] as unknown[]);
+vi.mock('$lib/server/logging', async (importOriginal) => ({
+	...(await importOriginal<typeof import('$lib/server/logging')>()),
+	log: (event: unknown) => {
+		logged.push(event);
+	}
+}));
 
 /**
  * The uncompressed-size bound for `.xlsx` uploads (#254, ASVS 5.0 `v5.0.0-5.2.3`).
@@ -208,7 +217,7 @@ describe('the bound admits a legitimate workbook, measured absolutely', () => {
  * Both halves are absence-shaped by default ("it did not start", "nothing was logged"), which is the
  * shape that passes for free. Each therefore carries its presence control first: the refusal test
  * asserts a value one below the ceiling is ACCEPTED before asserting one above it is refused, and
- * the warning tests capture `console.warn` and assert the default logs NOTHING before asserting a
+ * the warning tests capture the log events and assert the default logs NOTHING before asserting a
  * departure logs something. Without those, a resolver that refused everything and a logger that
  * warned on every boot would both pass.
  */
@@ -225,16 +234,10 @@ describe('the bound is configurable, and the configuration cannot remove it', ()
 		}
 	}
 
-	function captureWarnings(run: () => void): string[] {
-		const lines: string[] = [];
-		const original = console.warn;
-		console.warn = (...args: unknown[]) => void lines.push(args.map(String).join(' '));
-		try {
-			run();
-		} finally {
-			console.warn = original;
-		}
-		return lines;
+	function captureEvents(run: () => void): unknown[] {
+		logged.length = 0;
+		run();
+		return [...logged];
 	}
 
 	it('is OPTIONAL: an absent or blank value is the default, never a refusal to start', () => {
@@ -294,24 +297,33 @@ describe('the bound is configurable, and the configuration cannot remove it', ()
 	});
 
 	it('says nothing at boot on the default, and names both values on any departure', () => {
-		expect.assertions(5);
+		expect.assertions(3);
 
 		// The presence control first: a logger that warned unconditionally would satisfy every
 		// assertion below, and an operator who reads a warning on a default install stops reading
 		// warnings.
-		expect(withEnv(undefined, () => captureWarnings(assertXlsxBoundConfigured))).toEqual([]);
+		expect(withEnv(undefined, () => captureEvents(assertXlsxBoundConfigured))).toEqual([]);
 		expect(
 			withEnv(String(XLSX_DEFAULT_MAX_UNCOMPRESSED_MB), () =>
-				captureWarnings(assertXlsxBoundConfigured)
+				captureEvents(assertXlsxBoundConfigured)
 			)
 		).toEqual([]);
 
-		const raised = withEnv('24', () => captureWarnings(assertXlsxBoundConfigured));
+		const raised = withEnv('24', () => captureEvents(assertXlsxBoundConfigured));
 		// BOTH values, because a warning naming only the configured one leaves the reader unable to
 		// tell whether it was raised or lowered, which is the whole question in a post-mortem.
-		expect(raised.join('\n')).toContain('=24');
-		expect(raised.join('\n')).toContain(`default of ${XLSX_DEFAULT_MAX_UNCOMPRESSED_MB}`);
-		expect(raised.join('\n')).toContain('RAISED');
+		expect(raised).toEqual([
+			{
+				event: EVENT.configBoundChanged,
+				attributes: {
+					[ATTRIBUTE.configName]: XLSX_MAX_UNCOMPRESSED_ENV,
+					[ATTRIBUTE.configValue]: 24,
+					[ATTRIBUTE.configDefault]: XLSX_DEFAULT_MAX_UNCOMPRESSED_MB,
+					[ATTRIBUTE.configDirection]: 'raised',
+					[ATTRIBUTE.configBelowHonestMinimum]: false
+				}
+			}
+		]);
 	});
 
 	it('warns when the bound is set below what real spreadsheet software emits', () => {
@@ -320,9 +332,20 @@ describe('the bound is configurable, and the configuration cannot remove it', ()
 		// The other direction, which is not a security risk and is a support incident: at 2 MB every
 		// LibreOffice export of any size is refused, and the message a user gets says nothing about
 		// configuration. Cheap to say at boot, expensive to diagnose later.
-		const lowered = withEnv('2', () => captureWarnings(assertXlsxBoundConfigured));
-		expect(lowered.join('\n')).toContain('LOWERED');
-		expect(lowered.join('\n')).toContain(String(LARGEST_MEASURED_LEGITIMATE_BYTES));
+		expect(2_000_000).toBeLessThan(LARGEST_MEASURED_LEGITIMATE_BYTES);
+		const lowered = withEnv('2', () => captureEvents(assertXlsxBoundConfigured));
+		expect(lowered).toEqual([
+			{
+				event: EVENT.configBoundChanged,
+				attributes: {
+					[ATTRIBUTE.configName]: XLSX_MAX_UNCOMPRESSED_ENV,
+					[ATTRIBUTE.configValue]: 2,
+					[ATTRIBUTE.configDefault]: XLSX_DEFAULT_MAX_UNCOMPRESSED_MB,
+					[ATTRIBUTE.configDirection]: 'lowered',
+					[ATTRIBUTE.configBelowHonestMinimum]: true
+				}
+			}
+		]);
 	});
 
 	it('the boot check is registered with the boot collector', () => {

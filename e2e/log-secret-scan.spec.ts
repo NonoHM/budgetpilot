@@ -61,13 +61,14 @@ import { expect, test } from './fixtures';
  * at a fixed offset and were silently overwritten, and the requests were hitting a wrong endpoint
  * and 404ing. Two independent errors, both pointing the same way.
  *
- *  1. THE CAPTURE IS LIVE. A canary string is placed in a request PATH, which the error printer
- *     logs as `[404] GET /<canary>`, and the capture must contain it.
+ *  1. THE CAPTURE IS LIVE. A request for a path that does not exist must have written its
+ *     `budgetpilot.request.not_found` line. The path itself is never logged (only the route
+ *     template is, #250), so the canary in it must be ABSENT, and the line must be there.
  *  2. THE EVENTS HAPPENED. Every fired request's outcome is asserted against a declared value, so
  *     a battery that 404s its way through the auth paths cannot report a clean log, and every
  *     minted canary must have been obtained in the shape its generator produces.
- *  3. THE APPLICATION'S OWN OUTPUT IS THERE. The startup line must be present, so a capture that
- *     somehow held only one stream would not pass as a whole log.
+ *  3. THE APPLICATION'S OWN OUTPUT IS THERE. The `sys_startup` line must be present, so a
+ *     capture that somehow held only one stream would not pass as a whole log.
  *  4. THE ERROR PATH WROTE. The forced 500 must have answered 500 with an error id, and that id
  *     must be in the capture, so the one path most likely to carry a secret (#816) is read.
  *
@@ -425,7 +426,7 @@ async function exerciseAuthPaths(): Promise<void> {
 		return { response, body, data: actionData(body.data) };
 	};
 
-	// 1. A path that does not exist, carrying the canary. The printer logs `[404] GET /<path>`.
+	// 1. A path that does not exist, carrying the canary. The log writes a not-found line without it.
 	outcomes['canary-404'] = String(
 		(await admin.get(`/${PATH_CANARY}`, { maxRedirects: 0 })).status()
 	);
@@ -582,15 +583,16 @@ function mintedValues(): [string, string][] {
 }
 
 test.describe('v5.0.0-16.2.5: no secret reaches the log', () => {
-	test('calibration: the capture is live, and request data does reach the log', () => {
+	test('calibration: the capture is live, and the unknown path wrote its line without the path', () => {
 		// If this fails, every absence asserted below is meaningless: it would mean the pipe is
 		// empty, or the search cannot see what is in it.
 		expect(captured.length).toBeGreaterThan(0);
-		expect(captured).toContain(PATH_CANARY);
+		expect(captured).toContain('"event_name":"budgetpilot.request.not_found"');
+		expect(captured).not.toContain(PATH_CANARY);
 	});
 
 	test("calibration: the application's own output is in the capture, not only one stream", () => {
-		expect(captured).toContain('[budgetpilot] startup:');
+		expect(captured).toContain('"event_name":"sys_startup"');
 	});
 
 	test('calibration: every exercised path did what it was supposed to, so the log covers real events', () => {

@@ -1,6 +1,10 @@
 import { prisma } from '$lib/server/db';
 import { withBootBackfillLock } from '$lib/server/database/advisoryLock';
 import { hasPendingStatementAccounts, runStatementAccountBackfill } from './accountBackfill.ts';
+import { log, logBackfillLockWait } from '$lib/server/logging';
+import { ATTRIBUTE, EVENT } from '$lib/server/logging/names';
+
+const NAME = 'statement_accounts';
 
 /**
  * Names the import buckets and files their batches, once, at startup.
@@ -42,16 +46,33 @@ import { hasPendingStatementAccounts, runStatementAccountBackfill } from './acco
 export async function ensureStatementAccountsBackfilled(): Promise<void> {
 	if (!(await hasPendingStatementAccounts(prisma))) return;
 
-	await withBootBackfillLock('statement-accounts', async () => {
-		if (!(await hasPendingStatementAccounts(prisma))) return;
+	await withBootBackfillLock(
+		'statement-accounts',
+		async () => {
+			if (!(await hasPendingStatementAccounts(prisma))) return;
 
-		console.log('[statement-accounts] naming import buckets and filing their batches, runs once');
-		const { accountsNamed, batchesFiled } = await runStatementAccountBackfill({
-			prisma,
-			onProgress: (message) => console.log(`[statement-accounts] ${message}`)
-		});
-		console.log(
-			`[statement-accounts] complete: ${accountsNamed} account(s) named, ${batchesFiled} batch(es) filed`
-		);
-	});
+			log({ event: EVENT.backfillStarted, attributes: { [ATTRIBUTE.backfillName]: NAME } });
+			const { accountsNamed, batchesFiled } = await runStatementAccountBackfill({
+				prisma,
+				onProgress: ({ stage, count }) =>
+					log({
+						event: EVENT.backfillProgress,
+						attributes: {
+							[ATTRIBUTE.backfillName]: NAME,
+							[ATTRIBUTE.backfillStage]: stage,
+							[ATTRIBUTE.backfillCount]: count
+						}
+					})
+			});
+			log({
+				event: EVENT.backfillCompleted,
+				attributes: {
+					[ATTRIBUTE.backfillName]: NAME,
+					[ATTRIBUTE.backfillCount]: accountsNamed,
+					[ATTRIBUTE.backfillBatchesFiled]: batchesFiled
+				}
+			});
+		},
+		{ onWait: logBackfillLockWait }
+	);
 }

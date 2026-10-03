@@ -5,14 +5,24 @@ import {
 	CSV_DEFAULT_MAX_COLUMNS,
 	CSV_MAX_COLUMNS_CEILING,
 	CSV_MAX_COLUMNS_ENV,
-	resolveCsvMaxColumns
+	resolveCsvMaxColumns,
+	WIDEST_REALISTIC_EXPORT_COLUMNS
 } from './columnBounds';
 import { ENVIRONMENT_CHECKS } from '../env/assertConfigured';
+import { ATTRIBUTE, EVENT } from '$lib/server/logging/names';
 
 // The boot collector imports every check's module, and several of them reach the Prisma client.
 // Nothing here queries a database, so the client is replaced rather than constructed: the wiring
 // test below needs the collector's LIST, not a connection.
 vi.mock('$lib/server/db', () => ({ prisma: {} }));
+
+const logged = vi.hoisted(() => [] as unknown[]);
+vi.mock('$lib/server/logging', async (importOriginal) => ({
+	...(await importOriginal<typeof import('$lib/server/logging')>()),
+	log: (event: unknown) => {
+		logged.push(event);
+	}
+}));
 
 /** A file of one data row and `count` columns, the first three being the required roles. */
 function fileWithColumns(count: number): string {
@@ -113,31 +123,30 @@ describe('resolveCsvMaxColumns', () => {
 
 describe('assertCsvColumnBoundConfigured', () => {
 	it('says nothing at the default', () => {
-		const warnings: unknown[] = [];
-		const original = console.warn;
-		console.warn = (...args: unknown[]) => void warnings.push(args);
-		try {
-			assertCsvColumnBoundConfigured();
-		} finally {
-			console.warn = original;
-		}
-		expect(warnings).toEqual([]);
+		logged.length = 0;
+		assertCsvColumnBoundConfigured();
+		expect(logged).toEqual([]);
 	});
 
 	it('warns when the bound is lowered below an ordinary accounting export', () => {
 		// The presence half for the assertion above: without it, a function that never warns at
 		// all would pass "says nothing at the default" perfectly.
 		process.env[CSV_MAX_COLUMNS_ENV] = '12';
-		const warnings: string[] = [];
-		const original = console.warn;
-		console.warn = (message: string) => void warnings.push(message);
-		try {
-			assertCsvColumnBoundConfigured();
-		} finally {
-			console.warn = original;
-		}
-		expect(warnings).toHaveLength(2);
-		expect(warnings.join(' ')).toContain('LOWERED');
+		expect(12).toBeLessThan(WIDEST_REALISTIC_EXPORT_COLUMNS);
+		logged.length = 0;
+		assertCsvColumnBoundConfigured();
+		expect(logged).toEqual([
+			{
+				event: EVENT.configBoundChanged,
+				attributes: {
+					[ATTRIBUTE.configName]: CSV_MAX_COLUMNS_ENV,
+					[ATTRIBUTE.configValue]: 12,
+					[ATTRIBUTE.configDefault]: CSV_DEFAULT_MAX_COLUMNS,
+					[ATTRIBUTE.configDirection]: 'lowered',
+					[ATTRIBUTE.configBelowHonestMinimum]: true
+				}
+			}
+		]);
 	});
 
 	// WITHOUT THIS THE CEILING IS DECORATION. Every test above calls the module directly, so all of

@@ -1,4 +1,7 @@
 import { OperatorFacingError } from '$lib/server/operatorFacingError';
+import { log } from '$lib/server/logging';
+import type { BoundName } from '$lib/server/logging/events';
+import { ATTRIBUTE, EVENT } from '$lib/server/logging/names';
 
 /**
  * THE ONE READING OF A NUMBER AN OPERATOR SETS IN THE ENVIRONMENT (#745).
@@ -64,4 +67,30 @@ export function readOperatorBound(
 		);
 	}
 	return value;
+}
+
+/**
+ * The boot warning for a bound that differs from its default, in either direction (AGENTS.md,
+ * « Code style »). One definition for the five bound readers: what each bound protects and what each
+ * direction costs is in `docs/configuration.md` beside the variable, and the line carries the figures
+ * an operator compares against it. `belowHonestMinimum` is the reader's own threshold for a value
+ * low enough to refuse ordinary use, and is false for a raised value.
+ */
+export function reportBoundDeparture(
+	name: BoundName,
+	value: number,
+	fallback: number,
+	belowHonestMinimum: boolean
+): void {
+	if (value === fallback) return;
+	log({
+		event: EVENT.configBoundChanged,
+		attributes: {
+			[ATTRIBUTE.configName]: name,
+			[ATTRIBUTE.configValue]: value,
+			[ATTRIBUTE.configDefault]: fallback,
+			[ATTRIBUTE.configDirection]: value > fallback ? 'raised' : 'lowered',
+			[ATTRIBUTE.configBelowHonestMinimum]: value < fallback && belowHonestMinimum
+		}
+	});
 }
