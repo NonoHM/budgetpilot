@@ -154,8 +154,10 @@ with `stdio: 'inherit'`, so that tool's own output reaches the same stream and t
 not filter it (#846). An unexpected error prints its class name and a short code, and its message
 only when it is an `OperatorFacingError` (`loggableError`, `src/lib/server/errors.ts`). No
 `console.*` call site prints a Secret, Financial or Personal column. `e2e/log-secret-scan.spec.ts`
-scans a built server's log for planted values, and #835 records four secret classes it does not
-plant.
+scans a built server's log for planted values: the configured secrets, the Enable Banking private
+key, and the secrets a run mints, which are the session tokens, the TOTP secret and recovery codes,
+an invitation token, an admin-issued temporary password, and the bank `state`, `code` and signed
+token. Its exercised paths include one forced 500 (#835).
 
 **Exports.** The JSON backup and the transaction CSV go only to the signed-in owner, each scoped
 by `userId` (`src/routes/settings/export/+server.ts`, `src/routes/transactions/export/+server.ts`).
