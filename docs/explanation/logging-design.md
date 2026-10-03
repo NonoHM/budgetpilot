@@ -191,3 +191,8 @@ destination and credentials, which is the dependency the project avoids.
 - [Logs](../logging.md) lists every event and every field.
 - [Your first look at the logs](../logging-tutorial.md) walks through reading them.
 - [How BudgetPilot classifies the data it stores](./data-classification.md) defines the levels.
+
+---
+
+If you use an instance someone else runs, [what the security log records about you](../using/security-logging.md)
+is the page written for you.
