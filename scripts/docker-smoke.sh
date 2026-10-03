@@ -83,6 +83,24 @@ redact() {
 	sed -E 's#([a-z][a-z0-9+.-]*://)[^@/[:space:]]*@#\1***:***@#gi'
 }
 
+# The app writes one JSON object per line (docs/logging.md), so an assertion names the EVENT and
+# the field it expects on that event's line, never a prose fragment. `prisma migrate deploy`'s own
+# output stays plain text and is matched as before.
+#
+# log_event_line LOGS EVENT: the line(s) whose event_name is EVENT, or nothing. Captured into a
+# variable and matched through a here-string, never `grep … | grep -q`: under pipefail that pipeline
+# reports failure on a MATCH when the first grep is killed by SIGPIPE.
+log_event_line() {
+	grep -F -- "\"event_name\":\"$2\"" <<<"$1" || true
+}
+# log_event_has LOGS EVENT FRAGMENT: true when EVENT was written and its line holds FRAGMENT, such
+# as a field and value: "\"budgetpilot.config.database_provider\":\"sqlite\"".
+log_event_has() {
+	local line
+	line=$(log_event_line "$1" "$2")
+	[ -n "$line" ] && grep -qF -- "$3" <<<"$line"
+}
+
 CREATED_CONTAINERS=()
 # Image filesystems get extracted here for the host-side assertions, and the dry run below needs
 # a scratch volume. Both are cleaned up on every exit path, including Ctrl-C.
@@ -519,13 +537,13 @@ for leg in "${LEGS[@]}"; do
 
 	# The startup line reports which client actually loaded. An alias resolving to the wrong
 	# engine would otherwise be invisible: the app would start and quietly use another schema.
-	if ! grep -q "database-provider=$expected_provider" <<<"$logs"; then
+	if ! log_event_has "$logs" sys_startup "\"budgetpilot.config.database_provider\":\"$expected_provider\""; then
 		echo "$logs"
-		echo "FAIL: startup log does not report database-provider=$expected_provider" >&2
+		echo "FAIL: the sys_startup line does not report budgetpilot.config.database_provider=$expected_provider" >&2
 		exit 1
 	fi
 
-	echo "  ok: migrations applied, served /login, reported database-provider=$expected_provider"
+	echo "  ok: migrations applied, served /login, sys_startup reported budgetpilot.config.database_provider=$expected_provider"
 
 	# Freed before the next leg so the published port is available again.
 	docker rm -f "$app" >/dev/null
@@ -576,13 +594,15 @@ if [ "$failpath_status" -eq 0 ]; then
 	echo "FAIL: the container exited 0 with an unreachable database, so a failed migrate deploy no longer aborts boot" >&2
 	exit 1
 fi
-if ! grep -q 'refusing to start' <<<"$failpath_logs"; then
+if ! log_event_has "$failpath_logs" budgetpilot.boot.migrate_failed '"budgetpilot.boot.exit_code":'; then
 	echo "$failpath_logs"
 	echo "FAIL: boot.mjs did not refuse to start after migrate deploy failed; whatever exited, it was not the guard" >&2
 	exit 1
 fi
 # adapter-node prints this once it holds the socket. Its absence is what proves the import
-# below the guard never ran, rather than having run and crashed on its own.
+# below the guard never ran, rather than having run and crashed on its own. Matched as plain text
+# on purpose: it is inside a budgetpilot.console.output line when the console bridge is on, and
+# bare when it is not, and an absence must catch both.
 if grep -q 'Listening on' <<<"$failpath_logs"; then
 	echo "$failpath_logs"
 	echo "FAIL: the server started despite a failed migrate deploy" >&2
@@ -747,12 +767,12 @@ if [ "$novolume_status" -eq 0 ]; then
 	echo "FAIL: the app started with no volume mounted at /data under a read-only root" >&2
 	exit 1
 fi
-if ! grep -q 'read-only filesystem' <<<"$novolume_logs"; then
+if ! log_event_has "$novolume_logs" budgetpilot.boot.data_dir_read_only '"budgetpilot.boot.directory":'; then
 	echo "$novolume_logs"
 	echo "FAIL: a missing /data mount was not diagnosed as a read-only filesystem" >&2
 	exit 1
 fi
-if grep -q 'chown -R 65532:65532' <<<"$novolume_logs"; then
+if [ -n "$(log_event_line "$novolume_logs" budgetpilot.boot.data_dir_not_writable)" ] || grep -q 'chown -R 65532:65532' <<<"$novolume_logs"; then
 	echo "$novolume_logs"
 	echo "FAIL: a missing /data mount printed the volume-ownership remediation, which cannot help here" >&2
 	exit 1
@@ -799,7 +819,7 @@ if [ "$upgrade_status" -eq 0 ]; then
 fi
 # The remediation string itself, not merely "it failed": an operator who cannot act on the
 # message is no better off than with SQLITE_CANTOPEN.
-if ! grep -q 'chown -R 65532:65532 /data' <<<"$upgrade_logs"; then
+if ! log_event_has "$upgrade_logs" budgetpilot.boot.data_dir_not_writable 'chown -R 65532:65532 /data'; then
 	echo "$upgrade_logs"
 	echo "FAIL: the refusal did not print the chown remediation" >&2
 	exit 1
@@ -949,7 +969,7 @@ if volume_has budgetpilot.db; then
 fi
 # The message, not merely the behaviour: an operator whose app quietly opened a different file
 # than the default says it opens has no way to find that out except from the log.
-if ! grep -q '/data/dev.db' <<<"$rename_old_logs"; then
+if ! log_event_has "$rename_old_logs" budgetpilot.boot.legacy_database_adopted '/data/dev.db'; then
 	echo "$rename_old_logs"
 	echo "FAIL: the adoption was silent, so nothing tells the operator which file is open" >&2
 	exit 1

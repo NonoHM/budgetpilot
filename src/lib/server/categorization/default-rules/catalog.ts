@@ -2,6 +2,8 @@ import { z } from 'zod';
 import { DEFAULT_CATEGORY_KEYS } from '$lib/domain/categories';
 import { TRANSACTION_NATURES } from '$lib/domain/transaction';
 import { isSafeRegexPattern } from '$lib/server/matching/regex';
+import { log } from '$lib/server/logging';
+import { ATTRIBUTE, EVENT } from '$lib/server/logging/names';
 import groceriesDining from './groceries_dining.json';
 import techSubscriptions from './tech_subscriptions.json';
 import shoppingLeisure from './shopping_leisure.json';
@@ -62,6 +64,22 @@ const CATALOG_FILES: ReadonlyArray<{ source: string; entries: unknown }> = [
 
 let cachedCatalog: DefaultRuleEntry[] | null = null;
 
+/** A shipped file name and a shipped rule key: text this repository wrote, never a user's. */
+function logSkipped(
+	reason: 'invalid_schema' | 'duplicate_key' | 'dangerous_regex',
+	source: string,
+	key?: string
+): void {
+	log({
+		event: EVENT.rulesCatalogEntrySkipped,
+		attributes: {
+			[ATTRIBUTE.rulesReason]: reason,
+			[ATTRIBUTE.rulesSource]: source,
+			...(key === undefined ? {} : { [ATTRIBUTE.rulesKey]: key })
+		}
+	});
+}
+
 /**
  * Loads + validates the predefined rule catalog (versioned JSON files, no user input).
  * A malformed file is ignored with a warning, never a throw — must never prevent the
@@ -77,22 +95,19 @@ export function loadDefaultRuleCatalog(): DefaultRuleEntry[] {
 	for (const { source, entries } of CATALOG_FILES) {
 		const parsed = defaultRuleFileSchema.safeParse(entries);
 		if (!parsed.success) {
-			console.warn(
-				`[default-rules] file skipped (invalid schema): ${source}`,
-				parsed.error.message
-			);
+			// The schema's own message is not logged: the file is shipped, and its test
+			// (catalog.spec.ts) is where a malformed one is read.
+			logSkipped('invalid_schema', source);
 			continue;
 		}
 
 		for (const entry of parsed.data) {
 			if (seenKeys.has(entry.key)) {
-				console.warn(`[default-rules] duplicate key skipped: ${entry.key} (${source})`);
+				logSkipped('duplicate_key', source, entry.key);
 				continue;
 			}
 			if (entry.isRegex && !isSafeRegexPattern(entry.match, MAX_RULE_FIELD_LENGTH)) {
-				console.warn(
-					`[default-rules] regex rejected (dangerous pattern): ${entry.key} (${source})`
-				);
+				logSkipped('dangerous_regex', source, entry.key);
 				continue;
 			}
 			seenKeys.add(entry.key);

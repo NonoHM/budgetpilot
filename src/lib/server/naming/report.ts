@@ -53,12 +53,18 @@ export function renderNameKeyReport(report: NameKeyBackfillReport): string {
 }
 
 /** What the application log is allowed to say: counts, never a name. */
-export function renderSummaryLine(report: NameKeyBackfillReport): string {
-	return (
-		`[name-keys] backfill complete: ${report.users.length} user(s), ` +
-		`${totalKeysWritten(report)} key(s) written, ${report.rowsDeleted} duplicate row(s) merged, ` +
-		`${report.transactionsReassigned} transaction repointing(s)`
-	);
+export function summaryCounts(report: NameKeyBackfillReport): {
+	users: number;
+	keysWritten: number;
+	rowsMerged: number;
+	transactionsRepointed: number;
+} {
+	return {
+		users: report.users.length,
+		keysWritten: totalKeysWritten(report),
+		rowsMerged: report.rowsDeleted,
+		transactionsRepointed: report.transactionsReassigned
+	};
 }
 
 function hasAnythingToSay(user: UserNameKeyReport): boolean {

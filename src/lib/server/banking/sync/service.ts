@@ -11,6 +11,8 @@ import {
 	resolveImportBucketAccount
 } from '$lib/server/import/persist';
 import { recordSyncedBalance } from '$lib/server/net-worth/service';
+import { log } from '$lib/server/logging';
+import { ATTRIBUTE, EVENT } from '$lib/server/logging/names';
 import type { TransactionSource } from '$lib/domain/transaction';
 import type {
 	BankAspsp,
@@ -613,11 +615,13 @@ export async function syncBankConnection(
 						);
 					}
 				} catch (caught) {
-					// Sanitized status only, never the provider response body — same hygiene
-					// as lastSyncError.
-					console.warn(
-						`[bank-sync] balance fetch failed for connection ${connection.id}: ${toSafeSyncErrorSummary(caught)}`
-					);
+					// Sanitized status only, never the provider response body: same hygiene as
+					// lastSyncError, with the provider code admitted only in the shape of a code,
+					// because it is text a remote host chose.
+					log({
+						event: EVENT.bankBalanceFetchFailed,
+						attributes: balanceFailureFields(connection.id, caught)
+					});
 				}
 			}
 		}
@@ -766,6 +770,27 @@ function isAuthRejection(caught: unknown): boolean {
  * request payloads). Our own Error messages are safe static strings but are still
  * reduced to a generic marker: lastSyncError is a diagnostic slot, not a log.
  */
+/** The shape a provider code must have to be logged; anything else is dropped, never cut. */
+const LOGGABLE_PROVIDER_CODE = /^[A-Z0-9_]{1,64}$/;
+
+/** A failed balance fetch as log attributes: the connection id, and the status and code only. */
+function balanceFailureFields(connectionId: string, caught: unknown) {
+	if (!(caught instanceof EnableBankingApiError)) {
+		return {
+			[ATTRIBUTE.bankConnectionId]: connectionId,
+			[ATTRIBUTE.errorType]: 'sync_failed' as const
+		};
+	}
+	return {
+		[ATTRIBUTE.bankConnectionId]: connectionId,
+		[ATTRIBUTE.errorType]: 'http_error' as const,
+		[ATTRIBUTE.httpStatus]: caught.status,
+		...(caught.providerCode && LOGGABLE_PROVIDER_CODE.test(caught.providerCode)
+			? { [ATTRIBUTE.bankProviderCode]: caught.providerCode }
+			: {})
+	};
+}
+
 function toSafeSyncErrorSummary(caught: unknown): string {
 	if (caught instanceof EnableBankingApiError) {
 		const code = caught.providerCode ? `:${caught.providerCode}` : '';

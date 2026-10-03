@@ -1,4 +1,6 @@
 import { fail, type Actions } from '@sveltejs/kit';
+import { EVENT } from '$lib/server/logging/names';
+import { log } from '$lib/server/logging';
 import * as m from '$lib/paraglide/messages';
 import { isImportRateLimited, recordImportAttempt } from '$lib/server/auth/rateLimit';
 import { resolveClientAddress } from '$lib/server/net/clientAddress';
@@ -486,7 +488,7 @@ export const actions: Actions = {
 				accountId: bucket.accountId
 			});
 		} catch {
-			console.warn('[budgetpilot] an answered import account could not be remembered');
+			log({ event: EVENT.importAccountNotRemembered, attributes: {} });
 		}
 
 		/**

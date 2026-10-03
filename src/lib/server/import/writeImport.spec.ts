@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DeclaredCurrencyMismatchError } from './declaredCurrency';
+import { ATTRIBUTE, EVENT } from '$lib/server/logging/names';
 
 const persist = vi.hoisted(() => ({
 	createImportBatchRow: vi.fn(),
@@ -15,6 +16,14 @@ vi.mock('./persist', async (importOriginal) => ({
 	createImportBatchRow: persist.createImportBatchRow,
 	persistImportedTransactions: persist.persistImportedTransactions,
 	deleteEmptyImportBatch: persist.deleteEmptyImportBatch
+}));
+
+const logged = vi.hoisted(() => [] as unknown[]);
+vi.mock('$lib/server/logging', async (importOriginal) => ({
+	...(await importOriginal<typeof import('$lib/server/logging')>()),
+	log: (event: unknown) => {
+		logged.push(event);
+	}
 }));
 
 const { ImportWriteError } = await import('./persist');
@@ -95,7 +104,7 @@ describe('writeImport', () => {
 
 	beforeEach(() => {
 		vi.clearAllMocks();
-		vi.spyOn(console, 'error').mockImplementation(() => {});
+		logged.length = 0;
 	});
 
 	it('says nothing was saved when the batch itself could not be created, and writes no row', async () => {
@@ -125,7 +134,6 @@ describe('writeImport', () => {
 	});
 
 	it('logs the failure without the cause’s message, which can quote a user’s rows', async () => {
-		const error = vi.spyOn(console, 'error').mockImplementation(() => {});
 		persist.createImportBatchRow.mockResolvedValueOnce({ id: 'batch-1', createdAt: CREATED_AT });
 		const cause = Object.assign(new Error('Invalid value for label: CARTE SUPERETTE FICTIVE'), {
 			code: 'P2000'
@@ -136,10 +144,21 @@ describe('writeImport', () => {
 
 		await writeImport({ batch, transactions: [], parseDuplicateRows: 0 });
 
-		const logged = error.mock.calls.map((call) => call.join(' ')).join('\n');
-		// CALIBRATION: something was logged, and it names the code an operator can look up.
-		expect(logged).toContain('P2000');
-		expect(logged).not.toContain('SUPERETTE');
+		// The whole event: it names the code an operator can look up, and nothing carries the
+		// cause's message.
+		expect(logged).toEqual([
+			{
+				event: EVENT.importWriteFailed,
+				attributes: {
+					[ATTRIBUTE.errorType]: 'ImportWriteError',
+					[ATTRIBUTE.importStage]: 'rows',
+					[ATTRIBUTE.importLandedRows]: 2,
+					[ATTRIBUTE.causeType]: 'Error',
+					[ATTRIBUTE.causeCode]: 'P2000'
+				}
+			}
+		]);
+		expect(JSON.stringify(logged)).not.toContain('SUPERETTE');
 	});
 
 	it('returns the batch and the persisted figures on success', async () => {

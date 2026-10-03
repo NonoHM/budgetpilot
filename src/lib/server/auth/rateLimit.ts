@@ -1,7 +1,7 @@
 import { createHmac } from 'node:crypto';
 import { env } from '$env/dynamic/private';
 import { prisma } from '$lib/server/db';
-import { readOperatorBound } from '$lib/server/env/operatorBound';
+import { readOperatorBound, reportBoundDeparture } from '$lib/server/env/operatorBound';
 import { OperatorFacingError } from '$lib/server/operatorFacingError';
 
 const WINDOW_MS = 15 * 60 * 1000;
@@ -99,21 +99,14 @@ export function resolveImportMaxAttempts(): number {
  */
 export function assertImportRateLimitConfigured(): void {
 	const attempts = resolveImportMaxAttempts();
-	if (attempts === IMPORT_DEFAULT_MAX_ATTEMPTS) return;
-
-	console.warn(
-		`[budgetpilot] ${IMPORT_MAX_ATTEMPTS_ENV}=${attempts} differs from the default of ${IMPORT_DEFAULT_MAX_ATTEMPTS}. It bounds how many uploads the import pages accept per account, and per address, in 15 minutes.`
+	// Below a year of monthly statements across three accounts, a household importing in one sitting
+	// is told to wait rather than that a limit was lowered.
+	reportBoundDeparture(
+		IMPORT_MAX_ATTEMPTS_ENV,
+		attempts,
+		IMPORT_DEFAULT_MAX_ATTEMPTS,
+		attempts < HONEST_IMPORT_BATCH_ATTEMPTS
 	);
-
-	if (attempts > IMPORT_DEFAULT_MAX_ATTEMPTS) {
-		console.warn(
-			`[budgetpilot] ${IMPORT_MAX_ATTEMPTS_ENV} is RAISED above the default, so one account may hold the server for longer than the default allows. The measured costs and what each value buys are in src/lib/server/auth/rateLimit.ts.`
-		);
-	} else if (attempts < HONEST_IMPORT_BATCH_ATTEMPTS) {
-		console.warn(
-			`[budgetpilot] ${IMPORT_MAX_ATTEMPTS_ENV} is LOWERED below ${HONEST_IMPORT_BATCH_ATTEMPTS}, a year of monthly statements across three accounts. A household importing its statements in one sitting may now be refused, and is told to wait rather than that a limit was lowered.`
-		);
-	}
 }
 
 // The secret is read lazily rather than at module load. It used to throw from this module's

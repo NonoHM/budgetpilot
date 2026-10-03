@@ -30,6 +30,14 @@ services:
     volumes:
       - budgetpilot_data:/data
     restart: unless-stopped
+    # A SIZE bound, not an age bound: the json-file driver keeps at most max-file files of
+    # max-size each, here 50 MB, and has no option that deletes by age. The app writes stdout and
+    # cannot delete what Docker keeps (ruling R2 on #841). docs/operations.md, "Logs".
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '5'
     # Runtime hardening. The image is distroless — no shell, no package manager, no coreutils —
     # and these four lines are what turn that into a posture rather than a property of the base.
     # Each was verified by attempting the thing it forbids, in a running container, not by

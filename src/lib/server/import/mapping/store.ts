@@ -1,5 +1,5 @@
 import { prisma } from '$lib/server/db';
-import { readOperatorBound } from '$lib/server/env/operatorBound';
+import { readOperatorBound, reportBoundDeparture } from '$lib/server/env/operatorBound';
 import { candidateFingerprints } from './fingerprint';
 import {
 	boundedColumnName,
@@ -74,17 +74,8 @@ export function resolveColumnMappingsPerUser(): number {
  */
 export function assertColumnMappingCapConfigured(): void {
 	const cap = resolveColumnMappingsPerUser();
-	if (cap === COLUMN_MAPPINGS_PER_USER_DEFAULT) return;
-
-	console.warn(
-		`[budgetpilot] ${COLUMN_MAPPINGS_PER_USER_ENV}=${cap} differs from the default of ${COLUMN_MAPPINGS_PER_USER_DEFAULT}. It bounds how many remembered column mappings one user may hold.`
-	);
-
-	if (cap > COLUMN_MAPPINGS_PER_USER_DEFAULT) {
-		console.warn(
-			`[budgetpilot] ${COLUMN_MAPPINGS_PER_USER_ENV} is RAISED above the default, so one user may now hold ${cap} column mappings. Nothing removes one automatically: the user deletes them in Settings.`
-		);
-	}
+	// No honest minimum: a lowered cap refuses nothing that already works, it stops remembering.
+	reportBoundDeparture(COLUMN_MAPPINGS_PER_USER_ENV, cap, COLUMN_MAPPINGS_PER_USER_DEFAULT, false);
 }
 
 export type SaveColumnMappingResult =

@@ -131,7 +131,10 @@ Neither is a password you have to store, rotate, or type.
 **If the app warns at startup that it has more privilege than it uses**, it
 means this setup did not apply: an operator's own server where the account
 was granted extra rights, or a volume created before this overlay existed.
-The warning names the fix for your case, and there are only three:
+The warning is a `budgetpilot.database.overprivileged` line whose two
+attributes say which of the three fixes is yours: `budgetpilot.database.bootstrap_role`
+true is the last case, otherwise `budgetpilot.database.owns_database` picks
+between the first two.
 
 - The role already owns its database: `ALTER ROLE "<role>" NOSUPERUSER;`, and
   revoke any `pg_execute_server_program`, `pg_write_server_files` or
@@ -310,8 +313,8 @@ from anything else on the network.
   unreadable volume, a password changed after the volume was created) shows
   up as an app that can't start.
 - **The app starts but every screen is empty**: you're on the wrong
-  database. `docker compose logs budgetpilot | grep database-provider`
-  prints which engine it actually resolved at boot.
+  database. `docker compose logs budgetpilot | grep -o '"budgetpilot.config.database_provider":"[a-z]*"'`
+  prints which engine it actually resolved at boot, from the `sys_startup` line.
 - **`P1013` or a scheme complaint at startup**: `DATABASE_PROVIDER` and the
   scheme of `DATABASE_URL` disagree. Use `postgresql://` with `postgresql`,
   `mysql://` with `mysql`. The app refuses to start on a mismatch rather

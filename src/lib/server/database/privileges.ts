@@ -1,5 +1,7 @@
 import { prisma } from '$lib/server/db';
 import { resolveDatabaseProvider, type DatabaseEnv } from './provider.ts';
+import { log } from '$lib/server/logging';
+import { ATTRIBUTE, EVENT } from '$lib/server/logging/names';
 
 /**
  * What the catalog query answers: does this connection hold more than ownership of its own
@@ -64,12 +66,15 @@ export async function warnIfDatabaseRoleIsOverprivileged(
 	const facts = parseRoleFacts(rows);
 	if (!facts?.overprivileged) return;
 
-	console.warn(
-		`[budgetpilot] ⚠️ SECURITY: this app connects to PostgreSQL with more privilege than it ` +
-			`uses — it needs to own its own database and nothing more, and it currently also has ` +
-			`the rights that allow running programs on the database host. ${remediationFor(facts)} ` +
-			`See docs/database-providers.md, "The app's database account".`
-	);
+	// The two facts select one of the three fixes `docs/database-providers.md` lists under « The
+	// app's database account »; the line carries them rather than the SQL, which lives there.
+	log({
+		event: EVENT.databaseOverprivileged,
+		attributes: {
+			[ATTRIBUTE.databaseOwnsDatabase]: facts.ownsDatabase,
+			[ATTRIBUTE.databaseBootstrapRole]: facts.isBootstrapRole
+		}
+	});
 }
 
 /**
@@ -115,32 +120,6 @@ function readRoleFactsFromPostgres(): Promise<unknown> {
 				WHERE datname = current_database()
 			) AS owns_database
 	`;
-}
-
-/** The one sentence that is true for this particular connection. */
-function remediationFor(facts: DatabaseRoleFacts): string {
-	if (facts.isBootstrapRole) {
-		return (
-			"This role is the cluster's bootstrap superuser, which PostgreSQL will not let you " +
-			'demote — "ALTER ROLE … NOSUPERUSER" is refused on it. Give the app a role of its ' +
-			"own instead: CREATE ROLE budgetpilot_app LOGIN PASSWORD '…'; ALTER DATABASE " +
-			'<database> OWNER TO budgetpilot_app; then point DATABASE_URL at it. Under the ' +
-			'bundled overlay, the equivalent is a dump, a fresh volume, and a restore.'
-		);
-	}
-	if (!facts.ownsDatabase) {
-		return (
-			'This role does not own the database it writes to, so it is that extra privilege ' +
-			'that lets it write at all: hand it ownership first (ALTER DATABASE <database> ' +
-			'OWNER TO "<this role>"), then remove the excess (ALTER ROLE "<this role>" ' +
-			'NOSUPERUSER, and REVOKE any pg_execute_server_program membership).'
-		);
-	}
-	return (
-		'It already owns its database, so removing the excess changes nothing it uses: ' +
-		'ALTER ROLE "<this role>" NOSUPERUSER; and REVOKE any pg_execute_server_program, ' +
-		'pg_write_server_files or pg_read_server_files membership.'
-	);
 }
 
 /**

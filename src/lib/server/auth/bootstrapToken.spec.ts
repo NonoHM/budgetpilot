@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { EVENT } from '$lib/server/logging/names';
 
 const privateEnv = vi.hoisted(() => ({
 	env: {
@@ -12,6 +13,14 @@ const registration = vi.hoisted(() => ({
 
 vi.mock('$env/dynamic/private', () => privateEnv);
 vi.mock('$lib/server/auth/registration', () => registration);
+
+const logged = vi.hoisted(() => [] as unknown[]);
+vi.mock('$lib/server/logging', async (importOriginal) => ({
+	...(await importOriginal<typeof import('$lib/server/logging')>()),
+	log: (event: unknown) => {
+		logged.push(event);
+	}
+}));
 
 const { assertBootstrapTokenConfigured, isBootstrapTokenValid } = await import('./bootstrapToken');
 
@@ -45,16 +54,12 @@ describe('assertBootstrapTokenConfigured', () => {
 		expect.assertions(2);
 
 		registration.isSelfRegistrationOpen.mockResolvedValue(false);
-		const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+		logged.length = 0;
 
-		try {
-			await expect(assertBootstrapTokenConfigured()).resolves.toBeUndefined();
-			// Non fatal, mais jamais silencieux : plus aucune inscription n'est possible
-			// sans lien d'invitation, l'opérateur doit pouvoir le voir.
-			expect(warn).toHaveBeenCalledTimes(1);
-		} finally {
-			warn.mockRestore();
-		}
+		await expect(assertBootstrapTokenConfigured()).resolves.toBeUndefined();
+		// Non fatal, mais jamais silencieux : plus aucune inscription n'est possible
+		// sans lien d'invitation, l'opérateur doit pouvoir le voir.
+		expect(logged).toEqual([{ event: EVENT.configBootstrapTokenEmpty, attributes: {} }]);
 	});
 
 	it('ne jette pas et ne touche pas la base quand le token est renseigné', async () => {

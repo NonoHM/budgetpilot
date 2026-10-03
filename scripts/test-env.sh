@@ -50,7 +50,8 @@
 #
 #   * PUBLIC_INSTANCE=false is required for plain http, so session cookies ship WITHOUT the Secure
 #     flag and HSTS is absent. The secure-cookie path is NOT exercised here. It is visible rather
-#     than silent: hooks.server.ts prints PUBLIC_INSTANCE and cookies-secure on every boot.
+#     than silent: the sys_startup line reports budgetpilot.config.public_instance and
+#     budgetpilot.config.cookies_secure on every boot.
 #   * TRUSTED_PROXIES and X-Forwarded-For handling go unexercised, both being proxy concerns.
 #
 # ## No secret, and one value worth naming

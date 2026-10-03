@@ -1,5 +1,5 @@
 import { inflateRawSync } from 'node:zlib';
-import { readOperatorBound } from '$lib/server/env/operatorBound';
+import { readOperatorBound, reportBoundDeparture } from '$lib/server/env/operatorBound';
 import { OperatorFacingError } from '$lib/server/operatorFacingError';
 
 /**
@@ -166,22 +166,14 @@ export function resolveXlsxMaxUncompressedBytes(): number {
  */
 export function assertXlsxBoundConfigured(): void {
 	const bytes = resolveXlsxMaxUncompressedBytes();
-	const configuredMb = bytes / MEGABYTE;
-	if (configuredMb === XLSX_DEFAULT_MAX_UNCOMPRESSED_MB) return;
-
-	console.warn(
-		`[budgetpilot] ${XLSX_MAX_UNCOMPRESSED_ENV}=${configuredMb} differs from the default of ${XLSX_DEFAULT_MAX_UNCOMPRESSED_MB}. It bounds how much XML an uploaded .xlsx may expand to, and it exists so that one upload cannot exhaust this machine's memory (#254).`
+	// Below the largest workbook LibreOffice produced that still passes the upload cap, legitimate
+	// spreadsheets are refused.
+	reportBoundDeparture(
+		XLSX_MAX_UNCOMPRESSED_ENV,
+		bytes / MEGABYTE,
+		XLSX_DEFAULT_MAX_UNCOMPRESSED_MB,
+		bytes < LARGEST_MEASURED_LEGITIMATE_BYTES
 	);
-
-	if (bytes > XLSX_DEFAULT_MAX_UNCOMPRESSED_MB * MEGABYTE) {
-		console.warn(
-			`[budgetpilot] ${XLSX_MAX_UNCOMPRESSED_ENV} is RAISED above the default, so one .xlsx upload may cost more than this instance was measured for. At the ${XLSX_MAX_UNCOMPRESSED_CEILING_MB} MB ceiling a single parse takes about 1s and holds the thread throughout, and two at once block it for about 1s at a stretch. The bound is per request: nothing serialises concurrent imports.`
-		);
-	} else if (bytes < LARGEST_MEASURED_LEGITIMATE_BYTES) {
-		console.warn(
-			`[budgetpilot] ${XLSX_MAX_UNCOMPRESSED_ENV} is LOWERED below ${LARGEST_MEASURED_LEGITIMATE_BYTES} bytes, the largest workbook LibreOffice produced that still passes the upload cap. Legitimate spreadsheet imports are likely to be refused.`
-		);
-	}
 }
 
 const END_OF_CENTRAL_DIRECTORY = 0x06054b50;

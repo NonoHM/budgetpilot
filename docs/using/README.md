@@ -39,6 +39,8 @@ it, go to [getting started](../getting-started.md) first.
   avatar, and every control on it.
 - **[The admin panel](./admin.md)**: for administrators only, covering the
   user table, password resets, and single-use invitation links.
+- **[What the security log records about you](./security-logging.md)**: what
+  goes in, what never does, and how long it is kept.
 
 For the exact rules and limits rather than the steps, see
 [reference](../reference/README.md). For why a split row shows two amounts

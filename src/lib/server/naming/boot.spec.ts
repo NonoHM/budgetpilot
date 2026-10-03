@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { ATTRIBUTE, EVENT } from '$lib/server/logging/names';
 
 /**
  * What this file is about: the backfill runs under the lock, and it re-asks whether there is
@@ -19,14 +20,22 @@ vi.mock('$lib/server/db', () => ({ prisma: {} }));
 vi.mock('./backfill.ts', () => ({ hasPendingNameKeys, runNameKeyBackfill }));
 vi.mock('$lib/server/database/advisoryLock', () => ({ withBootBackfillLock }));
 
+const logged = vi.hoisted(() => [] as unknown[]);
+vi.mock('$lib/server/logging', async (importOriginal) => ({
+	...(await importOriginal<typeof import('$lib/server/logging')>()),
+	log: (event: unknown) => {
+		logged.push(event);
+	}
+}));
+
 const { ensureNameKeysBackfilled } = await import('./boot');
+const { logBackfillLockWait } = await import('$lib/server/logging');
 
 const emptyReport = { users: [] };
 
 beforeEach(() => {
 	vi.clearAllMocks();
-	vi.spyOn(console, 'log').mockImplementation(() => {});
-	vi.spyOn(console, 'warn').mockImplementation(() => {});
+	logged.length = 0;
 	withBootBackfillLock.mockImplementation(async (_name, work) => await work());
 	runNameKeyBackfill.mockResolvedValue(emptyReport);
 });
@@ -43,22 +52,44 @@ describe('ensureNameKeysBackfilled', () => {
 		expect(runNameKeyBackfill).not.toHaveBeenCalled();
 	});
 
-	it('runs the backfill inside the lock, never outside it', async () => {
+	it('runs the backfill inside the lock, never outside it, and logs its counts', async () => {
 		hasPendingNameKeys.mockResolvedValue(true);
+		// Four distinct figures, so an attribute carrying the wrong one cannot pass.
+		const report = {
+			dryRun: false,
+			users: [{ keysWritten: { account: 3 }, accountMergesBlocked: [], netWorthCollisions: [] }],
+			rowsDeleted: 2,
+			transactionsReassigned: 5
+		};
 		let heldWhenRun = false;
 		withBootBackfillLock.mockImplementation(async (_name, work) => {
 			heldWhenRun = false;
 			runNameKeyBackfill.mockImplementation(async () => {
 				heldWhenRun = true;
-				return emptyReport;
+				return report;
 			});
 			return await work();
 		});
 
 		await ensureNameKeysBackfilled();
 
-		expect(withBootBackfillLock).toHaveBeenCalledWith('name-keys', expect.any(Function));
+		expect(withBootBackfillLock).toHaveBeenCalledWith('name-keys', expect.any(Function), {
+			onWait: logBackfillLockWait
+		});
 		expect(heldWhenRun).toBe(true);
+		expect(logged).toEqual([
+			{ event: EVENT.backfillStarted, attributes: { [ATTRIBUTE.backfillName]: 'name_keys' } },
+			{
+				event: EVENT.backfillCompleted,
+				attributes: {
+					[ATTRIBUTE.backfillName]: 'name_keys',
+					[ATTRIBUTE.backfillCount]: 3,
+					[ATTRIBUTE.backfillUsers]: 1,
+					[ATTRIBUTE.backfillRowsMerged]: 2,
+					[ATTRIBUTE.backfillRepointed]: 5
+				}
+			}
+		]);
 	});
 
 	it('does nothing once inside the lock if another instance finished first', async () => {

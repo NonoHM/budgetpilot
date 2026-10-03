@@ -72,6 +72,12 @@ services:
       retries: 20
       start_period: 15s
     restart: unless-stopped
+    # Same size bound as the app service; see docker-compose.yml.
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '5'
 
 # Character set and collation are not set here, deliberately. Every table is created
 # with an explicit `utf8mb4 / utf8mb4_unicode_ci` by the migration itself, so the

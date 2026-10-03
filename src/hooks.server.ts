@@ -21,13 +21,28 @@ import { ensureStatementAccountsBackfilled } from '$lib/server/import/accountBoo
 import { ensureNoContestedNetWorthLinks } from '$lib/server/net-worth/contestedBoot';
 import { reportDatesOutsideStorableRange } from '$lib/server/database/storableDatesBoot';
 import { parseTrustedProxies } from '$lib/server/net/clientAddress';
-import { describeErrorForLog } from '$lib/server/errors';
 import { installLastResortErrorHandlers } from '$lib/server/lastResortErrors';
+import { APP_VERSION } from '$lib/server/appVersion';
+import {
+	errorFields,
+	handleLogContext,
+	installConsoleBridge,
+	log,
+	requestErrorId,
+	type LogEvent
+} from '$lib/server/logging';
+import { ATTRIBUTE as A, EVENT as E } from '$lib/server/logging/names';
+import { describeLogSettings } from '$lib/server/logging/settings';
 
 // Before `init` can fail, which is the boot half of #816: Node's own printer would otherwise write a
 // failing backfill's nested database message, which can quote a user's transaction. Not in dev, whose
-// Vite process owns its handlers, and not during the build's analysis pass, which is not a server.
-if (!dev && !building) installLastResortErrorHandlers();
+// Vite process owns its handlers and its console, and not during the build's analysis pass, which is
+// not a server. The console bridge turns what a dependency prints (adapter-node's « Listening on »)
+// into a JSON line like every other, so stdout stays one object per line.
+if (!dev && !building) {
+	installConsoleBridge();
+	installLastResortErrorHandlers();
+}
 
 // One gate, one throw, every problem — see server/env/assertConfigured.ts for why this replaced
 // nine fail-fast checks and two module-load throws. It has to live in `init` rather than at module
@@ -68,53 +83,61 @@ const PUBLIC_ROUTES = new Set([
 	'/setup/origin-mismatch'
 ]);
 
-// Defense in depth: the real mechanism is areSecureCookiesEnabled() (via
-// PUBLIC_INSTANCE), but this log makes the security state visible on every
-// startup instead of relying on an operator happening to re-read the logs.
+// Defense in depth: the real mechanism is areSecureCookiesEnabled() (via PUBLIC_INSTANCE), but the
+// startup line makes the security state visible on every start instead of relying on an operator
+// happening to re-read the configuration.
 const secureCookies = areSecureCookiesEnabled();
-// The provider is safe to print and worth printing: it is the one thing that decides which
-// generated client and migration history the app just used, and a mismatch between what an
-// operator intended and what actually loaded is otherwise invisible. Never log DATABASE_URL
-// alongside it — that carries the database password, which is why only the provider is here.
-console.log(
-	`[budgetpilot] startup: PUBLIC_INSTANCE=${process.env.PUBLIC_INSTANCE ?? 'unset (defaults to secure)'} cookies-secure=${secureCookies} database-provider=${resolveDatabaseProvider(process.env)}`
-);
-// The warning fires on the opt-OUT, since that is the only way to reach this state:
-// secure cookies are the default whenever PUBLIC_INSTANCE is anything but "false".
 // Rate limiting keys on the client IP, so whether X-Forwarded-For is trusted is a security state
-// worth printing on every start, like cookies-secure above. The empty-default line is written to
-// TEACH, not just report: it names the setting, says when it is needed, and states the consequence
-// of leaving it unset (see #219), so an operator behind a proxy who never configured it can act.
+// worth reporting on every start (#219).
 const trustedProxyRanges = parseTrustedProxies(process.env.TRUSTED_PROXIES);
-if (trustedProxyRanges.length > 0) {
-	console.log(
-		`[budgetpilot] startup: TRUSTED_PROXIES set (${trustedProxyRanges.length} range(s)). X-Forwarded-For is trusted only from these peers; rate limiting keys on the forwarded client IP.`
-	);
-} else {
-	console.log(
-		'[budgetpilot] startup: TRUSTED_PROXIES is unset, so X-Forwarded-For is NOT trusted and rate limiting keys on the socket peer. Correct when the app is reached directly. If it sits behind a reverse proxy, set TRUSTED_PROXIES to the proxy IP or CIDR (docker inspect its container, or your LAN/Docker-network range): otherwise every visitor shares the proxy address and one attacker can rate-limit them all. See docs/reverse-proxy.md.'
-	);
-}
-// ORIGIN is the only variable printed here that the app itself never reads: adapter-node consumes
-// it, and its parse_origin returns undefined for an absent value with no throw and no warning.
-// That silence IS the defect. With ORIGIN unset, handler.js builds the request URL from the Host
-// header and DEFAULTS THE PROTOCOL TO https, so on a plain-http deployment url.origin is
-// https://host while the browser sends Origin: http://host, and SvelteKit's CSRF check refuses
-// every form submission. Every GET still renders and the healthcheck still passes, so the failure
-// waits for the first account creation — which is why it needs to be said at startup rather than
-// discovered. Exported for its spec.
-export function originStartupMessage(origin: string | undefined): string {
-	const configured = origin?.trim();
-	if (configured) {
-		return `[budgetpilot] startup: ORIGIN=${configured}. Form submissions are accepted only from this exact origin — if that is not the URL you type in the browser, protocol and port included, every login and registration will be refused as cross-site.`;
+
+/**
+ * What the server says about itself when it starts, as events: `sys_startup` with the
+ * security-relevant configuration as closed values, then one line per state an operator should act
+ * on. A pure function of the environment and two facts read above, for its spec.
+ *
+ * Never DATABASE_URL, which carries the database password: only the provider. Never the raw
+ * PUBLIC_INSTANCE value: the mode it selects. The configured ORIGIN is printed because it is the
+ * operator's own URL and the one variable whose wrong value fails silently: adapter-node consumes it
+ * with no warning, and with it unset the request URL defaults to https, so on a plain-http
+ * deployment SvelteKit's CSRF check refuses every form while every page and the healthcheck work.
+ */
+export function startupEvents(
+	env: Record<string, string | undefined>,
+	facts: { secureCookies: boolean; trustedProxyRanges: number }
+): LogEvent[] {
+	const settings = describeLogSettings(env);
+	const origin = env.ORIGIN?.trim();
+	const events: LogEvent[] = [
+		{
+			event: E.sysStartup,
+			attributes: {
+				[A.serviceVersion]: APP_VERSION,
+				[A.configPublicInstance]: facts.secureCookies ? 'secure' : 'lan',
+				[A.configCookiesSecure]: facts.secureCookies,
+				[A.configDatabaseProvider]: resolveDatabaseProvider(env),
+				[A.configTrustedProxyRanges]: facts.trustedProxyRanges,
+				[A.configOriginSet]: Boolean(origin),
+				[A.configSecurityLog]: settings.securityLog,
+				[A.configLogLevel]: settings.level
+			}
+		},
+		origin
+			? { event: E.configOriginSet, attributes: { [A.configOrigin]: origin } }
+			: { event: E.configOriginUnset, attributes: {} }
+	];
+	if (facts.trustedProxyRanges === 0) {
+		events.push({ event: E.configTrustedProxiesUnset, attributes: {} });
 	}
-	return '[budgetpilot] startup: ORIGIN is unset, so the request URL is built from the Host header with the protocol defaulting to https. On a plain-http deployment that makes every form submission — login and account creation included — fail with "Cross-site POST form submissions are forbidden", while every page still loads and the healthcheck still passes. Set ORIGIN to the exact URL you type in the browser, protocol and port included and no trailing slash (e.g. http://localhost:3000). See docs/troubleshooting.md.';
+	if (!facts.secureCookies) events.push({ event: E.configInsecureCookies, attributes: {} });
+	return events;
 }
-console.log(originStartupMessage(process.env.ORIGIN));
-if (!secureCookies) {
-	console.warn(
-		'[budgetpilot] ⚠️ SECURITY: PUBLIC_INSTANCE=false, LAN mode: session cookies are sent WITHOUT the Secure flag. This is correct for a private instance reached over plain http:// on a trusted network, and unsafe anywhere else. If this instance is reachable from the Internet, remove PUBLIC_INSTANCE=false and serve it over HTTPS.'
-	);
+
+for (const event of startupEvents(process.env, {
+	secureCookies,
+	trustedProxyRanges: trustedProxyRanges.length
+})) {
+	log(event);
 }
 
 // The value this escapes is NOT trusted. With ORIGIN unset, adapter-node builds the request URL
@@ -227,19 +250,36 @@ export const handleSecurityHeaders: Handle = async ({ event, resolve }) => {
 
 /**
  * The request half of #816: SvelteKit's default printed `error.stack`, message first, and a database
- * message can quote the row it refused. The first line keeps the default's status, method and path,
- * which `e2e/log-secret-scan.spec.ts` reads back as its calibration; the error itself is reduced to
- * its class and code by the one rule in server/errors.ts.
+ * message can quote the row it refused. The error is reduced to its class and code by the one rule
+ * in server/errors.ts (`errorFields` calls `loggableError` and nothing else reads the error).
  *
- * The error id is the only thing joining the page a visitor reports to the line an operator finds.
- * The message returned is SvelteKit's own generic one, never the error's (`v5.0.0-16.5.1`).
+ * The error id is the request's own id, generated by `handleLogContext`, so the reference a visitor
+ * reports from the error page is the `budgetpilot.error.id` of the line, and the same request's
+ * `trace_id` without its dashes. The method and the route template come from that context too; the
+ * path is never written, because it is the one part of a request a visitor types freely. The message
+ * returned is SvelteKit's own generic one, never the error's (`v5.0.0-16.5.1`).
  */
-export const handleError: HandleServerError = ({ error, event, status, message }) => {
-	const errorId = crypto.randomUUID();
-	console.error(
-		`[${status}] ${event.request.method} ${event.url.pathname} errorId=${errorId} ${describeErrorForLog(error)}`
-	);
+export const handleError: HandleServerError = ({ error, status, message }) => {
+	const errorId = requestErrorId() ?? crypto.randomUUID();
+	if (status === 404) {
+		log({
+			event: E.requestNotFound,
+			attributes: { [A.httpStatus]: status, [A.errorId]: errorId }
+		});
+	} else {
+		log({
+			event: E.requestFailed,
+			attributes: { ...errorFields(error), [A.httpStatus]: status, [A.errorId]: errorId }
+		});
+	}
 	return { message, errorId };
 };
 
-export const handle: Handle = sequence(handleParaglide, handleAuth, handleSecurityHeaders);
+// The log context first, before `handleAuth`, so every line a request writes carries its id
+// (#250). Kit's own origin check answers before any of these runs.
+export const handle: Handle = sequence(
+	handleLogContext,
+	handleParaglide,
+	handleAuth,
+	handleSecurityHeaders
+);

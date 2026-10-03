@@ -1,5 +1,7 @@
 import { prisma } from '$lib/server/db';
 import { FIRST_STORABLE_DAY, STORABLE_YEARS } from '$lib/domain/transaction';
+import { log } from '$lib/server/logging';
+import { ATTRIBUTE, EVENT } from '$lib/server/logging/names';
 
 /**
  * #758: rows written BEFORE the storable range existed, counted at startup and never touched.
@@ -65,9 +67,7 @@ export async function reportDatesOutsideStorableRange(): Promise<OutOfRangeDateC
 	try {
 		counts = await countBelowFloor();
 	} catch {
-		console.warn(
-			'[dates] The check for rows dated before the storable range could not run; nothing was changed.'
-		);
+		log({ event: EVENT.datesCheckFailed, attributes: {} });
 		return null;
 	}
 
@@ -75,13 +75,15 @@ export async function reportDatesOutsideStorableRange(): Promise<OutOfRangeDateC
 	if (nonZero.length === 0) return counts;
 
 	const total = nonZero.reduce((sum, [, count]) => sum + count, 0);
-	console.warn(
-		`[dates] ${total} row(s) carry a date before year ${STORABLE_YEARS.first}, outside what every ` +
-			`supported engine stores faithfully (#758): ` +
-			nonZero.map(([column, count]) => `${column} ${count}`).join(', ') +
-			'. They can display in the wrong century (MariaDB reads years 0001 to 0099 back as 1950 ' +
-			'to 2049) and a backup holding them is refused on restore. Nothing was changed: correct or ' +
-			'delete them by hand.'
-	);
+	// The column names come from the fixed object above, never from a row, so the joined string is
+	// a closed vocabulary with numbers. MariaDB reads years 0001 to 0099 back as 1950 to 2049.
+	log({
+		event: EVENT.datesOutsideStorableRange,
+		attributes: {
+			[ATTRIBUTE.datesTotal]: total,
+			[ATTRIBUTE.datesCounts]: nonZero.map(([column, count]) => `${column}=${count}`).join(','),
+			[ATTRIBUTE.datesFirstStorableYear]: STORABLE_YEARS.first
+		}
+	});
 	return counts;
 }

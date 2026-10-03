@@ -143,21 +143,20 @@ keeps running in the background after the command returns.
 docker compose -f docker-compose.prebuilt.yml logs budgetpilot
 ```
 
-You want these two lines near the end:
+Each line is a JSON object. You want two of them near the end: a
+`sys_startup` line carrying `"budgetpilot.config.cookies_secure":true` and
+`"budgetpilot.config.database_provider":"sqlite"`, and a line whose
+`budgetpilot.console.text` reads `Listening on http://0.0.0.0:3000`. To see
+only those two:
 
+```bash
+docker compose -f docker-compose.prebuilt.yml logs budgetpilot | grep -E 'sys_startup|Listening on'
 ```
-[budgetpilot] startup: PUBLIC_INSTANCE=unset (defaults to secure) cookies-secure=true database-provider=sqlite
-Listening on http://0.0.0.0:3000
-```
-
-(If you used `npm run setup` rather than the `.env` block above, the first
-line reads `PUBLIC_INSTANCE=true` instead. Same thing: the flag defaults to
-on when it isn't set at all.)
 
 `0.0.0.0:3000` is the port _inside_ the container, which never changes. The
 one you open in the browser is your `APP_PORT`.
 
-`cookies-secure=true` is the default and the right value here: browsers
+`"budgetpilot.config.cookies_secure":true` is the default and the right value here: browsers
 accept a `Secure` cookie over `http://localhost`. If you plan to reach the
 app from another device on your LAN instead, read
 [reaching it from another device](#reaching-it-from-another-device) before
@@ -294,11 +293,10 @@ The app prints a warning at startup while this is on, because your session
 cookie then travels in clear text on your network. That is a reasonable
 trade on a home LAN and not one to make anywhere else.
 
-Restart after editing, then check the logs say what you expect:
-
-```
-[budgetpilot] startup: PUBLIC_INSTANCE=false cookies-secure=false
-```
+Restart after editing, then check the `sys_startup` line in the logs says
+what you expect: `"budgetpilot.config.public_instance":"lan"` and
+`"budgetpilot.config.cookies_secure":false`, followed by a
+`budgetpilot.config.insecure_cookies` warning.
 
 Want a real domain and HTTPS instead? That's a Caddy overlay and three
 commands: see [reverse proxy](./reverse-proxy.md). Leave

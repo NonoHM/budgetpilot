@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ATTRIBUTE, EVENT } from '$lib/server/logging/names';
 
 vi.hoisted(() => {
 	// 64 hex, because that is now enforced (assertRateLimitSecretConfigured). The previous literal
@@ -17,6 +18,14 @@ const db = vi.hoisted(() => ({
 }));
 
 vi.mock('$lib/server/db', () => ({ prisma: db.prisma }));
+
+const logged = vi.hoisted(() => [] as unknown[]);
+vi.mock('$lib/server/logging', async (importOriginal) => ({
+	...(await importOriginal<typeof import('$lib/server/logging')>()),
+	log: (event: unknown) => {
+		logged.push(event);
+	}
+}));
 
 const {
 	isLoginRateLimited,
@@ -724,16 +733,10 @@ describe('the import limit is configurable, and the configuration cannot remove 
 		}
 	}
 
-	function captureWarnings(run: () => void): string[] {
-		const warnings: string[] = [];
-		const original = console.warn;
-		console.warn = (message: string) => void warnings.push(message);
-		try {
-			run();
-		} finally {
-			console.warn = original;
-		}
-		return warnings;
+	function captureEvents(run: () => void): unknown[] {
+		logged.length = 0;
+		run();
+		return [...logged];
 	}
 
 	function refusalOf(value: string): string {
@@ -829,34 +832,62 @@ describe('the import limit is configurable, and the configuration cannot remove 
 	// Presence control first: a logger that warned unconditionally would satisfy the rest, and an
 	// operator who sees a warning on a default install stops reading warnings.
 	it('says nothing at boot on the default', () => {
-		expect(withEnv(undefined, () => captureWarnings(assertImportRateLimitConfigured))).toEqual([]);
-		expect(withEnv('60', () => captureWarnings(assertImportRateLimitConfigured))).toEqual([]);
+		expect(withEnv(undefined, () => captureEvents(assertImportRateLimitConfigured))).toEqual([]);
+		expect(withEnv('60', () => captureEvents(assertImportRateLimitConfigured))).toEqual([]);
 	});
 
 	// Separates "a departure is announced" from "it is applied silently": the reader of the boot log
 	// after an incident is usually not the person who changed the setting.
 	it('names both values and the direction when the limit is raised', () => {
-		const raised = withEnv('180', () => captureWarnings(assertImportRateLimitConfigured));
-		expect(raised).toHaveLength(2);
-		expect(raised[0]).toContain(`${IMPORT_MAX_ATTEMPTS_ENV}=180`);
-		expect(raised[0]).toContain(`default of ${IMPORT_DEFAULT_MAX_ATTEMPTS}`);
-		expect(raised[1]).toContain('RAISED');
+		const raised = withEnv('180', () => captureEvents(assertImportRateLimitConfigured));
+		expect(raised).toEqual([
+			{
+				event: EVENT.configBoundChanged,
+				attributes: {
+					[ATTRIBUTE.configName]: IMPORT_MAX_ATTEMPTS_ENV,
+					[ATTRIBUTE.configValue]: 180,
+					[ATTRIBUTE.configDefault]: IMPORT_DEFAULT_MAX_ATTEMPTS,
+					[ATTRIBUTE.configDirection]: 'raised',
+					[ATTRIBUTE.configBelowHonestMinimum]: false
+				}
+			}
+		]);
 	});
 
 	it('warns when the limit is lowered below an honest batch of statements', () => {
-		const lowered = withEnv('10', () => captureWarnings(assertImportRateLimitConfigured));
-		expect(lowered).toHaveLength(2);
-		expect(lowered[0]).toContain(`${IMPORT_MAX_ATTEMPTS_ENV}=10`);
-		expect(lowered[1]).toContain('LOWERED');
-		expect(lowered[1]).toContain(String(HONEST_IMPORT_BATCH_ATTEMPTS));
+		expect(10).toBeLessThan(HONEST_IMPORT_BATCH_ATTEMPTS);
+		const lowered = withEnv('10', () => captureEvents(assertImportRateLimitConfigured));
+		expect(lowered).toEqual([
+			{
+				event: EVENT.configBoundChanged,
+				attributes: {
+					[ATTRIBUTE.configName]: IMPORT_MAX_ATTEMPTS_ENV,
+					[ATTRIBUTE.configValue]: 10,
+					[ATTRIBUTE.configDefault]: IMPORT_DEFAULT_MAX_ATTEMPTS,
+					[ATTRIBUTE.configDirection]: 'lowered',
+					[ATTRIBUTE.configBelowHonestMinimum]: true
+				}
+			}
+		]);
 	});
 
-	// Between the honest batch and the default only the departure itself is named, so the LOWERED
-	// line keeps meaning "files a household uploads will be refused".
-	it('names only the departure between the honest batch and the default', () => {
-		const trimmed = withEnv('50', () => captureWarnings(assertImportRateLimitConfigured));
-		expect(trimmed).toHaveLength(1);
-		expect(trimmed[0]).toContain(`${IMPORT_MAX_ATTEMPTS_ENV}=50`);
+	// Between the honest batch and the default only the departure itself is reported, so
+	// below_honest_minimum keeps meaning "files a household uploads will be refused".
+	it('reports a departure between the honest batch and the default as not below the honest minimum', () => {
+		expect(50).toBeGreaterThanOrEqual(HONEST_IMPORT_BATCH_ATTEMPTS);
+		const trimmed = withEnv('50', () => captureEvents(assertImportRateLimitConfigured));
+		expect(trimmed).toEqual([
+			{
+				event: EVENT.configBoundChanged,
+				attributes: {
+					[ATTRIBUTE.configName]: IMPORT_MAX_ATTEMPTS_ENV,
+					[ATTRIBUTE.configValue]: 50,
+					[ATTRIBUTE.configDefault]: IMPORT_DEFAULT_MAX_ATTEMPTS,
+					[ATTRIBUTE.configDirection]: 'lowered',
+					[ATTRIBUTE.configBelowHonestMinimum]: false
+				}
+			}
+		]);
 	});
 
 	// WITHOUT THIS THE CEILING IS DECORATION. Every test above calls the module directly, so all of

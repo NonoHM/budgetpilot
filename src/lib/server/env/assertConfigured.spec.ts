@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join, relative } from 'node:path';
+import { ATTRIBUTE, EVENT } from '$lib/server/logging/names';
 
 // The collector imports every check's module, and several of them reach the Prisma client. Nothing
 // here queries a database, so the client is replaced rather than constructed.
@@ -14,6 +15,16 @@ vi.mock('$lib/server/env/operatorBound', async (importOriginal) => {
 	const original = await importOriginal<typeof import('./operatorBound')>();
 	return { ...original, readOperatorBound: vi.fn(original.readOperatorBound) };
 });
+
+// Every event a check logs is recorded rather than written: the bound probe below reads the value a
+// bound accepted from its `bound_changed` event.
+const logged = vi.hoisted(() => [] as unknown[]);
+vi.mock('$lib/server/logging', async (importOriginal) => ({
+	...(await importOriginal<typeof import('$lib/server/logging')>()),
+	log: (event: unknown) => {
+		logged.push(event);
+	}
+}));
 
 const {
 	assertEnvironmentConfigured,
@@ -217,23 +228,25 @@ const { assertRateLimitSecretConfigured } = await import('$lib/server/auth/rateL
 const { assertEncryptionKeyConfigured } = await import('$lib/server/crypto');
 const { assertDatabaseConfigured } = await import('$lib/server/database/bootCheck');
 const { assertForwardingConfigSafe } = await import('$lib/server/net/clientAddress');
+const { assertLoggingConfigured } = await import('$lib/server/logging');
 const NOT_OPERATOR_BOUNDS = new Map<unknown, string>([
 	[assertDatabaseConfigured, 'a connection string and an engine name'],
 	[assertEncryptionKeyConfigured, 'a secret key'],
 	[assertRateLimitSecretConfigured, 'a secret key'],
 	[assertBootstrapTokenConfigured, 'a secret token'],
-	[assertForwardingConfigSafe, 'two variables that must not be set at all']
+	[assertForwardingConfigSafe, 'two variables that must not be set at all'],
+	[assertLoggingConfigured, 'two variables, each a closed set of words']
 ]);
 const OPERATOR_BOUNDS = ENVIRONMENT_CHECKS.filter(([, run]) => !NOT_OPERATOR_BOUNDS.has(run));
 
 /**
  * What one bound does with one spelling, in words that can be compared as a table: refused with
  * the decimal-digits reason, refused for another reason (quoted), read as a value (taken from the
- * « differs from the default » line every bound's check writes), or the default (no such line).
+ * `bound_changed` event every bound's check logs on a departure), or the default (no event).
  */
 async function readingOf(name: string, run: () => void | Promise<void>, spelling: string) {
 	const previous = process.env[name];
-	const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+	logged.length = 0;
 	process.env[name] = spelling;
 	try {
 		// Through the collector, not by calling the check: the refusal is read as it reaches the
@@ -248,14 +261,20 @@ async function readingOf(name: string, run: () => void | Promise<void>, spelling
 				? 'refused: not decimal digits'
 				: `refused otherwise: ${problem}`;
 		}
-		const first = warn.mock.calls[0]?.[0];
-		if (first === undefined) return 'the default';
-		const read = String(first).match(new RegExp(`${name}=(\\S+) differs from the default`));
-		return read ? `read as ${read[1]}` : `accepted, with an unexpected warning: ${String(first)}`;
+		if (logged.length === 0) return 'the default';
+		const [only] = logged as { event: string; attributes: Record<string, unknown> }[];
+		const read =
+			logged.length === 1 &&
+			only.event === EVENT.configBoundChanged &&
+			only.attributes[ATTRIBUTE.configName] === name
+				? only.attributes[ATTRIBUTE.configValue]
+				: undefined;
+		return read === undefined
+			? `accepted, with unexpected events: ${JSON.stringify(logged)}`
+			: `read as ${String(read)}`;
 	} finally {
 		if (previous === undefined) delete process.env[name];
 		else process.env[name] = previous;
-		warn.mockRestore();
 	}
 }
 
@@ -322,20 +341,15 @@ describe('operator bounds', () => {
 	//   one): `staleExemptions` is 1.
 	it('has every registered bound ask the shared parser for its own variable, and nothing else ask', async () => {
 		const parse = vi.mocked(readOperatorBound);
-		const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
 		const asked: Record<string, string[]> = {};
-		try {
-			for (const [label, run] of ENVIRONMENT_CHECKS) {
-				parse.mockClear();
-				try {
-					await run();
-				} catch {
-					// A check refusing this test process's environment still asked for what it asked for.
-				}
-				asked[label] = parse.mock.calls.map(([bound]) => bound.name);
+		for (const [label, run] of ENVIRONMENT_CHECKS) {
+			parse.mockClear();
+			try {
+				await run();
+			} catch {
+				// A check refusing this test process's environment still asked for what it asked for.
 			}
-		} finally {
-			warn.mockRestore();
+			asked[label] = parse.mock.calls.map(([bound]) => bound.name);
 		}
 		expect({
 			checksRun: Object.keys(asked).length,

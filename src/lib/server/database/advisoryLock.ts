@@ -77,7 +77,16 @@ export interface BootLockDeps {
 	waitSeconds?: number;
 	pollIntervalMs?: number;
 	keepAliveIntervalMs?: number;
+	/**
+	 * Told every WAIT_LOG_INTERVAL_MS while another instance holds the lock. A parameter rather than
+	 * a log call because `scripts/normalize-names.mjs` imports this file as TypeScript source outside
+	 * the bundle, where the application's logger and its `$lib` imports do not resolve: the boot
+	 * callers pass `logBackfillLockWait` (server/logging), the script its own printer.
+	 */
+	onWait?: OnLockWait;
 }
+
+export type OnLockWait = (name: string, waitedSeconds: number) => void;
 
 /**
  * Runs `work` while holding the named lock. Returns whatever `work` returns.
@@ -106,10 +115,11 @@ export async function withBootBackfillLock<T>(
 	const client = (deps.createClient ?? createPrismaClient)(env, { singleConnection: true });
 
 	try {
+		const onWait = deps.onWait ?? (() => {});
 		if (provider === 'postgresql') {
-			await acquirePostgresLock(client, name, waitSeconds, pollIntervalMs);
+			await acquirePostgresLock(client, name, waitSeconds, pollIntervalMs, onWait);
 		} else {
-			await acquireMysqlLock(client, name, waitSeconds, pollIntervalMs);
+			await acquireMysqlLock(client, name, waitSeconds, pollIntervalMs, onWait);
 		}
 
 		// Started only once the lock is held, and stopped before the release. See
@@ -157,6 +167,7 @@ async function pollForLock(
 	name: string,
 	waitSeconds: number,
 	pollIntervalMs: number,
+	onWait: OnLockWait,
 	tryAcquire: () => Promise<boolean>
 ): Promise<void> {
 	const started = Date.now();
@@ -168,10 +179,7 @@ async function pollForLock(
 		if (Date.now() >= deadline) throw lockTimeout(name, waitSeconds);
 
 		if (Date.now() >= nextLogAt) {
-			console.log(
-				`[${name}] waiting for another instance to finish the one-time backfill ` +
-					`(${Math.round((Date.now() - started) / 1000)}s so far)`
-			);
+			onWait(name, Math.round((Date.now() - started) / 1000));
 			nextLogAt = Date.now() + WAIT_LOG_INTERVAL_MS;
 		}
 
@@ -190,11 +198,12 @@ async function acquirePostgresLock(
 	client: LockClient,
 	name: string,
 	waitSeconds: number,
-	pollIntervalMs: number
+	pollIntervalMs: number,
+	onWait: OnLockWait
 ): Promise<void> {
 	const [high, low] = postgresLockKeys(name);
 
-	await pollForLock(name, waitSeconds, pollIntervalMs, async () => {
+	await pollForLock(name, waitSeconds, pollIntervalMs, onWait, async () => {
 		const rows =
 			await client.$queryRaw`SELECT pg_try_advisory_lock(${high}::int4, ${low}::int4) AS locked`;
 		return readLockResult(rows) === true;
@@ -212,11 +221,12 @@ async function acquireMysqlLock(
 	client: LockClient,
 	name: string,
 	waitSeconds: number,
-	pollIntervalMs: number
+	pollIntervalMs: number,
+	onWait: OnLockWait
 ): Promise<void> {
 	const lockName = mysqlLockName(await readDatabaseName(client), name);
 
-	await pollForLock(name, waitSeconds, pollIntervalMs, async () => {
+	await pollForLock(name, waitSeconds, pollIntervalMs, onWait, async () => {
 		const rows = await client.$queryRaw`SELECT GET_LOCK(${lockName}, 0) AS locked`;
 		return readLockResult(rows) === true;
 	});

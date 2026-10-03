@@ -29,7 +29,9 @@ factor. Rotating `RATE_LIMIT_HASH_SECRET` resets rate-limit counters and
 makes every remembered account stop matching: nothing is lost or misfiled,
 the next statement of each account asks again which account it goes to,
 and the answer is remembered anew. The old entries stay listed under
-Settings > Remembered accounts until you forget them.
+Settings > Remembered accounts until you forget them. It also changes the
+key that hashes client addresses in the log, so addresses logged before and
+after the rotation can no longer be matched ([logs](./logging.md#the-client-address)).
 
 `npm run setup` regenerates all three, so don't rerun it on an instance you
 already use. Edit `.env` directly to flip a single setting.
@@ -357,6 +359,19 @@ a backup that is one enormous piece of text rather than many entries has one
 entry, so this limit is silent about it. That case is cheap (20 MB of text
 costs 20 MB) and `BODY_SIZE_LIMIT` is what bounds it. The two work together:
 one bounds size, the other bounds structure.
+
+## Logging
+
+The server writes one JSON object per line to standard output. [Logs](./logging.md)
+lists every event and field, where the log goes and how long it is kept.
+
+| Variable          | Values                  | Default | If you change it                                                                                                                                                                                                |
+| ----------------- | ----------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BP_LOG_LEVEL`    | `debug`, `info`, `warn` | `info`  | Lines below that severity are not written. There is no level above `warn`, and `sys_startup`, `sys_monitor_disabled`, `sys_crash` and every `budgetpilot.config.*` event are `WARN`, so they are always written |
+| `BP_SECURITY_LOG` | `on`, `off`             | `on`    | `off` drops the security events, and every start writes a `sys_monitor_disabled` line saying so. This version has no security event yet ([#250](https://github.com/NonoHM/budgetpilot/issues/250))              |
+
+Any other value stops the server at start, naming the allowed values. A value
+other than the default is written in the startup log.
 
 ## Optional features
 

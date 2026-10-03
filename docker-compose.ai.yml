@@ -75,6 +75,12 @@ services:
     volumes:
       - ollama_data:/root/.ollama
     restart: unless-stopped
+    # Same size bound as the app service; see docker-compose.yml.
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '5'
 
 volumes:
   ollama_data:

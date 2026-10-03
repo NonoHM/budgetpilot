@@ -486,4 +486,33 @@ for filter_line in \
 	echo "ok:   Caddyfile.example filters \"$filter_line\""
 done
 
+# Log rotation on every service any documented stack starts (ruling R2 on #841). Docker's default
+# json-file driver keeps a container's output with no size limit, so a service without `logging:`
+# fills the disk it shares with the database. Every service of every combination is read from the
+# rendered project, so an overlay that adds a service without the block, or patches one and resets
+# it, fails here. The count of services read is printed beside each verdict, so a render that read
+# nothing cannot pass. This proves the stack is written that way; Docker enforcing the bound is
+# Docker's.
+echo
+echo "--- log rotation on every service ---"
+
+for combination in "${COMBINATIONS[@]}"; do
+	args=()
+	for file in $combination; do
+		args+=(-f "$file")
+	done
+	if ! project=$(docker compose --env-file /dev/null "${args[@]}" config --format json 2>/dev/null); then
+		echo "FAIL: $combination could not be rendered (see the combination above for the reason)" >&2
+		failed=1
+		continue
+	fi
+	services=$(jq -r '.services | length' <<<"$project")
+	unbounded=$(jq -r '[.services | to_entries[] | select((.value.logging.driver // "") != "json-file" or (.value.logging.options["max-size"] // "") == "" or (.value.logging.options["max-file"] // "") == "") | .key] | join(",")' <<<"$project")
+	if [ "$services" = 0 ] || [ -n "$unbounded" ]; then
+		echo "FAIL: $combination: service(s) without a json-file size bound: ${unbounded:-none read} (read $services service(s))" >&2
+		failed=1
+		continue
+	fi
+	echo "ok:   $combination (log rotation on all $services service(s))"
+done
 exit "$failed"

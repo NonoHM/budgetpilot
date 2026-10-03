@@ -13,6 +13,8 @@
   setup.
 - **[Running it day to day](./operations.md)**: updating, backups, moving
   machines, uninstalling.
+- **[Logs](./logging.md)**: what the server writes, where it goes, how long it
+  is kept, and every event with its fields.
 - **[Local AI advice](./ai-insights.md)**: the optional Ollama setup.
 - **[Bank sync](./bank-sync.md)**: the optional automatic PSD2 connection.
 - **[Troubleshooting](./troubleshooting.md)**: when something's broken.
@@ -54,6 +56,8 @@ How to do things, in [using BudgetPilot](./using/README.md):
   sessions, and deleting the account.
 - [The admin panel](./using/admin.md): managing accounts, and inviting
   someone to the instance.
+- [What the security log records about you](./using/security-logging.md):
+  what goes in, what never does, and how long it is kept.
 
 **Two features are documented above in "Install it" rather than here, and
 that is a decision rather than a gap.** [Bank sync](./bank-sync.md) and

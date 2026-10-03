@@ -1,11 +1,11 @@
-import { describeErrorForLog } from './errors';
+import { errorFields, log, type LogEvent } from './logging';
+import { ATTRIBUTE as A, EVENT as E } from './logging/names';
 
 /** The part of `process` this needs, so a spec can hand it a fake one that does not exit. */
 export interface ProcessLike {
 	on(event: 'uncaughtException', listener: (caught: unknown, origin: string) => void): unknown;
 	on(event: 'unhandledRejection', listener: (reason: unknown) => void): unknown;
 	exit(code: number): unknown;
-	stderr: { write(text: string): unknown };
 }
 
 /**
@@ -20,13 +20,22 @@ export interface ProcessLike {
  * Node routes to `uncaughtException` with origin `unhandledRejection` (measured on Node 24). An
  * ordinary unhandled rejection arrives at the second listener.
  *
- * Exits 1, as Node's default does for both, so a container restart policy sees the same failure it
- * always did. Writes with `process.stderr.write`, which is synchronous for a file or a pipe on
- * Linux, so the line is out before the exit.
+ * Writes `sys_crash` (the OWASP vocabulary's name) through the log, whose sink is synchronous on
+ * file descriptor 1, so the line is out before the exit. Exits 1, as Node's default does for both,
+ * so a container restart policy sees the same failure it always did.
  */
-export function installLastResortErrorHandlers(proc: ProcessLike = process): void {
+export function installLastResortErrorHandlers(
+	proc: ProcessLike = process,
+	write: (event: LogEvent) => void = log
+): void {
 	const report = (caught: unknown, origin: string) => {
-		proc.stderr.write(`[budgetpilot] fatal ${origin}: ${describeErrorForLog(caught)}\n`);
+		write({
+			event: E.sysCrash,
+			attributes: {
+				...errorFields(caught),
+				[A.crashOrigin]: origin === 'uncaughtException' ? 'uncaughtException' : 'unhandledRejection'
+			}
+		});
 		proc.exit(1);
 	};
 	proc.on('uncaughtException', report);

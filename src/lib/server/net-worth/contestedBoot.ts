@@ -1,5 +1,7 @@
 import { prisma } from '$lib/server/db';
 import { withBootBackfillLock } from '$lib/server/database/advisoryLock';
+import { log, logBackfillLockWait } from '$lib/server/logging';
+import { ATTRIBUTE, EVENT } from '$lib/server/logging/names';
 import { hasContestedNetWorthLines, repairContestedNetWorthLinks } from './contestedRepair.ts';
 
 /**
@@ -34,15 +36,20 @@ import { hasContestedNetWorthLines, repairContestedNetWorthLinks } from './conte
 export async function ensureNoContestedNetWorthLinks(): Promise<void> {
 	if (!(await hasContestedNetWorthLines(prisma))) return;
 
-	await withBootBackfillLock('net-worth-contested-links', async () => {
-		if (!(await hasContestedNetWorthLines(prisma))) return;
+	await withBootBackfillLock(
+		'net-worth-contested-links',
+		async () => {
+			if (!(await hasContestedNetWorthLines(prisma))) return;
 
-		const { linesContested, cleared } = await repairContestedNetWorthLinks(prisma);
-		console.warn(
-			`[net-worth-links] ${linesContested} net worth account(s) were being fed by more than one ` +
-				`synchronized bank account, which made their balance depend on sync order (#501). ` +
-				`${cleared} link(s) withdrawn. Set the one that should feed each line again from ` +
-				'Réglages > Comptes, or from Imports > Connexions bancaires.'
-		);
-	});
+			const { linesContested, cleared } = await repairContestedNetWorthLinks(prisma);
+			log({
+				event: EVENT.netWorthLinksWithdrawn,
+				attributes: {
+					[ATTRIBUTE.netWorthLinesContested]: linesContested,
+					[ATTRIBUTE.netWorthLinksWithdrawn]: cleared
+				}
+			});
+		},
+		{ onWait: logBackfillLockWait }
+	);
 }

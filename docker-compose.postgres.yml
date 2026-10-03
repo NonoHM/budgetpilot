@@ -93,6 +93,12 @@ services:
       retries: 20
       start_period: 10s
     restart: unless-stopped
+    # Same size bound as the app service; see docker-compose.yml.
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '5'
 
 # Least privilege for the app's own account, and the reasons this file looks the way it does.
 #

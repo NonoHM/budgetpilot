@@ -1,4 +1,6 @@
 import { fail, type Actions } from '@sveltejs/kit';
+import { EVENT } from '$lib/server/logging/names';
+import { log } from '$lib/server/logging';
 import * as m from '$lib/paraglide/messages';
 import { requireUser } from '$lib/server/auth';
 import { prisma } from '$lib/server/db';
@@ -832,7 +834,7 @@ export const actions: Actions = {
 					accountId: decision.bucket.accountId
 				});
 			} catch {
-				console.warn('[budgetpilot] an answered import account could not be remembered');
+				log({ event: EVENT.importAccountNotRemembered, attributes: {} });
 			}
 		}
 

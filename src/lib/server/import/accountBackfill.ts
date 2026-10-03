@@ -74,7 +74,8 @@ export interface StatementAccountBackfillOptions {
 	prisma: PrismaClient;
 	/** Test seam for the resume case; production uses the constant above. */
 	batchSize?: number;
-	onProgress?: (message: string) => void;
+	/** Counts as they grow, for the boot log; a closed stage, never a sentence. */
+	onProgress?: (progress: { stage: 'accounts_named' | 'batches_filed'; count: number }) => void;
 }
 
 export interface StatementAccountBackfillResult {
@@ -181,7 +182,7 @@ export async function runStatementAccountBackfill(
 		}
 
 		// COUNTS ONLY. Never a name: an account name is the user's own words for their bank.
-		onProgress?.(`${accountsNamed} account(s) named`);
+		onProgress?.({ stage: 'accounts_named', count: accountsNamed });
 	}
 
 	// PASS 2: file each batch into the account its own transactions already name.
@@ -212,7 +213,7 @@ export async function runStatementAccountBackfill(
 			);
 		}
 
-		onProgress?.(`${batchesFiled} batch(es) filed`);
+		onProgress?.({ stage: 'batches_filed', count: batchesFiled });
 	}
 
 	return { accountsNamed, batchesFiled };

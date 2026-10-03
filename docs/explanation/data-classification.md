@@ -73,9 +73,10 @@ and only on authentication events and on the rate limiter's refusal of an authen
 (`LOGIN`, `MFA`, `REAUTH`, `REGISTER`, `INVITE`). The log key is derived by HKDF-SHA256 from
 `RATE_LIMIT_HASH_SECRET` under the label `budgetpilot:log-pseudonym:v1` (R9), so a logged hash
 never equals a stored `LoginAttempt.ipHash`. Whoever holds `.env` can still reverse a logged
-IPv4 address by enumeration. The protection is against every other reader of the log. Those
-rows are requirements for the logger in #250. No stored security event exists yet, and the
-stdout logger does not yet apply them (see the gaps).
+IPv4 address by enumeration. The protection is against every other reader of the log. The
+derivation exists (`src/lib/server/logging/pseudonym.ts`); no event carries an address yet,
+because no authentication event is written yet (#250). No stored security event exists (see the
+gaps).
 
 ### Stated exceptions to the transport rule
 
@@ -146,14 +147,14 @@ Each statement was read in the file named.
 **Operational.** No rule is broken by the code that was read. The rows linked to a user are
 covered by the retention and deletion gaps below.
 
-**Logs.** Runtime logging is `console.*` to stdout and stderr, plus one `process.stderr.write` in
-`src/lib/server/lastResortErrors.ts`: 51 call sites in 21 files, counted by the command in
-[Re-deriving the figures](#re-deriving-the-figures). The count includes `boot.mjs`, the container's
-start command (`CMD ["boot.mjs"]` in the `Dockerfile`). `boot.mjs` also runs `prisma migrate deploy`
-with `stdio: 'inherit'`, so that tool's own output reaches the same stream and the application does
-not filter it (#846). An unexpected error prints its class name and a short code, and its message
-only when it is an `OperatorFacingError` (`loggableError`, `src/lib/server/errors.ts`). No
-`console.*` call site prints a Secret, Financial or Personal column. `e2e/log-secret-scan.spec.ts`
+**Logs.** Every line is written by `src/lib/server/logging` as one JSON object on stdout, from a
+closed type of events whose fields each carry a level from this page ([Logs](../logging.md)).
+`boot.mjs`, the container's start command (`CMD ["boot.mjs"]` in the `Dockerfile`), writes through
+the same writer's core. It also runs `prisma migrate deploy` with `stdio: 'inherit'`, so that
+tool's own output reaches the same stream and the application does not filter it (#846). An
+unexpected error is written as its class name and a short code, and its message only when it is an
+`OperatorFacingError` (`loggableError`, `src/lib/server/errors.ts`). No event declares a Secret,
+Financial or Personal field. `e2e/log-secret-scan.spec.ts`
 scans a built server's log for planted values: the configured secrets, the Enable Banking private
 key, and the secrets a run mints, which are the session tokens, the TOTP secret and recovery codes,
 an invitation token, an admin-issued temporary password, and the bank `state`, `code` and signed
@@ -188,9 +189,8 @@ being unknown: each has an issue.
 
 | Gap                                                                                                                                                                                                                                                                       | Level                       | Issue                                                                                                                                                                        |
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| No security event logger: the allowlist and the IP rule above are requirements, and nothing enforces them yet.                                                                                                                                                            | Personal, Pseudonymous      | [#250](https://github.com/NonoHM/budgetpilot/issues/250)                                                                                                                     |
-| The stdout log has no size bound in any Compose file, and no notice tells users that security logging exists (R2, R8).                                                                                                                                                    | all                         | [#841](https://github.com/NonoHM/budgetpilot/issues/841), pull request L2                                                                                                    |
-| The log pseudonym key and the stored security event table (180 days default, 365 ceiling) do not exist (R2, R8, R9).                                                                                                                                                      | Pseudonymous                | #841, L2 and the 1.4 event table                                                                                                                                             |
+| No authentication, authorization or control-bypass event is written: the writer, the field allowlist and the log pseudonym exist, the events do not.                                                                                                                      | Personal, Pseudonymous      | [#250](https://github.com/NonoHM/budgetpilot/issues/250)                                                                                                                     |
+| The stored security event table (180 days default, 365 ceiling) does not exist (R2, R8).                                                                                                                                                                                  | Pseudonymous                | #841, the 1.4 event table                                                                                                                                                    |
 | Flagged-category labels reach the model without `anonymizeMerchant`.                                                                                                                                                                                                      | Financial                   | [#819](https://github.com/NonoHM/budgetpilot/issues/819)                                                                                                                     |
 | Category names, which a user types, reach the model in the default mode, and the AI page says "no names".                                                                                                                                                                 | Financial                   | #851                                                                                                                                                                         |
 | The invitation token travels in a URL query string.                                                                                                                                                                                                                       | Secret                      | [#825](https://github.com/NonoHM/budgetpilot/issues/825)                                                                                                                     |
@@ -304,32 +304,32 @@ omits `LoginAttempt` and `RememberedAccount` entirely.
 
 ### What reaches a log
 
-Counted by the command in [Re-deriving the figures](#re-deriving-the-figures), over 268 files: the
-tracked files under `src/` and `boot.mjs`, excluding specs, db-smoke files, the Enable Banking
-sandbox validation script, generated clients and `scripts/`. It finds 51 call sites in 21 files,
-plus one stderr write in `lastResortErrors.ts`.
+Every line is written by one module, `src/lib/server/logging`, as a member of a closed type of
+events, and [Logs](../logging.md) lists each event with each field and the level from this page.
+The type admits only Operational, Pseudonymous and, for one field, not classified, so a Secret,
+Financial or Personal field cannot be declared. The 51 `console.*` call sites in 21 files this page counted on the
+commit that introduced it were each replaced by an event, and a lint rule in `eslint.config.js`
+refuses a new one under `src/lib/server`, `src/routes` and `src/hooks.server.ts`.
 
-| Source                                                                                                                     | Fields printed                                                                                                       | Level          |
-| -------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- | -------------- |
-| Request errors (`handleError`, `src/hooks.server.ts`)                                                                      | status, method, URL pathname without the query string, a random error id, error class and code                       | Operational    |
-| Fatal errors (`lastResortErrors.ts`)                                                                                       | the origin (`uncaughtException` or `unhandledRejection`), error class and code                                       | Operational    |
-| Import write failure (`src/lib/server/import/writeImport.ts`)                                                              | stage name, count of landed rows, error class and code, and the cause's class and code                               | Operational    |
-| Bank sync (`src/lib/server/banking/sync/service.ts`)                                                                       | connection id and an `http_<status>` summary                                                                         | Operational    |
-| Request-time warnings (`src/routes/transactions/+page.server.ts`, two sites)                                               | the words "tagCounts unavailable" or "splitCounts unavailable" and the error class name                              | Operational    |
-| Request-time warnings (`src/routes/import/+page.server.ts`, `src/routes/import/columns/+page.server.ts`)                   | one fixed sentence, no field                                                                                         | Operational    |
-| Startup report (`src/hooks.server.ts`, six sites)                                                                          | the `PUBLIC_INSTANCE` value, cookie mode, database provider name, trusted-proxy range count, the configured `ORIGIN` | Operational    |
-| Boot backfills (`accountBoot.ts`, `dedupeBoot.ts`, `naming/boot.ts`, `net-worth/contestedBoot.ts`, `storableDatesBoot.ts`) | counts of rows, keys and links, and the names of date columns                                                        | Operational    |
-| Boot backfill lock wait (`src/lib/server/database/advisoryLock.ts`)                                                        | the backfill's name and the seconds waited                                                                           | Operational    |
-| Database role warning (`src/lib/server/database/privileges.ts`)                                                            | fixed advice with the placeholders `<database>` and `<this role>`, no role or database name                          | Operational    |
-| Configuration warnings (`rateLimit.ts`, `columnBounds.ts` and the other bound readers)                                     | the name and value of an operator-set bound                                                                          | Operational    |
-| Default rules catalogue (`default-rules/catalog.ts`)                                                                       | the shipped file name, rule key and validation message                                                               | Operational    |
-| Container start (`boot.mjs`, five sites)                                                                                   | the SQLite data directory from `DATABASE_URL`, the uid, a filesystem error code and fixed advice                     | Operational    |
-| The output of `prisma migrate deploy`, which `boot.mjs` runs with `stdio: 'inherit'`                                       | whatever that tool prints, unfiltered by the application (#846)                                                      | not classified |
+| Source                                                                               | What the events carry                                                                                                          | Level          |
+| ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ | -------------- |
+| The envelope of every line                                                           | time, severity, event name, a fixed sentence, the schema version, a process id, a sequence number and the previous line's hash | Operational    |
+| A request (`handleLogContext`, `src/hooks.server.ts`)                                | a server-generated request id, the method, the matched route template, never the path                                          | Operational    |
+| Request errors (`handleError`)                                                       | status, the error id the page shows, error class and code                                                                      | Operational    |
+| Fatal errors (`lastResortErrors.ts`)                                                 | the origin, error class and code                                                                                               | Operational    |
+| Startup (`src/hooks.server.ts`)                                                      | the security-relevant configuration as closed values, and the configured `ORIGIN`                                              | Operational    |
+| Boot backfills, the lock wait, configuration bounds, the database role warning       | names from a closed set, counts, booleans, the name and value of an operator-set bound                                         | Operational    |
+| Request-time warnings (import, transactions, bank sync)                              | closed reasons, an error class, a connection id, an HTTP status and a provider code admitted only in the shape of a code       | Operational    |
+| The container start (`boot.mjs`, through the writer's core)                          | the SQLite data directory from `DATABASE_URL`, the uid, a filesystem error code, an exit code                                  | Operational    |
+| What a dependency prints (`budgetpilot.console.text`)                                | the text, capped at 256 characters and escaped                                                                                 | not classified |
+| The output of `prisma migrate deploy`, which `boot.mjs` runs with `stdio: 'inherit'` | whatever that tool prints, unfiltered by the application (#846)                                                                | not classified |
 
-An `OperatorFacingError` also prints its message, which is text the application wrote for the
-operator (`loggableError`). The configured `ORIGIN` is the operator's own URL, and the line that
-prints it is a startup line. The last row is the one stream this page cannot classify, which is
-what #846 is about.
+An `OperatorFacingError` also carries its message, which is text the application wrote for the
+operator (`loggableError`). The configured `ORIGIN` is the operator's own URL. The dependency text is
+the one field whose content the application does not choose: adapter-node's « Listening on » line is
+the measured instance, and our own code cannot reach it because the lint rule forbids `console`.
+Rule 2 gives free text the level of what it is about, and nobody knows what a dependency will
+print, so this page cannot classify it, any more than the last row, which is what #846 is about.
 
 ### What reaches another host
 
@@ -451,9 +451,10 @@ The log call sites, with the number of files read, from the repository root:
 git ls-files -z src boot.mjs | grep -zEv 'paraglide|generated|\.spec\.|db-smoke|sandbox-validation|\.svelte$' | xargs -0 grep -cE '^[^/*]*console\.(log|warn|error|info|debug)\(' | awk -F: '{r++; if($2>0){f++; s+=$2}} END{print r" files read, "s" call sites in "f" files"}'
 ```
 
-It prints `268 files read, 51 call sites in 21 files` on the commit that introduced this page. The
-pattern skips a line that has `/` or `*` before `console`, so a comment naming the call is not
-counted. The other figures are counts over named files and are re-derived by reading them: the
+It prints `268 files read, 51 call sites in 21 files` on the commit that introduced this page, and
+`0 call sites` once the logger replaced them (#250); the lint rule in `eslint.config.js` is what
+keeps it there. The pattern skips a line that has `/` or `*` before `console`, so a comment naming
+the call is not counted. The other figures are counts over named files and are re-derived by reading them: the
 payload types for the 32 prompt fields, and the `select` blocks of
 `src/lib/server/backup/export.ts` for the 122 exported columns.
 

@@ -1,4 +1,4 @@
-import { readOperatorBound } from '$lib/server/env/operatorBound';
+import { readOperatorBound, reportBoundDeparture } from '$lib/server/env/operatorBound';
 import { OperatorFacingError } from '$lib/server/operatorFacingError';
 
 /**
@@ -137,19 +137,12 @@ export function resolveBackupMaxJsonNodes(): number {
  */
 export function assertBackupBoundConfigured(): void {
 	const nodes = resolveBackupMaxJsonNodes();
-	if (nodes === BACKUP_DEFAULT_MAX_JSON_NODES) return;
-
-	console.warn(
-		`[budgetpilot] ${BACKUP_MAX_JSON_NODES_ENV}=${nodes} differs from the default of ${BACKUP_DEFAULT_MAX_JSON_NODES}. It bounds how many separate values a restored backup may contain, and it exists so that one upload cannot exhaust this machine's memory before validation runs (#276).`
+	// Below the most this application can itself export at the upload cap, its own backups may be
+	// refused on restore.
+	reportBoundDeparture(
+		BACKUP_MAX_JSON_NODES_ENV,
+		nodes,
+		BACKUP_DEFAULT_MAX_JSON_NODES,
+		nodes < LARGEST_EXPORTABLE_JSON_NODES
 	);
-
-	if (nodes > BACKUP_DEFAULT_MAX_JSON_NODES) {
-		console.warn(
-			`[budgetpilot] ${BACKUP_MAX_JSON_NODES_ENV} is RAISED above the default, so one restore may cost more memory than this instance was measured for. At the ${BACKUP_MAX_JSON_NODES_CEILING} ceiling the measured cost is about 214 MB per restore, against 107 MB at the default.`
-		);
-	} else if (nodes < LARGEST_EXPORTABLE_JSON_NODES) {
-		console.warn(
-			`[budgetpilot] ${BACKUP_MAX_JSON_NODES_ENV} is LOWERED below ${LARGEST_EXPORTABLE_JSON_NODES}, the most this application can itself export at the ${20_000_000} byte upload cap. Backups produced by this instance may now be refused on restore, and the user is told the file is corrupted rather than that a limit was lowered.`
-		);
-	}
 }
