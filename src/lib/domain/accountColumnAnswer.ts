@@ -25,8 +25,8 @@ export type AccountColumnAnswer = (typeof ACCOUNT_COLUMN_ANSWERS)[number];
  * `undefined` rather than a refusal or a repaired guess, same as `readDateOrderAnswer`: an absent,
  * empty or hostile value falls back to the door asking again rather than being interpreted as
  * either answer. ASVS 5.0 **V2.2.1** (L1, Validation and Business Logic > Input Validation),
- * resolved against the local source (`scripts/security/asvs-5.0-source/`, gitignored per #601)
- * and quoted inline: « Verify that input is validated to enforce business or functional
+ * resolved against the tracked source (`docs/reference/standards/asvs-5.0.0/`, #601) and quoted
+ * inline: « Verify that input is validated to enforce business or functional
  * expectations for that input. This should either use positive validation against an allow list
  * of values, patterns, and ranges, or be based on comparing the input to an expected structure
  * and logical limits according to predefined rules. »

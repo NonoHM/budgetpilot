@@ -77,7 +77,7 @@ const SEARCHABLE_EXTENSIONS = [
  * so excluding specs would leave the larger half of the tree unguarded.
  *
  * **Narrower: the population is `git ls-files`, not the filesystem.** The first run of this scan
- * walked directories and reported `scripts/security/fuzz/csv-explore.ts`, a gitignored local
+ * walked directories and reported a fuzz probe (`csv-explore.ts`), a gitignored local
  * probe belonging to whoever happened to be at that machine. That is a check that is RED on one
  * developer's clean tree and GREEN in CI, which is the shape that gets a good gate deleted. What
  * the defect actually costs is committed code being invisible to a committed search, so tracked

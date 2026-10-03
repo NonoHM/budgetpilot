@@ -28,7 +28,7 @@ construction, `X` an argued exception, `N/A` not applicable with a stated reason
 ## 2026-10-02, the data classification
 
 Branch `docs/817-data-classification` (#817). **Letters below are quoted from
-`scripts/security/asvs-5.0-l2-report.md`**, which describes the assessment of 2026-08-13 and not a
+the local L2 assessment report (untracked, not in a clone, #601)**, which describes the assessment of 2026-08-13 and not a
 current state. [Data classification](../explanation/data-classification.md) classifies all 253 stored
 columns into five levels and states, per level, the requirements `14.1.2` lists. It is a document,
 and **no row's letter moves**: all three rows below stay `X`, with progress recorded and what is
@@ -78,7 +78,7 @@ stands, for a different reason.
 ## 2026-10-01, the error printer
 
 Branch `fix/816-error-printer` (#816). **Letters below are quoted from
-`scripts/security/asvs-5.0-l2-report.md`**, which describes the assessment of 2026-08-13 and not a
+the local L2 assessment report (untracked, not in a clone, #601)**, which describes the assessment of 2026-08-13 and not a
 current state. The 2026-09-26 entry below says `16.3.4` was met by the framework's default
 `handleError`, which printed the whole error. That printer, and Node's own for an error that ends
 the process, were the two places a database message reached the log. **No row's letter moves**: one
@@ -121,7 +121,7 @@ the process, deliberately, because a boot that failed half way must not serve.
 ## 2026-10-01, the sign-in redirect
 
 Branch `fix/redirect-target`, with a private security advisory. **Letters below are quoted from
-`scripts/security/asvs-5.0-l2-report.md`**, which describes the assessment of 2026-08-13 and not a
+the local L2 assessment report (untracked, not in a clone, #601)**, which describes the assessment of 2026-08-13 and not a
 current state. After signing in, a visitor is sent to the target carried by the `redirectTo` query
 parameter, and the check on that target let some values through to another host. The check now
 accepts only an internal path, and `auth.ts` is the only production file that reads or writes the
@@ -172,7 +172,7 @@ character) are guarded by named test cases only.
 ## 2026-09-26, the write step owns its failures
 
 Branch `fix/d3-write-failures` (#660, #662, #596, #595). **Letters below are quoted from
-`scripts/security/asvs-5.0-l2-report.md`**, which describes the assessment of 2026-08-13 and not a
+the local L2 assessment report (untracked, not in a clone, #601)**, which describes the assessment of 2026-08-13 and not a
 current state. The import's write step (`createImportBatch`, then `persistImportedTransactions`)
 used to let any failure reach SvelteKit's default handler as a bare 500 while rows it had already
 written stayed in the ledger, with the batch's count at 0. It now resolves both references it is
@@ -257,7 +257,7 @@ with its own sentence rather than a 500; that is `16.5.1` again on the parse sid
 
 ## 2026-08-24, the write paths that name an account
 
-**Verdict letters below are quoted from `scripts/security/asvs-5.0-l2-report.md`, which describes
+**Verdict letters below are quoted from the local L2 assessment report (untracked, not in a clone, #601), which describes
 commit `d9c116c` as assessed on 2026-08-13**, eleven days and roughly twenty commits before this
 branch. That report's own opening says a refactor the next morning can move any verdict and nothing
 in the file would notice, so these are letters AS OF THAT ASSESSMENT rather than a current state.
@@ -349,7 +349,7 @@ application owns, built from a constant rather than from input.
 
 ## 2026-08-22, the account identifier fragment and the backup
 
-**Verdict letters below are quoted from `scripts/security/asvs-5.0-l2-report.md`, which describes
+**Verdict letters below are quoted from the local L2 assessment report (untracked, not in a clone, #601), which describes
 commit `d9c116c` as assessed on 2026-08-13**, nine days and roughly fifteen commits before this
 branch. That report's own opening says a refactor the next morning can move any verdict and nothing
 in the file would notice, so these are letters AS OF THAT ASSESSMENT rather than a current state.

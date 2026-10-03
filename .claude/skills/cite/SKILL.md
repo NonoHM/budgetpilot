@@ -8,7 +8,7 @@ argument-hint: '[identifier or question]'
 
 An identifier with plausible text is the failure this skill exists for: it reached a published page
 here once (#650). Every citation is resolved from a primary text before it is written, and quoted
-inline, because the local copies are gitignored and a reader has only the quote.
+inline, because a published page is read away from the tree and a reader has only the quote.
 
 ## Standards
 
@@ -20,8 +20,7 @@ as satisfied.
 1. **ASVS and AISVS: resolve before writing.**
    `node .claude/skills/cite/scripts/resolve.mjs 8.2.2 2.3.1 aisvs:9.2.1` prints each identifier in
    full form with its level and text, marks a level above 2, and exits 1 on any identifier that does
-   not exist. No local copy (a fresh clone has none until #601): download it from
-   [references/registry.md](references/registry.md), which says where it goes.
+   not exist. The sources are tracked in `docs/reference/standards/` (#601), so a clone has them.
 2. **Write the full form with the text quoted**: `ASVS v5.0.0-8.2.2` (Level 1): « Verify that ... ».
    Say whether the change SATISFIES the line, CONTRIBUTES to it, or leaves a deviation, and name what
    is still missing. A partial control is not a satisfied requirement.

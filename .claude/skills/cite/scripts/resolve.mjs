@@ -1,27 +1,23 @@
 #!/usr/bin/env node
-// Resolves ASVS 5.0.0 and AISVS 1.0 identifiers against the local copies and prints each one in the
+// Resolves ASVS 5.0.0 and AISVS 1.0 identifiers against the tracked copies and prints each one in the
 // form a PR body quotes: identifier, level, text. Exits 1 if any identifier does not resolve, so an
 // invented identifier with plausible text cannot reach a published page (it happened once, #650).
 //
 //   node .claude/skills/cite/scripts/resolve.mjs 8.2.2 V2.3.1 v5.0.0-16.5.1 aisvs:9.2.1
 //
-// The copies are gitignored (#601, #536): a clone without them gets exit 2 and the path to fetch.
+// The copies are tracked under docs/reference/standards/ (#601), each with its CC BY-SA 4.0 licence and
+// provenance, so a clone has them. Missing means the tree was damaged: the message says where to look.
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 
 const root = execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim();
-// A linked worktree has no gitignored files: read the copies from the main checkout.
-const common = execFileSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], {
-	encoding: 'utf8'
-}).trim();
-const bases = [root, join(common, '..')];
-const find = (rel) => bases.map((b) => join(b, rel)).find((p) => existsSync(p));
+const find = (rel) => [join(root, rel)].find((p) => existsSync(p));
 
 const asvsPath = find(
-	'scripts/security/asvs-5.0-source/OWASP_Application_Security_Verification_Standard_5.0.0_en.flat.json'
+	'docs/reference/standards/asvs-5.0.0/OWASP_Application_Security_Verification_Standard_5.0.0_en.flat.json'
 );
-const aisvsDir = find('scripts/security/aisvs-1.0-source/en');
+const aisvsDir = find('docs/reference/standards/aisvs-1.0/en');
 
 const ids = process.argv.slice(2);
 if (ids.length === 0) {
@@ -59,7 +55,7 @@ for (const raw of ids) {
 		const id = raw.replace(/^aisvs:/i, '').replace(/^C/i, '');
 		if (!aisvsRows) {
 			console.log(
-				`${raw}: no local AISVS copy: download it per .claude/skills/cite/references/registry.md (#601)`
+				`${raw}: tracked AISVS copy missing: expected docs/reference/standards/aisvs-1.0/en/ (#601)`
 			);
 			missing++;
 			continue;
@@ -76,7 +72,7 @@ for (const raw of ids) {
 	const id = 'V' + raw.replace(/^v5\.0\.0-/i, '').replace(/^V/i, '');
 	if (!asvs) {
 		console.log(
-			`${raw}: no local ASVS copy: download it per .claude/skills/cite/references/registry.md (#601)`
+			`${raw}: tracked ASVS copy missing: expected docs/reference/standards/asvs-5.0.0/ (#601)`
 		);
 		missing++;
 		continue;

@@ -71,9 +71,8 @@ export const DEFAULT_DATE_ORDER: DateOrder = 'day-first';
  * change what a file that proves its order imports, and cannot turn an ordinary import into an
  * error either.
  *
- * ASVS 5.0 **v5.0.0-2.2.1** (L1, Validation and Business Logic > Input Validation), quoted inline
- * because `scripts/security/` is gitignored and a citation by path is unreadable to anyone who
- * clones this repository (#601): « Verify that input is validated to enforce business or functional expectations for that input. This should either use positive validation against an allow list of values, patterns, and ranges, or be based on comparing the input to an expected structure and logical limits according to predefined rules. »
+ * ASVS 5.0 **v5.0.0-2.2.1** (L1, Validation and Business Logic > Input Validation), quoted inline,
+ * resolved against the tracked source in `docs/reference/standards/asvs-5.0.0/` (#601): « Verify that input is validated to enforce business or functional expectations for that input. This should either use positive validation against an allow list of values, patterns, and ranges, or be based on comparing the input to an expected structure and logical limits according to predefined rules. »
  *
  * The identifier here was `v5.0.0-5.1.4` when this function was written, and NO SUCH REQUIREMENT
  * EXISTS: V5.1 holds V5.1.1 alone, which is about documenting permitted file types. The quoted
