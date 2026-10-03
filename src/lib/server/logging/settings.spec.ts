@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { OperatorFacingError } from '../operatorFacingError';
+import { REGISTRY } from './events';
 import {
 	DEFAULT_LOG_LEVEL,
 	DEFAULT_SECURITY_LOG,
@@ -55,6 +56,25 @@ describe('BP_SECURITY_LOG', () => {
 		expect(() => resolveSecurityLog({ BP_SECURITY_LOG: 'false' })).toThrow(
 			'BP_SECURITY_LOG must be one of on, off (got "false"). The default is on.'
 		);
+	});
+});
+
+describe('no BP_LOG_LEVEL value silences a startup, configuration or crash event', () => {
+	// The documentation promises it (docs/logging.md, docs/configuration.md, .env.example), so it is
+	// asserted over every event of the registry those words cover, enumerated rather than listed:
+	// `sys_startup`, `sys_crash`, `sys_monitor_disabled` and every `budgetpilot.config.*` event.
+	// `warn` is the highest level the setting accepts.
+	it('gives each of them WARN or above', () => {
+		const covered = Object.entries(REGISTRY).filter(
+			([name]) => name.startsWith('sys_') || name.startsWith('budgetpilot.config.')
+		);
+		expect(covered.length).toBeGreaterThan(5);
+		expect(
+			covered
+				.filter(([, spec]) => spec.severity === 'DEBUG' || spec.severity === 'INFO')
+				.map(([name]) => name)
+		).toEqual([]);
+		expect(LOG_LEVELS.at(-1)).toBe('warn');
 	});
 });
 

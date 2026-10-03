@@ -32,7 +32,7 @@ import {
 	type LogEvent
 } from '$lib/server/logging';
 import { ATTRIBUTE as A, EVENT as E } from '$lib/server/logging/names';
-import { readLogSettings } from '$lib/server/logging/settings';
+import { describeLogSettings } from '$lib/server/logging/settings';
 
 // Before `init` can fail, which is the boot half of #816: Node's own printer would otherwise write a
 // failing backfill's nested database message, which can quote a user's transaction. Not in dev, whose
@@ -106,7 +106,7 @@ export function startupEvents(
 	env: Record<string, string | undefined>,
 	facts: { secureCookies: boolean; trustedProxyRanges: number }
 ): LogEvent[] {
-	const settings = readLogSettings(env);
+	const settings = describeLogSettings(env);
 	const origin = env.ORIGIN?.trim();
 	const events: LogEvent[] = [
 		{

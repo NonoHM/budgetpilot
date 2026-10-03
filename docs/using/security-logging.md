@@ -18,6 +18,8 @@ Each line holds the time, the kind of event, the page's address pattern (for exa
 
 ## What it never records
 
+Nothing the application writes to the log holds any of these:
+
 - Your password, your two-factor codes, your recovery codes, or any other credential.
 - Your amounts, transaction labels, categories, account names or bank details.
 - Your email address.
@@ -26,6 +28,11 @@ Each line holds the time, the kind of event, the page's address pattern (for exa
 The application is built so that a line cannot hold these: each field has a fixed definition of
 what it may contain, and an automated check, run on every change to the code, fails if a password,
 code or key it planted shows up in the log.
+
+Two kinds of output share the log and are not written by the application, so these promises do
+not cover them: the database tool that runs when the server starts, whose error message on a
+failed update can quote a stored value ([#846](https://github.com/NonoHM/budgetpilot/issues/846)),
+and the error report Node itself prints if the server fails before it has finished starting.
 
 ## Sign-in events
 

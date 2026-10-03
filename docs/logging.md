@@ -3,8 +3,10 @@
 **Audience:** whoever runs the instance, and contributors who add a log line. **Type:**
 reference.
 
-BudgetPilot writes one JSON object per line to standard output and nothing else: no file, no
-network destination, no second stream. This page lists what is logged, in which format, where it
+Every line BudgetPilot itself writes is one JSON object on standard output: no file, no network
+destination. Two streams share the same output and are not JSON: what `prisma migrate deploy`
+prints on every start, and what Node prints for an error thrown before the server's handlers
+exist (the table below). This page lists what is logged, in which format, where it
 goes, who can read it, how long it is kept, and every event with each field's protection level from
 [the data classification](./explanation/data-classification.md).
 
@@ -60,17 +62,17 @@ vocabulary appends to them. One file owns every name, `src/lib/server/logging/na
 
 Every line carries these fields, whatever the event.
 
-| Field                              | Meaning                                                                                               | Level       |
-| ---------------------------------- | ----------------------------------------------------------------------------------------------------- | ----------- |
-| `timestamp`                        | When the line was written, ISO 8601 in UTC. As accurate as the host clock: keep it synchronised (NTP) | Operational |
-| `severity_text`, `severity_number` | `DEBUG` 5, `INFO` 9, `WARN` 13, `ERROR` 17, `FATAL` 21, on OpenTelemetry's 1 to 24 scale              | Operational |
-| `event_name`                       | One of the events at the end of this page                                                             | Operational |
-| `body`                             | One fixed English sentence per event, never assembled from data                                       | Operational |
-| `service.name`                     | Always `budgetpilot`                                                                                  | Operational |
-| `budgetpilot.log.schema`           | The version of these names, `1`. It changes when a name changes meaning or is removed                 | Operational |
-| `budgetpilot.log.boot_id`          | A random identifier for this process, new at every start                                              | Operational |
-| `budgetpilot.log.seq`              | 1 for the first line of the process, then one more per line                                           | Operational |
-| `budgetpilot.log.prev`             | The SHA-256, in hexadecimal, of the previous line as written; 64 zeros on the first line              | Operational |
+| Field                              | Meaning                                                                                                                                | Level       |
+| ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | ----------- |
+| `timestamp`                        | When the line was written, ISO 8601 in UTC. As accurate as the host clock: keep it synchronised (NTP)                                  | Operational |
+| `severity_text`, `severity_number` | `DEBUG` 5, `INFO` 9, `WARN` 13, `ERROR` 17, `FATAL` 21, on OpenTelemetry's 1 to 24 scale                                               | Operational |
+| `event_name`                       | One of the events at the end of this page                                                                                              | Operational |
+| `body`                             | One fixed English sentence per event, never assembled from data                                                                        | Operational |
+| `service.name`                     | Always `budgetpilot`                                                                                                                   | Operational |
+| `budgetpilot.log.schema`           | The version of these names, `1`. It changes when a name changes meaning or is removed                                                  | Operational |
+| `budgetpilot.log.boot_id`          | A random identifier for this process, new at every start                                                                               | Operational |
+| `budgetpilot.log.seq`              | 1 for the first line of the process, then one more per line                                                                            | Operational |
+| `budgetpilot.log.prev`             | The SHA-256, in hexadecimal, of the previous line as written, without its trailing newline; 64 zeros on the first line of each process | Operational |
 
 A line written while a request is handled also carries:
 
@@ -110,15 +112,19 @@ Each line names its predecessor's hash, so a gap in `budgetpilot.log.seq` or a
 removed or changed after it was written. The sequence restarts at 1 with a new
 `budgetpilot.log.boot_id` at every start.
 
-This detects tampering by someone who edits a copy of the log. It does not stop someone who controls
-the host from rewriting the whole file and the chain with it. The protection against that is a copy
-held somewhere the host cannot reach: ship the log to a collector on another machine.
+The chain has no key, so what it detects is narrow. It shows a line removed from inside one
+process's run, and a line edited without recomputing the hashes after it, accidentally or by
+someone who did not bother. It does not show an edit followed by recomputing every later hash, a
+run whose last lines were cut off, or a whole run removed, because nothing records how many lines
+a run wrote. The real boundary is a copy held somewhere the host cannot reach: ship the log to a
+collector on another machine.
 
 ## How long logs are kept
 
 The application writes standard output and cannot delete what the container runtime keeps. Every
-Compose file shipped with BudgetPilot sets Docker's `json-file` driver to keep at most five files of
-10 MB per service, which bounds the log by SIZE, not by age: the driver has no option that deletes by
+service the shipped Compose files start is set to Docker's `json-file` driver keeping at most five
+files of 10 MB (`docker-compose.keys.yml` and `docker-compose.ai.gpu.yml` only extend a service
+another file defines, and inherit its setting), which bounds the log by SIZE, not by age: the driver has no option that deletes by
 age. To change the bound, set `logging:` in your own Compose override.
 
 If you ship the log to a collector, set the retention there. The CNIL's recommendation on logging
@@ -131,7 +137,7 @@ et un an. » A year is the ceiling to set; the recommendation is not binding.
 
 | Variable          | Values                  | Default | Effect                                                                                                                                                                                                                                                  |
 | ----------------- | ----------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `BP_LOG_LEVEL`    | `debug`, `info`, `warn` | `info`  | Lines below this severity are not written. There is no `error` level: every startup, configuration and crash line is `WARN` or above and cannot be silenced                                                                                             |
+| `BP_LOG_LEVEL`    | `debug`, `info`, `warn` | `info`  | Lines below this severity are not written. There is no `error` level: `sys_startup`, `sys_monitor_disabled`, `sys_crash` and every `budgetpilot.config.*` event are `WARN` or above and cannot be silenced                                              |
 | `BP_SECURITY_LOG` | `on`, `off`             | `on`    | `off` drops the authentication, authorization and control-bypass events, and writes `sys_monitor_disabled` at every start while it is off. No such event exists yet in this version; [#250](https://github.com/NonoHM/budgetpilot/issues/250) adds them |
 
 A value outside the list stops the server at start with a message naming the allowed values. A value
@@ -215,7 +221,7 @@ Severity WARN.
 
 ### `budgetpilot.config.origin_set`
 
-Severity INFO.
+Severity WARN.
 
 > Form submissions are accepted only from this exact origin. If it is not the URL you type in the browser, protocol and port included, every sign-in is refused as cross-site.
 
@@ -233,7 +239,7 @@ No attributes beyond the envelope.
 
 ### `budgetpilot.config.trusted_proxies_unset`
 
-Severity INFO.
+Severity WARN.
 
 > TRUSTED_PROXIES is unset, so X-Forwarded-For is not trusted and rate limiting keys on the socket peer. Behind a reverse proxy, set it, or every visitor shares the proxy address (docs/reverse-proxy.md).
 

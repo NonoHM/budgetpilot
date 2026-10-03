@@ -88,7 +88,7 @@ describe('the envelope', () => {
 	it('maps each severity to the first number of its OpenTelemetry range', () => {
 		// One event per severity the registry uses, so a wrong pair in the map fails on its own row.
 		const { write, parsed } = harness({ level: 'debug' });
-		write({ event: E.configOriginSet, attributes: { [A.configOrigin]: 'https://example.test' } });
+		write({ event: E.backfillStarted, attributes: { [A.backfillName]: 'name_keys' } });
 		write({ event: E.configOriginUnset, attributes: {} });
 		write({ event: E.importAccountNotRemembered, attributes: {} });
 		write({
@@ -184,7 +184,7 @@ describe('the chain', () => {
 	it('spends no sequence number on an event below the level', () => {
 		const { write, parsed } = harness({ level: 'warn' });
 		write(crash('first'));
-		write({ event: E.configOriginSet, attributes: { [A.configOrigin]: 'https://example.test' } });
+		write({ event: E.backfillStarted, attributes: { [A.backfillName]: 'name_keys' } });
 		write(crash('second'));
 		expect(parsed().map((record) => record[A.logSeq])).toEqual([1, 2]);
 	});

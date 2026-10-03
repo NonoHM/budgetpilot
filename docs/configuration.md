@@ -365,10 +365,10 @@ one bounds size, the other bounds structure.
 The server writes one JSON object per line to standard output. [Logs](./logging.md)
 lists every event and field, where the log goes and how long it is kept.
 
-| Variable          | Values                  | Default | If you change it                                                                                                                                                                                   |
-| ----------------- | ----------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `BP_LOG_LEVEL`    | `debug`, `info`, `warn` | `info`  | Lines below that severity are not written. There is no level above `warn`, so startup, configuration and crash lines are always written                                                            |
-| `BP_SECURITY_LOG` | `on`, `off`             | `on`    | `off` drops the security events, and every start writes a `sys_monitor_disabled` line saying so. This version has no security event yet ([#250](https://github.com/NonoHM/budgetpilot/issues/250)) |
+| Variable          | Values                  | Default | If you change it                                                                                                                                                                                                |
+| ----------------- | ----------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BP_LOG_LEVEL`    | `debug`, `info`, `warn` | `info`  | Lines below that severity are not written. There is no level above `warn`, and `sys_startup`, `sys_monitor_disabled`, `sys_crash` and every `budgetpilot.config.*` event are `WARN`, so they are always written |
+| `BP_SECURITY_LOG` | `on`, `off`             | `on`    | `off` drops the security events, and every start writes a `sys_monitor_disabled` line saying so. This version has no security event yet ([#250](https://github.com/NonoHM/budgetpilot/issues/250))              |
 
 Any other value stops the server at start, naming the allowed values. A value
 other than the default is written in the startup log.

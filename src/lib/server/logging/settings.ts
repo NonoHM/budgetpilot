@@ -5,9 +5,10 @@ import { OperatorFacingError } from '../operatorFacingError.ts';
  * (AGENTS.md, « Code style »): a closed domain, a default, a refusal rather than a clamp, and a
  * boot warning when the value differs from the default.
  *
- * `BP_LOG_LEVEL` stops at `warn` ON PURPOSE. Every startup, configuration and crash event is WARN or
- * above, so no value in the domain can silence the line that says how the instance started, or
- * that security logging was turned off, which is how an operator notices that logging stopped.
+ * `BP_LOG_LEVEL` stops at `warn` ON PURPOSE. `sys_startup`, `sys_monitor_disabled`, `sys_crash` and
+ * every `budgetpilot.config.*` event are WARN or above (settings.spec.ts enumerates them from the
+ * registry), so no value in the domain can silence the line that says how the instance started,
+ * or that security logging was turned off, which is how an operator notices that logging stopped.
  *
  * `BP_SECURITY_LOG=off` drops the events the registry marks as security events. It cannot drop the
  * line saying it is off (`sys_monitor_disabled`), which is written at every boot while it is.
@@ -52,6 +53,23 @@ export function resolveSecurityLog(env: Env): SecurityLogSetting {
 	const value = readClosed(env, SECURITY_LOG_ENV, SECURITY_LOG_VALUES, DEFAULT_SECURITY_LOG);
 	if (typeof value === 'object') throw new OperatorFacingError(value.refused);
 	return value;
+}
+
+/**
+ * What the startup line reports: each setting as configured, or `refused` when its value is outside
+ * the domain. Never the default a refused value falls back to, which would describe a setting
+ * nobody chose in the line written just before the boot check refuses to start on it.
+ */
+export function describeLogSettings(env: Env): {
+	level: LogLevelSetting | 'refused';
+	securityLog: SecurityLogSetting | 'refused';
+} {
+	const level = readClosed(env, LOG_LEVEL_ENV, LOG_LEVELS, DEFAULT_LOG_LEVEL);
+	const securityLog = readClosed(env, SECURITY_LOG_ENV, SECURITY_LOG_VALUES, DEFAULT_SECURITY_LOG);
+	return {
+		level: typeof level === 'object' ? 'refused' : level,
+		securityLog: typeof securityLog === 'object' ? 'refused' : securityLog
+	};
 }
 
 /**

@@ -51,8 +51,8 @@ export type LogEvent =
 				[A.configDatabaseProvider]: 'sqlite' | 'postgresql' | 'mysql';
 				[A.configTrustedProxyRanges]: number;
 				[A.configOriginSet]: boolean;
-				[A.configSecurityLog]: 'on' | 'off';
-				[A.configLogLevel]: string;
+				[A.configSecurityLog]: 'on' | 'off' | 'refused';
+				[A.configLogLevel]: 'debug' | 'info' | 'warn' | 'refused';
 			};
 	  }
 	| {
@@ -224,7 +224,7 @@ const ERROR_LEVELS = {
 } as const;
 
 /**
- * The inventory as data: `docs/reference/log-events.md` lists every row of it, and
+ * The inventory as data: `docs/logging.md` lists every row of it by hand, and
  * `logInventory.spec.ts` fails when the page and this object disagree.
  */
 export const REGISTRY: { [N in EventName]: EventSpec<AttributesOf<N>> } = {
@@ -259,7 +259,7 @@ export const REGISTRY: { [N in EventName]: EventSpec<AttributesOf<N>> } = {
 		attributes: { [A.monitor]: 'Operational' }
 	},
 	[E.configOriginSet]: {
-		severity: 'INFO',
+		severity: 'WARN',
 		body: 'Form submissions are accepted only from this exact origin. If it is not the URL you type in the browser, protocol and port included, every sign-in is refused as cross-site.',
 		flood: false,
 		security: false,
@@ -273,7 +273,7 @@ export const REGISTRY: { [N in EventName]: EventSpec<AttributesOf<N>> } = {
 		attributes: {}
 	},
 	[E.configTrustedProxiesUnset]: {
-		severity: 'INFO',
+		severity: 'WARN',
 		body: 'TRUSTED_PROXIES is unset, so X-Forwarded-For is not trusted and rate limiting keys on the socket peer. Behind a reverse proxy, set it, or every visitor shares the proxy address (docs/reverse-proxy.md).',
 		flood: false,
 		security: false,

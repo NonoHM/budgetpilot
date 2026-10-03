@@ -541,6 +541,25 @@ describe('startupEvents', () => {
 		};
 	}
 
+	it('reports a refused BP_LOG_LEVEL or BP_SECURITY_LOG as refused, not as the default it falls back to', async () => {
+		// The boot collector refuses to start on either a moment later. Until then the writer runs
+		// on the default, and a startup line saying `info` would describe a setting nobody chose
+		// (contradiction pass on L2).
+		const { startupEvents } = await import('./hooks.server');
+		const [line] = startupEvents(
+			{ BP_LOG_LEVEL: 'loud', BP_SECURITY_LOG: 'maybe' },
+			{ secureCookies: true, trustedProxyRanges: 1 }
+		);
+		expect(line).toEqual({
+			...startup({ originSet: false, secureCookies: true, trustedProxyRanges: 1 }),
+			attributes: {
+				...startup({ originSet: false, secureCookies: true, trustedProxyRanges: 1 }).attributes,
+				[A.configLogLevel]: 'refused',
+				[A.configSecurityLog]: 'refused'
+			}
+		});
+	});
+
 	it('reports ORIGIN unset as its own event, whose sentence names the failure and the remedy', async () => {
 		const { startupEvents } = await import('./hooks.server');
 		// No proxy range and insecure cookies, so the order of all four events is asserted too.
