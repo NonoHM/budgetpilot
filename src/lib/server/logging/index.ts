@@ -113,17 +113,22 @@ export function requestErrorId(): string | undefined {
  * Routes whatever a DEPENDENCY prints to the console through the writer, as
  * `budgetpilot.console.output`, so stdout stays one JSON object per line: adapter-node's « Listening
  * on » line is the measured instance. Built server only; in dev Vite owns the console. Our own code
- * cannot reach it, because the lint rule forbids it `console`.
+ * cannot reach it, because the lint rule forbids it `console`. It wraps the methods that print,
+ * `dir` included; it does not see a dependency writing to `process.stdout` or `process.stderr`
+ * directly, which no wrapper of the console can.
  */
-// eslint-disable-next-line no-restricted-globals -- the bridge is the one place that must hold the console
-export function installConsoleBridge(target: Console = console): void {
+export function installConsoleBridge(
+	// eslint-disable-next-line no-restricted-globals -- the bridge is the one place that must hold the console
+	target: Console = console,
+	write: (event: LogEvent) => void = log
+): void {
 	let writing = false;
-	for (const method of ['log', 'info', 'debug', 'warn', 'error', 'trace'] as const) {
+	for (const method of ['log', 'info', 'debug', 'warn', 'error', 'trace', 'dir'] as const) {
 		target[method] = (...args: unknown[]) => {
 			if (writing) return;
 			writing = true;
 			try {
-				log({
+				write({
 					event: E.consoleOutput,
 					attributes: { [A.consoleMethod]: method, [A.consoleText]: format(...args) }
 				});

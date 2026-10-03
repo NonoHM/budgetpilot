@@ -199,7 +199,7 @@ export type LogEvent =
 	| {
 			event: typeof E.consoleOutput;
 			attributes: {
-				[A.consoleMethod]: 'log' | 'info' | 'debug' | 'warn' | 'error' | 'trace';
+				[A.consoleMethod]: 'log' | 'info' | 'debug' | 'warn' | 'error' | 'trace' | 'dir';
 				[A.consoleText]: string;
 			};
 	  };
