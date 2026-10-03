@@ -134,6 +134,28 @@ describe('the envelope', () => {
 });
 
 describe('the chain', () => {
+	it('is one per process: a second writer continues the sequence and the hash the first left', () => {
+		// boot.mjs imports this module as TypeScript source and the server imports the bundled copy,
+		// so two writers exist in one process. Neither passes a chain, so both take the process one.
+		const lines: string[] = [];
+		const options = {
+			level: 'info',
+			securityLog: 'on',
+			sink: (line: string) => lines.push(line)
+		} as const;
+		const boot = createLogWriter(options);
+		const server = createLogWriter(options);
+		boot({ event: E.bootMigrateFailed, attributes: { [A.bootExitCode]: 1 } });
+		server({ event: E.bootMigrateFailed, attributes: { [A.bootExitCode]: 2 } });
+
+		const [first, second] = lines.map((line) => JSON.parse(line) as Record<string, unknown>);
+		expect({
+			seq: (second[A.logSeq] as number) - (first[A.logSeq] as number),
+			bootId: first[A.logBootId] === second[A.logBootId],
+			prev: second[A.logPrev] === sha256Hex(lines[0].slice(0, -1))
+		}).toEqual({ seq: 1, bootId: true, prev: true });
+	});
+
 	it('numbers every line and binds each to the hash of the line before it, as written', () => {
 		const { write, lines, parsed } = harness();
 		for (let index = 0; index < 5; index += 1) write(crash(`message ${index}`));
