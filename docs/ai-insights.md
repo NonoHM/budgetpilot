@@ -51,6 +51,13 @@ downloads the `ollama/ollama` image, which is around 3 GB compressed and
 several more once unpacked, so give it a few minutes and check you have the
 disk for it.
 
+The overlay sets `OLLAMA_NO_CLOUD=1`, because Ollama otherwise contacts
+`ollama.com` by itself shortly after it starts. With it set, the only
+outbound traffic you cause is the model download in the next step, and
+`docker compose ... logs ollama` shows `Ollama cloud disabled: true`. The
+container still has Internet access; the setting stops Ollama from using it
+unprompted, it does not wall the container off.
+
 ### 2. Pull a model
 
 ```bash
