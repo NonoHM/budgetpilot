@@ -163,13 +163,23 @@ that code stays valid, so `code` and `state` are deleted from every logged
 URL. `q` is deleted too: it's the `/transactions` search term, so it holds
 whatever merchant, amount or note the user typed to find their own
 transactions, and the access log is the one place in this stack that would
-keep that in plaintext outside the database. It used to matter for a second
-reason: the link from a detected stream on `/upcoming-bills` to its
-transactions filled `q` with a raw bank label off the user's statement, with
-them typing nothing, but that link now uses opaque transaction ids. The
-filter still covers everything
-typed into the search box. If you write your own Caddyfile rather than
-starting from the example, keep it.
+keep that in plaintext outside the database. So are `redirectTo`, which the
+login redirect fills with the page you were on, search string included, and
+`invite`, which carries the invitation token.
+
+The `Referer` header is deleted as well. The app tells browsers to send the
+full address of the current page on every request to the same site, so
+without that line a search typed on `/transactions` would come back in the
+log on every request that page then makes, even though the address itself is
+filtered. If you write your own Caddyfile rather than starting from the
+example, keep both.
+
+**It logs the client address as it arrives.** An IP address in a log is
+personal data. The example keeps it raw, because you need the real address to
+block an abuser, and it carries a commented `ip_mask` block you can switch on
+if you don't. Masking to a `/24` hides the last part of the address; it is
+pseudonymisation, not anonymisation, because it can still point at one
+household on a small provider.
 
 ## If it doesn't work
 
@@ -213,7 +223,8 @@ Two things to carry over yourself:
   proxy: a client that can reach the app from inside the trusted range can
   still forge the header.
 - Drop the `code` and `state` query parameters from the access log if you
-  plan to use bank sync, and `q` as well: it's the `/transactions` search
-  term, so it carries whatever merchant or amount the user typed to find
-  their own transactions. An access log is the one place that would hold that
-  in plaintext outside the database.
+  plan to use bank sync, and `q`, `redirectTo` and `invite` as well: `q` is
+  the `/transactions` search term, so it carries whatever merchant or amount
+  the user typed to find their own transactions. Delete the `Referer` request
+  header too, or the search term comes back through it. An access log is the
+  one place that would hold that in plaintext outside the database.

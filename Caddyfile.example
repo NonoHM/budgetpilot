@@ -43,6 +43,8 @@ budget.example.com {
 	# have taught them to click through.
 	# tls internal
 
+	# What the access log must not keep, and where each item comes from.
+	#
 	# The bank consent callback carries an OAuth-style one-time `code` in its
 	# query string. Dropping `code` and `state` from the access log keeps that
 	# secret out of a file that tends to be world-readable, shipped to a log
@@ -52,14 +54,25 @@ budget.example.com {
 	# /transactions search term, so it holds whatever merchant, amount or note
 	# the user typed to find their own transactions. An access log is the one
 	# place in this stack that would keep that in plaintext outside the
-	# database — tailed, rotated, and often shipped to a collector.
+	# database, tailed, rotated, and often shipped to a collector.
 	#
-	# It used to carry more. "Voir les transactions liées" on /upcoming-bills
-	# built `?q=<raw bank label>`, putting a label straight off the user's
-	# statement in the log without them typing anything; that link now uses
-	# opaque transaction ids instead. This filter is no longer the only thing
-	# standing between that label and the log, but it is still the only thing
-	# covering everything the user types into the search box. Keep it.
+	# `redirectTo` and `invite` are the same kind of leak. The login redirect
+	# copies the page the user was on, search string included, into
+	# `redirectTo` (#838). `invite` carries the invitation token (#825).
+	#
+	# The `Referer` header is the other door, and filtering the URL alone left
+	# it open. The app sends `Referrer-Policy: same-origin`, which puts the FULL
+	# URL of the current page, query string included, on every same-origin
+	# request the browser makes from it: the scripts, the data fetches, the form
+	# posts. From /transactions?q=<term> each of those requests names the term
+	# in its `Referer`, and Caddy logs request headers. Measured end to end
+	# through the app with a real browser: the search term was on the log with
+	# the URL filter alone, in the `Referer` field and nowhere else, and gone
+	# once the header is deleted. The app's policy is left as it is, because it
+	# also protects the cross-origin case; the proxy has no use for the header.
+	#
+	# The `Cookie`, `Set-Cookie` and `Authorization` headers are already logged
+	# as REDACTED by Caddy itself, which is why they do not appear here.
 	log {
 		format filter {
 			wrap console
@@ -68,7 +81,25 @@ budget.example.com {
 					delete code
 					delete state
 					delete q
+					delete redirectTo
+					delete invite
 				}
+				request>headers>Referer delete
+
+				# The client address is personal data too (CNIL treats an IP address
+				# in a log as such), and it is logged raw by default. It is not
+				# masked here because the operator who blocks an abuser needs the
+				# real address, and a /24 is pseudonymisation, not anonymisation: it
+				# still singles out a household on a small provider. Uncomment both
+				# blocks if you do not need it.
+				# request>remote_ip ip_mask {
+				# 	ipv4 24
+				# 	ipv6 48
+				# }
+				# request>client_ip ip_mask {
+				# 	ipv4 24
+				# 	ipv6 48
+				# }
 			}
 		}
 	}
