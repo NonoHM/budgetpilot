@@ -1,5 +1,33 @@
 # Changelog
 
+## [1.3.0](https://github.com/NonoHM/budgetpilot/compare/budgetpilot-v1.2.0...budgetpilot-v1.3.0) (2026-10-03)
+
+
+### Features
+
+* **logging:** one typed JSON line per event, the log's foundation (part of [#250](https://github.com/NonoHM/budgetpilot/issues/250)) ([#871](https://github.com/NonoHM/budgetpilot/issues/871)) ([b3f841f](https://github.com/NonoHM/budgetpilot/commit/b3f841f3c9562885598cd6152cb9cc0ff659b4b0))
+
+
+### Bug Fixes
+
+* **auth:** send a visitor only to an internal path after signing in ([#844](https://github.com/NonoHM/budgetpilot/issues/844)) ([9b97366](https://github.com/NonoHM/budgetpilot/commit/9b97366c561680e0b2db88a31f1d7a83b3050a27))
+* **deploy:** keep personal data out of the Caddy and PostgreSQL logs ([#865](https://github.com/NonoHM/budgetpilot/issues/865)) ([f8355cc](https://github.com/NonoHM/budgetpilot/commit/f8355cc1ddb66011ace570d667a27d8ca34f5197))
+* **deploy:** stop the AI overlay's Ollama calling ollama.com on its own ([#863](https://github.com/NonoHM/budgetpilot/issues/863)) ([74a425c](https://github.com/NonoHM/budgetpilot/commit/74a425cb4dbbea08ab272ba09cbbe2bbb8290213)), closes [#862](https://github.com/NonoHM/budgetpilot/issues/862)
+* **deps:** devalue 5.9.4 and a distroless base with OpenSSL 3.5.7-1~deb13u3 ([#858](https://github.com/NonoHM/budgetpilot/issues/858)) ([eec21f7](https://github.com/NonoHM/budgetpilot/commit/eec21f791190b9c961bb11d64531bb39f41a808f))
+* **logging:** unexpected errors never print their message or stack ([#847](https://github.com/NonoHM/budgetpilot/issues/847)) ([7d33fe7](https://github.com/NonoHM/budgetpilot/commit/7d33fe7a7540805e9691f34eb502ba0894920d5b))
+
+
+### Documentation
+
+* classify every stored column and transmitted field into five protection levels ([#857](https://github.com/NonoHM/budgetpilot/issues/857)) ([424d24b](https://github.com/NonoHM/budgetpilot/commit/424d24ba83613232f6046e0ac2b96583f812ed93))
+* **references:** track the OWASP LLM Top 10 2025 and ANSSI-PA-102 beside AISVS for the AI path ([#872](https://github.com/NonoHM/budgetpilot/issues/872)) ([79f08ac](https://github.com/NonoHM/budgetpilot/commit/79f08acf7657714182afb2487b14cb05fd41247a))
+* track the ASVS 5.0.0 and AISVS 1.0 texts so a citation resolves from a clone ([#601](https://github.com/NonoHM/budgetpilot/issues/601)) ([#860](https://github.com/NonoHM/budgetpilot/issues/860)) ([768b0f1](https://github.com/NonoHM/budgetpilot/commit/768b0f1e8acf04830348e7c4b350977e858451f2))
+
+
+### Maintenance
+
+* **claude:** the working method as project skills, a contradiction-pass agent, and measured rules ([#814](https://github.com/NonoHM/budgetpilot/issues/814)) ([14dc8ed](https://github.com/NonoHM/budgetpilot/commit/14dc8ed64b285cae3fdbda2625948fd2a2b47e31))
+
 ## [1.2.0](https://github.com/NonoHM/budgetpilot/compare/budgetpilot-v1.1.1...budgetpilot-v1.2.0) (2026-09-30)
 
 
