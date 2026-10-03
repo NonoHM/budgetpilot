@@ -155,6 +155,24 @@ never revisits it: a half-finished first start would otherwise be permanent.
 This is safe only then, on a stack with no data yet; `-v` deletes everything
 at any other time.
 
+### What the PostgreSQL log leaves out
+
+The overlay starts PostgreSQL with `log_error_verbosity=terse` and
+`log_min_error_statement=panic`. By default the server writes the clashing
+value of a unique violation to its log, as `DETAIL: Key (email)=(...) already
+exists`, and BudgetPilot causes those on purpose: registering an address that
+already has an account is one. That would leave email addresses and category
+names in plaintext in `docker compose logs postgres`. With these settings the
+log still names the constraint that was violated, and the app still receives
+the whole error and handles it as before.
+
+The cost is that you lose the key and the statement when you are debugging a
+constraint failure yourself. Remove the two arguments from the `postgres`
+service's `command`, restart that container, and put them back afterwards. If
+you run your own PostgreSQL server instead of the bundled one, these are
+server settings you choose, and the default is the verbose one. MariaDB needs
+no such setting: its server log does not carry the clashing value.
+
 ## Pointing at a server you already run
 
 If you have a database server already, skip the overlays entirely and use
