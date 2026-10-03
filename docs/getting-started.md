@@ -156,7 +156,7 @@ docker compose -f docker-compose.prebuilt.yml logs budgetpilot | grep -E 'sys_st
 `0.0.0.0:3000` is the port _inside_ the container, which never changes. The
 one you open in the browser is your `APP_PORT`.
 
-`cookies-secure=true` is the default and the right value here: browsers
+`"budgetpilot.config.cookies_secure":true` is the default and the right value here: browsers
 accept a `Secure` cookie over `http://localhost`. If you plan to reach the
 app from another device on your LAN instead, read
 [reaching it from another device](#reaching-it-from-another-device) before

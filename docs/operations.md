@@ -327,12 +327,8 @@ The runtime image now runs as user ID 65532 instead of the one earlier
 images used. Your existing volume is still owned by the old ID, and the new
 container cannot write to it. It tells you so and refuses to start rather
 than failing later with a database error that names neither the cause nor
-the fix:
-
-```
-/data is not writable by uid 65532. If you upgraded from an image older
-than the distroless one, the volume is still owned by the old uid.
-```
+the fix: the log's last line is a `budgetpilot.boot.data_dir_not_writable`
+event naming `/data` and uid 65532, whose sentence carries the fix below.
 
 Fix it once, with the container stopped:
 
@@ -731,11 +727,8 @@ app persists, lives.
 The one thing to know: **`/data` has to be a real mount.** The shipped files
 mount `budgetpilot_data:/data` for you. If you write your own compose file or
 your own `docker run` and leave that out, the app now stops at startup and
-says so, instead of failing later with a database error:
-
-```
-/data is on a read-only filesystem, so the SQLite database cannot be written.
-```
+says so, instead of failing later with a database error: the log's last line
+is a `budgetpilot.boot.data_dir_read_only` event naming `/data`.
 
 If you use PostgreSQL or MySQL, nothing in this section can affect you: the
 app writes to the server, not to the container.

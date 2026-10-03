@@ -313,8 +313,8 @@ from anything else on the network.
   unreadable volume, a password changed after the volume was created) shows
   up as an app that can't start.
 - **The app starts but every screen is empty**: you're on the wrong
-  database. `docker compose logs budgetpilot | grep database-provider`
-  prints which engine it actually resolved at boot.
+  database. `docker compose logs budgetpilot | grep -o '"budgetpilot.config.database_provider":"[a-z]*"'`
+  prints which engine it actually resolved at boot, from the `sys_startup` line.
 - **`P1013` or a scheme complaint at startup**: `DATABASE_PROVIDER` and the
   scheme of `DATABASE_URL` disagree. Use `postgresql://` with `postgresql`,
   `mysql://` with `mysql`. The app refuses to start on a mismatch rather
