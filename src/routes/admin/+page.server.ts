@@ -12,6 +12,8 @@ import {
 	listPendingInvitations,
 	revokeInvitation
 } from '$lib/server/auth/invitations';
+import { reauthenticate, reauthRefusalMessage } from '$lib/server/auth/reauth';
+import { resolveClientAddress } from '$lib/server/net/clientAddress';
 import { prisma } from '$lib/server/db';
 import type { PageServerLoad } from './$types';
 
@@ -25,7 +27,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 	const totalPages = Math.max(1, Math.ceil(totalUsers / PAGE_SIZE));
 	const safePage = Math.min(page, totalPages);
 
-	const [users, invitations] = await Promise.all([
+	const [users, invitations, adminAccount] = await Promise.all([
 		prisma.user.findMany({
 			select: {
 				id: true,
@@ -44,11 +46,15 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 			skip: (safePage - 1) * PAGE_SIZE,
 			take: PAGE_SIZE
 		}),
-		listPendingInvitations()
+		listPendingInvitations(),
+		// Whether the admin's OWN re-authentication asks for a code (#229): the dialogs render the
+		// field only then, and the server asks for it regardless of what the page rendered.
+		prisma.user.findUnique({ where: { id: admin.id }, select: { totpEnabled: true } })
 	]);
 
 	return {
 		currentUserId: admin.id,
+		reauthAsksCode: adminAccount?.totpEnabled === true,
 		users: users.map((user) => ({
 			id: user.id,
 			email: user.email,
@@ -70,13 +76,19 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 };
 
 export const actions: Actions = {
-	deleteUser: async ({ locals, request }) => {
+	deleteUser: async ({ getClientAddress, locals, request }) => {
 		const admin = requireAdmin(locals.user);
+		const ip = resolveClientAddress({ getClientAddress, request });
 		const formData = await request.formData();
 		const targetUserId = getFormValue(formData, 'targetUserId');
 
 		if (!targetUserId) return fail(400, { deleteError: m.admin_error_invalid_user() });
 		if (targetUserId === admin.id) return fail(400, { deleteError: m.admin_error_self_delete() });
+
+		// #229: the ADMIN proves their own password, plus TOTP when they have it, before acting on
+		// another account. Ahead of the target lookup, so an admin session alone learns nothing more.
+		const reauth = await reauthenticate('deleteUser', { userId: admin.id, ip, form: formData });
+		if (!reauth.ok) return fail(400, { deleteError: reauthRefusalMessage(reauth) });
 
 		const target = await prisma.user.findUnique({
 			where: { id: targetUserId },
@@ -96,13 +108,19 @@ export const actions: Actions = {
 
 		return { deleteSuccess: m.admin_delete_success() };
 	},
-	resetPassword: async ({ locals, request }) => {
+	resetPassword: async ({ getClientAddress, locals, request }) => {
 		const admin = requireAdmin(locals.user);
+		const ip = resolveClientAddress({ getClientAddress, request });
 		const formData = await request.formData();
 		const targetUserId = getFormValue(formData, 'targetUserId');
 
 		if (!targetUserId) return fail(400, { resetError: m.admin_error_invalid_user() });
 		if (targetUserId === admin.id) return fail(400, { resetError: m.admin_error_self_reset() });
+
+		// #229: same gate as deleteUser. A reset hands whoever holds the session a working password
+		// for another account, so a session alone must not be enough.
+		const reauth = await reauthenticate('resetPassword', { userId: admin.id, ip, form: formData });
+		if (!reauth.ok) return fail(400, { resetError: reauthRefusalMessage(reauth) });
 
 		const target = await prisma.user.findUnique({
 			where: { id: targetUserId },

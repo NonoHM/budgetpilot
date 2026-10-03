@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as m from '$lib/paraglide/messages';
 
 vi.hoisted(() => {
@@ -38,6 +38,7 @@ const db = vi.hoisted(() => ({
 		session: {
 			findMany: vi.fn(),
 			findUnique: vi.fn(),
+			findFirst: vi.fn(),
 			updateMany: vi.fn()
 		},
 		recoveryCode: {
@@ -117,8 +118,15 @@ const accountMemory = vi.hoisted(() => ({
 }));
 vi.mock('$lib/server/import/accountMemory', () => accountMemory);
 vi.mock('$lib/server/net-worth/service', () => netWorthService);
+// The re-authentication helper runs for real; the spy only lets a test read the REASON it decided,
+// which no response carries (#854 class 2: the screen gets one sentence whatever failed).
+vi.mock('$lib/server/auth/reauth', async (importOriginal) => {
+	const actual = await importOriginal<typeof import('$lib/server/auth/reauth')>();
+	return { ...actual, reauthenticate: vi.fn(actual.reauthenticate) };
+});
 
 const { hashPassword, hashSessionToken, SESSION_COOKIE } = await import('$lib/server/auth');
+const reauth = await import('$lib/server/auth/reauth');
 const { actions, load } = await import('./+page.server');
 
 describe('/settings', () => {
@@ -317,7 +325,7 @@ describe('/settings', () => {
 		expect(result).toEqual({ passwordSuccess: 'Mot de passe mis à jour.' });
 		expect(db.prisma.user.findUnique).toHaveBeenCalledWith({
 			where: { id: 'user-a' },
-			select: { passwordHash: true }
+			select: { passwordHash: true, totpEnabled: true, totpSecretEncrypted: true }
 		});
 		expect(tx.user.update).toHaveBeenCalledWith({
 			where: { id: 'user-a' },
@@ -402,7 +410,7 @@ describe('/settings', () => {
 		})) as { status: number; data: { passwordError: string } };
 
 		expect(result.status).toBe(400);
-		expect(result.data.passwordError).toBe('Impossible de mettre à jour le mot de passe.');
+		expect(result.data.passwordError).toBe(m.reauth_error_password());
 		expect(tx.user.update).not.toHaveBeenCalled();
 		expect(tx.session.updateMany).not.toHaveBeenCalled();
 	});
@@ -412,9 +420,13 @@ describe('/settings', () => {
 
 		const currentTokenHash = hashSessionToken('session-courante');
 		db.prisma.session.updateMany.mockResolvedValue({ count: 3 });
+		db.prisma.user.findUnique.mockResolvedValue({
+			passwordHash: await hashPassword('mot-de-passe-actuel')
+		});
 
 		const result = await runAction('revokeOtherSessions', {
-			token: 'session-courante'
+			token: 'session-courante',
+			input: { currentPassword: 'mot-de-passe-actuel' }
 		});
 
 		expect(result).toEqual({ sessionsSuccess: 'Les autres sessions ont été déconnectées.' });
@@ -431,21 +443,30 @@ describe('/settings', () => {
 	});
 
 	describe('revokeSession', () => {
-		it('révoque une session ciblée appartenant au user courant', async () => {
-			expect.assertions(2);
-
-			db.prisma.session.findUnique.mockResolvedValue({
-				userId: 'user-a',
-				tokenHash: 'autre-session-hash'
+		beforeEach(async () => {
+			db.prisma.user.findUnique.mockResolvedValue({
+				passwordHash: await hashPassword('mot-de-passe-actuel')
 			});
+		});
+
+		it('révoque une session ciblée appartenant au user courant', async () => {
+			expect.assertions(3);
+
+			db.prisma.session.findFirst.mockResolvedValue({ tokenHash: 'autre-session-hash' });
 			db.prisma.session.updateMany.mockResolvedValue({ count: 1 });
 
 			const result = await runAction('revokeSession', {
 				token: 'session-courante',
-				input: { sessionId: 'session-cible' }
+				input: { sessionId: 'session-cible', currentPassword: 'mot-de-passe-actuel' }
 			});
 
 			expect(result).toEqual({ sessionsSuccess: 'La session a été révoquée.' });
+			// R6 on #841: the owner is IN the lookup, never compared afterwards. The real-engine
+			// half, with another account's session id, is `reauth.db-smoke.ts`.
+			expect(db.prisma.session.findFirst).toHaveBeenCalledWith({
+				where: { id: 'session-cible', userId: 'user-a' },
+				select: { tokenHash: true }
+			});
 			expect(db.prisma.session.updateMany).toHaveBeenCalledWith({
 				where: { id: 'session-cible', userId: 'user-a', revokedAt: null },
 				data: { revokedAt: expect.any(Date) }
@@ -468,14 +489,12 @@ describe('/settings', () => {
 		it('refuse de révoquer une session appartenant à un autre utilisateur (404, aucune mutation)', async () => {
 			expect.assertions(3);
 
-			db.prisma.session.findUnique.mockResolvedValue({
-				userId: 'user-b',
-				tokenHash: 'session-hash-user-b'
-			});
+			// What the scoped lookup returns for another account's id: nothing.
+			db.prisma.session.findFirst.mockResolvedValue(null);
 
 			const result = (await runAction('revokeSession', {
 				token: 'session-courante',
-				input: { sessionId: 'session-user-b' }
+				input: { sessionId: 'session-user-b', currentPassword: 'mot-de-passe-actuel' }
 			})) as { status: number; data: { sessionsError: string } };
 
 			expect(result.status).toBe(404);
@@ -487,14 +506,11 @@ describe('/settings', () => {
 			expect.assertions(3);
 
 			const currentTokenHash = hashSessionToken('session-courante');
-			db.prisma.session.findUnique.mockResolvedValue({
-				userId: 'user-a',
-				tokenHash: currentTokenHash
-			});
+			db.prisma.session.findFirst.mockResolvedValue({ tokenHash: currentTokenHash });
 
 			const result = (await runAction('revokeSession', {
 				token: 'session-courante',
-				input: { sessionId: 'session-courante-id' }
+				input: { sessionId: 'session-courante-id', currentPassword: 'mot-de-passe-actuel' }
 			})) as { status: number; data: { sessionsError: string } };
 
 			expect(result.status).toBe(400);
@@ -571,7 +587,7 @@ describe('/settings', () => {
 			})) as { status: number; data: { deleteError: string } };
 
 			expect(result.status).toBe(400);
-			expect(result.data.deleteError).toBe('Mot de passe ou code incorrect.');
+			expect(result.data.deleteError).toBe(m.reauth_error_password());
 			expect(tx.user.delete).not.toHaveBeenCalled();
 			expect(rateLimit.recordReauthAttempt).toHaveBeenCalledWith('user-a', '203.0.113.10');
 		});
@@ -592,7 +608,7 @@ describe('/settings', () => {
 			};
 
 			expect(result.status).toBe(400);
-			expect(result.data.deleteError).toBe('Mot de passe ou code incorrect.');
+			expect(result.data.deleteError).toBe(m.reauth_error_password());
 			expect(tx.user.delete).not.toHaveBeenCalled();
 		});
 
@@ -827,6 +843,17 @@ describe('/settings', () => {
 	});
 
 	describe('restoreData', () => {
+		// #228 put re-authentication ahead of the parse, so every test below that reaches the parse
+		// posts the right password. Without it they would all be refused by re-authentication, and a
+		// test asserting that some OTHER refusal did not happen would stay green for that reason.
+		beforeEach(async () => {
+			db.prisma.user.findUnique.mockResolvedValue({
+				passwordHash: await hashPassword(RESTORE_PASSWORD),
+				totpEnabled: false,
+				totpSecretEncrypted: null
+			});
+		});
+
 		it('refuse un envoi sans fichier', async () => {
 			expect.assertions(2);
 
@@ -1665,6 +1692,245 @@ describe('/settings', () => {
 	});
 });
 
+/**
+ * S1 (#253, #228, R3 on #841): every settings action in `REAUTH_FACTORS`, driven through the REAL
+ * action with every refusal reason its factors allow.
+ *
+ * ENUMERATED FROM THE REGISTRY. The cases below are keyed by action name and a test asserts the key
+ * set equals the registry's settings half, so an action added to `REAUTH_FACTORS` without a case
+ * here, or a case for an action that no longer re-authenticates, fails the first test rather than
+ * leaving a row unexercised.
+ *
+ * Per action and reason, four observations, each separating two states:
+ * - the helper's REASON, read off the spy: « refused because the code was wrong » vs « refused
+ *   for some other reason that happens to look the same on screen »;
+ * - the sentence equals `reauthRefusalMessage` for that outcome, and one sentence per action
+ *   across reasons (#854 class 2): « generic » vs « names the factor that failed »;
+ * - nothing was written: « refused » vs « refused after the write already happened »;
+ * - an attempt was recorded for a wrong factor and not for a missing one.
+ * The calibration case (the right secrets) is what makes « nothing was written » able to fail:
+ * the same request with the right password and code DOES reach the write.
+ */
+describe('S1: each re-authenticating settings action, through the real action', () => {
+	const PASSWORD = 'mot-de-passe-du-compte';
+	let passwordHash = '';
+	let storedSecret = '';
+	let storedSecretEncrypted = '';
+	const enrollingSecret = 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP';
+
+	async function totpCode(secretBase32: string, offsetSteps = 0): Promise<string> {
+		const OTPAuth = await import('otpauth');
+		const totp = new OTPAuth.TOTP({ secret: OTPAuth.Secret.fromBase32(secretBase32) });
+		return totp.generate({ timestamp: Date.now() + offsetSteps * 30_000 });
+	}
+
+	/** Six digits outside the ±1 window: ten steps ahead is never accepted. */
+	async function wrongCode(secretBase32: string): Promise<string> {
+		return totpCode(secretBase32, 10);
+	}
+
+	type SettingsReauthAction = Exclude<
+		keyof typeof reauth.REAUTH_FACTORS,
+		'deleteUser' | 'resetPassword'
+	>;
+
+	interface Case {
+		/** The action's own fields, valid, so only the credentials decide. */
+		fields: () => Record<string, string> | Promise<Record<string, string>>;
+		/** Whose code the form carries: the stored secret, or the one being enrolled. */
+		codeFrom: 'stored' | 'enrolling';
+		errorKey: string;
+		/** Every write the action would make. None may be called on a refusal. */
+		writes: () => Array<{ mock: { calls: unknown[] } }>;
+		/** Runs the action; restoreData posts a file, the rest a plain form. */
+		post?: (fields: Record<string, string>) => Promise<unknown>;
+	}
+
+	const CASES: Record<SettingsReauthAction, Case> = {
+		revokeSession: {
+			fields: () => ({ sessionId: 'session-cible' }),
+			codeFrom: 'stored',
+			errorKey: 'sessionsError',
+			writes: () => [db.prisma.session.updateMany, db.prisma.session.findFirst]
+		},
+		revokeOtherSessions: {
+			fields: () => ({}),
+			codeFrom: 'stored',
+			errorKey: 'sessionsError',
+			writes: () => [db.prisma.session.updateMany]
+		},
+		changePassword: {
+			fields: () => ({
+				newPassword: 'nouveau-mot-de-passe-solide',
+				confirmPassword: 'nouveau-mot-de-passe-solide'
+			}),
+			codeFrom: 'stored',
+			errorKey: 'passwordError',
+			writes: () => [tx.user.update, tx.session.updateMany]
+		},
+		deleteAccount: {
+			fields: () => ({ confirmation: 'SUPPRIMER' }),
+			codeFrom: 'stored',
+			errorKey: 'deleteError',
+			writes: () => [tx.user.delete, tx.session.deleteMany, tx.transaction.deleteMany]
+		},
+		disableTotp: {
+			fields: () => ({}),
+			codeFrom: 'stored',
+			errorKey: 'totpDisableError',
+			writes: () => [tx.user.update, tx.recoveryCode.deleteMany]
+		},
+		confirmTotpSetup: {
+			fields: () => ({ secretBase32: enrollingSecret }),
+			codeFrom: 'enrolling',
+			errorKey: 'totpSetupError',
+			writes: () => [tx.user.update, tx.recoveryCode.createMany]
+		},
+		restoreData: {
+			fields: () => ({}),
+			codeFrom: 'stored',
+			errorKey: 'restoreError',
+			writes: () => [backupImport.restoreBackup],
+			post: (fields) => {
+				const formData = new FormData();
+				formData.set('backupFile', buildBackupFile(JSON.stringify(buildValidBackupPayload())));
+				for (const [key, value] of Object.entries(fields)) formData.set(key, value);
+				return invokeAction('restoreData', {
+					cookies: buildCookies('session-courante'),
+					request: new Request('http://localhost/settings', { method: 'POST', body: formData }),
+					locals: { user: { id: 'user-a', email: 'user-a@example.test', role: 'USER' } }
+				});
+			}
+		}
+	};
+
+	type Credentials = { password?: string; code?: string };
+
+	async function post(action: SettingsReauthAction, credentials: Credentials) {
+		const testCase = CASES[action];
+		const fields: Record<string, string> = { ...(await testCase.fields()) };
+		if (credentials.password !== undefined) fields.currentPassword = credentials.password;
+		if (credentials.code !== undefined) fields.code = credentials.code;
+		if (testCase.post) return testCase.post(fields);
+		return runAction(action, { token: 'session-courante', input: fields });
+	}
+
+	async function credentialsFor(
+		action: SettingsReauthAction,
+		reason: 'right' | 'wrong-password' | 'missing-password' | 'missing-totp' | 'wrong-totp'
+	): Promise<Credentials> {
+		const secret = CASES[action].codeFrom === 'enrolling' ? enrollingSecret : storedSecret;
+		const asksCode = reauth.REAUTH_FACTORS[action] !== 'password';
+		const rightCode = asksCode ? await totpCode(secret) : undefined;
+		switch (reason) {
+			case 'right':
+				return { password: PASSWORD, code: rightCode };
+			case 'wrong-password':
+				return { password: 'pas-le-bon', code: rightCode };
+			case 'missing-password':
+				return { code: rightCode };
+			case 'missing-totp':
+				return { password: PASSWORD };
+			case 'wrong-totp':
+				return { password: PASSWORD, code: await wrongCode(secret) };
+		}
+	}
+
+	function reasonsFor(action: SettingsReauthAction) {
+		return reauth.REAUTH_FACTORS[action] === 'password'
+			? (['wrong-password', 'missing-password'] as const)
+			: (['wrong-password', 'missing-password', 'missing-totp', 'wrong-totp'] as const);
+	}
+
+	const ACTIONS = Object.keys(CASES) as SettingsReauthAction[];
+	const ROWS = ACTIONS.flatMap((action) => reasonsFor(action).map((reason) => [action, reason]));
+
+	beforeAll(async () => {
+		passwordHash = await hashPassword(PASSWORD);
+		const { generateTotpSecretBase32, encryptTotpSecret } = await import('$lib/server/auth/totp');
+		storedSecret = generateTotpSecretBase32();
+		storedSecretEncrypted = encryptTotpSecret(storedSecret);
+	});
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		db.prisma.$transaction.mockImplementation(async (callback) => callback(tx));
+		rateLimit.isReauthRateLimited.mockReset();
+		rateLimit.isReauthRateLimited.mockResolvedValue(false);
+		rateLimit.recordReauthAttempt.mockReset();
+		rateLimit.recordReauthAttempt.mockResolvedValue(undefined);
+		// One account with a second factor, so every TOTP reason is reachable on every action that
+		// asks for one. The password-only actions must ignore it.
+		db.prisma.user.findUnique.mockResolvedValue({
+			passwordHash,
+			totpEnabled: true,
+			totpSecretEncrypted: storedSecretEncrypted
+		});
+		db.prisma.session.findFirst.mockResolvedValue({ tokenHash: 'autre-session-hash' });
+		db.prisma.session.updateMany.mockResolvedValue({ count: 1 });
+		backupImport.restoreBackup.mockResolvedValue(undefined);
+	});
+
+	it('has a case for exactly the settings half of REAUTH_FACTORS, each an action of this route', () => {
+		const settingsHalf = Object.keys(reauth.REAUTH_FACTORS).filter((name) => name in actions);
+
+		expect(ACTIONS.sort()).toEqual(settingsHalf.sort());
+		// The rest of the registry is the admin route's, covered in admin/page.server.spec.ts.
+		expect(Object.keys(reauth.REAUTH_FACTORS).filter((name) => !(name in actions))).toEqual([
+			'deleteUser',
+			'resetPassword'
+		]);
+	});
+
+	it.each(ACTIONS)('calibration: %s with the right secrets reaches its write', async (action) => {
+		const outcome = post(action, await credentialsFor(action, 'right'));
+		// deleteAccount answers with its redirect to /login; the others return.
+		await outcome.catch((thrown: { status?: number }) => {
+			if (thrown?.status !== 303) throw thrown;
+		});
+
+		await expect(vi.mocked(reauth.reauthenticate).mock.results[0]?.value).resolves.toEqual({
+			ok: true
+		});
+		const written = CASES[action].writes().some((write) => write.mock.calls.length > 0);
+		expect(written).toBe(true);
+	});
+
+	it.each(ROWS)('%s refuses %s with its reason, one sentence, and no write', async (a, r) => {
+		const action = a as SettingsReauthAction;
+		const reason = r as (typeof ROWS)[number][1];
+
+		const result = (await post(action, await credentialsFor(action, reason))) as {
+			status: number;
+			data: Record<string, string>;
+		};
+
+		const decided = await vi.mocked(reauth.reauthenticate).mock.results[0]?.value;
+		expect(decided).toMatchObject({ ok: false, reason });
+		expect(result.status).toBe(400);
+		expect(result.data[CASES[action].errorKey]).toBe(reauth.reauthRefusalMessage(decided));
+		for (const write of CASES[action].writes()) expect(write.mock.calls).toEqual([]);
+		expect(rateLimit.recordReauthAttempt).toHaveBeenCalledTimes(reason.startsWith('wrong') ? 1 : 0);
+	});
+
+	// Class 2 across reasons, compared to EACH OTHER rather than to a literal (#854, « What would
+	// close this », point 2): a sentence that differed by reason would tell a stolen session which
+	// factor it got right.
+	it.each(ACTIONS)('%s says the same sentence whatever failed', async (action) => {
+		const sentences = new Set<string>();
+		for (const reason of reasonsFor(action)) {
+			vi.clearAllMocks();
+			db.prisma.$transaction.mockImplementation(async (callback) => callback(tx));
+			const result = (await post(action, await credentialsFor(action, reason))) as {
+				data: Record<string, string>;
+			};
+			sentences.add(result.data[CASES[action].errorKey]);
+		}
+
+		expect(sentences.size).toBe(1);
+	});
+});
+
 function buildCookies(token: string | undefined) {
 	return {
 		get: vi.fn((name: string) => (name === SESSION_COOKIE ? token : undefined)),
@@ -1739,9 +2005,12 @@ function buildBackupFile(content: string, name = 'backup.json'): File {
 	return new File([content], name, { type: 'application/json' });
 }
 
+const RESTORE_PASSWORD = 'mot-de-passe-de-restauration';
+
 function buildBackupFormData(file: File): FormData {
 	const formData = new FormData();
 	formData.set('backupFile', file);
+	formData.set('currentPassword', RESTORE_PASSWORD);
 	return formData;
 }
 

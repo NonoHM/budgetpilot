@@ -8,6 +8,7 @@
 	import Badge from '$lib/components/ui/Badge.svelte';
 	import IconButton from '$lib/components/ui/IconButton.svelte';
 	import ListCard from '$lib/components/ui/ListCard.svelte';
+	import ReauthFields from '$lib/components/ui/ReauthFields.svelte';
 	import type { PageProps } from './$types';
 
 	let { data, form }: PageProps = $props();
@@ -651,6 +652,10 @@
 					budgets: deleteTarget.budgetCount
 				})}
 			</p>
+			<!-- #229: the admin's own secrets, never the target's. -->
+			<div class="mt-4">
+				<ReauthFields asksCode={data.reauthAsksCode} idPrefix="admin-delete" />
+			</div>
 		{/if}
 	</ConfirmDialog>
 </form>
@@ -669,6 +674,9 @@
 			<p class="text-sm text-zinc-600">
 				{m.admin_reset_confirm_body({ email: resetTarget.email })}
 			</p>
+			<div class="mt-4">
+				<ReauthFields asksCode={data.reauthAsksCode} idPrefix="admin-reset" />
+			</div>
 		{/if}
 	</ConfirmDialog>
 </form>

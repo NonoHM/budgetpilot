@@ -9,6 +9,8 @@
 	import Select from '$lib/components/ui/Select.svelte';
 	import FileDropZone from '$lib/components/ui/FileDropZone.svelte';
 	import PasswordInput from '$lib/components/ui/PasswordInput.svelte';
+	import ReauthFields from '$lib/components/ui/ReauthFields.svelte';
+	import { REAUTH_FIELDS } from '$lib/domain/reauthFields';
 	import Switch from '$lib/components/Switch.svelte';
 	import TapLink from '$lib/components/ui/TapLink.svelte';
 	import EmptyState from '$lib/components/ui/EmptyState.svelte';
@@ -247,6 +249,11 @@
 
 	// Sessions detail
 	let sessionsDetailOpen = $state(false);
+
+	// Revoking asks for the password (#253, R3 on #841), so each revoke control opens one dialog
+	// holding the field instead of posting straight away. One dialog for both actions: they ask for
+	// the same thing and differ only by what they end.
+	let revokeTarget: { kind: 'one'; sessionId: string } | { kind: 'others' } | null = $state(null);
 
 	// Danger zone (controlled button, not <details>/<summary>)
 	let dangerOpen = $state(false);
@@ -660,12 +667,16 @@
 							</div>
 						</div>
 						{#if !session.isCurrent && session.status === 'active'}
-							<form method="POST" action="?/revokeSession" class="shrink-0">
-								<input type="hidden" name="sessionId" value={session.id} />
-								<Button type="submit" variant="ghost-danger" size="sm">
-									{m.settings_revoke_session()}
-								</Button>
-							</form>
+							<Button
+								type="button"
+								variant="ghost-danger"
+								size="sm"
+								class="shrink-0"
+								data-session-id={session.id}
+								onclick={() => (revokeTarget = { kind: 'one', sessionId: session.id })}
+							>
+								{m.settings_revoke_session()}
+							</Button>
 						{/if}
 					</div>
 				{:else}
@@ -685,11 +696,14 @@
 
 			<!-- Déconnecter les autres — mobile, affiché uniquement si > 1 session active -->
 			{#if activeSessions > 1}
-				<form method="POST" action="?/revokeOtherSessions" class="mt-2 lg:hidden">
-					<Button type="submit" variant="ghost-danger" class="h-11 w-full">
-						{m.settings_logout_other_sessions()}
-					</Button>
-				</form>
+				<Button
+					type="button"
+					variant="ghost-danger"
+					class="mt-2 h-11 w-full lg:hidden"
+					onclick={() => (revokeTarget = { kind: 'others' })}
+				>
+					{m.settings_logout_other_sessions()}
+				</Button>
 			{/if}
 
 			<!-- Session courante — desktop (≥lg) uniquement -->
@@ -742,11 +756,13 @@
 
 			<!-- Déconnecter les autres — desktop, affiché uniquement si > 1 session active -->
 			{#if activeSessions > 1}
-				<form method="POST" action="?/revokeOtherSessions" class="mt-2 hidden lg:block">
-					<Button type="submit" variant="secondary" class="w-full"
-						>{m.settings_logout_other_sessions()}</Button
-					>
-				</form>
+				<Button
+					type="button"
+					variant="secondary"
+					class="mt-2 hidden w-full lg:flex"
+					onclick={() => (revokeTarget = { kind: 'others' })}
+					>{m.settings_logout_other_sessions()}</Button
+				>
 			{/if}
 
 			<!-- Détail des sessions (repliable, desktop uniquement — la liste mobile ci-dessus
@@ -821,12 +837,15 @@
 									</td>
 									<td class="px-4 py-3 text-right">
 										{#if !session.isCurrent && session.status === 'active'}
-											<form method="POST" action="?/revokeSession">
-												<input type="hidden" name="sessionId" value={session.id} />
-												<Button type="submit" variant="ghost-danger" size="sm">
-													{m.settings_revoke_session()}
-												</Button>
-											</form>
+											<Button
+												type="button"
+												variant="ghost-danger"
+												size="sm"
+												data-session-id={session.id}
+												onclick={() => (revokeTarget = { kind: 'one', sessionId: session.id })}
+											>
+												{m.settings_revoke_session()}
+											</Button>
 										{/if}
 									</td>
 								</tr>
@@ -973,6 +992,9 @@
 								<p class="text-sm text-zinc-600">
 									{m.settings_restore_confirm_body()}
 								</p>
+								<div class="mt-4">
+									<ReauthFields asksCode={data.mfa.enabled} idPrefix="restore" />
+								</div>
 							</ConfirmDialog>
 						</form>
 					</div>
@@ -1543,7 +1565,11 @@
 
 							<label class="block space-y-1.5 text-xs font-medium text-rose-700">
 								<span>{m.settings_delete_confirm_password_label()}</span>
-								<PasswordInput name="currentPassword" required autocomplete="current-password" />
+								<PasswordInput
+									name={REAUTH_FIELDS.password}
+									required
+									autocomplete="current-password"
+								/>
 							</label>
 
 							{#if data.mfa.enabled}
@@ -1556,7 +1582,7 @@
 										id="danger-code"
 										type="text"
 										inputmode="numeric"
-										name="code"
+										name={REAUTH_FIELDS.code}
 										required
 										autocomplete="one-time-code"
 										class="h-11 w-full rounded-xl border border-rose-200 bg-white px-3 text-sm text-zinc-900 focus:border-rose-400 focus:ring-2 focus:ring-rose-200 focus:outline-none lg:w-64"
@@ -1587,6 +1613,30 @@
 	</section>
 </main>
 
+<!-- Revoke one session, or every other one: the password first (#253) -->
+<form
+	method="POST"
+	action={revokeTarget?.kind === 'one' ? '?/revokeSession' : '?/revokeOtherSessions'}
+	autocomplete="off"
+>
+	{#if revokeTarget?.kind === 'one'}
+		<input type="hidden" name="sessionId" value={revokeTarget.sessionId} />
+	{/if}
+	<ConfirmDialog
+		open={revokeTarget !== null}
+		title={revokeTarget?.kind === 'one'
+			? m.settings_revoke_session_confirm_title()
+			: m.settings_logout_other_sessions_confirm_title()}
+		confirmLabel={revokeTarget?.kind === 'one'
+			? m.settings_revoke_session()
+			: m.settings_logout_other_sessions()}
+		tone="danger"
+		onClose={() => (revokeTarget = null)}
+	>
+		<ReauthFields asksCode={false} idPrefix="revoke" />
+	</ConfirmDialog>
+</form>
+
 <!-- Modale : modifier le mot de passe -->
 <Modal
 	open={passwordModalOpen}
@@ -1604,12 +1654,11 @@
 	</div>
 	<form class="space-y-4" method="POST" action="?/changePassword" autocomplete="off">
 		<div class="space-y-4">
-			<label class="block space-y-1.5 text-sm">
-				<span class="text-[11px] font-medium tracking-wide text-zinc-500 uppercase">
-					{m.settings_current_password_label()}
-				</span>
-				<PasswordInput name="currentPassword" required autocomplete="current-password" />
-			</label>
+			<ReauthFields
+				asksCode={data.mfa.enabled}
+				idPrefix="password"
+				passwordLabel={m.settings_current_password_label()}
+			/>
 
 			<label class="block space-y-1.5 text-sm">
 				<span class="text-[11px] font-medium tracking-wide text-zinc-500 uppercase">
@@ -1718,7 +1767,7 @@
 					{m.settings_current_password_label()}
 				</span>
 				<PasswordInput
-					name="currentPassword"
+					name={REAUTH_FIELDS.password}
 					required
 					autocomplete="current-password"
 					bind:value={mfaSetupPasswordValue}
@@ -1733,7 +1782,7 @@
 					class="w-full {inputBase}"
 					type="text"
 					inputmode="numeric"
-					name="code"
+					name={REAUTH_FIELDS.code}
 					required
 					autocomplete="one-time-code"
 					bind:value={mfaCodeValue}
@@ -1777,7 +1826,7 @@
 			<span class="text-[11px] font-medium tracking-wide text-zinc-500 uppercase">
 				{m.settings_current_password_label()}
 			</span>
-			<PasswordInput name="currentPassword" required autocomplete="current-password" />
+			<PasswordInput name={REAUTH_FIELDS.password} required autocomplete="current-password" />
 		</label>
 
 		<label class="block space-y-1.5 text-sm">
@@ -1788,7 +1837,7 @@
 				class="w-full {inputBase}"
 				type="text"
 				inputmode="numeric"
-				name="code"
+				name={REAUTH_FIELDS.code}
 				required
 				autocomplete="one-time-code"
 			/>
