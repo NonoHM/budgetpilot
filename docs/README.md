@@ -15,6 +15,13 @@
   machines, uninstalling.
 - **[Logs](./logging.md)**: what the server writes, where it goes, how long it
   is kept, and every event with its fields.
+- **[Your first look at the logs](./logging-tutorial.md)**: a guided first
+  reading of the log, ending at the line behind an error page's reference.
+- **[Read, filter and check the log](./logging-howto.md)**: reading it, `jq`
+  recipes, the size bound, the log level and the hash-chain check.
+- **[Send the log to a collector](./logging-collectors.md)**: tested recipes
+  for OpenTelemetry, Vector, Fluent Bit and Alloy with Loki, and the field
+  mapping to ECS and OCSF.
 - **[Local AI advice](./ai-insights.md)**: the optional Ollama setup.
 - **[Bank sync](./bank-sync.md)**: the optional automatic PSD2 connection.
 - **[Troubleshooting](./troubleshooting.md)**: when something's broken.
@@ -115,6 +122,8 @@ Why the app behaves as it does, in [explanation](./explanation/README.md):
 - [Where this differs from other budgeting apps](./explanation/where-this-differs.md).
 - [How the security claims were verified](./explanation/security-verification.md):
   what was tested, by whom, and what isn't covered.
+- [Why the log looks like this](./explanation/logging-design.md): one JSON
+  object per line, no addresses or messages, and what the hash chain proves.
 
 ---
 
