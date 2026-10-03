@@ -33,7 +33,10 @@ const EXCLUDED = [
 	// Written by `prisma generate`.
 	'src/lib/server/database/generated/',
 	// Agent definitions. Instructions to a tool, not a page anyone reads.
-	'.claude/'
+	'.claude/',
+	// Third-party standards copied byte for byte so their SHA256SUMS verify against upstream; a
+	// standard is quoted as published, and the OWASP LLM Top 10 text carries dashes of its own.
+	'docs/reference/standards/'
 ];
 
 /**

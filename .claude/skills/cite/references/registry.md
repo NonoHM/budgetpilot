@@ -6,12 +6,15 @@ The list is tracked; the copies are not. Which of these bind the project, and ho
 - **Copies** live in the main checkout under `scr/references/<family>/` (gitignored, so a linked
   worktree reads them through `$(git rev-parse --git-common-dir)/..`), each with a row in that
   folder's `MANIFEST.md`: file, URL, retrieval date, bytes, sha256.
-- **Not on disk**: download from the URL below into that folder and add the row. ASVS and AISVS are the
-  exception: tracked verbatim, with licence and provenance, in `docs/reference/standards/`, where
-  `cite/scripts/resolve.mjs` reads them (#601).
-- **Never commit a copy, except the two above.** Licences differ: ASVS and AISVS are CC BY-SA 4.0
-  (redistribution allowed with attribution and share-alike, so their licence travels with them), the CIS Controls CC BY-NC-ND
-  4.0, NIST publications public domain, ISO standards are sold.
+- **Not on disk**: download from the URL below into that folder and add the row. Four works are the
+  exception, tracked verbatim with licence and provenance in `docs/reference/standards/`: ASVS 5.0.0
+  and AISVS 1.0, which `cite/scripts/resolve.mjs` reads (#601), the OWASP Top 10 for LLM
+  Applications 2025, and ANSSI-PA-102 (French and English).
+- **Never commit a copy, except those four.** A copy is tracked only when its licence permits
+  redistribution and a citation needs to resolve from a clone. Licences differ: the three OWASP works
+  are CC BY-SA 4.0 and ANSSI-PA-102 is under the Licence Ouverte 2.0 (redistribution allowed with
+  attribution, so the licence travels with them), the CNIL's texts CC BY-ND 4.0 FR, the CIS Controls
+  CC BY-NC-ND 4.0, NIST publications public domain, ISO standards are sold.
 - **A page that changes without a version** (vendor docs): cite it with the date read; before quoting
   it in published text, save a Web Archive snapshot and put that URL in the MANIFEST row.
 - **« URL to record at first use »**: find the primary source, then write its URL here in the same PR.
@@ -26,6 +29,7 @@ The list is tracked; the copies are not. Which of these bind the project, and ho
 - AISVS C12 Monitoring and Logging: https://raw.githubusercontent.com/OWASP/AISVS/main/1.0/en/0x10-C12-Monitoring-and-Logging.md
 - AISVS Appendix C, AI for code generation: https://raw.githubusercontent.com/OWASP/AISVS/main/1.0/en/0x92-Appendix-C_AI_for_Code_Generation.md
 - WSTG, Web Security Testing Guide: https://owasp.org/www-project-web-security-testing-guide/
+- Top 10 for LLM Applications 2025 (tracked in `docs/reference/standards/owasp-llm-top10-2025/`, pin commit eb87ba80e0698de911dcdb8af60830e97723e3fc, folder `2_0_vulns/`): https://github.com/OWASP/www-project-top-10-for-large-language-model-applications
 - Top 10 for LLM Applications 2025, LLM06 Excessive Agency: https://owasp.github.io/www-project-top-10-for-large-language-model-applications/2_0_vulns/LLM06_ExcessiveAgency.html
 - Top 10 CI/CD Security Risks, CICD SEC 01 Insufficient Flow Control Mechanisms: https://raw.githubusercontent.com/OWASP/www-project-top-10-ci-cd-security-risks/main/CICD-SEC-01-Insufficient-Flow-Control-Mechanisms.md
 - Top 10 CI/CD Security Risks, CICD SEC 02 Inadequate Identity And Access Management: https://raw.githubusercontent.com/OWASP/www-project-top-10-ci-cd-security-risks/main/CICD-SEC-02-Inadequate-Identity-And-Access-Management.md
@@ -71,9 +75,28 @@ The list is tracked; the copies are not. Which of these bind the project, and ho
 
 ## ANSSI
 
-- PA-102, generative AI security recommendations (FR): https://messervices.cyber.gouv.fr/documents-guides/Recommandations_de_s%C3%A9curit%C3%A9_pour_un_syst%C3%A8me_d_IA_g%C3%A9n%C3%A9rative.pdf
+- PA-102, generative AI security recommendations, version 1.0 of 29/04/2024 (tracked in `docs/reference/standards/anssi-pa-102/`, Licence Ouverte 2.0) (FR): https://messervices.cyber.gouv.fr/documents-guides/Recommandations_de_s%C3%A9curit%C3%A9_pour_un_syst%C3%A8me_d_IA_g%C3%A9n%C3%A9rative.pdf
+- PA-102 (EN): https://messervices.cyber.gouv.fr/documents-guides/security_recommandations_for_a_generative_ai_system.pdf
+- PA-102 is still ANSSI's only recommendations guide for a generative AI system: its AI page (https://cyber.gouv.fr/enjeux-technologiques/intelligence-artificielle/, read 2026-10-03) lists nothing superseding it. A « Sécuriser les systèmes intégrant de l'intelligence artificielle » guide of April 2026 that secondary sites describe does not appear there; do not cite it.
+- Synthèse de la menace sur l'IA générative face aux attaques informatiques, CERTFR-2026-CTI-001, 4 February 2026, TLP:CLEAR (a threat summary: for the threat model, #840, and for the model supply chain, since it records open-source models that execute code when downloaded): https://www.cert.ssi.gouv.fr/uploads/CERTFR-2026-CTI-001.pdf
+- MEPIA, evaluation methods for products integrating AI, v0.1, 15 July 2026, a draft with no licence stated (a Common Criteria evaluation method; its Scenario 1 and the AVA_AINI « AI non-interfering » component are the test method for the AI path: treat the model as an attacker, read everything sent to it, write anything as its answer, and show the application gains no privilege and is not blocked): https://cyber.gouv.fr/documents/797/EN-MEPIA-v0.1PUB.pdf
+- Développer la confiance dans l'IA par une approche par les risques cyber, 7 February 2025, Licence Ouverte 2.0. Read 2026-10-03: a high-level risk analysis whose checklist adds nothing PA-102 does not already cover, so it is not a reference here; listed so it is not read again: https://cyber.gouv.fr/documents/582/20250207_np_Analyse_commune_haut_niveau_des_risques_cyber_li%C3%A9_a_IA_V1.0.pdf
 - ANSSI and BSI, AI coding assistants (2024): https://www.bsi.bund.de/SharedDocs/Downloads/EN/BSI/KI/ANSSI_BSI_AI_Coding_Assistants.pdf?__blob=publicationFile&v=7
 - Publications index: https://cyber.gouv.fr/publications
+
+## European Union
+
+- Regulation (EU) 2024/1689, the Artificial Intelligence Act, OJ L, 2024/1689, 12.7.2024. Permanent identifier (ELI): http://data.europa.eu/eli/reg/2024/1689/oj
+- The same, PDF through the Publications Office (EUR-Lex answers scripted downloads with an empty challenge page): https://op.europa.eu/o/opportal-service/download-handler?identifier=dc8116a1-3fe6-11ef-865a-01aa75ed71a1&format=pdf&language=en&productionSystem=cellar&part=
+- Corrigendum to the AI Act, OJ L, 2024/90349: URL to record at first use
+- Reuse of EU legal texts: Commission Decision 2011/833/EU on the reuse of Commission documents, reuse authorised provided the source is acknowledged and the meaning not distorted; the copy stays local all the same, because the ELI is a permanent address.
+
+## CNIL
+
+- Recommandation journalisation, délibération 2021-122: https://www.cnil.fr/sites/default/files/atoms/files/recommandation_-_journalisation.pdf
+- AI practical sheets, index. Read 2026-10-03: all 13 sheets are about developing and training an AI system and none about running one, so they add nothing for this project's AI path and are not a reference; listed so they are not read again: https://www.cnil.fr/fr/les-fiches-pratiques-ia
+- AI sheets, verification checklist (July 2025): https://www.cnil.fr/sites/default/files/2025-07/ia_liste_de_verification.pdf
+- Licence of CNIL texts: CC BY-ND 4.0 FR, per https://www.cnil.fr/fr/mentions-legales
 
 ## ISO/IEC
 

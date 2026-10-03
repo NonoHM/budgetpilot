@@ -475,6 +475,11 @@ Standards this repository is held to, and where each one binds.
   for the optional Ollama path: prompt construction, model output handling, and the boundary
   between user data and prompt. Its Appendix C, « AI-Assisted Secure Coding », also binds how
   this repository is DEVELOPED: see « Never publish anything derived from a real statement ».
+  **Three companions bind the same path, each for one thing** (texts in `docs/reference/standards/`
+  or, for the regulation, the `cite` registry): the **OWASP Top 10 for LLM Applications 2025**
+  names the threat an AISVS row answers (`LLM10:2025` for #535); **ANSSI-PA-102** is the deployment
+  cross-check, recommendation by recommendation; the **EU AI Act** (Regulation 2024/1689) binds only
+  as a scope statement, written once and kept true as the feature changes.
 - **[OWASP WSTG](https://owasp.org/www-project-web-security-testing-guide/)** for the testing
   method behind the import parser's injection work, including the save-and-reopen cycle.
 - **[WCAG 2.2 AA](https://www.w3.org/TR/WCAG22/)** for the interface. Contrast, focus visibility,

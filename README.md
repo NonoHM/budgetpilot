@@ -156,4 +156,5 @@ For what has actually been verified, by whom, and what is not covered, see [how 
 ## License
 
 [Apache License 2.0](./LICENSE), except [`docs/reference/standards/`](./docs/reference/standards/README.md),
-which holds the OWASP ASVS and AISVS texts under CC BY-SA 4.0.
+which holds third-party standards under their own licences: the OWASP ASVS, AISVS and LLM Top 10 texts
+under CC BY-SA 4.0, and ANSSI's generative AI guide under the Licence Ouverte 2.0.
