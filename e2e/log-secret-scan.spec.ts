@@ -85,6 +85,11 @@ import { expect, test } from './fixtures';
  * printer that writes messages turns the sweep red, which is the break that proves this path.
  */
 
+// No retries, whatever the suite sets (playwright.config.ts retries twice for a hydration race this
+// file cannot have). A secret that reaches the log on one run in three is a leak, and a retry that
+// passes would hide it: measured, a failing test here was retried twice under the suite default.
+test.describe.configure({ retries: 0 });
+
 const PORT = 4176;
 const BASE_URL = `http://localhost:${PORT}`;
 const DB_DIR = path.resolve('e2e/.data/logscan');
