@@ -56,6 +56,22 @@ services:
   ollama:
     image: ollama/ollama:0.32.5
     container_name: budgetpilot_ollama
+    environment:
+      # Without this, 0.32.5 calls ollama.com at start-up and again on a timer of a few
+      # minutes (the model catalogue and a recommendations list), which no setting of ours
+      # asked for: AGENTS.md promises no mandatory external calls. Measured on a network
+      # with no egress: 2 failed fetches to ollama.com in the first seconds by default,
+      # none with this set, and the log then says `Ollama cloud disabled: true`, which is
+      # how to tell the variable reached the process.
+      #
+      # The FAQ (https://docs.ollama.com/faq, read 2026-10-03): "You can also set the
+      # environment variable: `OLLAMA_NO_CLOUD=1`" and "Once disabled, Ollama's logs will
+      # show `Ollama cloud disabled: true`". The cost is the cloud-hosted models and web
+      # search, which this app never uses.
+      #
+      # Not affected: `ollama pull` still reaches the model registry, because the operator
+      # asked for it. This is NOT network isolation; see docs/ai-insights.md.
+      OLLAMA_NO_CLOUD: '1'
     volumes:
       - ollama_data:/root/.ollama
     restart: unless-stopped

@@ -409,4 +409,31 @@ else
 	echo "ok:   docker-compose.ai.gpu.yml reserves $gpu_devices device(s)"
 fi
 
+# Ollama calls ollama.com by itself unless told not to, and the only thing that tells it is one
+# environment variable. Dropping it merges, renders and starts exactly the same. This asserts the
+# merged project CARRIES the variable, on the CPU stack and the GPU stack and on both bases; it
+# does not prove the process then stays quiet. That was measured on a network with no egress:
+# the unmodified overlay logged 2 failed fetches to ollama.com, the fixed one 0 and the line
+# `Ollama cloud disabled: true`. The command is in the pull request that added this.
+echo
+echo "--- ollama does not call ollama.com unprompted ---"
+
+for base in docker-compose.yml docker-compose.prebuilt.yml; do
+	for overlays in "-f docker-compose.ai.yml" "-f docker-compose.ai.yml -f docker-compose.ai.gpu.yml"; do
+		# shellcheck disable=SC2086 # the overlay list is a word list on purpose
+		if ! project=$(docker compose --env-file /dev/null -f "$base" $overlays config --format json 2>/dev/null); then
+			echo "FAIL: $base $overlays could not be rendered" >&2
+			failed=1
+			continue
+		fi
+		no_cloud=$(jq -r '.services.ollama.environment.OLLAMA_NO_CLOUD // "unset"' <<<"$project")
+		if [ "$no_cloud" != 1 ]; then
+			echo "FAIL: $base $overlays leaves OLLAMA_NO_CLOUD at \"$no_cloud\"; Ollama would call ollama.com on its own" >&2
+			failed=1
+			continue
+		fi
+		echo "ok:   $base $overlays (OLLAMA_NO_CLOUD=1)"
+	done
+done
+
 exit "$failed"
