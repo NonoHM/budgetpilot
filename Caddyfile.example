@@ -86,8 +86,8 @@ budget.example.com {
 				}
 				request>headers>Referer delete
 
-				# The client address is personal data too (CNIL treats an IP address
-				# in a log as such), and it is logged raw by default. It is not
+				# The client address is personal data too, and it is logged raw by
+				# default. It is not
 				# masked here because the operator who blocks an abuser needs the
 				# real address, and a /24 is pseudonymisation, not anonymisation: it
 				# still singles out a household on a small provider. Uncomment both
