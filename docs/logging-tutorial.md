@@ -70,10 +70,10 @@ changed `APP_PORT`, use your port.
    You see:
 
    ```text
-   {"severity_text":"WARN","severity_number":13,"timestamp":"2026-10-03T16:35:36.164Z","event_name":"sys_startup"
-   {"severity_text":"INFO","severity_number":9,"timestamp":"2026-10-03T16:35:36.165Z","event_name":"budgetpilot.c
-   {"severity_text":"INFO","severity_number":9,"timestamp":"2026-10-03T16:35:36.165Z","event_name":"budgetpilot.c
-   {"severity_text":"WARN","severity_number":13,"timestamp":"2026-10-03T16:35:36.245Z","event_name":"budgetpilot.
+   {"severity_text":"WARN","severity_number":13,"timestamp":"2026-10-03T17:03:35.859Z","event_name":"sys_startup"
+   {"severity_text":"INFO","severity_number":9,"timestamp":"2026-10-03T17:03:35.860Z","event_name":"budgetpilot.c
+   {"severity_text":"INFO","severity_number":9,"timestamp":"2026-10-03T17:03:35.860Z","event_name":"budgetpilot.c
+   {"severity_text":"WARN","severity_number":13,"timestamp":"2026-10-03T17:03:35.953Z","event_name":"budgetpilot.
    ```
 
    The `cut` command keeps the first 110 characters of each line, because the full lines are long.
@@ -102,7 +102,7 @@ with.
    {
      "severity_text": "WARN",
      "severity_number": 13,
-     "timestamp": "2026-10-03T16:35:36.164Z",
+     "timestamp": "2026-10-03T17:03:35.859Z",
      "event_name": "sys_startup",
      "service.name": "budgetpilot",
      "service.version": "1.2.0",
@@ -114,7 +114,7 @@ with.
      "budgetpilot.config.security_log": "on",
      "budgetpilot.config.log_level": "info",
      "budgetpilot.log.schema": 1,
-     "budgetpilot.log.boot_id": "c993f9ea-fd05-4079-b56f-c759b6d10948",
+     "budgetpilot.log.boot_id": "201187db-785a-4363-b514-a1607c30afd2",
      "budgetpilot.log.seq": 1,
      "budgetpilot.log.prev": "0000000000000000000000000000000000000000000000000000000000000000",
      "body": "BudgetPilot started. The attributes are the security-relevant configuration it started with."
@@ -171,17 +171,17 @@ with.
    {
      "severity_text": "INFO",
      "severity_number": 9,
-     "timestamp": "2026-10-03T16:35:37.514Z",
+     "timestamp": "2026-10-03T17:03:38.144Z",
      "event_name": "budgetpilot.request.not_found",
-     "trace_id": "d93714c70d294d01ac558ec80d25bdf9",
+     "trace_id": "36cd7ea91af74817bde6238bc1f87d0d",
      "http.request.method": "GET",
      "service.name": "budgetpilot",
      "http.response.status_code": 404,
-     "budgetpilot.error.id": "d93714c7-0d29-4d01-ac55-8ec80d25bdf9",
+     "budgetpilot.error.id": "36cd7ea9-1af7-4817-bde6-238bc1f87d0d",
      "budgetpilot.log.schema": 1,
-     "budgetpilot.log.boot_id": "c993f9ea-fd05-4079-b56f-c759b6d10948",
+     "budgetpilot.log.boot_id": "201187db-785a-4363-b514-a1607c30afd2",
      "budgetpilot.log.seq": 5,
-     "budgetpilot.log.prev": "3166300d2aed0566661346da6d8280b970aadc0d5447bceb29225f09d1ce157a",
+     "budgetpilot.log.prev": "5d07b01672a6f07b4016d6544711b87061d92b7b847c803baf7c984558887c8f",
      "body": "A request matched no page."
    }
    ```
@@ -207,7 +207,7 @@ A reference is what you get when someone tells you "I saw error such-and-such". 
 1. Keep the identifier from step 3 in a variable. Replace the value with the one in your own output.
 
    ```bash
-   REF=d93714c7-0d29-4d01-ac55-8ec80d25bdf9
+   REF=36cd7ea9-1af7-4817-bde6-238bc1f87d0d
    ```
 
 1. Search the log for it.
@@ -219,7 +219,7 @@ A reference is what you get when someone tells you "I saw error such-and-such". 
    You see:
 
    ```text
-   ["2026-10-03T16:35:37.514Z","budgetpilot.request.not_found","d93714c70d294d01ac558ec80d25bdf9"]
+   ["2026-10-03T17:03:38.144Z","budgetpilot.request.not_found","36cd7ea91af74817bde6238bc1f87d0d"]
    ```
 
    The square brackets are the three values `jq` was asked to print: the time, the event and the
@@ -233,7 +233,7 @@ A reference is what you get when someone tells you "I saw error such-and-such". 
    You see the same line:
 
    ```text
-   ["2026-10-03T16:35:37.514Z","budgetpilot.request.not_found","d93714c70d294d01ac558ec80d25bdf9"]
+   ["2026-10-03T17:03:38.144Z","budgetpilot.request.not_found","36cd7ea91af74817bde6238bc1f87d0d"]
    ```
 
    Most requests write one line, so the two searches find one. The `trace_id` matters once you send
@@ -268,7 +268,7 @@ use the reference.
    are from different runs, and yours will differ from both.
 
    ```bash
-   REF=dd4a6f81-4503-4695-981d-be3d0ff7b49b
+   REF=64fc7273-48ec-46ab-8a70-eb639d379ce0
    ```
 
 1. Print the line with that reference.
@@ -283,20 +283,20 @@ use the reference.
    {
      "severity_text": "ERROR",
      "severity_number": 17,
-     "timestamp": "2026-10-03T16:35:39.890Z",
+     "timestamp": "2026-10-03T17:03:40.526Z",
      "event_name": "budgetpilot.request.failed",
-     "trace_id": "dd4a6f8145034695981dbe3d0ff7b49b",
+     "trace_id": "64fc727348ec46ab8a70eb639d379ce0",
      "http.request.method": "GET",
      "http.route": "/net-worth",
      "service.name": "budgetpilot",
      "error.type": "PrismaClientKnownRequestError",
      "budgetpilot.error.code": "P2021",
      "http.response.status_code": 500,
-     "budgetpilot.error.id": "dd4a6f81-4503-4695-981d-be3d0ff7b49b",
+     "budgetpilot.error.id": "64fc7273-48ec-46ab-8a70-eb639d379ce0",
      "budgetpilot.log.schema": 1,
-     "budgetpilot.log.boot_id": "c993f9ea-fd05-4079-b56f-c759b6d10948",
+     "budgetpilot.log.boot_id": "201187db-785a-4363-b514-a1607c30afd2",
      "budgetpilot.log.seq": 6,
-     "budgetpilot.log.prev": "054cff91bba3afbad80d9f4048daf221a306617d9f969ba7675f0b78050575a3",
+     "budgetpilot.log.prev": "6dfed0076931c0bd8fc94f874dd2256d434f45de91a3ed692ed92bcdee83f1f1",
      "body": "A request failed on an unexpected error. The error id is the reference the visitor was shown."
    }
    ```

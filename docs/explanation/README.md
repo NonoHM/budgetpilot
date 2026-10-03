@@ -13,6 +13,8 @@ design decision is not mistaken for a defect and undone.
 - **[How this project's security is verified, and by whom](./security-verification.md)**:
   what was tested, what is asserted on every run, what is not covered, and why
   none of it is an independent audit.
+- **[Why the log looks like this](./logging-design.md)**: one JSON object per line, no
+  addresses or messages, and what the hash chain proves.
 - **[What keeps private data out of what this repository publishes](./confidentiality-guards.md)**:
   which check owns each class of private data, where it runs, and what none
   of them catches.
