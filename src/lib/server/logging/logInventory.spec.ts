@@ -29,8 +29,11 @@ function documentedEvents(): Map<string, DocumentedEvent> {
 		const severity = /Severity (\w+)\./.exec(block)?.[1] ?? '';
 		const body = /^> (.*)$/m.exec(block)?.[1] ?? '';
 		const attributes: Record<string, string> = {};
-		// Prettier pads table cells, so either side of each separator may carry spaces.
-		for (const [, attribute, level] of block.matchAll(/^\| `([^`]+)` +\| (\w+) +\|$/gm)) {
+		// Prettier pads table cells, so either side of each separator may carry spaces, and a level
+		// may be two words (« Not classified »).
+		for (const [, attribute, level] of block.matchAll(
+			/^\| `([^`]+)` +\| ([A-Za-z]+(?: [a-z]+)?) +\|$/gm
+		)) {
 			attributes[attribute] = level;
 		}
 		events.set(name, {
@@ -76,6 +79,28 @@ describe('docs/logging.md, « Every event »', () => {
 			0
 		);
 		expect([declared > 0, documented]).toEqual([true, declared]);
+	});
+});
+
+describe('the levels a log field may hold (docs/explanation/data-classification.md)', () => {
+	// Text the application does not choose cannot be given a level by the application: rule 2 of
+	// the classification gives free text the level of what it is about, and nobody knows what a
+	// dependency will print. So it is « not classified », like the output of prisma migrate deploy,
+	// and only that one field may say so (contradiction pass on L2, item 6).
+	it('marks budgetpilot.console.text, and only it, as not classified', () => {
+		const unclassified = Object.values(REGISTRY).flatMap((spec) =>
+			Object.entries(spec.attributes)
+				.filter(([, level]) => level === 'Not classified')
+				.map(([attribute]) => attribute)
+		);
+		expect(unclassified).toEqual([A.consoleText]);
+	});
+
+	it('holds no Secret, Financial or Personal field anywhere', () => {
+		const levels = new Set(
+			Object.values(REGISTRY).flatMap((spec) => Object.values(spec.attributes) as string[])
+		);
+		expect([...levels].sort()).toEqual(['Not classified', 'Operational']);
 	});
 });
 

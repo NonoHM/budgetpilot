@@ -13,14 +13,19 @@ import { ATTRIBUTE as A, EVENT as E, type EventName } from './names.ts';
  *
  * WHAT A FIELD IS, by the classification in `docs/explanation/data-classification.md`. Every
  * attribute has its level in REGISTRY, and the type of REGISTRY makes an attribute without one a
- * compile error. Only Operational and Pseudonymous may appear in a log at all; Secret, Financial
- * and Personal may not, so they are not members of `LogLevel` and cannot be declared.
+ * compile error. Secret, Financial and Personal may not appear in a log at all, so they are not
+ * members of `LogLevel` and cannot be declared.
  *
  * Imported by `boot.mjs` as TypeScript source: erasable syntax only, relative imports only.
  */
 
-/** The classification levels a log field may hold. The other three may never be logged. */
-export type LogLevel = 'Operational' | 'Pseudonymous';
+/**
+ * The classification levels a log field may hold. Secret, Financial and Personal may never be
+ * logged. « Not classified » is for text the application does not choose and so cannot give a
+ * level to (rule 2 of the data classification), and logInventory.spec.ts allows it on one field
+ * only, `budgetpilot.console.text`.
+ */
+export type LogLevel = 'Operational' | 'Pseudonymous' | 'Not classified';
 
 export type Severity = 'DEBUG' | 'INFO' | 'WARN' | 'ERROR' | 'FATAL';
 
@@ -531,6 +536,6 @@ export const REGISTRY: { [N in EventName]: EventSpec<AttributesOf<N>> } = {
 		body: 'A dependency wrote to the console. The text is what it printed, capped and escaped.',
 		flood: true,
 		security: false,
-		attributes: { [A.consoleMethod]: 'Operational', [A.consoleText]: 'Operational' }
+		attributes: { [A.consoleMethod]: 'Operational', [A.consoleText]: 'Not classified' }
 	}
 };

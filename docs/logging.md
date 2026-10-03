@@ -92,7 +92,8 @@ No field carries text a visitor or a remote host chose. Each is a closed set of 
 boolean, an identifier the server generated, a value checked against a pattern (an error class or
 code), or text the application or its operator wrote: the configured `ORIGIN`, the message of a
 refusal written for the operator, the name of a shipped rule file. The one exception is
-`budgetpilot.console.text`, which is what a dependency printed.
+`budgetpilot.console.text`, which is what a dependency printed: nobody chose that text, so it is
+not classified, like the output of `prisma migrate deploy`.
 
 On top of JSON's own escaping, the writer escapes U+2028, U+2029, DEL and every C0 and C1 control
 character as `\uXXXX`, so no value can start a new line in a viewer or repaint a terminal. A string
@@ -557,10 +558,10 @@ Severity WARN. Summarised when repeated.
 
 > A dependency wrote to the console. The text is what it printed, capped and escaped.
 
-| Attribute                    | Level       |
-| ---------------------------- | ----------- |
-| `budgetpilot.console.method` | Operational |
-| `budgetpilot.console.text`   | Operational |
+| Attribute                    | Level          |
+| ---------------------------- | -------------- |
+| `budgetpilot.console.method` | Operational    |
+| `budgetpilot.console.text`   | Not classified |
 
 ---
 

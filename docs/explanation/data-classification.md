@@ -306,8 +306,8 @@ omits `LoginAttempt` and `RememberedAccount` entirely.
 
 Every line is written by one module, `src/lib/server/logging`, as a member of a closed type of
 events, and [Logs](../logging.md) lists each event with each field and the level from this page.
-The type admits only the two levels a log may hold, Operational and Pseudonymous, so a field of any
-other level cannot be declared. The 51 `console.*` call sites in 21 files this page counted on the
+The type admits only Operational, Pseudonymous and, for one field, not classified, so a Secret,
+Financial or Personal field cannot be declared. The 51 `console.*` call sites in 21 files this page counted on the
 commit that introduced it were each replaced by an event, and a lint rule in `eslint.config.js`
 refuses a new one under `src/lib/server`, `src/routes` and `src/hooks.server.ts`.
 
@@ -321,14 +321,15 @@ refuses a new one under `src/lib/server`, `src/routes` and `src/hooks.server.ts`
 | Boot backfills, the lock wait, configuration bounds, the database role warning       | names from a closed set, counts, booleans, the name and value of an operator-set bound                                         | Operational    |
 | Request-time warnings (import, transactions, bank sync)                              | closed reasons, an error class, a connection id, an HTTP status and a provider code admitted only in the shape of a code       | Operational    |
 | The container start (`boot.mjs`, through the writer's core)                          | the SQLite data directory from `DATABASE_URL`, the uid, a filesystem error code, an exit code                                  | Operational    |
-| What a dependency prints (`budgetpilot.console.text`)                                | the text, capped at 256 characters and escaped                                                                                 | Operational    |
+| What a dependency prints (`budgetpilot.console.text`)                                | the text, capped at 256 characters and escaped                                                                                 | not classified |
 | The output of `prisma migrate deploy`, which `boot.mjs` runs with `stdio: 'inherit'` | whatever that tool prints, unfiltered by the application (#846)                                                                | not classified |
 
 An `OperatorFacingError` also carries its message, which is text the application wrote for the
 operator (`loggableError`). The configured `ORIGIN` is the operator's own URL. The dependency text is
 the one field whose content the application does not choose: adapter-node's « Listening on » line is
-the measured instance, and our own code cannot reach it because the lint rule forbids `console`. The
-last row is the one stream this page cannot classify, which is what #846 is about.
+the measured instance, and our own code cannot reach it because the lint rule forbids `console`.
+Rule 2 gives free text the level of what it is about, and nobody knows what a dependency will
+print, so this page cannot classify it, any more than the last row, which is what #846 is about.
 
 ### What reaches another host
 
