@@ -14,7 +14,7 @@ import {
 
 /**
  * Two-account authorization battery: check 2 of the Phase 5 automation inventory, and the port
- * of the #184 pentest's `scripts/security/idor.sh` into something that runs.
+ * of the #184 pentest's local `idor.sh` (gitignored) into something that runs.
  *
  * WHY IT IS WORTH THE SECONDS IT COSTS. Per-user `userId` scoping is the central authorization
  * rule of this application and the strongest-verified requirement in the published assessment
@@ -356,7 +356,7 @@ interface Probe {
 	fields: (ids: VictimIds) => Record<string, string>;
 }
 
-// Ported from scripts/security/idor.sh, same actions and same field names. Ordered so the owner
+// Ported from the local, gitignored idor.sh, same actions and same field names. Ordered so the owner
 // calibration leg can run top to bottom: every mutation of a row precedes its deletion.
 const PROBES: Probe[] = [
 	// ORDER IS LOAD-BEARING, and only for the owner leg: several of these actions destroy the

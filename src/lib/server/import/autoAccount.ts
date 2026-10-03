@@ -116,8 +116,8 @@ export async function decideAutoAccount(input: {
 		// user's own accounts and never trusted for having arrived in a form.
 		//
 		// V8.2.2 and not V8.1.1, which several older comments in this tree cite for the same rule.
-		// V8.1.1 is a DOCUMENTATION requirement, and `scripts/security/asvs-5.0-l1-mapping.md:238`
-		// marks it `X`, not met, tracked as #246. Citing an unmet documentation requirement as the
+		// V8.1.1 is a DOCUMENTATION requirement, and the local L1 mapping
+		// (untracked, not in a clone, #601) marks it `X`, not met, tracked as #246. Citing an unmet documentation requirement as the
 		// control a line implements reads, to the next person auditing this, as evidence for
 		// something it is not.
 		//

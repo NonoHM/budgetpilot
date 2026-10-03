@@ -6,10 +6,11 @@ The list is tracked; the copies are not. Which of these bind the project, and ho
 - **Copies** live in the main checkout under `scr/references/<family>/` (gitignored, so a linked
   worktree reads them through `$(git rev-parse --git-common-dir)/..`), each with a row in that
   folder's `MANIFEST.md`: file, URL, retrieval date, bytes, sha256.
-- **Not on disk**: download from the URL below into that folder and add the row. ASVS and AISVS go
-  to `scripts/security/asvs-5.0-source/` and `scripts/security/aisvs-1.0-source/`, where
-  `cite/scripts/resolve.mjs` reads them, until #601 moves them into the tracked tree.
-- **Never commit a copy.** Licences differ: ASVS and AISVS are CC BY-SA 4.0, the CIS Controls CC BY-NC-ND
+- **Not on disk**: download from the URL below into that folder and add the row. ASVS and AISVS are the
+  exception: tracked verbatim, with licence and provenance, in `docs/reference/standards/`, where
+  `cite/scripts/resolve.mjs` reads them (#601).
+- **Never commit a copy, except the two above.** Licences differ: ASVS and AISVS are CC BY-SA 4.0
+  (redistribution allowed with attribution and share-alike, so their licence travels with them), the CIS Controls CC BY-NC-ND
   4.0, NIST publications public domain, ISO standards are sold.
 - **A page that changes without a version** (vendor docs): cite it with the date read; before quoting
   it in published text, save a Web Archive snapshot and put that URL in the MANIFEST row.

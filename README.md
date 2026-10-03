@@ -155,4 +155,5 @@ For what has actually been verified, by whom, and what is not covered, see [how 
 
 ## License
 
-[Apache License 2.0](./LICENSE).
+[Apache License 2.0](./LICENSE), except [`docs/reference/standards/`](./docs/reference/standards/README.md),
+which holds the OWASP ASVS and AISVS texts under CC BY-SA 4.0.

@@ -23,3 +23,6 @@ CHANGELOG.md
 # Generated Prisma clients, one per provider (~5 MB of generated TypeScript).
 # Same reason paraglide's output is not formatted: nobody reads or edits it.
 /src/lib/server/database/generated/
+
+# Third-party standards, tracked verbatim (CC BY-SA 4.0). Formatting them would break SHA256SUMS.
+/docs/reference/standards/
