@@ -466,3 +466,8 @@ someone who controls the machine. It cannot detect:
 
 For the last case, the copy that matters is the one held somewhere the host cannot change. See
 [Send the log to a collector](./logging-collectors.md).
+
+---
+
+If you use an instance someone else runs, [what the security log records about you](./using/security-logging.md)
+is the page written for you.

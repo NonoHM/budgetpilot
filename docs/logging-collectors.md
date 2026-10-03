@@ -595,18 +595,18 @@ creating a stream for each value.
    Grafana, or any client of the Loki API, run either query with the reference from the error page:
 
    ```text
-   {service_name="budgetpilot"} | error_id="f0dc45b2-0727-43bb-b9e3-620094065437"
+   {service_name="budgetpilot"} | error_id="a9211aa1-870c-4443-aeb7-75cb4de85752"
    ```
 
    ```text
-   {service_name="budgetpilot"} |= "f0dc45b2-0727-43bb-b9e3-620094065437"
+   {service_name="budgetpilot"} |= "a9211aa1-870c-4443-aeb7-75cb4de85752"
    ```
 
    The first filters on the structured metadata. The second searches the text of every line. Both
    returned exactly one entry in the test, the line of the error:
 
    ```text
-   {"severity_text":"ERROR","severity_number":17,"timestamp":"2026-10-03T16:29:09.252Z","event_name":"budgetpilot.request.failed","trace_id":"f0dc45b2072743bbb9e3620094065437","http.request.method":"GET","http.route":"/net-worth","service.name":"budgetpilot","error.type":"PrismaClientKnownRequestError","budgetpilot.error.code":"P2021","http.response.status_code":500,"budgetpilot.error.id":"f0dc45b2-0727-43bb-b9e3-620094065437","budgetpilot.log.schema":1,"budgetpilot.log.boot_id":"808d3ba3-c633-48c0-92be-4a2491b74f3e","budgetpilot.log.seq":8,"budgetpilot.log.prev":"b0a9fc64b79c0988425cdb85977756cce475769135f35e86fa54cd5b0e77db27","body":"A request failed on an unexpected error. The error id is the reference the visitor was shown."}
+   {"severity_text":"ERROR","severity_number":17,"timestamp":"2026-10-03T16:53:29.068Z","event_name":"budgetpilot.request.failed","trace_id":"a9211aa1870c4443aeb775cb4de85752","http.request.method":"GET","http.route":"/net-worth","service.name":"budgetpilot","error.type":"PrismaClientKnownRequestError","budgetpilot.error.code":"P2021","http.response.status_code":500,"budgetpilot.error.id":"a9211aa1-870c-4443-aeb7-75cb4de85752","budgetpilot.log.schema":1,"budgetpilot.log.boot_id":"fce7ab48-0398-4266-ad96-cce8a38d9103","budgetpilot.log.seq":5,"budgetpilot.log.prev":"f29dd0fcd2154e25541fee733afb553b2d121da6838146941f1745122cafa628","body":"A request failed on an unexpected error. The error id is the reference the visitor was shown."}
    ```
 
 1. Optional: look at it in Grafana. Create `grafana-datasource.yaml`:
@@ -744,3 +744,8 @@ docker network rm logging-net
 ```
 
 The images stay on disk until you remove them with `docker rmi`.
+
+---
+
+If you use an instance someone else runs, [what the security log records about you](./using/security-logging.md)
+is the page written for you.

@@ -264,7 +264,8 @@ use the reference.
    ![The BudgetPilot error page with the title "Something went wrong" and, under the description, the line "Error reference" followed by an identifier.](./screenshots/logging/error-reference-desktop.png)
 
 1. Copy the identifier after **Error reference** and keep it in a variable. Replace the value with
-   the one on your own page.
+   the one on your own page: the reference in the picture above, and the one in the commands below,
+   are from different runs, and yours will differ from both.
 
    ```bash
    REF=dd4a6f81-4503-4695-981d-be3d0ff7b49b
@@ -334,3 +335,8 @@ reference from the error page to the line that explains it. To go further:
 - [Why the log looks like this](./explanation/logging-design.md) explains the choices you saw: one
   object per line, no addresses, no messages.
 - [Logs](./logging.md) lists every event and every field.
+
+---
+
+If you use an instance someone else runs, [what the security log records about you](./using/security-logging.md)
+is the page written for you.
