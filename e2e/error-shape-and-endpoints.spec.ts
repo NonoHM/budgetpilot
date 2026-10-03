@@ -344,8 +344,21 @@ test.describe('v5.0.0-16.5.1, v5.0.0-13.4.2: an unexpected error discloses nothi
 		const ids = [actionErrorResult.body, renderedErrorPage.body].map(
 			(body) => /errorId"?:"([0-9a-f-]{36})"/.exec(body)?.[1] ?? 'absent'
 		);
+		// One JSON object per line (docs/logging.md): the line for each id must name the error class.
+		const logged = errorPhaseStderr.split('\n').flatMap((line) => {
+			try {
+				return [JSON.parse(line) as Record<string, unknown>];
+			} catch {
+				return [];
+			}
+		});
 		expect(
-			ids.map((id) => errorPhaseStderr.includes(`errorId=${id} ${INTERNAL_TOKENS.errorClass}(`))
+			ids.map((id) =>
+				logged.some(
+					(line) =>
+						line['budgetpilot.error.id'] === id && line['error.type'] === INTERNAL_TOKENS.errorClass
+				)
+			)
 		).toEqual([true, true]);
 	});
 
