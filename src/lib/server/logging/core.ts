@@ -116,11 +116,35 @@ export function sha256Hex(text: string): string {
 	return createHash('sha256').update(text, 'utf8').digest('hex');
 }
 
-/** The flood key: the event name, and the status code where the event carries one. */
-function floodKey(event: LogEvent): string {
-	const status = (event.attributes as Record<string, unknown>)[A.httpStatus];
-	return typeof status === 'number' ? `${event.event}|${status}` : event.event;
+/** What a flood window counts, kept for its summary line. Every field is bounded by the code. */
+interface FloodLabel {
+	event: EventName;
+	status?: number;
+	route?: string;
+	errorType?: string;
 }
+
+/**
+ * The flood window an event falls in: its name, and the status, the route template and the error
+ * class where it has them. All four are bounded (a closed set of events, of statuses, of routes in
+ * the code, and of classes the code throws), so the number of windows is too. Without the route
+ * and the class, one repeated failure an anonymous visitor can cause at will filled the window of
+ * every other failure with the same status (contradiction pass on L2).
+ */
+function floodLabel(event: LogEvent, request: RequestFields | undefined): FloodLabel {
+	const attributes = event.attributes as Record<string, unknown>;
+	const status = attributes[A.httpStatus];
+	const errorType = attributes[A.errorType];
+	return {
+		event: event.event,
+		...(typeof status === 'number' ? { status } : {}),
+		...(request?.route ? { route: request.route } : {}),
+		...(typeof errorType === 'string' ? { errorType } : {})
+	};
+}
+
+const floodKey = (label: FloodLabel): string =>
+	JSON.stringify([label.event, label.status, label.route, label.errorType]);
 
 export function createLogWriter(options: WriterOptions): LogWriter {
 	const chain = options.chain ?? processChain();
@@ -167,8 +191,13 @@ export function createLogWriter(options: WriterOptions): LogWriter {
 		}
 	);
 
-	const emit = (name: EventName, method: PinoMethod, body: string, attributes: object) => {
-		const request = options.context?.();
+	const emit = (
+		name: EventName,
+		method: PinoMethod,
+		body: string,
+		attributes: object,
+		request: RequestFields | undefined
+	) => {
 		const record = {
 			[FIELD.eventName]: name,
 			...(request
@@ -189,13 +218,23 @@ export function createLogWriter(options: WriterOptions): LogWriter {
 	};
 
 	const admit = createFloodGate(
-		(key, suppressed, windowSeconds) => {
-			const suppressedEvent = key.split('|')[0] as EventName;
-			emit(E.logSuppressed, 'warn', REGISTRY[E.logSuppressed].body, {
-				[A.suppressedEvent]: suppressedEvent,
-				[A.suppressedCount]: suppressed,
-				[A.suppressedWindowSeconds]: windowSeconds
-			});
+		(label: FloodLabel, suppressed, windowSeconds) => {
+			// No request context, ever: the timer that closes the window runs inside whichever request
+			// scheduled it (AsyncLocalStorage follows setTimeout), and that request is not this line's.
+			emit(
+				E.logSuppressed,
+				'warn',
+				REGISTRY[E.logSuppressed].body,
+				{
+					[A.suppressedEvent]: label.event,
+					...(label.status === undefined ? {} : { [A.suppressedStatus]: label.status }),
+					...(label.route === undefined ? {} : { [A.suppressedRoute]: label.route }),
+					...(label.errorType === undefined ? {} : { [A.suppressedErrorType]: label.errorType }),
+					[A.suppressedCount]: suppressed,
+					[A.suppressedWindowSeconds]: windowSeconds
+				},
+				undefined
+			);
 		},
 		{
 			now,
@@ -212,8 +251,12 @@ export function createLogWriter(options: WriterOptions): LogWriter {
 		if (spec.security && options.securityLog === 'off') return;
 		const method = METHOD_OF[spec.severity];
 		if (!logger.isLevelEnabled(method)) return;
-		if (spec.flood && !admit(floodKey(event))) return;
-		emit(event.event, method, spec.body, event.attributes);
+		const request = options.context?.();
+		if (spec.flood) {
+			const label = floodLabel(event, request);
+			if (!admit(floodKey(label), label)) return;
+		}
+		emit(event.event, method, spec.body, event.attributes, request);
 	};
 }
 

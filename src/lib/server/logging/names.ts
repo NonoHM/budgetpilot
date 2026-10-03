@@ -114,6 +114,9 @@ export const ATTRIBUTE = {
 	suppressedEvent: 'budgetpilot.log.suppressed_event',
 	suppressedCount: 'budgetpilot.log.suppressed_count',
 	suppressedWindowSeconds: 'budgetpilot.log.window_seconds',
+	suppressedRoute: 'budgetpilot.log.suppressed_route',
+	suppressedErrorType: 'budgetpilot.log.suppressed_error_type',
+	suppressedStatus: 'budgetpilot.log.suppressed_status',
 	droppedBytes: 'budgetpilot.log.dropped_bytes',
 	consoleMethod: 'budgetpilot.console.method',
 	consoleText: 'budgetpilot.console.text'

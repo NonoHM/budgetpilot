@@ -284,6 +284,81 @@ describe('caps', () => {
 	});
 });
 
+const failed = (errorType: string, errorId: string): LogEvent => ({
+	event: E.requestFailed,
+	attributes: { [A.errorType]: errorType, [A.httpStatus]: 500, [A.errorId]: errorId }
+});
+
+describe('flood summarisation keeps a real failure visible (contradiction pass, item 1)', () => {
+	// The window used to be keyed on the event and the status alone, so an anonymous visitor
+	// repeating one 500 (#859 makes `POST /login` throw at will) turned every other 500 that
+	// minute into a count, and the error id a real visitor was shown was never written.
+	it('writes a 500 from another route inside a window an attacker filled', () => {
+		let route = '/login';
+		const { write, parsed } = harness({
+			context: () => ({ traceId: 'a'.repeat(32), method: 'POST', route })
+		});
+		for (let index = 0; index < FLOOD_ALLOWANCE + 5; index += 1) {
+			write(failed('TypeError', `attack-${index}`));
+		}
+		route = '/categories';
+		write(failed('TypeError', 'the-real-one'));
+		expect(parsed().some((line) => line[A.errorId] === 'the-real-one')).toBe(true);
+	});
+
+	it('writes a 500 of another error class on the same route inside a filled window', () => {
+		const { write, parsed } = harness({
+			context: () => ({ traceId: 'a'.repeat(32), method: 'POST', route: '/login' })
+		});
+		for (let index = 0; index < FLOOD_ALLOWANCE + 5; index += 1) {
+			write(failed('TypeError', `attack-${index}`));
+		}
+		write(failed('PrismaClientKnownRequestError', 'the-real-one'));
+		expect(parsed().some((line) => line[A.errorId] === 'the-real-one')).toBe(true);
+	});
+
+	it('names the route, the class and the status of what it counted in the summary line', () => {
+		const { write, parsed, advance, runScheduled } = harness({
+			context: () => ({ traceId: 'a'.repeat(32), method: 'POST', route: '/login' })
+		});
+		for (let index = 0; index < FLOOD_ALLOWANCE + 5; index += 1) {
+			write(failed('TypeError', `attack-${index}`));
+		}
+		advance(FLOOD_WINDOW_MS);
+		runScheduled();
+		const summary = parsed().at(-1)!;
+		expect([
+			summary[FIELD.eventName],
+			summary[A.suppressedEvent],
+			summary[A.suppressedRoute],
+			summary[A.suppressedErrorType],
+			summary[A.suppressedStatus],
+			summary[A.suppressedCount]
+		]).toEqual([E.logSuppressed, E.requestFailed, '/login', 'TypeError', 500, 5]);
+	});
+});
+
+describe('the summary line belongs to no request (contradiction pass, item 2)', () => {
+	// AsyncLocalStorage carries the request that scheduled the timer into the timer's callback, so a
+	// summary written there took that request's trace id, method and route as if it were its own.
+	// Modelled here by a context that still answers when the scheduled callback runs.
+	it('carries no trace id, method or route, whichever request scheduled it', () => {
+		const { write, parsed, advance, runScheduled } = harness({
+			context: () => ({ traceId: 'f'.repeat(32), method: 'GET', route: null })
+		});
+		for (let index = 0; index < FLOOD_ALLOWANCE + 1; index += 1) write(notFound());
+		advance(FLOOD_WINDOW_MS);
+		runScheduled();
+		const summary = parsed().at(-1)!;
+		expect([
+			summary[FIELD.eventName],
+			FIELD.traceId in summary,
+			A.httpMethod in summary,
+			A.httpRoute in summary
+		]).toEqual([E.logSuppressed, false, false, false]);
+	});
+});
+
 describe('flood summarisation', () => {
 	it('writes the allowance, counts the rest, and writes one summary when the window closes', () => {
 		const { write, parsed, advance, runScheduled } = harness();

@@ -160,10 +160,18 @@ Read the lines with your collector's JSON parser and keep the lines it cannot pa
 
 ## Every event
 
-The list is generated from `src/lib/server/logging/events.ts`, and `logInventory.spec.ts` fails when
-this section and that file disagree. « Summarised when repeated » marks an event a visitor can cause
-without signing in: within a minute, the first 20 lines of one event are written, the rest are
-counted, and one `budgetpilot.log.suppressed` line gives the count.
+This section is written by hand from `src/lib/server/logging/events.ts`, and `logInventory.spec.ts`
+fails when the two disagree on any event, severity, sentence, attribute or level.
+
+« Summarised when repeated » marks an event a visitor can cause without signing in. Within a minute,
+the first 20 lines with the same event, status, route template and error class are written, the rest
+are counted, and when the minute ends one `budgetpilot.log.suppressed` line gives the count with
+that event, status, route and class. That line belongs to no request, so it carries no `trace_id`.
+
+**Under a flood, an error reference can be missing.** If a visitor reports a reference you cannot
+find, look for a `budgetpilot.log.suppressed` line in the minute they name: its route and error class
+identify the failures that were counted instead of written. A failure on another route, or of
+another class, has its own window and is still written.
 
 ### `sys_startup`
 
@@ -516,11 +524,14 @@ Severity WARN.
 
 > Repeats of one event were summarised instead of written, so the log cannot be used to fill the disk.
 
-| Attribute                          | Level       |
-| ---------------------------------- | ----------- |
-| `budgetpilot.log.suppressed_event` | Operational |
-| `budgetpilot.log.suppressed_count` | Operational |
-| `budgetpilot.log.window_seconds`   | Operational |
+| Attribute                               | Level       |
+| --------------------------------------- | ----------- |
+| `budgetpilot.log.suppressed_event`      | Operational |
+| `budgetpilot.log.suppressed_count`      | Operational |
+| `budgetpilot.log.window_seconds`        | Operational |
+| `budgetpilot.log.suppressed_status`     | Operational |
+| `budgetpilot.log.suppressed_route`      | Operational |
+| `budgetpilot.log.suppressed_error_type` | Operational |
 
 ### `budgetpilot.log.line_too_long`
 

@@ -187,6 +187,9 @@ export type LogEvent =
 				[A.suppressedEvent]: EventName;
 				[A.suppressedCount]: number;
 				[A.suppressedWindowSeconds]: number;
+				[A.suppressedStatus]?: number;
+				[A.suppressedRoute]?: string;
+				[A.suppressedErrorType]?: string;
 			};
 	  }
 	| {
@@ -510,7 +513,10 @@ export const REGISTRY: { [N in EventName]: EventSpec<AttributesOf<N>> } = {
 		attributes: {
 			[A.suppressedEvent]: 'Operational',
 			[A.suppressedCount]: 'Operational',
-			[A.suppressedWindowSeconds]: 'Operational'
+			[A.suppressedWindowSeconds]: 'Operational',
+			[A.suppressedStatus]: 'Operational',
+			[A.suppressedRoute]: 'Operational',
+			[A.suppressedErrorType]: 'Operational'
 		}
 	},
 	[E.logLineTooLong]: {
