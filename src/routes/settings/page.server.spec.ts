@@ -1744,6 +1744,11 @@ describe('S1: each re-authenticating settings action, through the real action', 
 		writes: () => Array<{ mock: { calls: unknown[] } }>;
 		/** Runs the action; restoreData posts a file, the rest a plain form. */
 		post?: (fields: Record<string, string>) => Promise<unknown>;
+		/**
+		 * The account the action runs against has no second factor. Only enrolment needs it: it is
+		 * refused on an account that already has one (the contradiction pass on S1).
+		 */
+		withoutTotp?: true;
 	}
 
 	const CASES: Record<SettingsReauthAction, Case> = {
@@ -1784,7 +1789,8 @@ describe('S1: each re-authenticating settings action, through the real action', 
 			fields: () => ({ secretBase32: enrollingSecret }),
 			codeFrom: 'enrolling',
 			errorKey: 'totpSetupError',
-			writes: () => [tx.user.update, tx.recoveryCode.createMany]
+			writes: () => [tx.user.update, tx.recoveryCode.createMany],
+			withoutTotp: true
 		},
 		restoreData: {
 			fields: () => ({}),
@@ -1808,6 +1814,13 @@ describe('S1: each re-authenticating settings action, through the real action', 
 
 	async function post(action: SettingsReauthAction, credentials: Credentials) {
 		const testCase = CASES[action];
+		if (testCase.withoutTotp) {
+			db.prisma.user.findUnique.mockResolvedValue({
+				passwordHash,
+				totpEnabled: false,
+				totpSecretEncrypted: null
+			});
+		}
 		const fields: Record<string, string> = { ...(await testCase.fields()) };
 		if (credentials.password !== undefined) fields.currentPassword = credentials.password;
 		if (credentials.code !== undefined) fields.code = credentials.code;
@@ -1930,6 +1943,29 @@ describe('S1: each re-authenticating settings action, through the real action', 
 		}
 
 		expect(sentences.size).toBe(1);
+	});
+
+	// The contradiction pass on S1, through the real action: the right password and a valid code
+	// from a secret the CALLER chose, on an account that already has a second factor. Before the
+	// fix this replaced the factor and returned fresh recovery codes. Separates « refused, nothing
+	// written » from « the factor and the recovery codes taken over with the password alone ».
+	it('confirmTotpSetup over an existing second factor is refused and writes nothing', async () => {
+		const result = (await runAction('confirmTotpSetup', {
+			token: 'session-courante',
+			input: {
+				secretBase32: enrollingSecret,
+				currentPassword: PASSWORD,
+				code: await totpCode(enrollingSecret)
+			}
+		})) as { status: number; data: Record<string, unknown> };
+
+		await expect(vi.mocked(reauth.reauthenticate).mock.results[0]?.value).resolves.toMatchObject({
+			ok: false,
+			reason: 'totp-already-enabled'
+		});
+		expect(result.status).toBe(400);
+		expect(result.data.recoveryCodes).toBeUndefined();
+		for (const write of CASES.confirmTotpSetup.writes()) expect(write.mock.calls).toEqual([]);
 	});
 });
 

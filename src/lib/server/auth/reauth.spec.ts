@@ -321,6 +321,28 @@ describe('password plus a code from the new secret (confirmTotpSetup)', () => {
 		expect(outcome).toEqual({ ok: true });
 	});
 
+	// The contradiction pass on S1: enrolling over an EXISTING second factor replaced it with the
+	// password alone, and handed back fresh recovery codes, after which every « TOTP when enabled »
+	// action fell to the password. Separates « enrolment needs an account with no factor » from
+	// « the password plus a secret the caller chose is enough to take the factor over ».
+	it('refuses as totp-already-enabled on an account that has a factor, before any secret', async () => {
+		db.prisma.user.findUnique.mockResolvedValue(account({ totp: true }));
+
+		const outcome = await reauthenticate('confirmTotpSetup', {
+			userId: USER,
+			ip: IP,
+			form: form({ password: PASSWORD, code: codeFor(fresh) }),
+			newTotpSecret: fresh
+		});
+
+		expect(outcome).toEqual({
+			ok: false,
+			reason: 'totp-already-enabled',
+			asked: 'password-and-code'
+		});
+		expect(rateLimit.recordReauthAttempt).not.toHaveBeenCalled();
+	});
+
 	it('refuses a code from another secret as wrong-totp', async () => {
 		db.prisma.user.findUnique.mockResolvedValue(account({ totp: false }));
 
@@ -432,6 +454,7 @@ describe('what a refusal says (#854 class 2)', () => {
 					'missing-totp',
 					'wrong-totp',
 					'totp-not-enabled',
+					'totp-already-enabled',
 					'no-account'
 				] as const
 			).map((reason) => reauthRefusalMessage({ ok: false, reason, asked: 'password-and-code' }))

@@ -39,7 +39,11 @@ export type ReauthFactors =
 	| 'password+totp-when-enabled'
 	/** Disabling the second factor needs it: refused when the account has none to disable. */
 	| 'password+totp'
-	/** Enrolling: the code comes from the NEW secret the client posts back, not a stored one. */
+	/**
+	 * Enrolling: the code comes from the NEW secret the client posts back, not a stored one. Refused
+	 * when the account already has a factor: enrolling over it would replace the second factor with
+	 * the password alone, and every 7.5.1 action would then fall to the password.
+	 */
 	| 'password+new-secret-code';
 
 /**
@@ -77,6 +81,7 @@ export type ReauthCredentialRefusal =
 	| 'missing-totp'
 	| 'wrong-totp'
 	| 'totp-not-enabled'
+	| 'totp-already-enabled'
 	| 'no-account';
 
 export type ReauthRefused =
@@ -139,6 +144,9 @@ async function decide(
 
 	if (password.length === 0) return refuse('missing-password');
 	if (factors === 'password+totp' && storedSecret === null) return refuse('totp-not-enabled');
+	if (factors === 'password+new-secret-code' && account.totpEnabled) {
+		return refuse('totp-already-enabled');
+	}
 	if (asksCode && !TOTP_CODE_PATTERN.test(code)) return refuse('missing-totp');
 
 	// Both evaluated before either is acted on: see step 4 in the header.
