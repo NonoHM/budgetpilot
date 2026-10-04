@@ -30,9 +30,16 @@ const rateLimit = vi.hoisted(() => ({
 
 vi.mock('$lib/server/db', () => db);
 vi.mock('$lib/server/auth/rateLimit', () => rateLimit);
+// The REAL code check, wrapped so a test can see whether the helper consulted it. Step 4 of the
+// helper's header (both factors, always) is a claim about work done, which no outcome shows.
+vi.mock('$lib/server/auth/totp', async (importOriginal) => {
+	const real = await importOriginal<typeof import('$lib/server/auth/totp')>();
+	return { ...real, verifyTotpCode: vi.fn(real.verifyTotpCode) };
+});
 
 const { hashPassword } = await import('$lib/server/auth');
-const { encryptTotpSecret, generateTotpSecretBase32 } = await import('$lib/server/auth/totp');
+const { encryptTotpSecret, generateTotpSecretBase32, verifyTotpCode } =
+	await import('$lib/server/auth/totp');
 const { REAUTH_FACTORS, reauthenticate, reauthRefusalMessage } = await import('./reauth');
 
 const PASSWORD = 'the-right-password-1';
@@ -249,6 +256,22 @@ describe('password plus TOTP when enabled (7.5.1)', () => {
 
 		expect(outcome).toEqual({ ok: false, reason: 'wrong-password', asked: 'password-and-code' });
 	});
+
+	// Step 4: the code is verified even though the password already failed, so a wrong password and
+	// a wrong code cost the same work and the response time does not say which one failed.
+	// Separates « both factors always verified » from « the code skipped once the password failed »,
+	// which returns the same reason and differs only in time.
+	it('with TOTP: a wrong password still has its code verified', async () => {
+		db.prisma.user.findUnique.mockResolvedValue(account({ totp: true }));
+
+		await reauthenticate('deleteAccount', {
+			userId: USER,
+			ip: IP,
+			form: form({ password: 'not-it', code: codeFor(secret) })
+		});
+
+		expect(vi.mocked(verifyTotpCode)).toHaveBeenCalledTimes(1);
+	});
 });
 
 describe('password plus TOTP, required (disableTotp)', () => {
@@ -357,6 +380,21 @@ describe('the account read', () => {
 			where: { id: USER },
 			select: { passwordHash: true, totpEnabled: true, totpSecretEncrypted: true }
 		});
+	});
+
+	// The form is read for REAUTH_FIELDS and nothing else. Separates « the account is the caller's,
+	// from locals » from « a posted id chooses whose secrets are checked », which would let a session
+	// prove itself with ANOTHER account's password it happens to know, or its own against another's.
+	it('ignores a posted userId: the account read is the caller', async () => {
+		db.prisma.user.findUnique.mockResolvedValue(account({ totp: false }));
+		const posted = form({ password: PASSWORD });
+		posted.set('userId', 'user-b');
+
+		await reauthenticate('revokeSession', { userId: USER, ip: IP, form: posted });
+
+		expect(db.prisma.user.findUnique).toHaveBeenCalledWith(
+			expect.objectContaining({ where: { id: USER } })
+		);
 	});
 
 	it('refuses as no-account when the row is gone', async () => {
