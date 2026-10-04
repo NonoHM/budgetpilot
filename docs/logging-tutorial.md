@@ -70,10 +70,10 @@ changed `APP_PORT`, use your port.
    You see:
 
    ```text
-   {"severity_text":"WARN","severity_number":13,"timestamp":"2026-10-03T17:03:35.859Z","event_name":"sys_startup"
-   {"severity_text":"INFO","severity_number":9,"timestamp":"2026-10-03T17:03:35.860Z","event_name":"budgetpilot.c
-   {"severity_text":"INFO","severity_number":9,"timestamp":"2026-10-03T17:03:35.860Z","event_name":"budgetpilot.c
-   {"severity_text":"WARN","severity_number":13,"timestamp":"2026-10-03T17:03:35.953Z","event_name":"budgetpilot.
+   {"severity_text":"WARN","severity_number":13,"timestamp":"2026-10-04T12:08:38.249Z","event_name":"sys_startup"
+   {"severity_text":"WARN","severity_number":13,"timestamp":"2026-10-04T12:08:38.250Z","event_name":"budgetpilot.
+   {"severity_text":"WARN","severity_number":13,"timestamp":"2026-10-04T12:08:38.250Z","event_name":"budgetpilot.
+   {"severity_text":"WARN","severity_number":13,"timestamp":"2026-10-04T12:08:38.330Z","event_name":"budgetpilot.
    ```
 
    The `cut` command keeps the first 110 characters of each line, because the full lines are long.

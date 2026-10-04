@@ -283,12 +283,15 @@ Compose goes back to the shipped bound and recreates the container again.
 
    ```text
    ["WARN","sys_startup","warn"]
+   ["WARN","budgetpilot.config.origin_set",null]
+   ["WARN","budgetpilot.config.trusted_proxies_unset",null]
    ["WARN","budgetpilot.config.log_level_changed","warn"]
    ["WARN","budgetpilot.console.output",null]
    ```
 
-   The "page not found" is `INFO`, so it is not written. The server states at each start that the
-   level differs from its default (`budgetpilot.config.log_level_changed`).
+   The "page not found" is `INFO`, so it is not written. The startup lines are all `WARN`, so they
+   are. Among them, the server states at each start that the level differs from its default
+   (`budgetpilot.config.log_level_changed`).
 
 To go back, delete the line from `.env`, save a copy of the log and run `docker compose up -d` again.
 
@@ -382,16 +385,16 @@ on its own.
    For a log that has not been touched, it prints:
 
    ```text
-   boot 74d02b15-2b29-4cf0-b2eb-ed574a2acec2: 26 lines, seq 1 to 26
-   6 line(s) skipped because they are not BudgetPilot log lines
+   boot 917d7fb1-0a3d-47be-83ca-d758710274f4: 26 lines, seq 1 to 26
+   177 line(s) skipped because they are not BudgetPilot log lines
    chain intact
    ```
 
    The exit status is 0. A log with several starts in it lists each one:
 
    ```text
-   boot c993f9ea-fd05-4079-b56f-c759b6d10948: 6 lines, seq 1 to 6
-   boot deb241e5-9f6d-49b6-9f39-cf360253b72e: 5 lines, seq 1 to 5
+   boot 917d7fb1-0a3d-47be-83ca-d758710274f4: 26 lines, seq 1 to 26
+   boot 69b74857-f687-4cf6-952a-ffd103b3ba5d: 5 lines, seq 1 to 5
    186 line(s) skipped because they are not BudgetPilot log lines
    chain intact
    ```
@@ -400,8 +403,8 @@ on its own.
    first line on, and the script says so:
 
    ```text
-   note: boot deb241e5-9f6d-49b6-9f39-cf360253b72e starts at seq 2, so earlier lines are not in this file
-   boot deb241e5-9f6d-49b6-9f39-cf360253b72e: 4 lines, seq 2 to 5
+   note: boot 69b74857-f687-4cf6-952a-ffd103b3ba5d starts at seq 2, so earlier lines are not in this file
+   boot 69b74857-f687-4cf6-952a-ffd103b3ba5d: 4 lines, seq 2 to 5
    0 line(s) skipped because they are not BudgetPilot log lines
    chain intact
    ```
@@ -424,19 +427,19 @@ On the capture above, the script printed this for the copy with a line removed, 
 status 1:
 
 ```text
-boot 74d02b15-2b29-4cf0-b2eb-ed574a2acec2: 25 lines, seq 1 to 26
-6 line(s) skipped because they are not BudgetPilot log lines
-PROBLEM line 16: seq jumps from 9 to 11, so 1 line(s) are missing before it
-PROBLEM line 16: prev does not match the line before it
+boot 917d7fb1-0a3d-47be-83ca-d758710274f4: 25 lines, seq 1 to 26
+177 line(s) skipped because they are not BudgetPilot log lines
+PROBLEM line 187: seq jumps from 9 to 11, so 1 line(s) are missing before it
+PROBLEM line 187: prev does not match the line before it
 2 problem(s) found
 ```
 
 For the copy with a line edited:
 
 ```text
-boot 74d02b15-2b29-4cf0-b2eb-ed574a2acec2: 26 lines, seq 1 to 26
-6 line(s) skipped because they are not BudgetPilot log lines
-PROBLEM line 22: prev does not match line 21 (seq 15), so that line was changed after it was written
+boot 917d7fb1-0a3d-47be-83ca-d758710274f4: 26 lines, seq 1 to 26
+177 line(s) skipped because they are not BudgetPilot log lines
+PROBLEM line 193: prev does not match line 192 (seq 15), so that line was changed after it was written
 1 problem(s) found
 ```
 
@@ -456,7 +459,7 @@ someone who controls the machine. It cannot detect:
 
 - **A change to the last line of a capture.** Nothing follows it to disagree. In the capture above,
   the last numbered line is 26. Changing a value in that line only
-  (`sed '/"budgetpilot.log.seq":26,/s/"budgetpilot.log.suppressed_count":5/"budgetpilot.log.suppressed_count":1/' capture.log > edited-last.log`)
+  (`sed '/"budgetpilot.log.seq":26,/s/"budgetpilot.log.suppressed_count":9/"budgetpilot.log.suppressed_count":1/' capture.log > edited-last.log`)
   made the script print `chain intact` and exit with status 0. Keep a later capture to confirm the
   end of an earlier one.
 - **Lines cut off the end.** A capture that stops early is still a valid chain.

@@ -12,10 +12,10 @@ BudgetPilot itself sends nothing. It writes lines to standard output and has no 
 OpenTelemetry SDK and no vendor format. Everything on this page runs in the collector, which you
 install, configure and secure.
 
-Every recipe was run on 2026-10-03, against a real log written by the application. In the tests the
-containers and the Docker network carried a test prefix and the application ran on another port.
-The commands below use short names (`budgetpilot`, `otel-gateway`, `logging-net`) and the standard
-ports, and nothing else differs from what was run.
+Every recipe was run on 2026-10-04, against a real log written by the application. In the tests the
+application's container was named `bp13-docs-app`, so that name stands where the Alloy and Vector
+configurations and the Loki queries below say `budgetpilot`. Everything else, the collector
+containers, the network and the ports, is as written.
 
 ## What the collector receives
 
@@ -62,12 +62,12 @@ Each collector was started against a log with a known number of lines, and the r
 were counted. The counts below were read from the collector's own output, and the source count is
 the number of lines of `docker logs`.
 
-| Collector                       | Image and version                              | Read through  | Source lines | Records received | What it dropped                                                              |
-| ------------------------------- | ---------------------------------------------- | ------------- | ------------ | ---------------- | ---------------------------------------------------------------------------- |
-| OpenTelemetry Collector contrib | `otel/opentelemetry-collector-contrib:0.161.0` | File          | 35           | 35               | Nothing. Plain lines arrive as records without a severity.                   |
-| Vector                          | `timberio/vector:0.58.0-alpine`                | Docker socket | 16           | 16               | Nothing. Plain lines are marked `is_json: false`.                            |
-| Fluent Bit                      | `fluent/fluent-bit:5.1.3`                      | File          | 67           | 67               | Nothing. Plain lines keep their text in `log`.                               |
-| Grafana Alloy and Loki          | `grafana/alloy:v1.20.1`, `grafana/loki:3.7.8`  | Docker socket | 101          | 81               | The 20 empty lines, which Loki never stores. All 81 lines with text arrived. |
+| Collector                       | Image and version                              | Read through  | Source lines | Records received | What it dropped                                                             |
+| ------------------------------- | ---------------------------------------------- | ------------- | ------------ | ---------------- | --------------------------------------------------------------------------- |
+| OpenTelemetry Collector contrib | `otel/opentelemetry-collector-contrib:0.161.0` | File          | 16           | 16               | Nothing. Plain lines arrive as records without a severity.                  |
+| Vector                          | `timberio/vector:0.58.0-alpine`                | Docker socket | 14           | 14               | Nothing. Plain lines are marked `is_json: false`.                           |
+| Fluent Bit                      | `fluent/fluent-bit:5.1.3`                      | File          | 16           | 16               | Nothing. Plain lines keep their text in `log`.                              |
+| Grafana Alloy and Loki          | `grafana/alloy:v1.20.1`, `grafana/loki:3.7.8`  | Docker socket | 16           | 12               | The 4 empty lines, which Loki never stores. All 12 lines with text arrived. |
 
 Wazuh, Elastic and Splunk have no tested recipe here. They get the [field mapping](#field-mapping)
 only.
@@ -189,21 +189,23 @@ documents.
    docker logs otel-gateway 2>&1 | grep -c "LogRecord #"
    ```
 
-   In the test, against a log of 35 lines, it printed `35`.
+   In the test, against a log of 16 lines, it printed `16`. The agent batches records and retries
+   a failed export, and the first count in the test was `0`: the records arrived about forty seconds
+   after the agent started. Run the count again if it prints less than your log.
 
 1. Read a record. The gateway printed this one for the first line of the database tool, which is not
    JSON:
 
    ```text
    LogRecord #0
-   ObservedTimestamp: 2026-10-03 16:23:12.502188923 +0000 UTC
-   Timestamp: 2026-10-03 16:16:56.680170923 +0000 UTC
+   ObservedTimestamp: 2026-10-04 12:11:55.341997591 +0000 UTC
+   Timestamp: 2026-10-04 12:11:12.388938791 +0000 UTC
    SeverityText:
    SeverityNumber: Unspecified(0)
    Body: Str(Loaded Prisma config from prisma.config.ts.
    )
    Attributes:
-        -> log.file.name: Str(449fb749b93c0754c58dee25be091190d0178f66aceb6cef7ad5323f409bda6b-json.log)
+        -> log.file.name: Str(6e8531c85d40cc65e0e718474ad18bfe79262b6ca135019869e826e98b51e22f-json.log)
         -> log.iostream: Str(stderr)
    Trace ID:
    Span ID:
@@ -216,27 +218,27 @@ documents.
    Resource attributes:
         -> service.name: Str(budgetpilot)
    LogRecord #0
-   ObservedTimestamp: 2026-10-03 16:23:12.502226043 +0000 UTC
-   Timestamp: 2026-10-03 16:16:57.005 +0000 UTC
+   ObservedTimestamp: 2026-10-04 12:11:55.342030771 +0000 UTC
+   Timestamp: 2026-10-04 12:11:12.712 +0000 UTC
    SeverityText: WARN
    SeverityNumber: Warn(13)
    Body: Str(BudgetPilot started. The attributes are the security-relevant configuration it started with.)
    Attributes:
-        -> event_name: Str(sys_startup)
-        -> budgetpilot.config.database_provider: Str(sqlite)
-        -> budgetpilot.config.security_log: Str(on)
-        -> budgetpilot.config.trusted_proxy_ranges: Double(0)
-        -> budgetpilot.config.origin_set: Bool(true)
-        -> budgetpilot.config.public_instance: Str(secure)
-        -> log.iostream: Str(stdout)
         -> service.version: Str(1.2.0)
-        -> budgetpilot.log.boot_id: Str(74d02b15-2b29-4cf0-b2eb-ed574a2acec2)
+        -> budgetpilot.config.security_log: Str(on)
         -> budgetpilot.config.log_level: Str(info)
-        -> log.file.name: Str(449fb749b93c0754c58dee25be091190d0178f66aceb6cef7ad5323f409bda6b-json.log)
-        -> budgetpilot.config.cookies_secure: Bool(true)
-        -> budgetpilot.log.seq: Double(1)
-        -> budgetpilot.log.prev: Str(0000000000000000000000000000000000000000000000000000000000000000)
         -> budgetpilot.log.schema: Double(1)
+        -> budgetpilot.config.origin_set: Bool(true)
+        -> log.file.name: Str(6e8531c85d40cc65e0e718474ad18bfe79262b6ca135019869e826e98b51e22f-json.log)
+        -> budgetpilot.log.prev: Str(0000000000000000000000000000000000000000000000000000000000000000)
+        -> budgetpilot.config.public_instance: Str(secure)
+        -> budgetpilot.config.cookies_secure: Bool(true)
+        -> budgetpilot.config.trusted_proxy_ranges: Double(0)
+        -> log.iostream: Str(stdout)
+        -> budgetpilot.log.boot_id: Str(4044640f-c7aa-4314-a214-97da8a4f9f68)
+        -> budgetpilot.config.database_provider: Str(sqlite)
+        -> budgetpilot.log.seq: Double(1)
+        -> event_name: Str(sys_startup)
    Trace ID:
    Span ID:
    Flags: 0
@@ -245,27 +247,27 @@ documents.
    And the error line, with its trace id in the record's own field:
 
    ```text
-   LogRecord #24
-   ObservedTimestamp: 2026-10-03 16:23:12.502234973 +0000 UTC
-   Timestamp: 2026-10-03 16:17:00.793 +0000 UTC
+   LogRecord #5
+   ObservedTimestamp: 2026-10-04 12:11:55.342033621 +0000 UTC
+   Timestamp: 2026-10-04 12:11:35.643 +0000 UTC
    SeverityText: ERROR
    SeverityNumber: Error(17)
    Body: Str(A request failed on an unexpected error. The error id is the reference the visitor was shown.)
    Attributes:
-        -> budgetpilot.log.boot_id: Str(74d02b15-2b29-4cf0-b2eb-ed574a2acec2)
         -> budgetpilot.log.schema: Double(1)
-        -> log.file.name: Str(449fb749b93c0754c58dee25be091190d0178f66aceb6cef7ad5323f409bda6b-json.log)
-        -> http.response.status_code: Double(500)
-        -> budgetpilot.log.seq: Double(25)
-        -> budgetpilot.log.prev: Str(a5666171d9e6b7241ecaee96c2218e3192529df73ede06e36f4d71e6b9ddb31f)
-        -> http.request.method: Str(GET)
-        -> budgetpilot.error.id: Str(143a9bc5-ba4b-496a-8f0c-b47ea2b44b8c)
-        -> http.route: Str(/net-worth)
         -> error.type: Str(PrismaClientKnownRequestError)
+        -> budgetpilot.log.prev: Str(7d85157b9ecee84efc586b64f8fab58e2a9c67abfe74971573b2f28a049733c4)
+        -> http.request.method: Str(GET)
+        -> budgetpilot.log.seq: Double(6)
         -> log.iostream: Str(stdout)
-        -> event_name: Str(budgetpilot.request.failed)
+        -> budgetpilot.error.id: Str(5f01a06a-8f5e-4e00-b6fb-280be0cea246)
+        -> http.response.status_code: Double(500)
+        -> http.route: Str(/net-worth)
+        -> log.file.name: Str(6e8531c85d40cc65e0e718474ad18bfe79262b6ca135019869e826e98b51e22f-json.log)
         -> budgetpilot.error.code: Str(P2021)
-   Trace ID: 143a9bc5ba4b496a8f0cb47ea2b44b8c
+        -> event_name: Str(budgetpilot.request.failed)
+        -> budgetpilot.log.boot_id: Str(4044640f-c7aa-4314-a214-97da8a4f9f68)
+   Trace ID: 5f01a06a8f5e4e00b6fb280be0cea246
    Span ID:
    Flags: 0
    ```
@@ -368,15 +370,15 @@ second output. The test prints to standard output, one JSON object per record.
    docker logs vector 2>/dev/null | wc -l
    ```
 
-   In the test, the restart and the request wrote 16 lines
-   (`docker logs --since <time of the restart> budgetpilot 2>&1 | wc -l`), and Vector printed 16
-   records, 7 of them JSON and 9 plain.
+   In the test, the restart and the request wrote 14 lines
+   (`docker logs --since <time of the restart> budgetpilot 2>&1 | wc -l`), and Vector printed 14
+   records, 5 of them JSON and 9 plain.
 
 1. Read a plain record and a BudgetPilot record from the test:
 
    ```text
-   {"container_id":"449fb749b93c0754c58dee25be091190d0178f66aceb6cef7ad5323f409bda6b","container_name":"bp13-docs-app","is_json":false,"message":"Loaded Prisma config from prisma.config.ts.","source_type":"docker_logs","stream":"stderr","timestamp":"2026-10-03T16:25:33.015356153Z"}
-   {"budgetpilot.error.id":"d4005058-d7f4-4a21-81a4-99fc25ab4be4","budgetpilot.log.boot_id":"339fc291-69eb-47f2-b14e-d29b567257f0","budgetpilot.log.prev":"41cf2405be9a534e1356420701855a67002b9f5102f3b79fe205bc2001ff3d37","budgetpilot.log.schema":1,"budgetpilot.log.seq":5,"container_id":"449fb749b93c0754c58dee25be091190d0178f66aceb6cef7ad5323f409bda6b","container_name":"bp13-docs-app","event_name":"budgetpilot.request.not_found","http.request.method":"GET","http.response.status_code":404,"is_json":true,"message":"A request matched no page.","service.name":"budgetpilot","severity_number":9,"severity_text":"INFO","source_type":"docker_logs","stream":"stdout","timestamp":"2026-10-03T16:25:34.496Z","trace_id":"d4005058d7f44a2181a499fc25ab4be4"}
+   {"container_id":"6e8531c85d40cc65e0e718474ad18bfe79262b6ca135019869e826e98b51e22f","container_name":"bp13-docs-app","is_json":false,"message":"Loaded Prisma config from prisma.config.ts.","source_type":"docker_logs","stream":"stderr","timestamp":"2026-10-04T12:14:11.244070484Z"}
+   {"budgetpilot.error.id":"914101fe-6cc2-4d7f-a5d4-9b47442c5577","budgetpilot.log.boot_id":"98c52f19-b479-4e2a-bf87-91b4fe028516","budgetpilot.log.prev":"b9a4ce079f5304ae2a61247d6820529870a668b23de70d8b63dd5f4e38a49f0b","budgetpilot.log.schema":1,"budgetpilot.log.seq":5,"container_id":"6e8531c85d40cc65e0e718474ad18bfe79262b6ca135019869e826e98b51e22f","container_name":"bp13-docs-app","event_name":"budgetpilot.request.not_found","http.request.method":"GET","http.response.status_code":404,"is_json":true,"message":"A request matched no page.","service.name":"budgetpilot","severity_number":9,"severity_text":"INFO","source_type":"docker_logs","stream":"stdout","timestamp":"2026-10-04T12:14:18.611Z","trace_id":"914101fe6cc24d7fa5d49b47442c5577"}
    ```
 
    The test container was named `bp13-docs-app`, so that is the `container_name` printed. Yours is
@@ -456,14 +458,14 @@ and passes through unchanged, so it is kept.
    docker logs fluent-bit 2>/dev/null | wc -l
    ```
 
-   In the test, against a log of 67 lines, it printed `67`. Counting by field showed 40 parsed lines
-   and 27 plain lines.
+   In the test, against a log of 16 lines, it printed `16`. Counting by field showed 7 parsed lines
+   and 9 plain lines.
 
 1. Read a plain record and a BudgetPilot record from the test:
 
    ```text
-   {"date":1791044216.680171,"log":"Loaded Prisma config from prisma.config.ts.\n","stream":"stderr","time":"2026-10-03T16:16:56.680170923Z"}
-   {"date":1791044220.078,"severity_text":"INFO","severity_number":9,"timestamp":"2026-10-03T16:17:00.078Z","event_name":"budgetpilot.request.not_found","trace_id":"c9365d238f4342ea8c750522b5f1ba9b","http.request.method":"GET","service.name":"budgetpilot","http.response.status_code":404,"budgetpilot.error.id":"c9365d23-8f43-42ea-8c75-0522b5f1ba9b","budgetpilot.log.schema":1,"budgetpilot.log.boot_id":"74d02b15-2b29-4cf0-b2eb-ed574a2acec2","budgetpilot.log.seq":5,"budgetpilot.log.prev":"f87db391abda9d7745f5eecdd595d494ab53417a9cab4f03e39a604b231c09a2","body":"A request matched no page.","stream":"stdout","time":"2026-10-03T16:17:00.078760646Z"}
+   {"date":1791115872.388939,"log":"Loaded Prisma config from prisma.config.ts.\n","stream":"stderr","time":"2026-10-04T12:11:12.388938791Z"}
+   {"date":1791115892.844,"severity_text":"INFO","severity_number":9,"timestamp":"2026-10-04T12:11:32.844Z","event_name":"budgetpilot.request.not_found","trace_id":"e2031c79a96a4e9391dd76c53daa058a","http.request.method":"GET","service.name":"budgetpilot","http.response.status_code":404,"budgetpilot.error.id":"e2031c79-a96a-4e93-91dd-76c53daa058a","budgetpilot.log.schema":1,"budgetpilot.log.boot_id":"4044640f-c7aa-4314-a214-97da8a4f9f68","budgetpilot.log.seq":5,"budgetpilot.log.prev":"4468edae036baa8f5b12ecbc1c3f7b492f0cfc29863105bff31d521e915433df","body":"A request matched no page.","stream":"stdout","time":"2026-10-04T12:11:32.844395036Z"}
    ```
 
    `date` is the record's time, in seconds since 1970, taken from the app's own `timestamp`.
@@ -587,7 +589,7 @@ creating a stream for each value.
    ```
 
    The first command counts every line, and the second counts the lines that hold something. In the
-   test they printed `101` and `81`, and Loki returned `81`. The other 20 lines were empty, and Loki
+   test they printed `16` and `12`, and Loki returned `12`. The other 4 lines were empty, and Loki
    does not store an empty line. The `date -d` option is the GNU one: on macOS, replace it with a
    timestamp in nanoseconds.
 
@@ -595,18 +597,18 @@ creating a stream for each value.
    Grafana, or any client of the Loki API, run either query with the reference from the error page:
 
    ```text
-   {service_name="budgetpilot"} | error_id="a9211aa1-870c-4443-aeb7-75cb4de85752"
+   {service_name="budgetpilot"} | error_id="5f01a06a-8f5e-4e00-b6fb-280be0cea246"
    ```
 
    ```text
-   {service_name="budgetpilot"} |= "a9211aa1-870c-4443-aeb7-75cb4de85752"
+   {service_name="budgetpilot"} |= "5f01a06a-8f5e-4e00-b6fb-280be0cea246"
    ```
 
    The first filters on the structured metadata. The second searches the text of every line. Both
    returned exactly one entry in the test, the line of the error:
 
    ```text
-   {"severity_text":"ERROR","severity_number":17,"timestamp":"2026-10-03T16:53:29.068Z","event_name":"budgetpilot.request.failed","trace_id":"a9211aa1870c4443aeb775cb4de85752","http.request.method":"GET","http.route":"/net-worth","service.name":"budgetpilot","error.type":"PrismaClientKnownRequestError","budgetpilot.error.code":"P2021","http.response.status_code":500,"budgetpilot.error.id":"a9211aa1-870c-4443-aeb7-75cb4de85752","budgetpilot.log.schema":1,"budgetpilot.log.boot_id":"fce7ab48-0398-4266-ad96-cce8a38d9103","budgetpilot.log.seq":5,"budgetpilot.log.prev":"f29dd0fcd2154e25541fee733afb553b2d121da6838146941f1745122cafa628","body":"A request failed on an unexpected error. The error id is the reference the visitor was shown."}
+   {"severity_text":"ERROR","severity_number":17,"timestamp":"2026-10-04T12:11:35.643Z","event_name":"budgetpilot.request.failed","trace_id":"5f01a06a8f5e4e00b6fb280be0cea246","http.request.method":"GET","http.route":"/net-worth","service.name":"budgetpilot","error.type":"PrismaClientKnownRequestError","budgetpilot.error.code":"P2021","http.response.status_code":500,"budgetpilot.error.id":"5f01a06a-8f5e-4e00-b6fb-280be0cea246","budgetpilot.log.schema":1,"budgetpilot.log.boot_id":"4044640f-c7aa-4314-a214-97da8a4f9f68","budgetpilot.log.seq":6,"budgetpilot.log.prev":"7d85157b9ecee84efc586b64f8fab58e2a9c67abfe74971573b2f28a049733c4","body":"A request failed on an unexpected error. The error id is the reference the visitor was shown."}
    ```
 
 1. Optional: look at it in Grafana. Create `grafana-datasource.yaml`:
