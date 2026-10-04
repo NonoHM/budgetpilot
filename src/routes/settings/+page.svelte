@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
+	import type { SubmitFunction } from '@sveltejs/kit';
 	import { afterNavigate } from '$app/navigation';
 	import { onMount, tick } from 'svelte';
 	import Modal from '$lib/components/Modal.svelte';
@@ -254,6 +255,60 @@
 	// holding the field instead of posting straight away. One dialog for both actions: they ask for
 	// the same thing and differ only by what they end.
 	let revokeTarget: { kind: 'one'; sessionId: string } | { kind: 'others' } | null = $state(null);
+	type ReauthDialogPhase = 'idle' | 'busy' | 'error';
+	let revokePhase = $state<ReauthDialogPhase>('idle');
+	let revokeErrorMessage = $state('');
+	let revokeFormEl = $state<HTMLFormElement | null>(null);
+
+	function closeRevokeDialog() {
+		revokeTarget = null;
+		revokePhase = 'idle';
+	}
+
+	/**
+	 * Planche 5f for the two settings dialogs that re-authenticate (revoke #253, restore #228): the
+	 * dialog stays mounted on a refusal, with the sentence inside it where the press was, and closes
+	 * only on success.
+	 *
+	 * Measured before, at 390 px on the build: the native POST reloaded the page at the top, closed
+	 * the dialog and left the only sentence below the fold (y 1294 for revoke, y 2644 for restore)
+	 * with the focus on the body, so a wrong password read as a press that did nothing. A restore
+	 * also lost the chosen file.
+	 */
+	function submitInReauthDialog(
+		errorKey: 'sessionsError' | 'restoreError',
+		setPhase: (phase: ReauthDialogPhase, message?: string) => void,
+		close: () => void
+	): SubmitFunction {
+		return () => {
+			setPhase('busy');
+			return async ({ result, update }) => {
+				if (result.type === 'failure') {
+					const message = result.data?.[errorKey];
+					setPhase('error', typeof message === 'string' ? message : m.error_generic_description());
+					return;
+				}
+				if (result.type === 'error') {
+					setPhase('error', m.error_generic_description());
+					return;
+				}
+				close();
+				await update();
+			};
+		};
+	}
+
+	/** The retry: back to the field, emptied, because what it held was refused. */
+	function retryReauthDialog(formEl: HTMLFormElement | null, setIdle: () => void) {
+		setIdle();
+		void tick().then(() => {
+			const fields = formEl?.querySelectorAll<HTMLInputElement>(
+				`input[name="${REAUTH_FIELDS.password}"], input[name="${REAUTH_FIELDS.code}"]`
+			);
+			fields?.forEach((field) => (field.value = ''));
+			fields?.[0]?.focus();
+		});
+	}
 
 	// Danger zone (controlled button, not <details>/<summary>)
 	let dangerOpen = $state(false);
@@ -273,6 +328,14 @@
 	let restoreOpen = $state(false);
 	let restoreFiles = $state<FileList | undefined>(undefined);
 	let restoreConfirmOpen = $state(false);
+	let restorePhase = $state<ReauthDialogPhase>('idle');
+	let restoreErrorMessage = $state('');
+	let restoreFormEl = $state<HTMLFormElement | null>(null);
+
+	function closeRestoreDialog() {
+		restoreConfirmOpen = false;
+		restorePhase = 'idle';
+	}
 	const hasRestoreFile = $derived((restoreFiles?.length ?? 0) > 0);
 
 	$effect(() => {
@@ -945,7 +1008,21 @@
 							</svg>
 							{m.settings_restore_warning()}
 						</p>
-						<form method="POST" action="?/restoreData" enctype="multipart/form-data" class="mt-3">
+						<form
+							bind:this={restoreFormEl}
+							method="POST"
+							action="?/restoreData"
+							enctype="multipart/form-data"
+							class="mt-3"
+							use:enhance={submitInReauthDialog(
+								'restoreError',
+								(phase, message) => {
+									restorePhase = phase;
+									if (message !== undefined) restoreErrorMessage = message;
+								},
+								closeRestoreDialog
+							)}
+						>
 							<FileDropZone
 								name="backupFile"
 								accept="application/json"
@@ -987,7 +1064,16 @@
 								description={m.settings_restore_confirm_description()}
 								confirmLabel={m.settings_restore_submit()}
 								tone="danger"
-								onClose={() => (restoreConfirmOpen = false)}
+								phase={restorePhase}
+								error={restorePhase === 'error'
+									? {
+											message: restoreErrorMessage,
+											actionLabel: m.common_retry(),
+											onAction: () =>
+												retryReauthDialog(restoreFormEl, () => (restorePhase = 'idle'))
+										}
+									: undefined}
+								onClose={closeRestoreDialog}
 							>
 								<p class="text-sm text-zinc-600">
 									{m.settings_restore_confirm_body()}
@@ -1615,9 +1701,18 @@
 
 <!-- Revoke one session, or every other one: the password first (#253) -->
 <form
+	bind:this={revokeFormEl}
 	method="POST"
 	action={revokeTarget?.kind === 'one' ? '?/revokeSession' : '?/revokeOtherSessions'}
 	autocomplete="off"
+	use:enhance={submitInReauthDialog(
+		'sessionsError',
+		(phase, message) => {
+			revokePhase = phase;
+			if (message !== undefined) revokeErrorMessage = message;
+		},
+		closeRevokeDialog
+	)}
 >
 	{#if revokeTarget?.kind === 'one'}
 		<input type="hidden" name="sessionId" value={revokeTarget.sessionId} />
@@ -1631,7 +1726,15 @@
 			? m.settings_revoke_session()
 			: m.settings_logout_other_sessions()}
 		tone="danger"
-		onClose={() => (revokeTarget = null)}
+		phase={revokePhase}
+		error={revokePhase === 'error'
+			? {
+					message: revokeErrorMessage,
+					actionLabel: m.common_retry(),
+					onAction: () => retryReauthDialog(revokeFormEl, () => (revokePhase = 'idle'))
+				}
+			: undefined}
+		onClose={closeRevokeDialog}
 	>
 		<ReauthFields asksCode={false} idPrefix="revoke" />
 	</ConfirmDialog>
