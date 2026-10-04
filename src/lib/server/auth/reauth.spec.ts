@@ -1,0 +1,500 @@
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import * as OTPAuth from 'otpauth';
+import * as m from '$lib/paraglide/messages';
+import { REAUTH_FIELDS } from '$lib/domain/reauthFields';
+
+vi.hoisted(() => {
+	process.env.TOTP_ENCRYPTION_KEY ??= 'd4'.repeat(32);
+});
+
+/**
+ * The re-authentication helper's DECISION, with the account row and the limiter injected.
+ *
+ * What is real here: bcrypt, the TOTP window, the AES decryption of the stored secret, and the order
+ * in which the helper consults them. What is faked: the one `findUnique` that reads the account and
+ * the two limiter calls, whose SQL is `rateLimit.spec.ts`'s and whose behaviour against a real
+ * engine is `reauth.db-smoke.ts`'s.
+ *
+ * Every refusal test asserts the REASON, never only that `ok` is false: the reasons are what L3
+ * logs, and a helper that answered `wrong-password` for a wrong code would pass every « was it
+ * refused » assertion while writing a false record.
+ */
+
+const db = vi.hoisted(() => ({
+	prisma: { user: { findUnique: vi.fn() } }
+}));
+const rateLimit = vi.hoisted(() => ({
+	isReauthRateLimited: vi.fn(async () => false),
+	recordReauthAttempt: vi.fn(async () => {})
+}));
+
+vi.mock('$lib/server/db', () => db);
+vi.mock('$lib/server/auth/rateLimit', () => rateLimit);
+// The REAL code check, wrapped so a test can see whether the helper consulted it. Step 4 of the
+// helper's header (both factors, always) is a claim about work done, which no outcome shows.
+vi.mock('$lib/server/auth/totp', async (importOriginal) => {
+	const real = await importOriginal<typeof import('$lib/server/auth/totp')>();
+	return { ...real, verifyTotpCode: vi.fn(real.verifyTotpCode) };
+});
+
+const { hashPassword } = await import('$lib/server/auth');
+const { encryptTotpSecret, generateTotpSecretBase32, verifyTotpCode } =
+	await import('$lib/server/auth/totp');
+const { REAUTH_FACTORS, reauthenticate, reauthRefusalMessage } = await import('./reauth');
+
+const PASSWORD = 'the-right-password-1';
+const IP = '203.0.113.7';
+const USER = 'user-a';
+
+let passwordHash = '';
+const secret = generateTotpSecretBase32();
+
+beforeAll(async () => {
+	passwordHash = await hashPassword(PASSWORD);
+});
+
+function codeFor(secretBase32: string): string {
+	return new OTPAuth.TOTP({ secret: OTPAuth.Secret.fromBase32(secretBase32) }).generate();
+}
+
+/** A code that is six digits and is NOT valid in the current window for `secretBase32`. */
+function wrongCodeFor(secretBase32: string): string {
+	const right = codeFor(secretBase32);
+	const totp = new OTPAuth.TOTP({ secret: OTPAuth.Secret.fromBase32(secretBase32) });
+	for (let n = 0; n < 1_000_000; n++) {
+		const candidate = String((Number(right) + 1 + n) % 1_000_000).padStart(6, '0');
+		if (totp.validate({ token: candidate, window: 1 }) === null) return candidate;
+	}
+	throw new Error('wrongCodeFor: no invalid code found, which cannot happen');
+}
+
+function form(fields: { password?: string; code?: string }): FormData {
+	const data = new FormData();
+	if (fields.password !== undefined) data.set(REAUTH_FIELDS.password, fields.password);
+	if (fields.code !== undefined) data.set(REAUTH_FIELDS.code, fields.code);
+	return data;
+}
+
+function account({ totp }: { totp: boolean }) {
+	return {
+		passwordHash,
+		totpEnabled: totp,
+		totpSecretEncrypted: totp ? encryptTotpSecret(secret) : null
+	};
+}
+
+beforeEach(() => {
+	vi.clearAllMocks();
+	rateLimit.isReauthRateLimited.mockReset();
+	rateLimit.isReauthRateLimited.mockResolvedValue(false);
+	rateLimit.recordReauthAttempt.mockReset();
+	rateLimit.recordReauthAttempt.mockResolvedValue(undefined);
+});
+
+describe('R3 on #841, as data', () => {
+	// The table the ruling wrote, compared whole: a factor moved, an action added or one dropped is
+	// a diff here rather than a silent change of what an action asks for.
+	it('names every action and the factors it requires', () => {
+		expect(REAUTH_FACTORS).toEqual({
+			revokeSession: 'password',
+			revokeOtherSessions: 'password',
+			changePassword: 'password+totp-when-enabled',
+			deleteAccount: 'password+totp-when-enabled',
+			disableTotp: 'password+totp',
+			confirmTotpSetup: 'password+new-secret-code',
+			restoreData: 'password+totp-when-enabled',
+			deleteUser: 'password+totp-when-enabled',
+			resetPassword: 'password+totp-when-enabled'
+		});
+	});
+});
+
+describe('password only (7.5.2): revokeSession', () => {
+	it('accepts the right password, and records nothing', async () => {
+		db.prisma.user.findUnique.mockResolvedValue(account({ totp: true }));
+
+		const outcome = await reauthenticate('revokeSession', {
+			userId: USER,
+			ip: IP,
+			form: form({ password: PASSWORD })
+		});
+
+		expect(outcome).toEqual({ ok: true });
+		expect(rateLimit.recordReauthAttempt).not.toHaveBeenCalled();
+	});
+
+	it('refuses a wrong password as wrong-password, and records an attempt', async () => {
+		db.prisma.user.findUnique.mockResolvedValue(account({ totp: false }));
+
+		const outcome = await reauthenticate('revokeSession', {
+			userId: USER,
+			ip: IP,
+			form: form({ password: 'not-it' })
+		});
+
+		expect(outcome).toEqual({ ok: false, reason: 'wrong-password', asked: 'password' });
+		expect(rateLimit.recordReauthAttempt).toHaveBeenCalledWith(USER, IP);
+	});
+
+	// TOTP is enabled on this account and no code is posted: a password-only action must not ask
+	// for one, which separates « password » from « password+totp-when-enabled ».
+	it('does not ask for a code even when the account has TOTP', async () => {
+		db.prisma.user.findUnique.mockResolvedValue(account({ totp: true }));
+
+		const outcome = await reauthenticate('revokeOtherSessions', {
+			userId: USER,
+			ip: IP,
+			form: form({ password: PASSWORD })
+		});
+
+		expect(outcome).toEqual({ ok: true });
+	});
+
+	it('refuses an absent password as missing-password, without recording an attempt', async () => {
+		db.prisma.user.findUnique.mockResolvedValue(account({ totp: false }));
+
+		const outcome = await reauthenticate('revokeSession', {
+			userId: USER,
+			ip: IP,
+			form: form({})
+		});
+
+		expect(outcome).toEqual({ ok: false, reason: 'missing-password', asked: 'password' });
+		expect(rateLimit.recordReauthAttempt).not.toHaveBeenCalled();
+	});
+});
+
+describe('password plus TOTP when enabled (7.5.1)', () => {
+	it('without TOTP: the password alone is enough', async () => {
+		db.prisma.user.findUnique.mockResolvedValue(account({ totp: false }));
+
+		const outcome = await reauthenticate('changePassword', {
+			userId: USER,
+			ip: IP,
+			form: form({ password: PASSWORD })
+		});
+
+		expect(outcome).toEqual({ ok: true });
+	});
+
+	it('with TOTP: the right password and the right code pass', async () => {
+		db.prisma.user.findUnique.mockResolvedValue(account({ totp: true }));
+
+		const outcome = await reauthenticate('restoreData', {
+			userId: USER,
+			ip: IP,
+			form: form({ password: PASSWORD, code: codeFor(secret) })
+		});
+
+		expect(outcome).toEqual({ ok: true });
+	});
+
+	it('with TOTP: the right password and no code is missing-totp, nothing recorded', async () => {
+		db.prisma.user.findUnique.mockResolvedValue(account({ totp: true }));
+
+		const outcome = await reauthenticate('changePassword', {
+			userId: USER,
+			ip: IP,
+			form: form({ password: PASSWORD })
+		});
+
+		expect(outcome).toEqual({ ok: false, reason: 'missing-totp', asked: 'password-and-code' });
+		expect(rateLimit.recordReauthAttempt).not.toHaveBeenCalled();
+	});
+
+	// A malformed code is the same « missing » as an absent one: the six-digit shape is checked
+	// before any secret is consulted, so a shape refusal says nothing about the password.
+	it('with TOTP: a code that is not six digits is missing-totp', async () => {
+		db.prisma.user.findUnique.mockResolvedValue(account({ totp: true }));
+
+		const outcome = await reauthenticate('deleteUser', {
+			userId: USER,
+			ip: IP,
+			form: form({ password: PASSWORD, code: '12345' })
+		});
+
+		expect(outcome).toEqual({ ok: false, reason: 'missing-totp', asked: 'password-and-code' });
+	});
+
+	it('with TOTP: the right password and a wrong code is wrong-totp, recorded', async () => {
+		db.prisma.user.findUnique.mockResolvedValue(account({ totp: true }));
+
+		const outcome = await reauthenticate('resetPassword', {
+			userId: USER,
+			ip: IP,
+			form: form({ password: PASSWORD, code: wrongCodeFor(secret) })
+		});
+
+		expect(outcome).toEqual({ ok: false, reason: 'wrong-totp', asked: 'password-and-code' });
+		expect(rateLimit.recordReauthAttempt).toHaveBeenCalledWith(USER, IP);
+	});
+
+	// The password is reported first when both are wrong. Separates « both factors are evaluated
+	// and the password wins » from « the code is checked first ».
+	it('with TOTP: a wrong password and a wrong code is wrong-password', async () => {
+		db.prisma.user.findUnique.mockResolvedValue(account({ totp: true }));
+
+		const outcome = await reauthenticate('deleteAccount', {
+			userId: USER,
+			ip: IP,
+			form: form({ password: 'not-it', code: wrongCodeFor(secret) })
+		});
+
+		expect(outcome).toEqual({ ok: false, reason: 'wrong-password', asked: 'password-and-code' });
+		expect(rateLimit.recordReauthAttempt).toHaveBeenCalledTimes(1);
+	});
+
+	// A wrong password with the RIGHT code: the code must not carry the password.
+	it('with TOTP: a wrong password and the right code is wrong-password', async () => {
+		db.prisma.user.findUnique.mockResolvedValue(account({ totp: true }));
+
+		const outcome = await reauthenticate('deleteAccount', {
+			userId: USER,
+			ip: IP,
+			form: form({ password: 'not-it', code: codeFor(secret) })
+		});
+
+		expect(outcome).toEqual({ ok: false, reason: 'wrong-password', asked: 'password-and-code' });
+	});
+
+	// Step 4: the code is verified even though the password already failed, so a wrong password and
+	// a wrong code cost the same work and the response time does not say which one failed.
+	// Separates « both factors always verified » from « the code skipped once the password failed »,
+	// which returns the same reason and differs only in time.
+	it('with TOTP: a wrong password still has its code verified', async () => {
+		db.prisma.user.findUnique.mockResolvedValue(account({ totp: true }));
+
+		await reauthenticate('deleteAccount', {
+			userId: USER,
+			ip: IP,
+			form: form({ password: 'not-it', code: codeFor(secret) })
+		});
+
+		expect(vi.mocked(verifyTotpCode)).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe('password plus TOTP, required (disableTotp)', () => {
+	it('passes with the right password and code', async () => {
+		db.prisma.user.findUnique.mockResolvedValue(account({ totp: true }));
+
+		const outcome = await reauthenticate('disableTotp', {
+			userId: USER,
+			ip: IP,
+			form: form({ password: PASSWORD, code: codeFor(secret) })
+		});
+
+		expect(outcome).toEqual({ ok: true });
+	});
+
+	it('refuses as totp-not-enabled on an account without TOTP, before any secret', async () => {
+		db.prisma.user.findUnique.mockResolvedValue(account({ totp: false }));
+
+		const outcome = await reauthenticate('disableTotp', {
+			userId: USER,
+			ip: IP,
+			form: form({ password: PASSWORD, code: '123456' })
+		});
+
+		expect(outcome).toEqual({
+			ok: false,
+			reason: 'totp-not-enabled',
+			asked: 'password-and-code'
+		});
+		expect(rateLimit.recordReauthAttempt).not.toHaveBeenCalled();
+	});
+});
+
+describe('password plus a code from the new secret (confirmTotpSetup)', () => {
+	const fresh = generateTotpSecretBase32();
+
+	it('passes with the right password and a code from the POSTED secret, not the stored one', async () => {
+		db.prisma.user.findUnique.mockResolvedValue(account({ totp: false }));
+
+		const outcome = await reauthenticate('confirmTotpSetup', {
+			userId: USER,
+			ip: IP,
+			form: form({ password: PASSWORD, code: codeFor(fresh) }),
+			newTotpSecret: fresh
+		});
+
+		expect(outcome).toEqual({ ok: true });
+	});
+
+	// The contradiction pass on S1: enrolling over an EXISTING second factor replaced it with the
+	// password alone, and handed back fresh recovery codes, after which every « TOTP when enabled »
+	// action fell to the password. Separates « enrolment needs an account with no factor » from
+	// « the password plus a secret the caller chose is enough to take the factor over ».
+	it('refuses as totp-already-enabled on an account that has a factor, before any secret', async () => {
+		db.prisma.user.findUnique.mockResolvedValue(account({ totp: true }));
+
+		const outcome = await reauthenticate('confirmTotpSetup', {
+			userId: USER,
+			ip: IP,
+			form: form({ password: PASSWORD, code: codeFor(fresh) }),
+			newTotpSecret: fresh
+		});
+
+		expect(outcome).toEqual({ ok: false, reason: 'totp-already-enabled' });
+		expect(rateLimit.recordReauthAttempt).not.toHaveBeenCalled();
+		// BEFORE any secret: the refusal is decided by the account's own state, so no code is
+		// verified. Separates « refused first » from « refused after the secrets were consulted ».
+		expect(vi.mocked(verifyTotpCode)).not.toHaveBeenCalled();
+	});
+
+	// One predicate for « has a factor » in the helper (the second contradiction pass on S1): the
+	// flag set with no stored secret is no factor, so enrolment repairs the row instead of refusing,
+	// exactly as disableTotp refuses it as totp-not-enabled. No writer produces this row; the test
+	// pins that the two refusals cannot both close it.
+	it('enrols over a flag that has no stored secret, which is no factor', async () => {
+		db.prisma.user.findUnique.mockResolvedValue({
+			passwordHash,
+			totpEnabled: true,
+			totpSecretEncrypted: null
+		});
+
+		const outcome = await reauthenticate('confirmTotpSetup', {
+			userId: USER,
+			ip: IP,
+			form: form({ password: PASSWORD, code: codeFor(fresh) }),
+			newTotpSecret: fresh
+		});
+
+		expect(outcome).toEqual({ ok: true });
+	});
+
+	it('refuses a code from another secret as wrong-totp', async () => {
+		db.prisma.user.findUnique.mockResolvedValue(account({ totp: false }));
+
+		const outcome = await reauthenticate('confirmTotpSetup', {
+			userId: USER,
+			ip: IP,
+			form: form({ password: PASSWORD, code: wrongCodeFor(fresh) }),
+			newTotpSecret: fresh
+		});
+
+		expect(outcome).toEqual({ ok: false, reason: 'wrong-totp', asked: 'password-and-code' });
+	});
+
+	// The secret is client-posted, so it can be anything. A value that is not base32 must refuse
+	// rather than throw a 500.
+	it('refuses a posted secret that is not base32 as wrong-totp, without throwing', async () => {
+		db.prisma.user.findUnique.mockResolvedValue(account({ totp: false }));
+
+		const outcome = await reauthenticate('confirmTotpSetup', {
+			userId: USER,
+			ip: IP,
+			form: form({ password: PASSWORD, code: '123456' }),
+			newTotpSecret: '!!!not-base32!!!'
+		});
+
+		expect(outcome).toEqual({ ok: false, reason: 'wrong-totp', asked: 'password-and-code' });
+	});
+});
+
+describe('the limiter', () => {
+	it('refuses as rate-limited before reading the account', async () => {
+		rateLimit.isReauthRateLimited.mockResolvedValueOnce(true);
+
+		const outcome = await reauthenticate('deleteAccount', {
+			userId: USER,
+			ip: IP,
+			form: form({ password: PASSWORD })
+		});
+
+		expect(outcome).toEqual({ ok: false, reason: 'rate-limited' });
+		expect(db.prisma.user.findUnique).not.toHaveBeenCalled();
+		expect(rateLimit.isReauthRateLimited).toHaveBeenCalledWith(USER, IP);
+	});
+});
+
+describe('the account read', () => {
+	it('reads only the caller, by id', async () => {
+		db.prisma.user.findUnique.mockResolvedValue(account({ totp: false }));
+
+		await reauthenticate('revokeSession', {
+			userId: USER,
+			ip: IP,
+			form: form({ password: PASSWORD })
+		});
+
+		expect(db.prisma.user.findUnique).toHaveBeenCalledWith({
+			where: { id: USER },
+			select: { passwordHash: true, totpEnabled: true, totpSecretEncrypted: true }
+		});
+	});
+
+	// The form is read for REAUTH_FIELDS and nothing else. Separates « the account is the caller's,
+	// from locals » from « a posted id chooses whose secrets are checked », which would let a session
+	// prove itself with ANOTHER account's password it happens to know, or its own against another's.
+	it('ignores a posted userId: the account read is the caller', async () => {
+		db.prisma.user.findUnique.mockResolvedValue(account({ totp: false }));
+		const posted = form({ password: PASSWORD });
+		posted.set('userId', 'user-b');
+
+		await reauthenticate('revokeSession', { userId: USER, ip: IP, form: posted });
+
+		expect(db.prisma.user.findUnique).toHaveBeenCalledWith(
+			expect.objectContaining({ where: { id: USER } })
+		);
+	});
+
+	it('refuses as no-account when the row is gone', async () => {
+		db.prisma.user.findUnique.mockResolvedValue(null);
+
+		const outcome = await reauthenticate('revokeSession', {
+			userId: USER,
+			ip: IP,
+			form: form({ password: PASSWORD })
+		});
+
+		expect(outcome).toEqual({ ok: false, reason: 'no-account', asked: 'password' });
+	});
+});
+
+describe('what a refusal says (#854 class 2)', () => {
+	// The reasons a person typing their own credentials can produce, per thing asked. Every one of
+	// them must render the SAME sentence: the reason is for the log, never for the screen.
+	it('one sentence for every credential reason when only the password was asked', () => {
+		const sentences = new Set(
+			(['missing-password', 'wrong-password', 'no-account'] as const).map((reason) =>
+				reauthRefusalMessage({ ok: false, reason, asked: 'password' })
+			)
+		);
+
+		expect([...sentences]).toEqual([m.reauth_error_password()]);
+	});
+
+	it('one sentence for every credential reason when a code was asked too', () => {
+		const sentences = new Set(
+			(
+				[
+					'missing-password',
+					'wrong-password',
+					'missing-totp',
+					'wrong-totp',
+					'totp-not-enabled',
+					'no-account'
+				] as const
+			).map((reason) => reauthRefusalMessage({ ok: false, reason, asked: 'password-and-code' }))
+		);
+
+		expect([...sentences]).toEqual([m.reauth_error_password_or_code()]);
+	});
+
+	// Not a credential fact: the session already sees the factor on /settings. The owner reaches it
+	// by pressing « Enable » twice, and the credential sentence told them a right password was wrong
+	// (the second contradiction pass on S1). Separates « says the factor is on, and how to get new
+	// codes » from « says the password or the code was wrong ».
+	it('an enrolment over an existing factor says so, not that a secret was wrong', () => {
+		expect(reauthRefusalMessage({ ok: false, reason: 'totp-already-enabled' })).toBe(
+			m.settings_mfa_error_already_enabled()
+		);
+	});
+
+	it('the limiter keeps its own sentence', () => {
+		expect(reauthRefusalMessage({ ok: false, reason: 'rate-limited' })).toBe(
+			m.settings_error_reauth_too_many()
+		);
+	});
+});

@@ -482,8 +482,11 @@ async function exerciseAuthPaths(): Promise<void> {
 		sqlite((db) => db.prepare('SELECT id FROM "User" WHERE email = ?').get(SECRETS.memberEmail))
 			?.id ?? ''
 	);
+	// The admin re-authenticates (#229): their own password, and a code because step 4 enrolled TOTP.
 	const reset = await action(admin, 'admin-reset', '/admin?/resetPassword', {
-		targetUserId: memberId
+		targetUserId: memberId,
+		currentPassword: SECRETS.password,
+		code: new OTPAuth.TOTP({ secret: OTPAuth.Secret.fromBase32(minted.totpSecret) }).generate()
 	});
 	minted.temporaryPassword = String(reset.data.temporaryPassword ?? '');
 	const memberAgain = await newClient();

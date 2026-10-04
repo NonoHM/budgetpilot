@@ -38,8 +38,10 @@ const CREDENTIAL_FIELDS = ['passwordHash', 'totpSecretEncrypted'] as const;
 
 /**
  * The only paths allowed to SELECT a credential column, and each one verifies a secret:
- * `/login` compares a password, `/login/verify-totp` decrypts a TOTP secret, and `/settings` is
- * the re-authentication surface for the sensitive actions (#220, #230).
+ * `/login` compares a password, `/login/verify-totp` decrypts a TOTP secret, and
+ * `auth/reauth.ts` is the one re-authentication helper every sensitive action calls (S1, #253).
+ * `/settings` held that read inline until S1 moved it there, and leaving the route on this list
+ * would let it select a credential again unnoticed.
  *
  * A closed list rather than a pattern, because "which files may read a password hash" is a
  * decision and should read as one. Adding an entry should be as visible as it is consequential.
@@ -47,7 +49,7 @@ const CREDENTIAL_FIELDS = ['passwordHash', 'totpSecretEncrypted'] as const;
 const CREDENTIAL_PATHS = [
 	join('src', 'routes', 'login', '+page.server.ts'),
 	join('src', 'routes', 'login', 'verify-totp', '+page.server.ts'),
-	join('src', 'routes', 'settings', '+page.server.ts')
+	join('src', 'lib', 'server', 'auth', 'reauth.ts')
 ];
 
 /**
@@ -144,7 +146,7 @@ describe('credential exposure (v5.0.0-15.3.1, v5.0.0-8.2.3)', () => {
 
 		expect(
 			offenders,
-			`credential columns selected outside login, verify-totp and settings: ${offenders.join(', ')}`
+			`credential columns selected outside login, verify-totp and the re-authentication helper: ${offenders.join(', ')}`
 		).toEqual([]);
 	});
 

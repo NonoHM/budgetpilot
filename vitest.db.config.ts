@@ -23,6 +23,10 @@ import { defineConfig } from 'vitest/config';
  * Run with: DATABASE_PROVIDER=... DATABASE_URL=... npm run test:db
  */
 export default defineConfig({
+	// `vite.config.ts` defines this from `package.json` for the app; this suite loads no SvelteKit
+	// plugin and so no define, and a route module importing `$lib/server/appVersion` (the settings
+	// route, driven by `auth/reauth.db-smoke.ts`) would fail at import with a ReferenceError.
+	define: { __APP_VERSION__: JSON.stringify('db-smoke') },
 	resolve: {
 		alias: {
 			$lib: resolve(import.meta.dirname, 'src/lib'),

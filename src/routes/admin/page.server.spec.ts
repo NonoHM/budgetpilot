@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const tx = vi.hoisted(() => ({
 	session: {
@@ -29,11 +29,26 @@ const invitations = vi.hoisted(() => ({
 	listPendingInvitations: vi.fn(async () => [])
 }));
 
+// The shared re-auth limiter, mocked as in settings/page.server.spec.ts: these specs cover the
+// ORCHESTRATION of the two gated admin actions, and the limiter's SQL is rateLimit.spec.ts's.
+const rateLimit = vi.hoisted(() => ({
+	isReauthRateLimited: vi.fn(async () => false),
+	recordReauthAttempt: vi.fn(async () => {})
+}));
+
 vi.mock('$lib/server/db', () => ({ prisma: db.prisma }));
 vi.mock('$lib/server/auth/invitations', () => invitations);
+vi.mock('$lib/server/auth/rateLimit', () => rateLimit);
+// The helper runs for real; the spy only exposes the REASON it decided, which no response carries.
+vi.mock('$lib/server/auth/reauth', async (importOriginal) => {
+	const actual = await importOriginal<typeof import('$lib/server/auth/reauth')>();
+	return { ...actual, reauthenticate: vi.fn(actual.reauthenticate) };
+});
 
-const { generateTemporaryPassword, validatePassword } = await import('$lib/server/auth');
+const { generateTemporaryPassword, hashPassword, validatePassword } =
+	await import('$lib/server/auth');
 const { actions, load } = await import('./+page.server');
+const reauth = await import('$lib/server/auth/reauth');
 
 const ADMIN = {
 	id: 'admin-a',
@@ -47,6 +62,22 @@ const USER = {
 	role: 'USER',
 	forcePasswordChange: false
 };
+
+/** The ADMIN's own password: #229 re-authenticates the admin, never the target. */
+const ADMIN_PASSWORD = 'mot-de-passe-administrateur';
+const adminPasswordHash = await hashPassword(ADMIN_PASSWORD);
+
+/**
+ * `findUnique` answers two different reads on these actions: the helper's read of the admin, and
+ * the action's read of the target. Routed by the id asked for, so neither can be satisfied by the
+ * other's fixture.
+ */
+function accountsAre(target: Record<string, unknown> | null) {
+	db.prisma.user.findUnique.mockImplementation((async ({ where }: { where: { id: string } }) =>
+		where.id === ADMIN.id
+			? { passwordHash: adminPasswordHash, totpEnabled: false, totpSecretEncrypted: null }
+			: target) as never);
+}
 
 describe('/admin load', () => {
 	beforeEach(() => {
@@ -234,9 +265,12 @@ describe('/admin action deleteUser', () => {
 	it("renvoie 404 si l'utilisateur cible n'existe pas", async () => {
 		expect.assertions(2);
 
-		db.prisma.user.findUnique.mockResolvedValue(null);
+		accountsAre(null);
 
-		const result = await runDeleteUser({ targetUserId: 'inconnu' }, ADMIN);
+		const result = await runDeleteUser(
+			{ targetUserId: 'inconnu', currentPassword: ADMIN_PASSWORD },
+			ADMIN
+		);
 
 		expect(result.status).toBe(404);
 		expect(db.prisma.$transaction).not.toHaveBeenCalled();
@@ -245,12 +279,15 @@ describe('/admin action deleteUser', () => {
 	it("supprime les sessions puis le compte de l'utilisateur cible", async () => {
 		expect.assertions(5);
 
-		db.prisma.user.findUnique.mockResolvedValue({ id: 'user-b' });
+		accountsAre({ id: 'user-b' });
 		tx.session.deleteMany.mockResolvedValue({ count: 1 });
 		tx.transaction.deleteMany.mockResolvedValue({ count: 3 });
 		tx.user.delete.mockResolvedValue({ id: 'user-b' });
 
-		const result = await runDeleteUser({ targetUserId: 'user-b' }, ADMIN);
+		const result = await runDeleteUser(
+			{ targetUserId: 'user-b', currentPassword: ADMIN_PASSWORD },
+			ADMIN
+		);
 
 		expect(tx.session.deleteMany).toHaveBeenCalledWith({ where: { userId: 'user-b' } });
 		expect(tx.user.delete).toHaveBeenCalledWith({ where: { id: 'user-b' } });
@@ -286,9 +323,12 @@ describe('/admin action resetPassword', () => {
 	it("renvoie 404 si l'utilisateur cible n'existe pas", async () => {
 		expect.assertions(2);
 
-		db.prisma.user.findUnique.mockResolvedValue(null);
+		accountsAre(null);
 
-		const result = await runResetPassword({ targetUserId: 'inconnu' }, ADMIN);
+		const result = await runResetPassword(
+			{ targetUserId: 'inconnu', currentPassword: ADMIN_PASSWORD },
+			ADMIN
+		);
 
 		expect(result.status).toBe(404);
 		expect(db.prisma.$transaction).not.toHaveBeenCalled();
@@ -313,14 +353,17 @@ describe('/admin action resetPassword', () => {
 	it('réinitialise le mot de passe : passwordHash bcrypt stocké en DB (jamais le mot de passe en clair), forcePasswordChange activé, sessions révoquées, mot de passe en clair renvoyé une seule fois', async () => {
 		expect.assertions(9);
 
-		db.prisma.user.findUnique.mockResolvedValue({ id: 'user-b', email: 'user-b@example.test' });
+		accountsAre({ id: 'user-b', email: 'user-b@example.test' });
 		tx.user.update.mockResolvedValue({ id: 'user-b' });
 		tx.session.deleteMany.mockResolvedValue({ count: 3 });
 		const consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
 		const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 		const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
 
-		const result = await runResetPassword({ targetUserId: 'user-b' }, ADMIN);
+		const result = await runResetPassword(
+			{ targetUserId: 'user-b', currentPassword: ADMIN_PASSWORD },
+			ADMIN
+		);
 
 		expect(result.resetTargetUserId).toBe('user-b');
 		expect(result.resetTargetEmail).toBe('user-b@example.test');
@@ -342,14 +385,17 @@ describe('/admin action resetPassword', () => {
 	it('ne logge jamais le mot de passe temporaire en clair sur la console', async () => {
 		expect.assertions(1);
 
-		db.prisma.user.findUnique.mockResolvedValue({ id: 'user-b', email: 'user-b@example.test' });
+		accountsAre({ id: 'user-b', email: 'user-b@example.test' });
 		tx.user.update.mockResolvedValue({ id: 'user-b' });
 		tx.session.deleteMany.mockResolvedValue({ count: 0 });
 		const consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
 		const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 		const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
 
-		const result = await runResetPassword({ targetUserId: 'user-b' }, ADMIN);
+		const result = await runResetPassword(
+			{ targetUserId: 'user-b', currentPassword: ADMIN_PASSWORD },
+			ADMIN
+		);
 
 		const allLoggedArgs = [
 			...consoleLogSpy.mock.calls,
@@ -456,6 +502,138 @@ describe('/admin action revokeInvitation', () => {
 	});
 });
 
+/**
+ * #229: the admin's two actions on ANOTHER account, through the real action, with every refusal
+ * reason. The admin here has a second factor, so all four reasons are reachable; the target's
+ * secrets are never asked for, and a test below proves the helper read the ADMIN's row.
+ *
+ * Same four observations as the settings block (reason, one sentence, no write, attempt counted
+ * only for a wrong factor), and the same calibration that makes « no write » able to fail.
+ */
+describe('#229: the admin re-authenticates before acting on another account', () => {
+	type AdminReauthAction = 'deleteUser' | 'resetPassword';
+	const ACTIONS: AdminReauthAction[] = ['deleteUser', 'resetPassword'];
+	const REASONS = ['wrong-password', 'missing-password', 'missing-totp', 'wrong-totp'] as const;
+	const ROWS = ACTIONS.flatMap((action) => REASONS.map((reason) => [action, reason]));
+	const ERROR_KEY = { deleteUser: 'deleteError', resetPassword: 'resetError' } as const;
+
+	let secret = '';
+	let secretEncrypted = '';
+
+	async function totpCode(offsetSteps = 0): Promise<string> {
+		const OTPAuth = await import('otpauth');
+		return new OTPAuth.TOTP({ secret: OTPAuth.Secret.fromBase32(secret) }).generate({
+			timestamp: Date.now() + offsetSteps * 30_000
+		});
+	}
+
+	async function credentials(
+		reason: 'right' | (typeof REASONS)[number]
+	): Promise<Record<string, string>> {
+		switch (reason) {
+			case 'right':
+				return { currentPassword: ADMIN_PASSWORD, code: await totpCode() };
+			case 'wrong-password':
+				return { currentPassword: 'pas-le-bon', code: await totpCode() };
+			case 'missing-password':
+				return { code: await totpCode() };
+			case 'missing-totp':
+				return { currentPassword: ADMIN_PASSWORD };
+			case 'wrong-totp':
+				return { currentPassword: ADMIN_PASSWORD, code: await totpCode(10) };
+		}
+	}
+
+	function writes() {
+		return [tx.user.delete, tx.user.update, tx.session.deleteMany, tx.transaction.deleteMany];
+	}
+
+	beforeAll(async () => {
+		const { generateTotpSecretBase32, encryptTotpSecret } = await import('$lib/server/auth/totp');
+		secret = generateTotpSecretBase32();
+		secretEncrypted = encryptTotpSecret(secret);
+	});
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		db.prisma.$transaction.mockImplementation(async (callback) => callback(tx));
+		rateLimit.isReauthRateLimited.mockReset();
+		rateLimit.isReauthRateLimited.mockResolvedValue(false);
+		rateLimit.recordReauthAttempt.mockReset();
+		rateLimit.recordReauthAttempt.mockResolvedValue(undefined);
+		db.prisma.user.findUnique.mockImplementation((async ({ where }: { where: { id: string } }) =>
+			where.id === ADMIN.id
+				? {
+						passwordHash: adminPasswordHash,
+						totpEnabled: true,
+						totpSecretEncrypted: secretEncrypted
+					}
+				: { id: 'user-b', email: 'user-b@example.test' }) as never);
+	});
+
+	it('covers exactly the registry entries that are actions of this route', () => {
+		expect(Object.keys(reauth.REAUTH_FACTORS).filter((name) => name in actions)).toEqual(ACTIONS);
+	});
+
+	it.each(ACTIONS)('calibration: %s with the right secrets reaches its write', async (action) => {
+		await invokeAction(action, { targetUserId: 'user-b', ...(await credentials('right')) }, ADMIN);
+
+		await expect(vi.mocked(reauth.reauthenticate).mock.results[0]?.value).resolves.toEqual({
+			ok: true
+		});
+		expect(writes().some((write) => write.mock.calls.length > 0)).toBe(true);
+	});
+
+	// The secrets checked are the ADMIN's: the helper is handed the admin's id, never the target's.
+	it.each(ACTIONS)('%s proves the admin, not the target', async (action) => {
+		await invokeAction(action, { targetUserId: 'user-b', ...(await credentials('right')) }, ADMIN);
+
+		expect(vi.mocked(reauth.reauthenticate).mock.calls[0]?.[1]).toMatchObject({ userId: ADMIN.id });
+	});
+
+	it.each(ROWS)('%s refuses %s with its reason, one sentence, and no write', async (a, r) => {
+		const action = a as AdminReauthAction;
+		const reason = r as (typeof REASONS)[number];
+
+		const result = await invokeAction(
+			action,
+			{ targetUserId: 'user-b', ...(await credentials(reason)) },
+			ADMIN
+		);
+
+		const decided = await vi.mocked(reauth.reauthenticate).mock.results[0]?.value;
+		expect(decided).toMatchObject({ ok: false, reason });
+		expect(result.status).toBe(400);
+		expect(result.data[ERROR_KEY[action]]).toBe(reauth.reauthRefusalMessage(decided));
+		for (const write of writes()) expect(write.mock.calls).toEqual([]);
+		expect(rateLimit.recordReauthAttempt).toHaveBeenCalledTimes(reason.startsWith('wrong') ? 1 : 0);
+	});
+
+	it.each(ACTIONS)('%s says the same sentence whatever failed', async (action) => {
+		const sentences = new Set<string | undefined>();
+		for (const reason of REASONS) {
+			const result = await invokeAction(
+				action,
+				{ targetUserId: 'user-b', ...(await credentials(reason)) },
+				ADMIN
+			);
+			sentences.add(result.data[ERROR_KEY[action]]);
+		}
+
+		expect(sentences.size).toBe(1);
+	});
+
+	// Ahead of the target lookup: a session alone cannot learn whether an id names an account.
+	it.each(ACTIONS)('%s refuses before it reads the target', async (action) => {
+		await invokeAction(action, { targetUserId: 'user-b', currentPassword: 'pas-le-bon' }, ADMIN);
+
+		const idsRead = db.prisma.user.findUnique.mock.calls.map(
+			(call) => (call[0] as { where: { id: string } }).where.id
+		);
+		expect(idsRead).toEqual([ADMIN.id]);
+	});
+});
+
 async function runDeleteUser(input: Record<string, string>, user: typeof ADMIN | typeof USER) {
 	return invokeAction('deleteUser', input, user);
 }
@@ -488,10 +666,12 @@ async function invokeAction(
 
 	return (await (
 		actions[name] as unknown as (event: {
+			getClientAddress: () => string;
 			locals: { user: typeof ADMIN | typeof USER };
 			request: Request;
 		}) => Promise<unknown>
 	)({
+		getClientAddress: () => '203.0.113.20',
 		locals: { user },
 		request: new Request('http://localhost/admin', { method: 'POST', body: formData })
 	})) as {
