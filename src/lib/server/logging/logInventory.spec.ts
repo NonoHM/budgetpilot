@@ -124,3 +124,78 @@ describe('docs/logging.md, the envelope', () => {
 		expect(envelope.filter((field) => !page.includes(`\`${field}\``))).toEqual([]);
 	});
 });
+
+/**
+ * « Every field » and « What to do » (docs/logging.md): the same contract as « Every event », for the
+ * names themselves and for the events an operator has to act on. A name added to names.ts without a
+ * row fails, and so does a row left after its name was removed.
+ */
+function section(heading: string): string {
+	return page.split(`\n## ${heading}\n`)[1]?.split(/\n## |\n---\n/)[0] ?? '';
+}
+
+/** The cells after the first of every table row of a section whose first cell is a code span. */
+function tableRows(heading: string): Map<string, string[]> {
+	const rows = new Map<string, string[]>();
+	for (const line of section(heading).split('\n')) {
+		const match = /^\| `([^`]+)`(?:, `[^`]+`)* *\|(.*)\|$/.exec(line);
+		if (!match) continue;
+		rows.set(
+			match[1],
+			match[2].split(/(?<!\\)\|/).map((cell) => cell.trim())
+		);
+	}
+	return rows;
+}
+
+describe('docs/logging.md, « Every field »', () => {
+	const declared: string[] = [...Object.values(FIELD), ...Object.values(A)];
+
+	it('has one row for every field and attribute of names.ts, and no other', () => {
+		const documented = [...tableRows('Every field').keys()];
+		// The absolute figure beside the comparison, so an empty parse cannot pass as a match.
+		expect(documented.length).toBe(declared.length);
+		expect(documented.sort()).toEqual([...declared].sort());
+	});
+
+	it('fills every column of every row: meaning, type, values, example and level', () => {
+		const thin = [...tableRows('Every field')]
+			.filter(([, cells]) => cells.length !== 5 || cells.some((cell) => cell === ''))
+			.map(([name]) => name);
+		expect(thin).toEqual([]);
+	});
+
+	it('gives each row the level the registry gives that attribute', () => {
+		const levels = new Map<string, Set<string>>();
+		for (const spec of Object.values(REGISTRY)) {
+			for (const [attribute, level] of Object.entries(spec.attributes)) {
+				levels.set(attribute, (levels.get(attribute) ?? new Set()).add(level as string));
+			}
+		}
+		const wrong = [...tableRows('Every field')]
+			.filter(([name, cells]) => {
+				const expected = [...(levels.get(name) ?? new Set(['Operational']))];
+				return expected.length !== 1 || cells[4] !== expected[0];
+			})
+			.map(([name]) => name);
+		expect(wrong).toEqual([]);
+	});
+});
+
+describe('docs/logging.md, « What to do »', () => {
+	it('has one row for every WARN, ERROR and FATAL event, and no other', () => {
+		const needsAction = Object.entries(REGISTRY)
+			.filter(([, spec]) => ['WARN', 'ERROR', 'FATAL'].includes(spec.severity))
+			.map(([name]) => name);
+		const documented = [...tableRows('What to do').keys()];
+		expect(needsAction.length).toBeGreaterThan(0);
+		expect(documented.sort()).toEqual([...needsAction].sort());
+	});
+
+	it('says something in every row', () => {
+		const empty = [...tableRows('What to do')]
+			.filter(([, cells]) => cells.length !== 1 || cells[0].length < 10)
+			.map(([name]) => name);
+		expect(empty).toEqual([]);
+	});
+});

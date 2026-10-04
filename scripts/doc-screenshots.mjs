@@ -1,4 +1,4 @@
-// Captures the screenshots embedded in docs/using/ and docs/reference/, against an instance
+// Captures the screenshots embedded in docs/using/, docs/reference/ and the logging guides, against an instance
 // you are already running. Unlike scripts/demo-screenshots.mjs, which owns its whole lifecycle
 // to produce the three README images, this one attaches to a server someone else started, so a
 // session can explore a page by hand and then capture exactly the state it just verified.
@@ -801,8 +801,62 @@ const GROUPS = {
 			clipAround: 'Invitations',
 			clipMinHeight: 300
 		}
+	],
+	// The two images of docs/logging-tutorial.md and docs/logging-collectors.md. The premise lives in
+	// docs/screenshots/logging/README.md: the Net worth page must fail (its table renamed), and the
+	// Grafana capture needs the Alloy and Loki recipe running with that failure already ingested.
+	// The reference the first shot reads off the error page is the one the second shot searches for,
+	// so the two images are about the same failure.
+	logging: [
+		{
+			file: 'logging/error-reference-desktop.png',
+			url: '/net-worth',
+			assert: async (page) => {
+				const line = page.getByText(/^Error reference: [0-9a-f-]{36}$/);
+				await line.waitFor({ timeout: 5000 });
+				const text = (await line.textContent()) ?? '';
+				loggingReference = text.slice('Error reference: '.length);
+			}
+		},
+		{
+			file: 'logging/grafana-explore-desktop.png',
+			// Another application, so no BudgetPilot sign-in, cookie or language check.
+			baseUrl: process.env.GRAFANA_URL ?? 'http://localhost:3001',
+			url: () => {
+				if (!loggingReference) {
+					throw new Error('[docs] the Grafana shot needs the error-reference shot before it');
+				}
+				const panes = {
+					a: {
+						datasource: 'loki',
+						queries: [
+							{
+								refId: 'A',
+								expr: `{service_name="budgetpilot"} | error_id="${loggingReference}"`,
+								queryType: 'range'
+							}
+						],
+						range: { from: 'now-3h', to: 'now' }
+					}
+				};
+				return `/explore?schemaVersion=1&orgId=1&panes=${encodeURIComponent(JSON.stringify(panes))}`;
+			},
+			before: async (page) => {
+				await page.getByText('budgetpilot.request.failed').first().waitFor({ timeout: 45000 });
+				// The log volume chart settles after the lines do; without this it can still say
+				// "Data outside time range" over a result that is in range.
+				await page.waitForTimeout(5000);
+			},
+			assert: async (page) => {
+				// The line shown is the failed request the reference names, not any other.
+				await page.getByText(loggingReference).first().waitFor({ timeout: 5000 });
+			}
+		}
 	]
 };
+
+/** The reference read off the error page by the first `logging` shot, for the second. */
+let loggingReference = null;
 
 /**
  * The Accounts section's premise, checked before the file is written.
@@ -935,23 +989,32 @@ async function main() {
 }
 
 async function capture(browser, storageState, shot) {
+	// A shot of another application (Grafana) names its own base URL, and gets none of BudgetPilot's
+	// session, cookie or language check.
+	const foreign = shot.baseUrl !== undefined;
+	const base = shot.baseUrl ?? BASE_URL;
 	const context = await browser.newContext({
 		// A signed-in state is the default, but the second sign-in step only exists for a visitor
 		// who has not finished signing in — so a shot can ask for a clean context instead.
-		storageState: shot.anonymous ? undefined : storageState,
+		storageState: shot.anonymous || foreign ? undefined : storageState,
 		viewport: shot.viewport ?? DESKTOP,
 		deviceScaleFactor: 1,
 		locale: 'en-GB',
 		extraHTTPHeaders: { 'Accept-Language': 'en' }
 	});
-	await context.addCookies([{ name: 'PARAGLIDE_LOCALE', value: 'en', url: BASE_URL }]);
+	if (!foreign) {
+		await context.addCookies([{ name: 'PARAGLIDE_LOCALE', value: 'en', url: BASE_URL }]);
+	}
 	const page = await context.newPage();
 	try {
-		await page.goto(`${BASE_URL}${shot.url}`);
+		const url = typeof shot.url === 'function' ? shot.url() : shot.url;
+		await page.goto(`${base}${url}`);
 		await page.waitForLoadState('networkidle');
 
-		const lang = await page.locator('html').getAttribute('lang');
-		if (lang !== 'en') throw new Error(`[docs] ${shot.file} rendered with lang="${lang}"`);
+		if (!foreign) {
+			const lang = await page.locator('html').getAttribute('lang');
+			if (lang !== 'en') throw new Error(`[docs] ${shot.file} rendered with lang="${lang}"`);
+		}
 
 		if (shot.before) await shot.before(page, { email: EMAIL, password: PASSWORD });
 

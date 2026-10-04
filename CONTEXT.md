@@ -201,3 +201,28 @@ when there is none.
 > path both wrote it. A first sync that failed on its second account moved the next window to the
 > failed attempt, so every row of that account older than the overlap was never fetched, silently
 > (#763).
+
+## Boot, and startup
+
+**Boot** is `boot.mjs`, which runs before the server exists: it checks the data directory and runs
+`prisma migrate deploy`, and its events are `budgetpilot.boot.*`. **Startup** is the server's own
+first line, `sys_startup`, written once the server is up.
+
+> **What confusing the two costs.** When boot fails there is no `sys_startup`, so searching the log
+> for it reads as "the instance never started" and hides the `budgetpilot.boot.*` line that says why.
+
+## `trace_id`, and `budgetpilot.error.id`
+
+The same identifier, the first without dashes and the second with them. The error page shows the
+second as the visitor's reference.
+
+> **What confusing the two costs.** A search for the dashed reference in the `trace_id` field finds
+> nothing, and the reverse. The tutorial needs `gsub("-"; "")` for that reason.
+
+## Written lines, and suppressed ones
+
+Within a minute the first 20 lines of a repeating event are written and the rest are only counted,
+in one `budgetpilot.log.suppressed` line.
+
+> **What confusing them costs.** Counting lines under-counts traffic: measured, 25 missing-page
+> requests produced 20 lines and one summary of 5 in one run.

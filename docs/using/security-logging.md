@@ -8,13 +8,21 @@ give access to.
 
 ## What it records
 
-The log records how the server is running: when it started and with which security settings, a
-page that could not be found, and an error the server did not expect, with the reference the error
-page showed you. If you report a problem, that reference lets the person who runs the instance find
+The log records how the server is running. For example:
+
+- when the server started, and with which security settings;
+- a page that could not be found;
+- an error the server did not expect, with the reference the error page showed you;
+- a step of your own work that failed, such as an import that could not be saved or a bank balance
+  that could not be fetched.
+
+If you report a problem, the reference on the error page lets the person who runs the instance find
 the matching line.
 
-Each line holds the time, the kind of event, the page's address pattern (for example
-`/imports/[batchId]`, never the address you typed), and a few numbers or codes.
+Each line holds the time, the kind of event and a few numbers or codes. A line about a page names
+its address pattern, for example `/imports/[batchId]`, never the address you typed. A line about a
+bank balance that could not be fetched also holds the internal number of your bank connection, which
+the person who runs the instance can match to your account.
 
 ## What it never records
 
@@ -29,10 +37,19 @@ The application is built so that a line cannot hold these: each field has a fixe
 what it may contain, and an automated check, run on every change to the code, fails if a password,
 code or key it planted shows up in the log.
 
-Two kinds of output share the log and are not written by the application, so these promises do
-not cover them: the database tool that runs when the server starts, whose error message on a
-failed update can quote a stored value ([#846](https://github.com/NonoHM/budgetpilot/issues/846)),
-and the error report Node itself prints if the server fails before it has finished starting.
+## Logs these promises do not cover
+
+Other programs on the same server write logs too, and the application does not control what they
+hold:
+
+- **The database tool that runs when the server starts.** If an update fails, its error message can
+  quote a stored value ([#846](https://github.com/NonoHM/budgetpilot/issues/846)).
+- **Node, the program BudgetPilot runs on**, if the server fails before it has finished starting.
+- **The web server in front of BudgetPilot**, if the instance uses the one BudgetPilot ships for
+  HTTPS. It keeps a line for every request with your IP address in readable form, the address of
+  each page you open with your search terms removed, and the name and version of your browser. The
+  person who runs the instance keeps the IP address readable so they can block an abuser, and can
+  choose to mask it.
 
 ## Sign-in events
 
@@ -44,7 +61,7 @@ can.
 
 ## How long it is kept
 
-The shipped setup keeps at most 50 MB of log per service and deletes the oldest lines when it is
+The shipped setup keeps at most 50 MB of log for each program it runs and deletes the oldest lines when it is
 full, so how long a line lasts depends on how busy the instance is. If the person who runs the
 instance copies the log elsewhere, they set the retention there. The French data protection
 authority recommends between six months and a year.
