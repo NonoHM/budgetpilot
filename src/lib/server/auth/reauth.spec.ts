@@ -335,12 +335,32 @@ describe('password plus a code from the new secret (confirmTotpSetup)', () => {
 			newTotpSecret: fresh
 		});
 
-		expect(outcome).toEqual({
-			ok: false,
-			reason: 'totp-already-enabled',
-			asked: 'password-and-code'
-		});
+		expect(outcome).toEqual({ ok: false, reason: 'totp-already-enabled' });
 		expect(rateLimit.recordReauthAttempt).not.toHaveBeenCalled();
+		// BEFORE any secret: the refusal is decided by the account's own state, so no code is
+		// verified. Separates « refused first » from « refused after the secrets were consulted ».
+		expect(vi.mocked(verifyTotpCode)).not.toHaveBeenCalled();
+	});
+
+	// One predicate for « has a factor » in the helper (the second contradiction pass on S1): the
+	// flag set with no stored secret is no factor, so enrolment repairs the row instead of refusing,
+	// exactly as disableTotp refuses it as totp-not-enabled. No writer produces this row; the test
+	// pins that the two refusals cannot both close it.
+	it('enrols over a flag that has no stored secret, which is no factor', async () => {
+		db.prisma.user.findUnique.mockResolvedValue({
+			passwordHash,
+			totpEnabled: true,
+			totpSecretEncrypted: null
+		});
+
+		const outcome = await reauthenticate('confirmTotpSetup', {
+			userId: USER,
+			ip: IP,
+			form: form({ password: PASSWORD, code: codeFor(fresh) }),
+			newTotpSecret: fresh
+		});
+
+		expect(outcome).toEqual({ ok: true });
 	});
 
 	it('refuses a code from another secret as wrong-totp', async () => {
@@ -454,13 +474,22 @@ describe('what a refusal says (#854 class 2)', () => {
 					'missing-totp',
 					'wrong-totp',
 					'totp-not-enabled',
-					'totp-already-enabled',
 					'no-account'
 				] as const
 			).map((reason) => reauthRefusalMessage({ ok: false, reason, asked: 'password-and-code' }))
 		);
 
 		expect([...sentences]).toEqual([m.reauth_error_password_or_code()]);
+	});
+
+	// Not a credential fact: the session already sees the factor on /settings. The owner reaches it
+	// by pressing « Enable » twice, and the credential sentence told them a right password was wrong
+	// (the second contradiction pass on S1). Separates « says the factor is on, and how to get new
+	// codes » from « says the password or the code was wrong ».
+	it('an enrolment over an existing factor says so, not that a secret was wrong', () => {
+		expect(reauthRefusalMessage({ ok: false, reason: 'totp-already-enabled' })).toBe(
+			m.settings_mfa_error_already_enabled()
+		);
 	});
 
 	it('the limiter keeps its own sentence', () => {

@@ -826,6 +826,7 @@
 	"settings_mfa_setup_code_label": "Code à 6 chiffres",
 	"settings_mfa_setup_submit": "Activer",
 	"settings_mfa_error_invalid_code": "Code invalide. Vérifiez l'heure de votre appareil et réessayez.",
+	"settings_mfa_error_already_enabled": "L'authentification à deux facteurs est déjà activée. Pour obtenir de nouveaux codes de récupération, désactivez-la puis réactivez-la.",
 	"settings_mfa_recovery_codes_title": "Codes de récupération",
 	"settings_mfa_recovery_codes_description": "Notez ces codes dans un endroit sûr : ils ne seront plus jamais affichés. Chacun ne peut être utilisé qu'une seule fois pour vous connecter si vous perdez l'accès à votre application d'authentification.",
 	"settings_mfa_recovery_codes_confirm": "J'ai sauvegardé mes codes",

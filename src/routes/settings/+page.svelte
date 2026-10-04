@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import type { SubmitFunction } from '@sveltejs/kit';
-	import { afterNavigate } from '$app/navigation';
+	import { afterNavigate, invalidateAll } from '$app/navigation';
 	import { onMount, tick } from 'svelte';
 	import Modal from '$lib/components/Modal.svelte';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
@@ -256,8 +256,14 @@
 	// the same thing and differ only by what they end.
 	let revokeTarget: { kind: 'one'; sessionId: string } | { kind: 'others' } | null = $state(null);
 	type ReauthDialogPhase = 'idle' | 'busy' | 'error';
+	/**
+	 * What failed. `answered` separates the two failures ConfirmDialog's contract tells apart: a
+	 * server that said no is retried; a request that got no answer is not retried blind, the page
+	 * is refreshed instead.
+	 */
+	type ReauthDialogFailure = { message: string; answered: boolean };
 	let revokePhase = $state<ReauthDialogPhase>('idle');
-	let revokeErrorMessage = $state('');
+	let revokeFailure = $state<ReauthDialogFailure | null>(null);
 	let revokeFormEl = $state<HTMLFormElement | null>(null);
 
 	function closeRevokeDialog() {
@@ -277,7 +283,7 @@
 	 */
 	function submitInReauthDialog(
 		errorKey: 'sessionsError' | 'restoreError',
-		setPhase: (phase: ReauthDialogPhase, message?: string) => void,
+		setPhase: (phase: ReauthDialogPhase, failure?: ReauthDialogFailure) => void,
 		close: () => void
 	): SubmitFunction {
 		return () => {
@@ -285,17 +291,44 @@
 			return async ({ result, update }) => {
 				if (result.type === 'failure') {
 					const message = result.data?.[errorKey];
-					setPhase('error', typeof message === 'string' ? message : m.error_generic_description());
+					setPhase('error', {
+						message: typeof message === 'string' ? message : m.error_generic_description(),
+						answered: true
+					});
+					// The page data is refreshed under the dialog: a session already gone (revoked
+					// elsewhere, or expired) leaves the list instead of looping the dialog on its 404.
+					await invalidateAll();
 					return;
 				}
 				if (result.type === 'error') {
-					setPhase('error', m.error_generic_description());
+					setPhase('error', { message: m.error_generic_description(), answered: false });
 					return;
 				}
 				close();
 				await update();
 			};
 		};
+	}
+
+	/** The dialog's `error` slot, from what failed: retry an answer, refresh after no answer. */
+	function reauthDialogError(
+		failure: ReauthDialogFailure | null,
+		formEl: HTMLFormElement | null,
+		setIdle: () => void,
+		close: () => void
+	) {
+		if (failure === null) return undefined;
+		return failure.answered
+			? {
+					message: failure.message,
+					actionLabel: m.common_retry(),
+					onAction: () => retryReauthDialog(formEl, setIdle)
+				}
+			: {
+					message: failure.message,
+					actionLabel: m.common_close(),
+					onAction: () => void invalidateAll().then(close)
+				};
 	}
 
 	/** The retry: back to the field, emptied, because what it held was refused. */
@@ -329,7 +362,7 @@
 	let restoreFiles = $state<FileList | undefined>(undefined);
 	let restoreConfirmOpen = $state(false);
 	let restorePhase = $state<ReauthDialogPhase>('idle');
-	let restoreErrorMessage = $state('');
+	let restoreFailure = $state<ReauthDialogFailure | null>(null);
 	let restoreFormEl = $state<HTMLFormElement | null>(null);
 
 	function closeRestoreDialog() {
@@ -1016,9 +1049,9 @@
 							class="mt-3"
 							use:enhance={submitInReauthDialog(
 								'restoreError',
-								(phase, message) => {
+								(phase, failure) => {
 									restorePhase = phase;
-									if (message !== undefined) restoreErrorMessage = message;
+									if (failure !== undefined) restoreFailure = failure;
 								},
 								closeRestoreDialog
 							)}
@@ -1066,12 +1099,12 @@
 								tone="danger"
 								phase={restorePhase}
 								error={restorePhase === 'error'
-									? {
-											message: restoreErrorMessage,
-											actionLabel: m.common_retry(),
-											onAction: () =>
-												retryReauthDialog(restoreFormEl, () => (restorePhase = 'idle'))
-										}
+									? reauthDialogError(
+											restoreFailure,
+											restoreFormEl,
+											() => (restorePhase = 'idle'),
+											closeRestoreDialog
+										)
 									: undefined}
 								onClose={closeRestoreDialog}
 							>
@@ -1707,9 +1740,9 @@
 	autocomplete="off"
 	use:enhance={submitInReauthDialog(
 		'sessionsError',
-		(phase, message) => {
+		(phase, failure) => {
 			revokePhase = phase;
-			if (message !== undefined) revokeErrorMessage = message;
+			if (failure !== undefined) revokeFailure = failure;
 		},
 		closeRevokeDialog
 	)}
@@ -1728,11 +1761,12 @@
 		tone="danger"
 		phase={revokePhase}
 		error={revokePhase === 'error'
-			? {
-					message: revokeErrorMessage,
-					actionLabel: m.common_retry(),
-					onAction: () => retryReauthDialog(revokeFormEl, () => (revokePhase = 'idle'))
-				}
+			? reauthDialogError(
+					revokeFailure,
+					revokeFormEl,
+					() => (revokePhase = 'idle'),
+					closeRevokeDialog
+				)
 			: undefined}
 		onClose={closeRevokeDialog}
 	>

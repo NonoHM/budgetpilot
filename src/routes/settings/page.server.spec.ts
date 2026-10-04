@@ -1964,6 +1964,7 @@ describe('S1: each re-authenticating settings action, through the real action', 
 			reason: 'totp-already-enabled'
 		});
 		expect(result.status).toBe(400);
+		expect(result.data.totpSetupError).toBe(m.settings_mfa_error_already_enabled());
 		expect(result.data.recoveryCodes).toBeUndefined();
 		for (const write of CASES.confirmTotpSetup.writes()) expect(write.mock.calls).toEqual([]);
 	});

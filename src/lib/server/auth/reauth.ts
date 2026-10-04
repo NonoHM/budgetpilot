@@ -81,11 +81,16 @@ export type ReauthCredentialRefusal =
 	| 'missing-totp'
 	| 'wrong-totp'
 	| 'totp-not-enabled'
-	| 'totp-already-enabled'
 	| 'no-account';
 
 export type ReauthRefused =
 	| { ok: false; reason: 'rate-limited' }
+	/**
+	 * Enrolment over an existing factor. Not a credential refusal: the session already sees the
+	 * factor on /settings, so it has its own sentence, which tells the owner who pressed « Enable »
+	 * twice that it worked and how to get new recovery codes.
+	 */
+	| { ok: false; reason: 'totp-already-enabled' }
 	| { ok: false; reason: ReauthCredentialRefusal; asked: ReauthAsked };
 
 export type ReauthOutcome = { ok: true } | ReauthRefused;
@@ -144,8 +149,9 @@ async function decide(
 
 	if (password.length === 0) return refuse('missing-password');
 	if (factors === 'password+totp' && storedSecret === null) return refuse('totp-not-enabled');
-	if (factors === 'password+new-secret-code' && account.totpEnabled) {
-		return refuse('totp-already-enabled');
+	// The same predicate as `totp-not-enabled` above: one answer to « has a factor » in this helper.
+	if (factors === 'password+new-secret-code' && storedSecret !== null) {
+		return { ok: false, reason: 'totp-already-enabled' };
 	}
 	if (asksCode && !TOTP_CODE_PATTERN.test(code)) return refuse('missing-totp');
 
@@ -191,6 +197,7 @@ export function reauthRefusalMessage(
 	refused: ReauthRefused
 ): ReturnType<typeof m.reauth_error_password> {
 	if (refused.reason === 'rate-limited') return m.settings_error_reauth_too_many();
+	if (refused.reason === 'totp-already-enabled') return m.settings_mfa_error_already_enabled();
 	return refused.asked === 'password'
 		? m.reauth_error_password()
 		: m.reauth_error_password_or_code();
