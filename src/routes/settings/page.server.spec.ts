@@ -1843,7 +1843,9 @@ describe('S1: each re-authenticating settings action, through the real action', 
 	}
 
 	const ACTIONS = Object.keys(CASES) as SettingsReauthAction[];
-	const ROWS = ACTIONS.flatMap((action) => reasonsFor(action).map((reason) => [action, reason]));
+	const ROWS = ACTIONS.flatMap((action) =>
+		reasonsFor(action).map((reason) => [action, reason] as const)
+	);
 
 	beforeAll(async () => {
 		passwordHash = await hashPassword(PASSWORD);
