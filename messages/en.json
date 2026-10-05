@@ -904,7 +904,7 @@
 	"reauth_error_password_or_code": "Incorrect password or code.",
 	"settings_revoke_session_confirm_title": "Revoke this session?",
 	"settings_logout_other_sessions_confirm_title": "Log out other sessions?",
-	"settings_error_reauth_too_many": "Too many attempts. Try again in a few minutes.",
+	"settings_error_reauth_too_many": "Too many attempts. Try again later, or log out if it keeps happening.",
 	"settings_error_restore_no_file": "Select a backup file to restore.",
 	"settings_error_restore_too_large": "File too large (maximum {max} MB).",
 	"settings_error_restore_read_failed": "Could not read the file.",

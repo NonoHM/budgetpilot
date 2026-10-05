@@ -11,9 +11,10 @@ const WINDOW_MS = 15 * 60 * 1000;
 // grinding the password/TOTP unboundedly. Security here is dominated by bcrypt (slow) and the TOTP
 // mechanics (~90s validity in a 10^6 space), so 5 tries per 5-minute sliding window loses no
 // protection versus 15 minutes: it only shortens a session's self-inflicted lockout. Because only
-// FAILED attempts are recorded and the window slides, a tripped counter self-clears in ~5 minutes
-// with no admin. That it is the GUESSING session's counter, and nobody else's, is
-// `isReauthRateLimited` below (#879).
+// FAILED attempts are recorded and the window slides, a counter tripped by its own session clears in
+// ~5 minutes with no admin. Two conditions, both on `isReauthRateLimited` below (#879): the budget
+// holds for attempts made one after another (a concurrent burst exceeds it, #714), and a thief
+// holding a copy of the session's cookie can keep it tripped, which logging out ends.
 const REAUTH_WINDOW_MS = 5 * 60 * 1000;
 const MAX_ATTEMPTS = 5;
 
@@ -276,11 +277,14 @@ export async function recordBankSyncStartAttempt(userId: string, ip: string): Pr
  * after another; a concurrent burst exceeds it, because the limiter checks then records (#714), as
  * it did under the old keys.
  *
- * The refusal sentence still says only to wait, and that is deliberate. Logging out would reset
- * this counter, but it leads to `/login`, whose limiter is keyed by the email and can be tripped by
- * anyone who knows it (#248): an owner who logged out on that advice could be kept out while a
- * thief on another session stays in. Waiting keeps the owner's session, from which the thief's can
- * be revoked.
+ * The refusal sentence (`settings_error_reauth_too_many`) says to wait, then to log out if it
+ * persists, and the ORDER is the point. Under this key only two parties can trip a session's counter.
+ * The owner's own wrong guesses clear in five minutes, and logging out first would be worse: it leads
+ * to `/login`, whose limiter is keyed by the email and can be tripped by anyone who knows it (#248),
+ * so a thief on another session could keep the owner out. A thief holding a COPY of the owner's
+ * cookie keeps the counter tripped, so waiting never clears it, and logging out revokes that token
+ * for both. A refusal that outlasts the window is therefore the second case, and only then is
+ * logging out the answer.
  *
  * Shared ACROSS actions, never per action: all of them test the same password, so a per-action
  * counter would multiply the guessing budget by the number of actions. Callers record ONLY on a wrong

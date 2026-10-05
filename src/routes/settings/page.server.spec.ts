@@ -698,7 +698,9 @@ describe('/settings', () => {
 			})) as { status: number; data: { deleteError: string } };
 
 			expect(result.status).toBe(400);
-			expect(result.data.deleteError).toBe('Trop de tentatives. Réessayez dans quelques minutes.');
+			expect(result.data.deleteError).toBe(
+				'Trop de tentatives. Réessayez plus tard, ou déconnectez-vous si cela persiste.'
+			);
 			// Short-circuits before the expensive verify: findUnique is never reached.
 			expect(db.prisma.user.findUnique).not.toHaveBeenCalled();
 			expect(tx.user.delete).not.toHaveBeenCalled();
@@ -740,7 +742,7 @@ describe('/settings', () => {
 			})) as { status: number; data: { passwordError: string } };
 
 			expect(result.data.passwordError).toBe(
-				'Trop de tentatives. Réessayez dans quelques minutes.'
+				'Trop de tentatives. Réessayez plus tard, ou déconnectez-vous si cela persiste.'
 			);
 			expect(db.prisma.user.findUnique).not.toHaveBeenCalled();
 		});
