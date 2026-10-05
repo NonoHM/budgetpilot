@@ -903,7 +903,12 @@ async function completeTotpSetup(page) {
 	const code = new TOTP({ issuer: 'BudgetPilot', secret: Secret.fromBase32(secret) }).generate();
 	await page.getByLabel('Current password').fill(PASSWORD);
 	await page.locator('input[name="code"]').fill(code);
-	await page.getByRole('button', { name: 'Enable', exact: true }).click();
+	// Until the enrolment's own response has landed, not for a fixed time: it carries the new session
+	// cookie (#249), which the next shot is captured with, and it costs a dozen bcrypt rounds.
+	await Promise.all([
+		page.waitForResponse((response) => response.url().includes('confirmTotpSetup')),
+		page.getByRole('button', { name: 'Enable', exact: true }).click()
+	]);
 	await page.waitForTimeout(600);
 }
 
@@ -971,7 +976,7 @@ async function main() {
 		console.log('[docs] categories already carry their English names, nothing to rename');
 	}
 
-	const storageState = await ctx.storageState();
+	let storageState = await ctx.storageState();
 	await ctx.dispose();
 
 	const browser = await chromium.launch();
@@ -980,7 +985,10 @@ async function main() {
 			const shots = GROUPS[group];
 			if (!shots) throw new Error(`[docs] unknown group "${group}"`);
 			for (const shot of shots) {
-				await capture(browser, storageState, shot);
+				// Carried forward from each signed-in shot: a shot that confirms a password (the
+				// two-factor enrolment) commits with a new session token (#249), and the state captured
+				// before it would sign every later shot out.
+				storageState = await capture(browser, storageState, shot);
 			}
 		}
 	} finally {
@@ -1017,6 +1025,12 @@ async function capture(browser, storageState, shot) {
 		}
 
 		if (shot.before) await shot.before(page, { email: EMAIL, password: PASSWORD });
+
+		// A signed-in shot that landed on the sign-in page photographs /login under its own name, and
+		// most shots carry no `assert` that would notice. Refused here, for every shot at once.
+		if (!shot.anonymous && !foreign && new URL(page.url()).pathname.startsWith('/login')) {
+			throw new Error(`[docs] ${shot.file} landed on ${new URL(page.url()).pathname}: signed out`);
+		}
 
 		// Runs after `before` and BEFORE the file is written, so a capture whose premise is false
 		// fails instead of overwriting a good image with a wrong one. Optional: most shots document a
@@ -1056,6 +1070,8 @@ async function capture(browser, storageState, shot) {
 			await page.screenshot({ path: file, fullPage: shot.fullPage === true });
 			console.log(`[docs] ${shot.file}  ${shot.fullPage ? 'full page' : 'viewport'}`);
 		}
+		// The session as this shot left it, for the next one (see main).
+		return shot.anonymous || foreign ? storageState : await context.storageState();
 	} finally {
 		await context.close();
 	}

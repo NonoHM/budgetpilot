@@ -38,7 +38,13 @@ async function resolveTransactionId(label: string): Promise<string> {
 }
 
 test.beforeAll(async () => {
-	api = await request.newContext({ baseURL: E2E_BASE_URL, extraHTTPHeaders: E2E_API_HEADERS });
+	// EMPTY storageState, explicitly: `request.newContext` inherits the suite's shared session, and
+	// signing in over a live session revokes it (#249), which would sign every later spec out.
+	api = await request.newContext({
+		baseURL: E2E_BASE_URL,
+		extraHTTPHeaders: E2E_API_HEADERS,
+		storageState: { cookies: [], origins: [] }
+	});
 	await loginE2eUser(api);
 	for (const label of [STATE_LABEL, REFUSAL_LABEL]) {
 		await createTransaction(api, { date: DATE, label, amount: '-12.34', category: CATEGORY });

@@ -1,5 +1,5 @@
 import { DatabaseSync } from 'node:sqlite';
-import { request as apiRequest, type APIRequestContext } from '@playwright/test';
+import { request as apiRequest, type APIRequestContext, type Page } from '@playwright/test';
 import { expect, test } from './fixtures';
 import { E2E_API_HEADERS, E2E_BASE_URL } from './config';
 import { assertOk, E2E_USER_EMAIL, E2E_USER_PASSWORD, submitForm } from './seed';
@@ -17,6 +17,15 @@ import * as m from '../src/lib/paraglide/messages';
  * focused inside it) from « the page reloaded elsewhere » (dialog gone). The revoke test then
  * completes the journey and observes the outcome OUTSIDE the page: the revoked session's own
  * requests are sent to /login, which no rendering of /settings can fake.
+ *
+ * #249: the same journey carries the rotation. A copy of the page's cookie, taken before the
+ * re-authentication, is sent to /login after it, while the page stays signed in. That separates
+ * « the token the request arrived with ended » from « the browser was given a new one and the old
+ * one still works » (main, measured: one live session still carried it).
+ *
+ * EACH TEST SIGNS IN ON ITS OWN SESSION. A successful re-authentication rotates the token, so
+ * running one on the suite's shared `storageState` session would leave the saved file holding a
+ * dead cookie, and every spec after this one would start signed out.
  */
 
 const SESSION_DB = 'e2e/.data/test.db';
@@ -58,15 +67,38 @@ async function settingsStatus(context: APIRequestContext): Promise<number> {
 	return (await context.get('/settings', { maxRedirects: 0 })).status();
 }
 
-test.use({ viewport: { width: 390, height: 844 } });
+test.use({ storageState: { cookies: [], origins: [] }, viewport: { width: 390, height: 844 } });
+
+/** The page signs in through the form, so the session it holds is its own. */
+async function signIn(page: Page): Promise<void> {
+	await page.goto('/login');
+	await page.getByLabel(m.login_email_label()).fill(E2E_USER_EMAIL);
+	await page
+		.getByRole('textbox', { name: m.login_password_label(), exact: false })
+		.fill(E2E_USER_PASSWORD);
+	await page.getByRole('button', { name: m.login_submit() }).click();
+	await expect(page).not.toHaveURL(/\/login/);
+}
+
+/** Another holder of the page's cookie as it stands now: a copy taken by whoever read it. */
+async function copyOfCookie(page: Page): Promise<APIRequestContext> {
+	return apiRequest.newContext({
+		baseURL: E2E_BASE_URL,
+		extraHTTPHeaders: E2E_API_HEADERS,
+		storageState: await page.context().storageState()
+	});
+}
 
 test('a wrong password keeps the revoke dialog open with the refusal focused, the right one revokes', async ({
 	page
 }) => {
 	const second = await secondSession();
 	const sessionId = newestSessionId();
+	await signIn(page);
+	const copy = await copyOfCookie(page);
 	try {
 		expect(await settingsStatus(second)).toBe(200);
+		expect(await settingsStatus(copy)).toBe(200);
 
 		await page.goto('/settings');
 		await page.locator(`button[data-session-id="${sessionId}"]:visible`).click();
@@ -80,6 +112,8 @@ test('a wrong password keeps the revoke dialog open with the refusal focused, th
 		await expect(refusal).toHaveText(m.reauth_error_password());
 		await expect(refusal).toBeFocused();
 		expect(await settingsStatus(second)).toBe(200);
+		// A refusal rotates nothing: the copy still works.
+		expect(await settingsStatus(copy)).toBe(200);
 
 		// The retry empties the refused password and puts the person back in the field.
 		await dialog.getByRole('button', { name: m.common_retry() }).click();
@@ -92,12 +126,19 @@ test('a wrong password keeps the revoke dialog open with the refusal focused, th
 		await expect(dialog).toBeHidden();
 		await expect(page.locator(`button[data-session-id="${sessionId}"]`)).toHaveCount(0);
 		expect(await settingsStatus(second)).toBe(303);
+		// #249: the token the page re-authenticated with is over, for every copy of it...
+		expect(await settingsStatus(copy)).toBe(303);
+		// ...and the page itself holds the new one and is still signed in.
+		await page.goto('/settings');
+		await expect(page).toHaveURL(/\/settings$/);
 	} finally {
 		await second.dispose();
+		await copy.dispose();
 	}
 });
 
 test('a wrong password keeps the restore dialog open, its file still chosen', async ({ page }) => {
+	await signIn(page);
 	await page.goto('/settings');
 	// The section's own toggle: its row is the title's grandparent (title, its wrapper, the row).
 	await page
