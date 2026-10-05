@@ -904,7 +904,7 @@
 	"reauth_error_password_or_code": "Mot de passe ou code incorrect.",
 	"settings_revoke_session_confirm_title": "Révoquer cette session ?",
 	"settings_logout_other_sessions_confirm_title": "Déconnecter les autres sessions ?",
-	"settings_error_reauth_too_many": "Trop de tentatives. Réessayez plus tard, ou déconnectez-vous si cela persiste.",
+	"settings_error_reauth_too_many": "Trop de tentatives. Réessayez dans quelques minutes.",
 	"settings_error_restore_no_file": "Sélectionnez un fichier de sauvegarde à restaurer.",
 	"settings_error_restore_too_large": "Fichier trop volumineux (maximum {max} Mo).",
 	"settings_error_restore_read_failed": "Impossible de lire le fichier.",

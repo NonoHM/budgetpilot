@@ -268,7 +268,7 @@ export async function recordBankSyncStartAttempt(userId: string, ip: string): Pr
  * deletion: the controls that end a stolen session, held shut by it. The account is shared by every
  * session of the account; the address by everyone behind one NAT, which for a household application
  * is where a session is likeliest to be stolen. The session is the one key the owner and the thief
- * cannot share, unless the thief copied the owner's very cookie, and then signing out revokes both.
+ * cannot share, unless the thief copied the owner's very cookie, and then logging out revokes both.
  *
  * What the address bought, and why it is not needed: it stopped rotating ACCOUNTS from one address.
  * A REAUTH guess needs a session, and every way to a session asks the password (`/login`,
@@ -277,14 +277,11 @@ export async function recordBankSyncStartAttempt(userId: string, ip: string): Pr
  * after another; a concurrent burst exceeds it, because the limiter checks then records (#714), as
  * it did under the old keys.
  *
- * The refusal sentence (`settings_error_reauth_too_many`) says to wait, then to log out if it
- * persists, and the ORDER is the point. Under this key only two parties can trip a session's counter.
- * The owner's own wrong guesses clear in five minutes, and logging out first would be worse: it leads
- * to `/login`, whose limiter is keyed by the email and can be tripped by anyone who knows it (#248),
- * so a thief on another session could keep the owner out. A thief holding a COPY of the owner's
- * cookie keeps the counter tripped, so waiting never clears it, and logging out revokes that token
- * for both. A refusal that outlasts the window is therefore the second case, and only then is
- * logging out the answer.
+ * One case is left, #885: a thief holding a COPY of the owner's cookie shares this counter and can
+ * keep it tripped, because a refused attempt records nothing. Logging out ends it (it revokes the
+ * token for both holders). The refusal sentence still says only to wait, because an owner whose own
+ * failure repeats (a forgotten password, a drifted authenticator) sees the same refusal, and for
+ * them logging out throws away their only session. Telling the two apart is #885.
  *
  * Shared ACROSS actions, never per action: all of them test the same password, so a per-action
  * counter would multiply the guessing budget by the number of actions. Callers record ONLY on a wrong
