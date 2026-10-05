@@ -188,11 +188,13 @@ reachable path to it. **None of the 51 is a known-exploitable defect**: an excep
 a control the standard asks for is absent or unverified, not that an attack against it
 has been demonstrated.
 
-Two entries are recorded as contradictions to re-argue rather than defects to fix, which
-is the honest description of them: ASVS asks for session-token rotation on
-re-authentication, which this project deliberately declined
-([#249](https://github.com/NonoHM/budgetpilot/issues/249)), and for configurable
-cryptography, which it refuses because a configurable algorithm is a downgrade surface.
+Two entries were recorded as contradictions to re-argue rather than defects to fix. One
+was re-argued and reversed: ASVS asks for session-token rotation on re-authentication,
+which this project first declined and now does, with every re-authenticated change,
+every password change and every sign-in
+([#249](https://github.com/NonoHM/budgetpilot/issues/249)). The other stands: ASVS asks
+for configurable cryptography, which this project refuses because a configurable
+algorithm is a downgrade surface.
 
 ### What this does not tell you
 

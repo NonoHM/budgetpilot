@@ -5,14 +5,14 @@ does, see [your account and settings](../using/account.md).
 
 ## Password
 
-|                               |                        |
-| ----------------------------- | ---------------------- |
-| Minimum length                | **12 characters**      |
-| Maximum length accepted       | 256 characters         |
-| Length that affects the hash  | **the first 72 bytes** |
-| Requires the current one      | yes                    |
-| Other sessions after a change | **all revoked**        |
-| The session you are using     | kept                   |
+|                               |                         |
+| ----------------------------- | ----------------------- |
+| Minimum length                | **12 characters**       |
+| Maximum length accepted       | 256 characters          |
+| Length that affects the hash  | **the first 72 bytes**  |
+| Requires the current one      | yes                     |
+| Other sessions after a change | **all revoked**         |
+| The session you are using     | kept, with a new cookie |
 
 No character-class rule: length is the whole requirement.
 
@@ -45,9 +45,22 @@ first and unhelpful for the other two, but no figure it displays is wrong.
 | Created     | one per sign-in                                       |
 | Shown       | count of active, plus every session with its dates    |
 | Current one | marked, and never revoked by "log out other sessions" |
+| Its cookie  | replaced each time you confirm your password          |
 
 A session ends when it expires, when it is revoked from this page, or when
 the password changes.
+
+**Confirming your password replaces the cookie of the session you are using.**
+Every action that asks for your current password does this when the change it
+confirms is saved: changing it, logging out sessions, turning two-factor on or
+off, restoring a backup, and the admin actions. The session stays the same one,
+with the same expiry date; only the cookie that proves it changes. A copy of the
+old cookie, taken from this browser before that moment, stops working. An action
+that is refused after you confirmed changes nothing, the cookie included.
+
+**Signing in ends the session the browser already held.** A browser that signs
+in again, as the same account or another one, does not leave its previous
+session open behind it.
 
 ## Language
 

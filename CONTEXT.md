@@ -226,3 +226,15 @@ in one `budgetpilot.log.suppressed` line.
 
 > **What confusing them costs.** Counting lines under-counts traffic: measured, 25 missing-page
 > requests produced 20 lines and one summary of 5 in one run.
+
+## Session, and its token
+
+A **session** is the `Session` row: its id, its owner and its expiry. Its **token** is the secret
+the browser's cookie carries, and the row stores only the token's hash. Since #249 a session
+outlives its tokens: a re-authenticated change, a password change or a forced password change
+replaces the token and keeps the row, and `/logout` ends the row.
+
+> **What confusing them costs.** "Every session but mine" written as "every token hash but the one
+> this request presented" revokes the caller's own session once its token has been replaced earlier
+> in the same request. Measured on #249 by restoring that predicate: a password change signed its
+> own owner out. The current session is `locals.user.sessionId`, never a hash of the cookie.
