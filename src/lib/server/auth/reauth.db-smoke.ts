@@ -9,6 +9,7 @@ import {
 	readSessionUser,
 	SESSION_COOKIE
 } from '$lib/server/auth';
+import * as m from '$lib/paraglide/messages';
 import { prisma } from '$lib/server/db';
 
 /**
@@ -149,6 +150,65 @@ describe('revokeSession resolves the session with the caller IN the where clause
 
 		expect(result.sessionsSuccess).toEqual(expect.any(String));
 		expect(await readSessionUser(aSecond.token)).toBeNull();
+	});
+});
+
+/**
+ * #879: the counter belongs to the SESSION that guessed, so a stolen session cannot hold its owner's
+ * controls shut. Both tests drive the real action with `locals.user` resolved from the cookie by
+ * `readSessionUser`, the call `handleAuth` makes, so the session the limiter sees is the one the
+ * hook resolved and not one a test chose.
+ */
+describe('the re-authentication counter belongs to the session that guessed', () => {
+	async function revokeOthers(token: string, password: string, ip: string) {
+		const { actions } = await import('../../../routes/settings/+page.server');
+		const formData = new FormData();
+		formData.set('currentPassword', password);
+		const action = actions.revokeOtherSessions as unknown as (event: unknown) => Promise<unknown>;
+		return (await action({
+			cookies: { get: (name: string) => (name === SESSION_COOKIE ? token : undefined) },
+			getClientAddress: () => ip,
+			request: new Request('http://localhost/settings', { method: 'POST', body: formData }),
+			locals: { user: await readSessionUser(token) }
+		})) as { status?: number; data?: Record<string, string>; sessionsSuccess?: string };
+	}
+
+	// Separates « keyed by the account » (the owner is refused, as measured on main) from « keyed by
+	// the session ». ONE address for both sessions, so it also separates « the address is a
+	// dimension » from « it is not »: a household behind one NAT address is the likeliest place a
+	// session is stolen from.
+	it("five wrong passwords from another session do not refuse the owner's session", async () => {
+		expect.assertions(2);
+		const a = await seedAccount('stolen', PASSWORD_A);
+		const owner = await mintSession(a.id);
+		const thief = await mintSession(a.id);
+		const household = freshAddress();
+
+		for (let attempt = 0; attempt < 5; attempt++) {
+			await revokeOthers(thief.token, 'wrong', household);
+		}
+		const result = await revokeOthers(owner.token, PASSWORD_A, household);
+
+		expect(result.sessionsSuccess).toEqual(expect.any(String));
+		expect(await readSessionUser(thief.token)).toBeNull();
+	});
+
+	// The budget the change must keep: the session that guessed is refused, and moving to a new
+	// address buys it no sixth guess.
+	it('the session that guessed five times is refused, from any address', async () => {
+		expect.assertions(1);
+		const a = await seedAccount('guesser', PASSWORD_A);
+		const thief = await mintSession(a.id);
+
+		for (let attempt = 0; attempt < 5; attempt++) {
+			await revokeOthers(thief.token, 'wrong', freshAddress());
+		}
+		const result = await revokeOthers(thief.token, PASSWORD_A, freshAddress());
+
+		expect(result).toMatchObject({
+			status: 400,
+			data: { sessionsError: m.settings_error_reauth_too_many() }
+		});
 	});
 });
 
