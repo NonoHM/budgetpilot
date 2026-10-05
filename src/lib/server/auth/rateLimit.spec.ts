@@ -606,6 +606,18 @@ describe('isReauthRateLimited / recordReauthAttempt (shared settings re-auth lim
 		expect(args.where.createdAt.gte).toEqual(new Date('2026-07-02T11:55:00.000Z'));
 	});
 
+	// Separates « refuses loudly » from « fails open ». REAUTH has no address to fall back on, so a
+	// session id missing at run time (a cast the type cannot see) would leave no counter at all, and
+	// an empty list of counts reads as « under the limit ».
+	it('refuse un appel sans session au lieu de laisser passer', async () => {
+		expect.assertions(2);
+
+		await expect(isReauthRateLimited(undefined as unknown as string)).rejects.toThrow(
+			'rate limiter called with no key for REAUTH'
+		);
+		expect(db.prisma.loginAttempt.count).not.toHaveBeenCalled();
+	});
+
 	it("recordReauthAttempt crée une ligne kind: 'REAUTH' avec session et IP hachées", async () => {
 		expect.assertions(4);
 

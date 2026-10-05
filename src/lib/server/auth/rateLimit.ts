@@ -191,6 +191,9 @@ async function isRateLimited(kind: AttemptKind, keys: RateLimitKeys): Promise<bo
 			prisma.loginAttempt.count({ where: { ipHash, kind, createdAt: { gte: windowStart } } })
 		);
 	}
+	// The type above cannot see a cast: a key that is `undefined` at run time would leave no counter,
+	// and an empty list of counts reads as « under the limit ». Refused, never let through.
+	if (checks.length === 0) throw new Error(`rate limiter called with no key for ${kind}`);
 	const counts = await Promise.all(checks);
 	return counts.some((count) => count >= maxAttemptsForKind(kind));
 }
@@ -268,8 +271,16 @@ export async function recordBankSyncStartAttempt(userId: string, ip: string): Pr
  *
  * What the address bought, and why it is not needed: it stopped rotating ACCOUNTS from one address.
  * A REAUTH guess needs a session, and every way to a session asks the password (`/login`,
- * `/login/verify-totp`, and `/register`, which makes a new account), so the budget stays five per
- * five minutes per stolen session, and a new session cannot be had to reset it.
+ * `/login/verify-totp`, and `/register`, which makes a new account), so a new session cannot be had
+ * to reset the counter. The budget is five per five minutes per stolen session for attempts made one
+ * after another; a concurrent burst exceeds it, because the limiter checks then records (#714), as
+ * it did under the old keys.
+ *
+ * The refusal sentence still says only to wait, and that is deliberate. Logging out would reset
+ * this counter, but it leads to `/login`, whose limiter is keyed by the email and can be tripped by
+ * anyone who knows it (#248): an owner who logged out on that advice could be kept out while a
+ * thief on another session stays in. Waiting keeps the owner's session, from which the thief's can
+ * be revoked.
  *
  * Shared ACROSS actions, never per action: all of them test the same password, so a per-action
  * counter would multiply the guessing budget by the number of actions. Callers record ONLY on a wrong
