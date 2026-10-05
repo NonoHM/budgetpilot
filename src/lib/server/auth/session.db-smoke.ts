@@ -59,10 +59,14 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 let userId = '';
 
-/** The minimum of `Cookies` that `createSession` touches, holding what it wrote. */
+/**
+ * The minimum of `Cookies` that `createSession` touches, holding what it wrote. A browser presenting
+ * no session cookie, so the revocation of a presented one (#249) has nothing to revoke here.
+ */
 function captureCookies(): { cookies: Cookies; token: () => string } {
 	let written = '';
 	const cookies = {
+		get: () => undefined,
 		set: (name: string, value: string) => {
 			if (name === SESSION_COOKIE) written = value;
 		}

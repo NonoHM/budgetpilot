@@ -1,13 +1,12 @@
 import { fail, redirect, type Actions } from '@sveltejs/kit';
 import * as m from '$lib/paraglide/messages';
 import {
+	commitWithRotatedToken,
 	hashPassword,
-	hashSessionToken,
 	requireUser,
-	SESSION_COOKIE,
+	revokeSessionsOtherThan,
 	validatePassword
 } from '$lib/server/auth';
-import { prisma } from '$lib/server/db';
 import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals }) => {
@@ -24,8 +23,6 @@ export const actions: Actions = {
 		const formData = await request.formData();
 		const newPassword = getFormValue(formData, 'newPassword');
 		const confirmPassword = getFormValue(formData, 'confirmPassword');
-		const currentToken = cookies.get(SESSION_COOKIE);
-		const currentTokenHash = currentToken ? hashSessionToken(currentToken) : null;
 
 		if (
 			!newPassword ||
@@ -37,9 +34,11 @@ export const actions: Actions = {
 		}
 
 		const newPasswordHash = await hashPassword(newPassword);
-		const now = new Date();
 
-		await prisma.$transaction(async (tx) => {
+		// The same end state as `changePassword` (R3 on #841): every other session revoked and this
+		// one's token replaced in the same commit, so no token that predates the new password outlives
+		// it (#249). No current password is asked here; whether one should be is #880's question.
+		await commitWithRotatedToken(user, cookies, async (tx) => {
 			await tx.user.update({
 				where: { id: user.id },
 				data: {
@@ -48,16 +47,7 @@ export const actions: Actions = {
 				}
 			});
 
-			await tx.session.updateMany({
-				where: {
-					userId: user.id,
-					revokedAt: null,
-					...(currentTokenHash ? { tokenHash: { not: currentTokenHash } } : {})
-				},
-				data: {
-					revokedAt: now
-				}
-			});
+			await revokeSessionsOtherThan(tx, user);
 		});
 
 		throw redirect(303, '/');

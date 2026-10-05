@@ -79,8 +79,12 @@ describe('hooks auth', () => {
 		expect(await response.text()).toBe('ok');
 	});
 
-	it('supprime le cookie si un jeton est présent mais ne correspond plus à une session valide', async () => {
-		expect.assertions(2);
+	// #249: a token that resolves to no session may be one a re-authenticated change in another tab
+	// replaced a moment ago, while that tab's response carrying the new cookie is still in flight.
+	// Separates « left in place: the new cookie wins whatever the order » from « deleted: if this
+	// answer lands last, the browser loses the new cookie and its owner is signed out ».
+	it('leaves a cookie that resolves to no session in place, and serves the request as signed out', async () => {
+		expect.assertions(3);
 
 		auth.readSessionUser.mockResolvedValue(null);
 		const event = buildEvent('/login', 'token-perime');
@@ -91,7 +95,8 @@ describe('hooks auth', () => {
 			resolve
 		});
 
-		expect(auth.clearSessionCookie).toHaveBeenCalledWith(event.cookies);
+		expect(auth.clearSessionCookie).not.toHaveBeenCalled();
+		expect((event.locals as { user?: unknown }).user).toBeNull();
 		expect(resolve).toHaveBeenCalled();
 	});
 

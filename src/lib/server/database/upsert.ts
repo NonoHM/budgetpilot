@@ -104,21 +104,39 @@ function driverCodeOf(caught: unknown): string | undefined {
 	return code === undefined || code === null ? undefined : String(code);
 }
 
-function isRetryableWriteConflict(caught: unknown): boolean {
-	const code = errorCodeOf(caught);
+/**
+ * The engine resolved a collision by aborting this side: a deadlock, a serialization failure, a
+ * record changed since last read. The aborted transaction is rolled back WHOLE, which is what makes
+ * running it again safe whatever it wrote. A unique violation is not in this set: it is an answer
+ * about the data, which the caller of a whole transaction may owe the person (a restore does).
+ */
+export function isTransientWriteConflict(caught: unknown): boolean {
 	// P2034 is Prisma's own "write conflict or deadlock", raised without a driver code.
-	if (code === 'P2002' || code === 'P2034') return true;
+	if (errorCodeOf(caught) === 'P2034') return true;
 
 	const driverCode = driverCodeOf(caught);
 	return driverCode !== undefined && TRANSIENT_DRIVER_CODES.has(driverCode);
 }
 
-export async function withConcurrentWriteRetry<T>(run: () => Promise<T>): Promise<T> {
+/** An upsert's retry set: the transient conflicts, plus the unique violation its fallback hits. */
+function isRetryableWriteConflict(caught: unknown): boolean {
+	return isUniqueConstraintViolation(caught) || isTransientWriteConflict(caught);
+}
+
+/**
+ * Runs `run` again on a retryable conflict, up to `MAX_ATTEMPTS` in all. The default set is the
+ * upsert's; a caller retrying a whole interactive transaction passes `isTransientWriteConflict`,
+ * since only an engine abort guarantees nothing of it committed (#249's `commitWithRotatedToken`).
+ */
+export async function withConcurrentWriteRetry<T>(
+	run: () => Promise<T>,
+	retryable: (caught: unknown) => boolean = isRetryableWriteConflict
+): Promise<T> {
 	for (let attempt = 1; ; attempt += 1) {
 		try {
 			return await run();
 		} catch (caught) {
-			if (attempt >= MAX_ATTEMPTS || !isRetryableWriteConflict(caught)) throw caught;
+			if (attempt >= MAX_ATTEMPTS || !retryable(caught)) throw caught;
 			// Jittered, and growing with each attempt: retrying in lockstep is what turns one
 			// collision into the next one.
 			await new Promise((resolve) => setTimeout(resolve, Math.random() * 20 * attempt));

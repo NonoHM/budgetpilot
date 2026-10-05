@@ -16,8 +16,21 @@ const db = vi.hoisted(() => ({
 }));
 
 vi.mock('$lib/server/db', () => ({ prisma: db.prisma }));
+// The commit rotates the session token in the same transaction (#249); its own behaviour is
+// `sessionRotation.db-smoke.ts`'s, against a real engine. Here it runs the change on the fake
+// transaction, so these tests can say which session it commits for and that the writes are inside it.
+vi.mock('$lib/server/auth', async (importOriginal) => {
+	const real = await importOriginal<typeof import('$lib/server/auth')>();
+	type Change = (client: typeof tx) => Promise<unknown>;
+	return {
+		...real,
+		commitWithRotatedToken: vi.fn(async (_user: unknown, _cookies: unknown, change: Change) =>
+			db.prisma.$transaction(change)
+		)
+	};
+});
 
-const { hashSessionToken, SESSION_COOKIE } = await import('$lib/server/auth');
+const { commitWithRotatedToken, SESSION_COOKIE } = await import('$lib/server/auth');
 const { actions, load } = await import('./+page.server');
 
 describe('/force-password-change load', () => {
@@ -83,6 +96,16 @@ describe('/force-password-change action', () => {
 		expect(tx.user.update).not.toHaveBeenCalled();
 	});
 
+	// A refused input leaves the browser's token alone: the owner retypes on the same session.
+	it('a refused new password does not rotate the token', async () => {
+		expect.assertions(2);
+
+		const result = await runAction({ newPassword: 'trop-court', confirmPassword: 'trop-court' });
+
+		expect(result.status).toBe(400);
+		expect(commitWithRotatedToken).not.toHaveBeenCalled();
+	});
+
 	it('rejette un mot de passe trop court même si confirmé correctement', async () => {
 		expect.assertions(2);
 
@@ -96,12 +119,11 @@ describe('/force-password-change action', () => {
 	});
 
 	it('met à jour le mot de passe, désactive forcePasswordChange, révoque les autres sessions et garde la session courante', async () => {
-		expect.assertions(6);
+		expect.assertions(8);
 
 		tx.user.update.mockResolvedValue({ id: 'user-a' });
 		tx.session.updateMany.mockResolvedValue({ count: 2 });
 		const currentToken = 'session-courante';
-		const currentTokenHash = hashSessionToken(currentToken);
 
 		await expect(
 			runAction(
@@ -117,17 +139,41 @@ describe('/force-password-change action', () => {
 		expect(updateArgs.where).toEqual({ id: 'user-a' });
 		expect(updateArgs.data.forcePasswordChange).toBe(false);
 		expect(updateArgs.data.passwordHash).not.toBe('nouveau-mot-de-passe-solide');
+		// The current session is spared by its ROW, which the rotation in the same commit keeps; a
+		// token hash would no longer match it once rotated (#249).
 		expect(tx.session.updateMany).toHaveBeenCalledWith({
 			where: {
 				userId: 'user-a',
 				revokedAt: null,
-				tokenHash: { not: currentTokenHash }
+				id: { not: 'session-a' }
 			},
 			data: { revokedAt: expect.any(Date) }
+		});
+		expect(vi.mocked(commitWithRotatedToken)).toHaveBeenCalledTimes(1);
+		expect(vi.mocked(commitWithRotatedToken).mock.calls[0]?.[0]).toMatchObject({
+			sessionId: 'session-a'
 		});
 		expect(JSON.stringify(tx.user.update.mock.calls[0][0])).not.toContain(
 			'nouveau-mot-de-passe-solide'
 		);
+	});
+
+	// Every write is INSIDE the rotating commit, so a session that ended before it commits sets no
+	// password. Separates « written inside the commit » from « written beside it », which would land
+	// the new password for a session that is already over. The commit here refuses without running
+	// the change, which is what the real one leaves behind: its compare-and-set rolls the change back.
+	it('a session that ended during the request writes no password', async () => {
+		expect.assertions(2);
+		const ended = new Error('session ended');
+		vi.mocked(commitWithRotatedToken).mockRejectedValueOnce(ended);
+
+		await expect(
+			runAction({
+				newPassword: 'nouveau-mot-de-passe-solide',
+				confirmPassword: 'nouveau-mot-de-passe-solide'
+			})
+		).rejects.toBe(ended);
+		expect(tx.user.update).not.toHaveBeenCalled();
 	});
 });
 
@@ -146,12 +192,12 @@ async function runAction(input: Record<string, string>, token = 'session-courant
 	return (await (
 		actions.default as unknown as (event: {
 			cookies: ReturnType<typeof buildCookies>;
-			locals: { user: { id: string; forcePasswordChange: boolean } };
+			locals: { user: { id: string; sessionId: string; forcePasswordChange: boolean } };
 			request: Request;
 		}) => Promise<unknown>
 	)({
 		cookies: buildCookies(token),
-		locals: { user: { id: 'user-a', forcePasswordChange: true } },
+		locals: { user: { id: 'user-a', sessionId: 'session-a', forcePasswordChange: true } },
 		request: new Request('http://localhost/force-password-change', {
 			method: 'POST',
 			body: formData

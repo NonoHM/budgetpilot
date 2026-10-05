@@ -67,7 +67,7 @@ describe('/login/verify-totp action', () => {
 			totpSecretEncrypted: encryptTotpSecret(secret)
 		});
 		db.prisma.user.updateMany.mockResolvedValue({ count: 0 });
-		const cookies = { set: vi.fn() };
+		const cookies = { get: vi.fn(), set: vi.fn() };
 
 		await expect(runVerify(cookies, code)).rejects.toMatchObject({ status: 303 });
 
@@ -85,7 +85,7 @@ describe('/login/verify-totp action', () => {
 			totpSecretEncrypted: encryptTotpSecret(generateTotpSecretBase32())
 		});
 
-		const result = await runVerify({ set: vi.fn() }, '000000');
+		const result = await runVerify({ get: vi.fn(), set: vi.fn() }, '000000');
 
 		expect(result.status).toBe(400);
 		expect(db.prisma.session.create).not.toHaveBeenCalled();
@@ -98,7 +98,7 @@ describe('/login/verify-totp action', () => {
 		mfaChallenge.readMfaChallenge.mockResolvedValue({ id: 'challenge-1', userId: 'user-a' });
 		rateLimit.isMfaRateLimited.mockResolvedValueOnce(true);
 
-		const result = await runVerify({ set: vi.fn() }, '123456');
+		const result = await runVerify({ get: vi.fn(), set: vi.fn() }, '123456');
 
 		expect(result.status).toBe(400);
 	});
@@ -119,7 +119,9 @@ describe('/login/verify-totp action', () => {
 		db.prisma.recoveryCode.updateMany.mockResolvedValue({ count: 1 });
 		db.prisma.user.updateMany.mockResolvedValue({ count: 0 });
 
-		await expect(runVerify({ set: vi.fn() }, recoveryCode)).rejects.toMatchObject({ status: 303 });
+		await expect(runVerify({ get: vi.fn(), set: vi.fn() }, recoveryCode)).rejects.toMatchObject({
+			status: 303
+		});
 
 		expect(db.prisma.recoveryCode.updateMany).toHaveBeenCalledWith({
 			where: { id: 'code-1', usedAt: null },
@@ -144,7 +146,9 @@ describe('/login/verify-totp action', () => {
 		db.prisma.recoveryCode.updateMany.mockResolvedValue({ count: 1 });
 		db.prisma.user.updateMany.mockResolvedValue({ count: 0 });
 
-		await expect(runVerify({ set: vi.fn() }, recoveryCode.toLowerCase())).rejects.toMatchObject({
+		await expect(
+			runVerify({ get: vi.fn(), set: vi.fn() }, recoveryCode.toLowerCase())
+		).rejects.toMatchObject({
 			status: 303
 		});
 	});
@@ -159,7 +163,7 @@ describe('/login/verify-totp action', () => {
 			totpSecretEncrypted: 'not-a-valid-encrypted-payload'
 		});
 
-		const result = await runVerify({ set: vi.fn() }, '123456');
+		const result = await runVerify({ get: vi.fn(), set: vi.fn() }, '123456');
 
 		expect(result.status).toBe(400);
 		expect(rateLimit.recordMfaAttempt).toHaveBeenCalledWith('challenge-1', expect.any(String));
@@ -170,14 +174,17 @@ describe('/login/verify-totp action', () => {
 
 		mfaChallenge.readMfaChallenge.mockResolvedValue(null);
 
-		await expect(runVerify({ set: vi.fn() }, '123456')).rejects.toMatchObject({
+		await expect(runVerify({ get: vi.fn(), set: vi.fn() }, '123456')).rejects.toMatchObject({
 			status: 303,
 			location: '/login'
 		});
 	});
 });
 
-async function runVerify(cookies: { set: ReturnType<typeof vi.fn> }, code: string) {
+async function runVerify(
+	cookies: { get: ReturnType<typeof vi.fn>; set: ReturnType<typeof vi.fn> },
+	code: string
+) {
 	const formData = new FormData();
 	formData.set('code', code);
 

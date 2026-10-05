@@ -71,10 +71,27 @@ function restoredDenomination(row: { currency?: string; exponent?: number }): {
 	};
 }
 
-export async function restoreBackup(userId: string, payload: BackupExport): Promise<void> {
+type TransactionClient = Parameters<Parameters<(typeof prisma)['$transaction']>[0]>[0];
+
+/**
+ * Runs the restore's one transaction. The route passes `commitWithRotatedToken`, so the restore and
+ * the new session token commit together (#249); every other caller gets a plain transaction.
+ */
+export type RestoreCommit = (
+	change: (tx: TransactionClient) => Promise<void>,
+	options: typeof LONG_TRANSACTION_OPTIONS
+) => Promise<void>;
+
+const plainTransaction: RestoreCommit = (change, options) => prisma.$transaction(change, options);
+
+export async function restoreBackup(
+	userId: string,
+	payload: BackupExport,
+	commit: RestoreCommit = plainTransaction
+): Promise<void> {
 	assertReferentialIntegrity(payload);
 
-	await prisma.$transaction(async (tx) => {
+	await commit(async (tx) => {
 		// a. Full purge for this user, in dependency order.
 		await tx.transaction.deleteMany({ where: { userId } });
 		// Before the accounts it hangs off, and explicitly rather than through the cascade the

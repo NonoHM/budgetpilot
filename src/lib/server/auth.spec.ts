@@ -127,7 +127,7 @@ describe('auth locale', () => {
 		const previousPublicInstance = process.env.PUBLIC_INSTANCE;
 		process.env.PUBLIC_INSTANCE = 'false';
 		try {
-			await createSession('user-a', { set: cookieSet } as never);
+			await createSession('user-a', { get: () => undefined, set: cookieSet } as never);
 		} finally {
 			if (previousPublicInstance === undefined) delete process.env.PUBLIC_INSTANCE;
 			else process.env.PUBLIC_INSTANCE = previousPublicInstance;
@@ -142,6 +142,23 @@ describe('auth locale', () => {
 		expect(cookieArgs[2]).toMatchObject({ httpOnly: true, sameSite: 'lax', path: '/' });
 		expect(cookieArgs[2].secure).toBe(false);
 		expect(cookieArgs[2].expires).toBeInstanceOf(Date);
+	});
+
+	// #249, `v5.0.0-7.2.4`: « terminates the current session token », at sign-in. Separates « the
+	// token the browser held is revoked » from « only replaced in the browser », which leaves every
+	// copy of it live. Against a real engine in `sessionRotation.db-smoke.ts`.
+	it('signing in revokes the session token the browser presented', async () => {
+		expect.assertions(1);
+		db.prisma.session.create.mockResolvedValue({ id: 'session-2' });
+		db.prisma.session.updateMany.mockResolvedValue({ count: 1 });
+		const presented = (name: string) => (name === SESSION_COOKIE ? 'held-token' : undefined);
+
+		await createSession('user-a', { get: presented, set: vi.fn() } as never);
+
+		expect(db.prisma.session.updateMany).toHaveBeenCalledWith({
+			where: { tokenHash: hashSessionToken('held-token'), revokedAt: null },
+			data: { revokedAt: expect.any(Date) }
+		});
 	});
 
 	it('charge seulement un utilisateur minimal depuis une session valide', async () => {

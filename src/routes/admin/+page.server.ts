@@ -1,6 +1,7 @@
 import { fail, type Actions } from '@sveltejs/kit';
 import * as m from '$lib/paraglide/messages';
 import {
+	commitWithRotatedToken,
 	generateTemporaryPassword,
 	hashPassword,
 	isNonAsciiEmail,
@@ -76,7 +77,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 };
 
 export const actions: Actions = {
-	deleteUser: async ({ getClientAddress, locals, request }) => {
+	deleteUser: async ({ cookies, getClientAddress, locals, request }) => {
 		const admin = requireAdmin(locals.user);
 		const ip = resolveClientAddress({ getClientAddress, request });
 		const formData = await request.formData();
@@ -96,7 +97,8 @@ export const actions: Actions = {
 		});
 		if (!target) return fail(404, { deleteError: m.admin_error_user_not_found() });
 
-		await prisma.$transaction(async (tx) => {
+		// The ADMIN's session token is replaced in the same commit (#249).
+		await commitWithRotatedToken(admin, cookies, async (tx) => {
 			await tx.session.deleteMany({ where: { userId: targetUserId } });
 			// Transactions before the user — see the identical comment in settings/+page.server.ts's
 			// deleteAccount. Deleting the user cascades into Category and Transaction in an order
@@ -108,7 +110,7 @@ export const actions: Actions = {
 
 		return { deleteSuccess: m.admin_delete_success() };
 	},
-	resetPassword: async ({ getClientAddress, locals, request }) => {
+	resetPassword: async ({ cookies, getClientAddress, locals, request }) => {
 		const admin = requireAdmin(locals.user);
 		const ip = resolveClientAddress({ getClientAddress, request });
 		const formData = await request.formData();
@@ -131,7 +133,7 @@ export const actions: Actions = {
 		const temporaryPassword = generateTemporaryPassword();
 		const passwordHash = await hashPassword(temporaryPassword);
 
-		await prisma.$transaction(async (tx) => {
+		await commitWithRotatedToken(admin, cookies, async (tx) => {
 			await tx.user.update({
 				where: { id: targetUserId },
 				data: {
