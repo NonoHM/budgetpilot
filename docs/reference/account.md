@@ -81,9 +81,10 @@ The phrase confirms intent; the credential authenticates. The phrase alone
 used to be enough, which meant an open session could delete the account with
 nothing the session holder had to know. Deletion now re-verifies the current
 password, and a valid six-digit code when an authenticator app is enabled,
-the same pair `Disable two-factor` asks for. The check is rate limited on the
-shared re-auth counter, so a wrong password or code is throttled rather than
-being an unlimited guessing oracle.
+the same pair `Disable two-factor` asks for. The check is rate limited for the
+session that makes it, so a wrong password or code is throttled rather than
+being an unlimited guessing oracle, and wrong guesses from another session
+never lock this one out.
 
 The phrase also follows the interface language now, so an English instance
 asks for `DELETE` rather than the French `SUPPRIMER` it displayed before.

@@ -6,14 +6,14 @@ import { OperatorFacingError } from '$lib/server/operatorFacingError';
 
 const WINDOW_MS = 15 * 60 * 1000;
 // REAUTH is deliberately shorter than the 15-minute LOGIN/etc window. Every REAUTH action sits
-// BEHIND a valid session (deleteAccount, changePassword, disableTotp, confirmTotpSetup), so the
-// limiter is secondary containment, not the front-line gate, and its real job is only to keep a
-// session-holder from grinding the password/TOTP unboundedly. Security here is dominated by argon2
-// (slow) and the TOTP mechanics (~90s validity in a 10^6 space), so 5 tries per 5-minute sliding
-// window loses no protection versus 15 minutes: it only shortens the honest owner's self-inflicted
-// lockout. The window is what bounds the "cannot leave the account stuck" guarantee: because only
+// BEHIND a valid session (`REAUTH_FACTORS` in reauth.ts lists them), so the limiter is secondary
+// containment, not the front-line gate, and its real job is only to keep a session-holder from
+// grinding the password/TOTP unboundedly. Security here is dominated by bcrypt (slow) and the TOTP
+// mechanics (~90s validity in a 10^6 space), so 5 tries per 5-minute sliding window loses no
+// protection versus 15 minutes: it only shortens a session's self-inflicted lockout. Because only
 // FAILED attempts are recorded and the window slides, a tripped counter self-clears in ~5 minutes
-// with no admin, so the escape hatch (deleteAccount) always reopens on its own.
+// with no admin. That it is the GUESSING session's counter, and nobody else's, is
+// `isReauthRateLimited` below (#879).
 const REAUTH_WINDOW_MS = 5 * 60 * 1000;
 const MAX_ATTEMPTS = 5;
 
@@ -166,19 +166,31 @@ function hashRateLimitKey(value: string): string {
 	return createHmac('sha256', hashSecret()).update(value.trim().toLowerCase()).digest('hex');
 }
 
-async function isRateLimited(kind: AttemptKind, ip: string, email?: string): Promise<boolean> {
-	const ipHash = hashRateLimitKey(ip);
+/**
+ * At least one key, by type: no key would be no counter, and a limiter that never refuses.
+ * `subject` is stored in the `emailHash` column whatever it is.
+ */
+type RateLimitKeys = { ip: string; subject?: string } | { ip?: undefined; subject: string };
+
+/**
+ * Each key passed is one counter, and the attempt is refused when ANY reaches the maximum. Which
+ * keys a kind passes is decided by its exported wrapper below, never here.
+ */
+async function isRateLimited(kind: AttemptKind, keys: RateLimitKeys): Promise<boolean> {
 	const windowStart = new Date(Date.now() - windowMsForKind(kind));
 	const checks = [];
-	if (email !== undefined) {
-		const emailHash = hashRateLimitKey(email);
+	if (keys.subject !== undefined) {
+		const emailHash = hashRateLimitKey(keys.subject);
 		checks.push(
 			prisma.loginAttempt.count({ where: { emailHash, kind, createdAt: { gte: windowStart } } })
 		);
 	}
-	checks.push(
-		prisma.loginAttempt.count({ where: { ipHash, kind, createdAt: { gte: windowStart } } })
-	);
+	if (keys.ip !== undefined) {
+		const ipHash = hashRateLimitKey(keys.ip);
+		checks.push(
+			prisma.loginAttempt.count({ where: { ipHash, kind, createdAt: { gte: windowStart } } })
+		);
+	}
 	const counts = await Promise.all(checks);
 	return counts.some((count) => count >= maxAttemptsForKind(kind));
 }
@@ -194,7 +206,7 @@ async function recordAttempt(kind: AttemptKind, ip: string, email?: string): Pro
 }
 
 export async function isLoginRateLimited(email: string, ip: string): Promise<boolean> {
-	return isRateLimited('LOGIN', ip, email);
+	return isRateLimited('LOGIN', { ip, subject: email });
 }
 
 export async function recordFailedLoginAttempt(email: string, ip: string): Promise<void> {
@@ -202,7 +214,7 @@ export async function recordFailedLoginAttempt(email: string, ip: string): Promi
 }
 
 export async function isRegisterRateLimited(ip: string): Promise<boolean> {
-	return isRateLimited('REGISTER', ip);
+	return isRateLimited('REGISTER', { ip });
 }
 
 export async function recordRegisterAttempt(ip: string): Promise<void> {
@@ -210,7 +222,7 @@ export async function recordRegisterAttempt(ip: string): Promise<void> {
 }
 
 export async function isInviteRateLimited(ip: string): Promise<boolean> {
-	return isRateLimited('INVITE', ip);
+	return isRateLimited('INVITE', { ip });
 }
 
 export async function recordInviteAttempt(ip: string): Promise<void> {
@@ -222,7 +234,7 @@ export async function recordInviteAttempt(ip: string): Promise<void> {
 // attempt (e.g. several valid passwords tried on different accounts from the
 // same IP, or challenge spam).
 export async function isMfaRateLimited(challengeId: string, ip: string): Promise<boolean> {
-	return isRateLimited('MFA', ip, challengeId);
+	return isRateLimited('MFA', { ip, subject: challengeId });
 }
 
 export async function recordMfaAttempt(challengeId: string, ip: string): Promise<void> {
@@ -234,37 +246,53 @@ export async function recordMfaAttempt(challengeId: string, ip: string): Promise
 // as MFA: an authenticated account can't be used to hammer the provider from a
 // single IP, nor from many IPs on a single account.
 export async function isBankSyncStartRateLimited(userId: string, ip: string): Promise<boolean> {
-	return isRateLimited('BANK_SYNC_START', ip, userId);
+	return isRateLimited('BANK_SYNC_START', { ip, subject: userId });
 }
 
 export async function recordBankSyncStartAttempt(userId: string, ip: string): Promise<void> {
 	await recordAttempt('BANK_SYNC_START', ip, userId);
 }
 
-// One shared counter for every settings action that re-verifies a secret (deleteAccount,
-// changePassword, disableTotp, confirmTotpSetup). Keyed by userId AND IP, same as MFA/BANK_SYNC:
-// the userId dimension stops an attacker rotating IPs, the IP dimension stops one address spraying.
-// It MUST be shared, not per-action: all four test the same password, so a per-action counter would
-// hand an attacker four times the guessing budget. Callers record ONLY on a wrong secret (never on
-// a mistyped confirmation phrase or a malformed field), so an honest owner cannot lock themselves
-// out by legitimate use, and check the limit BEFORE the expensive verify so a tripped counter
-// short-circuits.
-export async function isReauthRateLimited(userId: string, ip: string): Promise<boolean> {
-	return isRateLimited('REAUTH', ip, userId);
+/**
+ * One counter per SESSION for every action that re-verifies a secret (`REAUTH_FACTORS` in
+ * reauth.ts), with no address dimension, where every other kind here also counts the address
+ * (#879).
+ *
+ * A dimension is a counter, and a counter that two parties write to is one either can trip for the
+ * other. REAUTH used to be counted per account and per address, so whoever held a stolen session
+ * could post five wrong passwords and keep the OWNER refused on revoke, password change and
+ * deletion: the controls that end a stolen session, held shut by it. The account is shared by every
+ * session of the account; the address by everyone behind one NAT, which for a household application
+ * is where a session is likeliest to be stolen. The session is the one key the owner and the thief
+ * cannot share, unless the thief copied the owner's very cookie, and then signing out revokes both.
+ *
+ * What the address bought, and why it is not needed: it stopped rotating ACCOUNTS from one address.
+ * A REAUTH guess needs a session, and every way to a session asks the password (`/login`,
+ * `/login/verify-totp`, and `/register`, which makes a new account), so the budget stays five per
+ * five minutes per stolen session, and a new session cannot be had to reset it.
+ *
+ * Shared ACROSS actions, never per action: all of them test the same password, so a per-action
+ * counter would multiply the guessing budget by the number of actions. Callers record ONLY on a wrong
+ * secret (never on a malformed field), so an owner cannot lock themselves out by legitimate use, and
+ * check BEFORE the expensive verify so a tripped counter short-circuits. `recordReauthAttempt` still
+ * writes the address, because the column requires one; nothing counts it.
+ */
+export async function isReauthRateLimited(sessionId: string): Promise<boolean> {
+	return isRateLimited('REAUTH', { subject: sessionId });
 }
 
-export async function recordReauthAttempt(userId: string, ip: string): Promise<void> {
-	await recordAttempt('REAUTH', ip, userId);
+export async function recordReauthAttempt(sessionId: string, ip: string): Promise<void> {
+	await recordAttempt('REAUTH', ip, sessionId);
 }
 
 // The import doors: `/import`, `/import/columns` and `/import/accounts`. Keyed by userId AND IP, the
-// same shape as BANK_SYNC_START and REAUTH, so neither rotating addresses on one account nor
+// same shape as BANK_SYNC_START, so neither rotating addresses on one account nor
 // spraying accounts from one address buys a higher budget.
 //
 // Unlike LOGIN, EVERY attempt is recorded rather than only the failures: what is being limited here
 // is the RATE of expensive work, and a refused upload costs the same to reach as an accepted one.
 export async function isImportRateLimited(userId: string, ip: string): Promise<boolean> {
-	return isRateLimited('IMPORT', ip, userId);
+	return isRateLimited('IMPORT', { ip, subject: userId });
 }
 
 export async function recordImportAttempt(userId: string, ip: string): Promise<void> {

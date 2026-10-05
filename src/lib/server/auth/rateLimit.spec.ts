@@ -547,67 +547,69 @@ describe('isReauthRateLimited / recordReauthAttempt (shared settings re-auth lim
 		vi.useRealTimers();
 	});
 
-	it('retourne true si >= 5 tentatives par userId dans la fenêtre', async () => {
+	it('retourne true si >= 5 tentatives par session dans la fenêtre', async () => {
 		expect.assertions(1);
 
-		db.prisma.loginAttempt.count
-			.mockResolvedValueOnce(5) // par userId
-			.mockResolvedValueOnce(0); // par ip
+		db.prisma.loginAttempt.count.mockResolvedValueOnce(5);
 
-		await expect(isReauthRateLimited('user-1', '127.0.0.1')).resolves.toBe(true);
+		await expect(isReauthRateLimited('session-1')).resolves.toBe(true);
 	});
 
-	it('retourne true si >= 5 tentatives par IP, même sur des comptes différents', async () => {
+	it('retourne false sous le seuil pour la session', async () => {
 		expect.assertions(1);
 
-		db.prisma.loginAttempt.count
-			.mockResolvedValueOnce(0) // par userId
-			.mockResolvedValueOnce(5); // par ip
+		db.prisma.loginAttempt.count.mockResolvedValueOnce(4);
 
-		await expect(isReauthRateLimited('user-1', '127.0.0.1')).resolves.toBe(true);
+		await expect(isReauthRateLimited('session-1')).resolves.toBe(false);
 	});
 
-	it("retourne false sous le seuil pour le userId et pour l'IP", async () => {
-		expect.assertions(1);
+	// Separates « REAUTH counts by session only » from « REAUTH also counts by address »: the address
+	// dimension was removed on purpose (another session's wrong passwords from the same address must
+	// not lock the owner out), so a re-added ipHash count is a second call or an ipHash key here.
+	it('compte une seule fois, par emailHash (la session), sans ipHash', async () => {
+		expect.assertions(4);
 
-		db.prisma.loginAttempt.count.mockResolvedValueOnce(4).mockResolvedValueOnce(4);
+		db.prisma.loginAttempt.count.mockResolvedValue(0);
 
-		await expect(isReauthRateLimited('user-1', '127.0.0.1')).resolves.toBe(false);
+		await isReauthRateLimited('session-1');
+
+		expect(db.prisma.loginAttempt.count).toHaveBeenCalledTimes(1);
+		const where = db.prisma.loginAttempt.count.mock.calls[0][0].where;
+		expect(where.emailHash).toMatch(HEX_SHA256);
+		expect(where).not.toHaveProperty('ipHash');
+		expect(Object.keys(where).sort()).toEqual(['createdAt', 'emailHash', 'kind']);
 	});
 
 	it("filtre par kind: 'REAUTH', isolé des autres compteurs", async () => {
-		expect.assertions(2);
+		expect.assertions(1);
 
-		db.prisma.loginAttempt.count.mockResolvedValueOnce(0).mockResolvedValueOnce(0);
+		db.prisma.loginAttempt.count.mockResolvedValueOnce(0);
 
-		await isReauthRateLimited('user-1', '127.0.0.1');
+		await isReauthRateLimited('session-1');
 
 		expect(db.prisma.loginAttempt.count.mock.calls[0][0].where.kind).toBe('REAUTH');
-		expect(db.prisma.loginAttempt.count.mock.calls[1][0].where.kind).toBe('REAUTH');
 	});
 
 	it('utilise une fenêtre de 5 minutes, plus courte que les 15 minutes du login', async () => {
-		expect.assertions(2);
+		expect.assertions(1);
 
 		vi.useFakeTimers();
 		vi.setSystemTime(new Date('2026-07-02T12:00:00.000Z'));
 
-		db.prisma.loginAttempt.count.mockResolvedValueOnce(0).mockResolvedValueOnce(0);
-		await isReauthRateLimited('user-1', '127.0.0.1');
+		db.prisma.loginAttempt.count.mockResolvedValueOnce(0);
+		await isReauthRateLimited('session-1');
 
 		// The distinctive property of this kind: a 5-minute sliding window (not 15), so an honest
 		// owner locked out by five wrong attempts recovers three times faster and the escape hatch
 		// (deleteAccount) reopens quickly.
-		const userArgs = db.prisma.loginAttempt.count.mock.calls[0][0];
-		const ipArgs = db.prisma.loginAttempt.count.mock.calls[1][0];
-		expect(userArgs.where.createdAt.gte).toEqual(new Date('2026-07-02T11:55:00.000Z'));
-		expect(ipArgs.where.createdAt.gte).toEqual(new Date('2026-07-02T11:55:00.000Z'));
+		const args = db.prisma.loginAttempt.count.mock.calls[0][0];
+		expect(args.where.createdAt.gte).toEqual(new Date('2026-07-02T11:55:00.000Z'));
 	});
 
-	it("recordReauthAttempt crée une ligne kind: 'REAUTH' avec userId et IP hachés", async () => {
+	it("recordReauthAttempt crée une ligne kind: 'REAUTH' avec session et IP hachées", async () => {
 		expect.assertions(4);
 
-		await recordReauthAttempt('user-1', '127.0.0.1');
+		await recordReauthAttempt('session-1', '127.0.0.1');
 
 		expect(db.prisma.loginAttempt.create).toHaveBeenCalledTimes(1);
 		const createArgs = db.prisma.loginAttempt.create.mock.calls[0][0];

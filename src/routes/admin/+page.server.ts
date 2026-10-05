@@ -87,7 +87,7 @@ export const actions: Actions = {
 
 		// #229: the ADMIN proves their own password, plus TOTP when they have it, before acting on
 		// another account. Ahead of the target lookup, so an admin session alone learns nothing more.
-		const reauth = await reauthenticate('deleteUser', { userId: admin.id, ip, form: formData });
+		const reauth = await reauthenticate('deleteUser', { user: admin, ip, form: formData });
 		if (!reauth.ok) return fail(400, { deleteError: reauthRefusalMessage(reauth) });
 
 		const target = await prisma.user.findUnique({
@@ -119,7 +119,7 @@ export const actions: Actions = {
 
 		// #229: same gate as deleteUser. A reset hands whoever holds the session a working password
 		// for another account, so a session alone must not be enough.
-		const reauth = await reauthenticate('resetPassword', { userId: admin.id, ip, form: formData });
+		const reauth = await reauthenticate('resetPassword', { user: admin, ip, form: formData });
 		if (!reauth.ok) return fail(400, { resetError: reauthRefusalMessage(reauth) });
 
 		const target = await prisma.user.findUnique({

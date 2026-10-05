@@ -37,6 +37,13 @@ export interface AuthUser {
 	email: string;
 	role: Role;
 	forcePasswordChange: boolean;
+	/**
+	 * The `Session` row this request was authenticated by, set only by `readSessionUser`. It is what
+	 * the re-authentication counter is keyed by (#879), so it comes from the row the hook resolved
+	 * and never from anything the client posts. Never sent to the page: `+layout.server.ts` picks
+	 * its fields.
+	 */
+	sessionId: string;
 }
 
 export function normalizeEmail(value: string): string {
@@ -278,6 +285,7 @@ export async function readSessionUser(token: string | undefined): Promise<AuthUs
 	const session = await prisma.session.findUnique({
 		where: { tokenHash },
 		select: {
+			id: true,
 			tokenHash: true,
 			expiresAt: true,
 			revokedAt: true,
@@ -294,7 +302,7 @@ export async function readSessionUser(token: string | undefined): Promise<AuthUs
 	if (!session || session.revokedAt || session.expiresAt <= new Date()) return null;
 	if (!safeEqual(tokenHash, session.tokenHash)) return null;
 
-	return session.user;
+	return { ...session.user, sessionId: session.id };
 }
 
 export async function revokeSessionToken(token: string | undefined): Promise<void> {
