@@ -198,7 +198,10 @@ describe('/settings', () => {
 			},
 			orderBy: { createdAt: 'desc' }
 		});
-		expect(result.account).toEqual({ email: 'user-a@example.test', role: 'USER' });
+		expect(result.account).toEqual({
+			email: 'user-a@example.test',
+			role: 'USER'
+		});
 		expect(result.sessions).toEqual([
 			{
 				id: 'session-1',
@@ -525,7 +528,7 @@ describe('/settings', () => {
 				cookies: buildCookies('session-courante'),
 				request: buildRequest(input),
 				locals: {
-					user: { id: 'user-a', email: 'user-a@example.test', role: 'USER' }
+					user: { id: 'user-a', email: 'user-a@example.test', role: 'USER', sessionId: 'session-a' }
 				}
 			});
 		}
@@ -551,7 +554,14 @@ describe('/settings', () => {
 						confirmation: 'SUPPRIMER',
 						currentPassword: 'mot-de-passe-long'
 					}),
-					locals: { user: { id: 'user-a', email: 'user-a@example.test', role: 'USER' } }
+					locals: {
+						user: {
+							id: 'user-a',
+							email: 'user-a@example.test',
+							role: 'USER',
+							sessionId: 'session-a'
+						}
+					}
 				})
 			).rejects.toMatchObject({ status: 303, location: '/login' });
 
@@ -589,7 +599,7 @@ describe('/settings', () => {
 			expect(result.status).toBe(400);
 			expect(result.data.deleteError).toBe(m.reauth_error_password());
 			expect(tx.user.delete).not.toHaveBeenCalled();
-			expect(rateLimit.recordReauthAttempt).toHaveBeenCalledWith('user-a', '203.0.113.10');
+			expect(rateLimit.recordReauthAttempt).toHaveBeenCalledWith('session-a', '203.0.113.10');
 		});
 
 		it('phrase correcte + AUCUN mot de passe : refusé, compte intact', async () => {
@@ -632,7 +642,7 @@ describe('/settings', () => {
 
 			expect(result.status).toBe(400);
 			expect(tx.user.delete).not.toHaveBeenCalled();
-			expect(rateLimit.recordReauthAttempt).toHaveBeenCalledWith('user-a', '203.0.113.10');
+			expect(rateLimit.recordReauthAttempt).toHaveBeenCalledWith('session-a', '203.0.113.10');
 		});
 
 		it('TOTP activé, phrase + mot de passe + code corrects : supprime', async () => {
@@ -678,7 +688,7 @@ describe('/settings', () => {
 		});
 
 		it('limiteur déclenché : refus immédiat, aucun accès au secret, aucune suppression', async () => {
-			expect.assertions(4);
+			expect.assertions(5);
 
 			rateLimit.isReauthRateLimited.mockResolvedValueOnce(true);
 
@@ -692,6 +702,7 @@ describe('/settings', () => {
 			// Short-circuits before the expensive verify: findUnique is never reached.
 			expect(db.prisma.user.findUnique).not.toHaveBeenCalled();
 			expect(tx.user.delete).not.toHaveBeenCalled();
+			expect(rateLimit.isReauthRateLimited).toHaveBeenCalledWith('session-a');
 		});
 	});
 
@@ -713,7 +724,7 @@ describe('/settings', () => {
 			})) as { status: number };
 
 			expect(result.status).toBe(400);
-			expect(rateLimit.recordReauthAttempt).toHaveBeenCalledWith('user-a', '203.0.113.10');
+			expect(rateLimit.recordReauthAttempt).toHaveBeenCalledWith('session-a', '203.0.113.10');
 		});
 
 		it('changePassword : limiteur déclenché court-circuite avant la vérification', async () => {
@@ -750,7 +761,7 @@ describe('/settings', () => {
 			})) as { status: number };
 
 			expect(result.status).toBe(400);
-			expect(rateLimit.recordReauthAttempt).toHaveBeenCalledWith('user-a', '203.0.113.10');
+			expect(rateLimit.recordReauthAttempt).toHaveBeenCalledWith('session-a', '203.0.113.10');
 		});
 
 		it('confirmTotpSetup : un mauvais mot de passe compte une tentative', async () => {
@@ -768,7 +779,7 @@ describe('/settings', () => {
 			})) as { status: number };
 
 			expect(result.status).toBe(400);
-			expect(rateLimit.recordReauthAttempt).toHaveBeenCalledWith('user-a', '203.0.113.10');
+			expect(rateLimit.recordReauthAttempt).toHaveBeenCalledWith('session-a', '203.0.113.10');
 		});
 	});
 
@@ -1804,7 +1815,14 @@ describe('S1: each re-authenticating settings action, through the real action', 
 				return invokeAction('restoreData', {
 					cookies: buildCookies('session-courante'),
 					request: new Request('http://localhost/settings', { method: 'POST', body: formData }),
-					locals: { user: { id: 'user-a', email: 'user-a@example.test', role: 'USER' } }
+					locals: {
+						user: {
+							id: 'user-a',
+							email: 'user-a@example.test',
+							role: 'USER',
+							sessionId: 'session-a'
+						}
+					}
 				});
 			}
 		}
@@ -1991,7 +2009,7 @@ function buildLoadEvent({ token }: { token?: string }) {
 	return {
 		cookies: buildCookies(token),
 		locals: {
-			user: { id: 'user-a', email: 'user-a@example.test', role: 'USER' }
+			user: { id: 'user-a', email: 'user-a@example.test', role: 'USER', sessionId: 'session-a' }
 		}
 	};
 }
@@ -2011,7 +2029,7 @@ async function runAction(
 		getClientAddress: () => '203.0.113.10',
 		request: buildRequest(input),
 		locals: {
-			user: { id: 'user-a', email: 'user-a@example.test', role: 'USER' }
+			user: { id: 'user-a', email: 'user-a@example.test', role: 'USER', sessionId: 'session-a' }
 		}
 	})) as {
 		status?: number;
@@ -2028,7 +2046,7 @@ async function invokeAction(
 		getClientAddress?: () => string;
 		request: Request;
 		locals: {
-			user: { id: string; email: string; role: 'USER' };
+			user: { id: string; email: string; role: 'USER'; sessionId: string };
 		};
 	}
 ) {
@@ -2074,7 +2092,7 @@ async function runRestoreAction(formData: FormData) {
 		cookies: buildCookies('session-courante'),
 		request: new Request('http://localhost/settings', { method: 'POST', body: formData }),
 		locals: {
-			user: { id: 'user-a', email: 'user-a@example.test', role: 'USER' }
+			user: { id: 'user-a', email: 'user-a@example.test', role: 'USER', sessionId: 'session-a' }
 		}
 	});
 }

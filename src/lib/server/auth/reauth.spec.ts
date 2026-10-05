@@ -45,6 +45,7 @@ const { REAUTH_FACTORS, reauthenticate, reauthRefusalMessage } = await import('.
 const PASSWORD = 'the-right-password-1';
 const IP = '203.0.113.7';
 const USER = 'user-a';
+const SESSION = 'session-a';
 
 let passwordHash = '';
 const secret = generateTotpSecretBase32();
@@ -114,7 +115,7 @@ describe('password only (7.5.2): revokeSession', () => {
 		db.prisma.user.findUnique.mockResolvedValue(account({ totp: true }));
 
 		const outcome = await reauthenticate('revokeSession', {
-			userId: USER,
+			user: { id: USER, sessionId: SESSION },
 			ip: IP,
 			form: form({ password: PASSWORD })
 		});
@@ -127,13 +128,13 @@ describe('password only (7.5.2): revokeSession', () => {
 		db.prisma.user.findUnique.mockResolvedValue(account({ totp: false }));
 
 		const outcome = await reauthenticate('revokeSession', {
-			userId: USER,
+			user: { id: USER, sessionId: SESSION },
 			ip: IP,
 			form: form({ password: 'not-it' })
 		});
 
 		expect(outcome).toEqual({ ok: false, reason: 'wrong-password', asked: 'password' });
-		expect(rateLimit.recordReauthAttempt).toHaveBeenCalledWith(USER, IP);
+		expect(rateLimit.recordReauthAttempt).toHaveBeenCalledWith(SESSION, IP);
 	});
 
 	// TOTP is enabled on this account and no code is posted: a password-only action must not ask
@@ -142,7 +143,7 @@ describe('password only (7.5.2): revokeSession', () => {
 		db.prisma.user.findUnique.mockResolvedValue(account({ totp: true }));
 
 		const outcome = await reauthenticate('revokeOtherSessions', {
-			userId: USER,
+			user: { id: USER, sessionId: SESSION },
 			ip: IP,
 			form: form({ password: PASSWORD })
 		});
@@ -154,7 +155,7 @@ describe('password only (7.5.2): revokeSession', () => {
 		db.prisma.user.findUnique.mockResolvedValue(account({ totp: false }));
 
 		const outcome = await reauthenticate('revokeSession', {
-			userId: USER,
+			user: { id: USER, sessionId: SESSION },
 			ip: IP,
 			form: form({})
 		});
@@ -169,7 +170,7 @@ describe('password plus TOTP when enabled (7.5.1)', () => {
 		db.prisma.user.findUnique.mockResolvedValue(account({ totp: false }));
 
 		const outcome = await reauthenticate('changePassword', {
-			userId: USER,
+			user: { id: USER, sessionId: SESSION },
 			ip: IP,
 			form: form({ password: PASSWORD })
 		});
@@ -181,7 +182,7 @@ describe('password plus TOTP when enabled (7.5.1)', () => {
 		db.prisma.user.findUnique.mockResolvedValue(account({ totp: true }));
 
 		const outcome = await reauthenticate('restoreData', {
-			userId: USER,
+			user: { id: USER, sessionId: SESSION },
 			ip: IP,
 			form: form({ password: PASSWORD, code: codeFor(secret) })
 		});
@@ -193,7 +194,7 @@ describe('password plus TOTP when enabled (7.5.1)', () => {
 		db.prisma.user.findUnique.mockResolvedValue(account({ totp: true }));
 
 		const outcome = await reauthenticate('changePassword', {
-			userId: USER,
+			user: { id: USER, sessionId: SESSION },
 			ip: IP,
 			form: form({ password: PASSWORD })
 		});
@@ -208,7 +209,7 @@ describe('password plus TOTP when enabled (7.5.1)', () => {
 		db.prisma.user.findUnique.mockResolvedValue(account({ totp: true }));
 
 		const outcome = await reauthenticate('deleteUser', {
-			userId: USER,
+			user: { id: USER, sessionId: SESSION },
 			ip: IP,
 			form: form({ password: PASSWORD, code: '12345' })
 		});
@@ -220,13 +221,13 @@ describe('password plus TOTP when enabled (7.5.1)', () => {
 		db.prisma.user.findUnique.mockResolvedValue(account({ totp: true }));
 
 		const outcome = await reauthenticate('resetPassword', {
-			userId: USER,
+			user: { id: USER, sessionId: SESSION },
 			ip: IP,
 			form: form({ password: PASSWORD, code: wrongCodeFor(secret) })
 		});
 
 		expect(outcome).toEqual({ ok: false, reason: 'wrong-totp', asked: 'password-and-code' });
-		expect(rateLimit.recordReauthAttempt).toHaveBeenCalledWith(USER, IP);
+		expect(rateLimit.recordReauthAttempt).toHaveBeenCalledWith(SESSION, IP);
 	});
 
 	// The password is reported first when both are wrong. Separates « both factors are evaluated
@@ -235,7 +236,7 @@ describe('password plus TOTP when enabled (7.5.1)', () => {
 		db.prisma.user.findUnique.mockResolvedValue(account({ totp: true }));
 
 		const outcome = await reauthenticate('deleteAccount', {
-			userId: USER,
+			user: { id: USER, sessionId: SESSION },
 			ip: IP,
 			form: form({ password: 'not-it', code: wrongCodeFor(secret) })
 		});
@@ -249,7 +250,7 @@ describe('password plus TOTP when enabled (7.5.1)', () => {
 		db.prisma.user.findUnique.mockResolvedValue(account({ totp: true }));
 
 		const outcome = await reauthenticate('deleteAccount', {
-			userId: USER,
+			user: { id: USER, sessionId: SESSION },
 			ip: IP,
 			form: form({ password: 'not-it', code: codeFor(secret) })
 		});
@@ -265,7 +266,7 @@ describe('password plus TOTP when enabled (7.5.1)', () => {
 		db.prisma.user.findUnique.mockResolvedValue(account({ totp: true }));
 
 		await reauthenticate('deleteAccount', {
-			userId: USER,
+			user: { id: USER, sessionId: SESSION },
 			ip: IP,
 			form: form({ password: 'not-it', code: codeFor(secret) })
 		});
@@ -279,7 +280,7 @@ describe('password plus TOTP, required (disableTotp)', () => {
 		db.prisma.user.findUnique.mockResolvedValue(account({ totp: true }));
 
 		const outcome = await reauthenticate('disableTotp', {
-			userId: USER,
+			user: { id: USER, sessionId: SESSION },
 			ip: IP,
 			form: form({ password: PASSWORD, code: codeFor(secret) })
 		});
@@ -291,7 +292,7 @@ describe('password plus TOTP, required (disableTotp)', () => {
 		db.prisma.user.findUnique.mockResolvedValue(account({ totp: false }));
 
 		const outcome = await reauthenticate('disableTotp', {
-			userId: USER,
+			user: { id: USER, sessionId: SESSION },
 			ip: IP,
 			form: form({ password: PASSWORD, code: '123456' })
 		});
@@ -312,7 +313,7 @@ describe('password plus a code from the new secret (confirmTotpSetup)', () => {
 		db.prisma.user.findUnique.mockResolvedValue(account({ totp: false }));
 
 		const outcome = await reauthenticate('confirmTotpSetup', {
-			userId: USER,
+			user: { id: USER, sessionId: SESSION },
 			ip: IP,
 			form: form({ password: PASSWORD, code: codeFor(fresh) }),
 			newTotpSecret: fresh
@@ -329,7 +330,7 @@ describe('password plus a code from the new secret (confirmTotpSetup)', () => {
 		db.prisma.user.findUnique.mockResolvedValue(account({ totp: true }));
 
 		const outcome = await reauthenticate('confirmTotpSetup', {
-			userId: USER,
+			user: { id: USER, sessionId: SESSION },
 			ip: IP,
 			form: form({ password: PASSWORD, code: codeFor(fresh) }),
 			newTotpSecret: fresh
@@ -354,7 +355,7 @@ describe('password plus a code from the new secret (confirmTotpSetup)', () => {
 		});
 
 		const outcome = await reauthenticate('confirmTotpSetup', {
-			userId: USER,
+			user: { id: USER, sessionId: SESSION },
 			ip: IP,
 			form: form({ password: PASSWORD, code: codeFor(fresh) }),
 			newTotpSecret: fresh
@@ -367,7 +368,7 @@ describe('password plus a code from the new secret (confirmTotpSetup)', () => {
 		db.prisma.user.findUnique.mockResolvedValue(account({ totp: false }));
 
 		const outcome = await reauthenticate('confirmTotpSetup', {
-			userId: USER,
+			user: { id: USER, sessionId: SESSION },
 			ip: IP,
 			form: form({ password: PASSWORD, code: wrongCodeFor(fresh) }),
 			newTotpSecret: fresh
@@ -382,7 +383,7 @@ describe('password plus a code from the new secret (confirmTotpSetup)', () => {
 		db.prisma.user.findUnique.mockResolvedValue(account({ totp: false }));
 
 		const outcome = await reauthenticate('confirmTotpSetup', {
-			userId: USER,
+			user: { id: USER, sessionId: SESSION },
 			ip: IP,
 			form: form({ password: PASSWORD, code: '123456' }),
 			newTotpSecret: '!!!not-base32!!!'
@@ -397,14 +398,14 @@ describe('the limiter', () => {
 		rateLimit.isReauthRateLimited.mockResolvedValueOnce(true);
 
 		const outcome = await reauthenticate('deleteAccount', {
-			userId: USER,
+			user: { id: USER, sessionId: SESSION },
 			ip: IP,
 			form: form({ password: PASSWORD })
 		});
 
 		expect(outcome).toEqual({ ok: false, reason: 'rate-limited' });
 		expect(db.prisma.user.findUnique).not.toHaveBeenCalled();
-		expect(rateLimit.isReauthRateLimited).toHaveBeenCalledWith(USER, IP);
+		expect(rateLimit.isReauthRateLimited).toHaveBeenCalledWith(SESSION);
 	});
 });
 
@@ -413,7 +414,7 @@ describe('the account read', () => {
 		db.prisma.user.findUnique.mockResolvedValue(account({ totp: false }));
 
 		await reauthenticate('revokeSession', {
-			userId: USER,
+			user: { id: USER, sessionId: SESSION },
 			ip: IP,
 			form: form({ password: PASSWORD })
 		});
@@ -432,7 +433,11 @@ describe('the account read', () => {
 		const posted = form({ password: PASSWORD });
 		posted.set('userId', 'user-b');
 
-		await reauthenticate('revokeSession', { userId: USER, ip: IP, form: posted });
+		await reauthenticate('revokeSession', {
+			user: { id: USER, sessionId: SESSION },
+			ip: IP,
+			form: posted
+		});
 
 		expect(db.prisma.user.findUnique).toHaveBeenCalledWith(
 			expect.objectContaining({ where: { id: USER } })
@@ -443,7 +448,7 @@ describe('the account read', () => {
 		db.prisma.user.findUnique.mockResolvedValue(null);
 
 		const outcome = await reauthenticate('revokeSession', {
-			userId: USER,
+			user: { id: USER, sessionId: SESSION },
 			ip: IP,
 			form: form({ password: PASSWORD })
 		});

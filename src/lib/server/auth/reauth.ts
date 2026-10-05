@@ -1,6 +1,6 @@
 import * as m from '$lib/paraglide/messages';
 import { REAUTH_FIELDS } from '$lib/domain/reauthFields';
-import { verifyPassword } from '$lib/server/auth';
+import { verifyPassword, type AuthUser } from '$lib/server/auth';
 import { isReauthRateLimited, recordReauthAttempt } from '$lib/server/auth/rateLimit';
 import { decryptTotpSecret, verifyTotpCode } from '$lib/server/auth/totp';
 import { prisma } from '$lib/server/db';
@@ -19,8 +19,9 @@ import { prisma } from '$lib/server/db';
  * asked (#854 class 2: whoever holds a stolen session must not learn which factor failed).
  *
  * ORDER, and each step is load-bearing:
- *   1. The limiter, before any read: a throttled caller learns nothing about the account.
- *   2. The account row, by `userId` alone (the caller's own id, from `locals`, never posted).
+ *   1. The limiter, before any read: a throttled caller learns nothing about the account. It counts
+ *      the caller's SESSION, never the account (#879: `isReauthRateLimited` says why).
+ *   2. The account row, by the caller's own id (from `locals`, never posted).
  *   3. Shape: an absent password or a code that is not six digits refuses here, BEFORE any secret
  *      is consulted, and records no attempt. A shape refusal guesses nothing, so counting it would
  *      only let a fumbled form lock its owner out; and because no secret was read, it cannot be an
@@ -28,7 +29,7 @@ import { prisma } from '$lib/server/db';
  *   4. Both factors, ALWAYS both: the password through bcrypt and the code through the TOTP window,
  *      whatever the first answered. A wrong password and a wrong code then cost the same work, so
  *      the response time does not say which one failed. The password is reported first.
- *   5. A wrong factor records one attempt against the shared REAUTH counter.
+ *   5. A wrong factor records one attempt against the session's REAUTH counter.
  */
 
 /** What an action asks for. R3 on #841, « Factors per action ». */
@@ -96,8 +97,12 @@ export type ReauthRefused =
 export type ReauthOutcome = { ok: true } | ReauthRefused;
 
 interface ReauthInput {
-	/** The caller's own id, from `locals.user`. Never a posted value. */
-	userId: string;
+	/**
+	 * `locals.user`, whole: its `id` finds the account and its `sessionId` keys the counter (#879).
+	 * Taking the object rather than two strings leaves no field for a posted value to reach.
+	 */
+	user: Pick<AuthUser, 'id' | 'sessionId'>;
+	/** Written to the attempt row, never counted: see `recordReauthAttempt`. */
 	ip: string;
 	/** The posted form, read for `REAUTH_FIELDS` and nothing else. */
 	form: FormData;
@@ -125,12 +130,12 @@ export async function reauthenticate(
 
 async function decide(
 	factors: ReauthFactors,
-	{ userId, ip, form, newTotpSecret }: ReauthInput & { newTotpSecret?: string }
+	{ user, ip, form, newTotpSecret }: ReauthInput & { newTotpSecret?: string }
 ): Promise<ReauthOutcome> {
-	if (await isReauthRateLimited(userId, ip)) return { ok: false, reason: 'rate-limited' };
+	if (await isReauthRateLimited(user.sessionId)) return { ok: false, reason: 'rate-limited' };
 
 	const account = await prisma.user.findUnique({
-		where: { id: userId },
+		where: { id: user.id },
 		select: { passwordHash: true, totpEnabled: true, totpSecretEncrypted: true }
 	});
 
@@ -164,7 +169,7 @@ async function decide(
 			: verifyCodeSafely(() => verifyTotpCode(decryptTotpSecret(storedSecret ?? ''), code));
 
 	if (!passwordOk || !codeOk) {
-		await recordReauthAttempt(userId, ip);
+		await recordReauthAttempt(user.sessionId, ip);
 		return refuse(passwordOk ? 'wrong-totp' : 'wrong-password');
 	}
 	return { ok: true };

@@ -149,6 +149,7 @@ describe('auth locale', () => {
 
 		const token = 'opaque-session-token';
 		db.prisma.session.findUnique.mockResolvedValue({
+			id: 'session-row-1',
 			tokenHash: hashSessionToken(token),
 			expiresAt: new Date(Date.now() + 60_000),
 			revokedAt: null,
@@ -161,7 +162,12 @@ describe('auth locale', () => {
 
 		const user = await readSessionUser(token);
 
-		expect(user).toEqual({ id: 'user-a', email: 'a@example.test', role: 'USER' });
+		expect(user).toEqual({
+			id: 'user-a',
+			email: 'a@example.test',
+			role: 'USER',
+			sessionId: 'session-row-1'
+		});
 		expect(JSON.stringify(user)).not.toContain('passwordHash');
 	});
 
@@ -331,7 +337,8 @@ describe('auth locale', () => {
 			id: 'user-a',
 			email: 'a@example.test',
 			role: 'USER',
-			forcePasswordChange: false
+			forcePasswordChange: false,
+			sessionId: 'session-a'
 		} as const;
 
 		expect(requireUser(user)).toBe(user);
@@ -352,7 +359,8 @@ describe('auth locale', () => {
 			id: 'user-a',
 			email: 'a@example.test',
 			role: 'USER',
-			forcePasswordChange: false
+			forcePasswordChange: false,
+			sessionId: 'session-a'
 		} as const;
 
 		expect(() => requireAdmin(user)).toThrowError(expect.objectContaining({ status: 403 }));
@@ -365,7 +373,8 @@ describe('auth locale', () => {
 			id: 'admin-a',
 			email: 'admin@example.test',
 			role: 'ADMIN',
-			forcePasswordChange: false
+			forcePasswordChange: false,
+			sessionId: 'session-a'
 		} as const;
 
 		expect(requireAdmin(admin)).toBe(admin);

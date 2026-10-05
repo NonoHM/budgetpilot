@@ -196,7 +196,7 @@ export const actions: Actions = {
 		}
 
 		// R3 on #841: password, plus TOTP when enabled (7.5.1). It checked the password only before.
-		const reauth = await reauthenticate('changePassword', { userId: user.id, ip, form: formData });
+		const reauth = await reauthenticate('changePassword', { user, ip, form: formData });
 		if (!reauth.ok) return fail(400, { passwordError: reauthRefusalMessage(reauth) });
 
 		const newPasswordHash = await hashPassword(newPassword);
@@ -236,7 +236,7 @@ export const actions: Actions = {
 		const currentTokenHash = currentToken ? hashSessionToken(currentToken) : null;
 
 		const reauth = await reauthenticate('revokeOtherSessions', {
-			userId: user.id,
+			user,
 			ip,
 			form: formData
 		});
@@ -271,7 +271,7 @@ export const actions: Actions = {
 
 		// Before the lookup, so a caller who has not re-authenticated learns nothing about which
 		// session ids exist (#253, R3 on #841: one factor, 7.5.2).
-		const reauth = await reauthenticate('revokeSession', { userId: user.id, ip, form: formData });
+		const reauth = await reauthenticate('revokeSession', { user, ip, form: formData });
 		if (!reauth.ok) return fail(400, { sessionsError: reauthRefusalMessage(reauth) });
 
 		// `userId` IN the where clause (R6 on #841, the revokeSession half of #830): another account's
@@ -313,7 +313,7 @@ export const actions: Actions = {
 
 		// The phrase confirms intent; the credential authenticates (R3 on #841: password, plus TOTP
 		// when enabled, 7.5.1).
-		const reauth = await reauthenticate('deleteAccount', { userId: user.id, ip, form: formData });
+		const reauth = await reauthenticate('deleteAccount', { user, ip, form: formData });
 		if (!reauth.ok) return fail(400, { deleteError: reauthRefusalMessage(reauth) });
 
 		await prisma.$transaction(async (tx) => {
@@ -361,7 +361,7 @@ export const actions: Actions = {
 		// #228: a restore replaces every record the account owns, as destructive as deleteAccount, so
 		// it asks what deleteAccount asks. Placed BEFORE the file is read, counted and parsed: a caller
 		// who has not re-authenticated spends none of that work and learns nothing about the file.
-		const reauth = await reauthenticate('restoreData', { userId: user.id, ip, form: formData });
+		const reauth = await reauthenticate('restoreData', { user, ip, form: formData });
 		if (!reauth.ok) return fail(400, { restoreError: reauthRefusalMessage(reauth) });
 
 		let rawText: string;
@@ -494,7 +494,7 @@ export const actions: Actions = {
 		// R3 on #841: the password, plus a code from the secret being enrolled (7.5.1). A wrong
 		// password and a wrong code now read alike (#854 class 2), where they used to differ.
 		const reauth = await reauthenticate('confirmTotpSetup', {
-			userId: user.id,
+			user,
 			ip,
 			form: formData,
 			newTotpSecret: secretBase32
@@ -529,7 +529,7 @@ export const actions: Actions = {
 		// R3 on #841: password plus TOTP, and the account must have a second factor to disable. The
 		// limiter matters most here: without it the six-digit code protecting the account could itself
 		// be guessed off by anyone holding a session.
-		const reauth = await reauthenticate('disableTotp', { userId: user.id, ip, form: formData });
+		const reauth = await reauthenticate('disableTotp', { user, ip, form: formData });
 		if (!reauth.ok) return fail(400, { totpDisableError: reauthRefusalMessage(reauth) });
 
 		await prisma.$transaction(async (tx) => {

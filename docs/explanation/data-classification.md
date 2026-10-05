@@ -139,8 +139,8 @@ Each statement was read in the file named.
 
 - `LoginAttempt.emailHash` and `ipHash` are HMAC-SHA256 under `RATE_LIMIT_HASH_SECRET`
   (`hashRateLimitKey`, `src/lib/server/auth/rateLimit.ts`). `emailHash` is not always an email:
-  for the `REAUTH`, `IMPORT` and `BANK_SYNC_START` kinds it holds an HMAC of the user id, and for
-  `MFA` an HMAC of a challenge id (#833 tabulates this).
+  for the `IMPORT` and `BANK_SYNC_START` kinds it holds an HMAC of the user id, for `REAUTH` an
+  HMAC of the session id (#879), and for `MFA` an HMAC of a challenge id (#833 tabulates this).
 - Rows older than four rate-limit windows (60 minutes) are deleted, but only as a side effect of
   recording a later attempt (`recordAttempt`, `rateLimit.ts`).
 

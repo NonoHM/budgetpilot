@@ -54,13 +54,15 @@ const ADMIN = {
 	id: 'admin-a',
 	email: 'admin@example.test',
 	role: 'ADMIN',
-	forcePasswordChange: false
+	forcePasswordChange: false,
+	sessionId: 'session-a'
 };
 const USER = {
 	id: 'user-a',
 	email: 'user-a@example.test',
 	role: 'USER',
-	forcePasswordChange: false
+	forcePasswordChange: false,
+	sessionId: 'session-a'
 };
 
 /** The ADMIN's own password: #229 re-authenticates the admin, never the target. */
@@ -588,7 +590,9 @@ describe('#229: the admin re-authenticates before acting on another account', ()
 	it.each(ACTIONS)('%s proves the admin, not the target', async (action) => {
 		await invokeAction(action, { targetUserId: 'user-b', ...(await credentials('right')) }, ADMIN);
 
-		expect(vi.mocked(reauth.reauthenticate).mock.calls[0]?.[1]).toMatchObject({ userId: ADMIN.id });
+		expect(vi.mocked(reauth.reauthenticate).mock.calls[0]?.[1]).toMatchObject({
+			user: { id: ADMIN.id, sessionId: ADMIN.sessionId }
+		});
 	});
 
 	it.each(ROWS)('%s refuses %s with its reason, one sentence, and no write', async (a, r) => {
@@ -607,6 +611,9 @@ describe('#229: the admin re-authenticates before acting on another account', ()
 		expect(result.data[ERROR_KEY[action]]).toBe(reauth.reauthRefusalMessage(decided));
 		for (const write of writes()) expect(write.mock.calls).toEqual([]);
 		expect(rateLimit.recordReauthAttempt).toHaveBeenCalledTimes(reason.startsWith('wrong') ? 1 : 0);
+		if (reason.startsWith('wrong')) {
+			expect(rateLimit.recordReauthAttempt).toHaveBeenCalledWith('session-a', '203.0.113.20');
+		}
 	});
 
 	it.each(ACTIONS)('%s says the same sentence whatever failed', async (action) => {
