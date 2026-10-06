@@ -404,30 +404,26 @@ describe('the record of the last step', () => {
 		expect(await totpEnabled(user.id)).toBe(true);
 	});
 
-	// Separates « disabling forgets the old secret's last step » from « it keeps it »: kept, a new
-	// secret enrolled within the same step is refused as if its code had been used.
-	it('disabling then enrolling a new secret starts from no step', async () => {
+	// Separates « disabling clears the step with the secret it was a step of » from « it keeps it ».
+	// Read from the row, because since enrolment writes its step unconditionally no route behaves
+	// differently either way: a re-enrolment test went green with the clearing removed. The column's
+	// meaning is what is asserted: NULL, no code accepted since two-factor was last turned off.
+	it('disabling clears the last step with the secret', async () => {
 		expect.assertions(2);
-		const oldSecret = generateTotpSecretBase32();
-		const user = await seedAccount('disable-re-enrol', oldSecret);
+		const secret = generateTotpSecretBase32();
+		const user = await seedAccount('disable-clears', secret);
 		const token = await mintSession(user.id);
 
 		await settingsAction('disableTotp', token, {
 			[REAUTH_FIELDS.password]: PASSWORD,
-			[REAUTH_FIELDS.code]: codeAt(oldSecret, 1)
+			[REAUTH_FIELDS.code]: codeAt(secret, 0)
 		});
 		expect(await totpEnabled(user.id)).toBe(false);
 
-		// `disableTotp` rotates the session token (#249): the browser now holds a new one.
-		const nextToken = await mintSession(user.id);
-		const newSecret = generateTotpSecretBase32();
-		await settingsAction('confirmTotpSetup', nextToken, {
-			[REAUTH_FIELDS.password]: PASSWORD,
-			[REAUTH_FIELDS.code]: codeAt(newSecret, 0),
-			secretBase32: newSecret
+		const row = await prisma.user.findUniqueOrThrow({
+			where: { id: user.id },
+			select: { totpLastUsedStep: true }
 		});
-		// Accepted only if disabling cleared the old secret's step, which was ONE AHEAD of this code's.
-		// Whether enrolment then records its own step is the test above, not this one.
-		expect(await totpEnabled(user.id)).toBe(true);
+		expect(row.totpLastUsedStep).toBeNull();
 	});
 });

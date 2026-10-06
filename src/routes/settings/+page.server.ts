@@ -524,8 +524,8 @@ export const actions: Actions = {
 		await commitWithRotatedToken(user, cookies, async (tx) => {
 			await tx.user.update({
 				where: { id: user.id },
-				// The last accepted step goes with the secret it was a step of (#818): kept, a new
-				// secret enrolled within the same 30 seconds would have its first code refused as used.
+				// The last accepted step goes with the secret it was a step of (#818): NULL reads « no
+				// code accepted since two-factor was last turned off ».
 				data: {
 					totpEnabled: false,
 					totpSecretEncrypted: null,
