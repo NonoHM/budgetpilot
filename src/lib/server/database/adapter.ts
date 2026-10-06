@@ -2,6 +2,7 @@ import { PrismaBetterSqlite3 } from '@prisma/adapter-better-sqlite3';
 import { PrismaMariaDb } from '@prisma/adapter-mariadb';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { toDriverConnectionUrl, type DatabaseProvider } from './provider.ts';
+import { SerializedSqliteAdapterFactory } from './serializedSqliteAdapter.ts';
 
 /**
  * Builds the Prisma driver adapter for the configured provider.
@@ -41,7 +42,9 @@ export function createDatabaseAdapter(
 ) {
 	switch (provider) {
 		case 'sqlite':
-			return new PrismaBetterSqlite3({ url });
+			// Serialised, so a query issued outside an open transaction cannot run inside it and be
+			// undone by its rollback. See serializedSqliteAdapter.ts (#889).
+			return new SerializedSqliteAdapterFactory(new PrismaBetterSqlite3({ url }));
 		case 'postgresql':
 			return options.singleConnection
 				? new PrismaPg({ connectionString: url, max: 1, idleTimeoutMillis: 0 })
