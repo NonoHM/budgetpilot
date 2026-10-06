@@ -254,6 +254,7 @@ COPY --from=builder /app/src/lib/server/database/adapter.ts \
 	/app/src/lib/server/database/client.ts \
 	/app/src/lib/server/database/minorUnits.ts \
 	/app/src/lib/server/database/moneyColumns.ts \
+	/app/src/lib/server/database/serializedSqliteAdapter.ts \
 	/app/src/lib/server/database/types.ts \
 	./src/lib/server/database/
 COPY --from=builder /app/src/lib/server/database/generated ./src/lib/server/database/generated

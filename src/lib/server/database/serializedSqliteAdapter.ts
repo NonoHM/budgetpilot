@@ -31,9 +31,10 @@ import type { PrismaBetterSqlite3 } from '@prisma/adapter-better-sqlite3';
  * 1000 ms timeout over three runs, 3002 ms for a 3000 ms one, so the wait is the timeout itself
  * (Prisma's default is 5000 ms). `transactionIsolation.db-smoke.ts`, « the global client used INSIDE
  * a transaction callback », asserts the bound. It fails loudly; it does not hang. A sweep
- * of every `$transaction(` site (22 interactive, 2 batch) found no production callback that uses
- * the global client or awaits anything but the database, and the batch form runs its elements on
- * the transaction it opens, so nothing that ships waits on itself.
+ * of every `$transaction(` site when this was written (22 interactive, 2 batch; re-derive with
+ * `git grep -n '\$transaction(' -- src ':!*.spec.ts' ':!*.db-smoke.ts'`) found no production
+ * callback that uses the global client or awaits anything but the database, and the batch form
+ * runs its elements on the transaction it opens, so nothing that ships waits on itself.
  *
  * ## When to delete it
  *
