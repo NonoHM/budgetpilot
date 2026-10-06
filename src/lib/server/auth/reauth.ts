@@ -31,9 +31,10 @@ import { prisma } from '$lib/server/db';
  *      only let a fumbled form lock its owner out; and because no secret was read, it cannot be an
  *      oracle for one.
  *   4. Both factors, ALWAYS both: the password through bcrypt and the code through the TOTP window,
- *      whatever the first answered. A wrong password and a wrong code then cost the same work, so
- *      the response time does not say which one failed. The password is reported first, except
- *      against a code already used (below).
+ *      whatever the first answered. The work then depends on whether the CODE is valid (a valid
+ *      code against a stored secret also commits the update that spends it), never on whether the
+ *      password was right, so the response time does not say whether the password failed. The
+ *      password is reported first, except against a code already used (below).
  *   5. A wrong factor records one attempt against the session's REAUTH counter.
  *
  * A VALID CODE AGAINST THE STORED SECRET IS SPENT AT STEP 4, even when the password was wrong or
