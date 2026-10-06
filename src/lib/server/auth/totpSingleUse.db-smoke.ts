@@ -5,6 +5,7 @@ import { env } from '$env/dynamic/private';
 import { createSession, hashPassword, readSessionUser, SESSION_COOKIE } from '$lib/server/auth';
 import { createMfaChallenge } from '$lib/server/auth/mfaChallenge';
 import { encryptTotpSecret, generateTotpSecretBase32 } from '$lib/server/auth/totp';
+import { acceptTotpCode } from '$lib/server/auth/totpAcceptance';
 import { REAUTH_FIELDS } from '$lib/domain/reauthFields';
 import * as m from '$lib/paraglide/messages';
 import { prisma } from '$lib/server/db';
@@ -425,5 +426,70 @@ describe('the record of the last step', () => {
 			select: { totpLastUsedStep: true }
 		});
 		expect(row.totpLastUsedStep).toBeNull();
+	});
+});
+
+/**
+ * The contradiction pass 2 on #818: sign-in and re-authentication read the stored ciphertext, then
+ * judge and spend the code later (a bcrypt sits in between for re-authentication). These tests call
+ * `acceptTotpCode` with the ciphertext read BEFORE the factor changed, which is the call the route
+ * makes when the change commits inside that window; no route can be paused there deterministically.
+ * Each separates « the update checks the factor the code was judged against » from « it checks the
+ * step only », and asserts the verdict and the step as one value so neither goes unobserved.
+ */
+describe('a code judged against a factor that has since changed is not accepted', () => {
+	async function storedCiphertext(userId: string): Promise<string> {
+		const row = await prisma.user.findUniqueOrThrow({
+			where: { id: userId },
+			select: { totpSecretEncrypted: true }
+		});
+		return row.totpSecretEncrypted ?? '';
+	}
+
+	async function lastStep(userId: string): Promise<number | null> {
+		const row = await prisma.user.findUniqueOrThrow({
+			where: { id: userId },
+			select: { totpLastUsedStep: true }
+		});
+		return row.totpLastUsedStep;
+	}
+
+	async function disable(userId: string, secret: string) {
+		await settingsAction('disableTotp', await mintSession(userId), {
+			[REAUTH_FIELDS.password]: PASSWORD,
+			[REAUTH_FIELDS.code]: codeAt(secret, 0)
+		});
+		expect(await totpEnabled(userId)).toBe(false);
+	}
+
+	it('after a disable and a new enrolment, the old secret writes nothing to the new one', async () => {
+		expect.assertions(3);
+		const oldSecret = generateTotpSecretBase32();
+		const user = await seedAccount('stale-after-re-enrol', oldSecret);
+		const stale = await storedCiphertext(user.id);
+		await disable(user.id, oldSecret);
+		const newSecret = generateTotpSecretBase32();
+		await settingsAction('confirmTotpSetup', await mintSession(user.id), {
+			[REAUTH_FIELDS.password]: PASSWORD,
+			[REAUTH_FIELDS.code]: codeAt(newSecret, 0),
+			secretBase32: newSecret
+		});
+		expect(await totpEnabled(user.id)).toBe(true);
+
+		const verdict = await acceptTotpCode(user.id, stale, codeAt(oldSecret, 1));
+
+		expect({ verdict, step: await lastStep(user.id) }).toEqual({ verdict: 'wrong', step });
+	});
+
+	it('after a disable, the old secret leaves the disabled row without a step', async () => {
+		expect.assertions(2);
+		const secret = generateTotpSecretBase32();
+		const user = await seedAccount('stale-after-disable', secret);
+		const stale = await storedCiphertext(user.id);
+		await disable(user.id, secret);
+
+		const verdict = await acceptTotpCode(user.id, stale, codeAt(secret, 1));
+
+		expect({ verdict, step: await lastStep(user.id) }).toEqual({ verdict: 'wrong', step: null });
 	});
 });
