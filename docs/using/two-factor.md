@@ -93,9 +93,9 @@ button anywhere in BudgetPilot will change that.** In particular:
 
 The only way back is on the server, in the database, by whoever runs the
 instance. If that is you, [operations](../operations.md) is where the
-database lives; the two columns to clear are `totpEnabled` and
-`totpSecretEncrypted` on your row in the `User` table. If the instance is
-run by someone else, they can do it and you cannot.
+database lives; the three columns to clear are `totpEnabled`,
+`totpSecretEncrypted` and `totpLastUsedStep` on your row in the `User` table.
+If the instance is run by someone else, they can do it and you cannot.
 
 That is the whole trade: two-factor buys real protection, and on a
 self-hosted instance the fallback is a person with database access rather

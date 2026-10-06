@@ -97,7 +97,9 @@ password still redirects to the verification page.
 Clearing `totpEnabled` and `totpSecretEncrypted` on the user's row restores
 password-only sign-in. Also measured, on a throwaway instance, so the
 procedure in the how-to is one that has been run rather than one that ought
-to work.
+to work. Set `totpLastUsedStep` to `NULL` in the same change, so the row reads
+as turning two-factor off leaves it: no code accepted since. That third column
+was added after the measurement, by #818.
 
 ## The encryption key
 
