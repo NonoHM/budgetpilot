@@ -27,6 +27,10 @@ export type TotpAcceptance = 'accepted' | 'wrong' | 'reused';
  * requests carrying one code cannot both read « not used yet ». Refusing every step AT OR BELOW the
  * last one also refuses an older code still inside the window after a newer one was accepted.
  *
+ * The update also requires the factor the code was judged against to be still the account's
+ * (`totpEnabled` and the same ciphertext), and a code refused because it no longer is answers
+ * `wrong`, since it was not judged against the account's current factor.
+ *
  * The update commits on its own, so a step is spent the moment it is verified, whatever happens
  * next: a re-authentication whose password was wrong, or whose action is then refused. Rolling the
  * step back with a later failure would make a code that has been seen usable again; spent and
@@ -40,14 +44,18 @@ export async function acceptTotpCode(
 	const step = stepOf(() => decryptTotpSecret(storedSecretEncrypted), code);
 	if (step === null) return 'wrong';
 
+	const sameFactor = { id: userId, totpEnabled: true, totpSecretEncrypted: storedSecretEncrypted };
 	const { count } = await prisma.user.updateMany({
 		where: {
-			id: userId,
+			...sameFactor,
 			OR: [{ totpLastUsedStep: null }, { totpLastUsedStep: { lt: step } }]
 		},
 		data: { totpLastUsedStep: step }
 	});
-	return count === 1 ? 'accepted' : 'reused';
+	if (count === 1) return 'accepted';
+	// Matched nothing: a spent step if the factor is unchanged, otherwise a factor changed since the
+	// ciphertext was read (a disable, or a disable and a new enrolment, committed in between).
+	return (await prisma.user.count({ where: sameFactor })) === 1 ? 'reused' : 'wrong';
 }
 
 /**

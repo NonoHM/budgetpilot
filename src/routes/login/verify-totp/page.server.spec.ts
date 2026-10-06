@@ -9,7 +9,9 @@ const db = vi.hoisted(() => ({
 	prisma: {
 		user: {
 			findUnique: vi.fn(),
-			updateMany: vi.fn()
+			updateMany: vi.fn(),
+			// The account's factor is unchanged since it was read (#818): a refused step is a spent one.
+			count: vi.fn(async () => 1)
 		},
 		session: {
 			create: vi.fn()

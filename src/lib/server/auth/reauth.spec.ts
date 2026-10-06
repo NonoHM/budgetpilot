@@ -21,7 +21,7 @@ vi.hoisted(() => {
  */
 
 const db = vi.hoisted(() => ({
-	prisma: { user: { findUnique: vi.fn(), updateMany: vi.fn() } }
+	prisma: { user: { findUnique: vi.fn(), updateMany: vi.fn(), count: vi.fn() } }
 }));
 const rateLimit = vi.hoisted(() => ({
 	isReauthRateLimited: vi.fn(async () => false),
@@ -95,6 +95,10 @@ beforeEach(() => {
 	// decision over the answer is what is tested.
 	db.prisma.user.updateMany.mockReset();
 	db.prisma.user.updateMany.mockResolvedValue({ count: 1 });
+	// The account's factor is still the one the code was judged against, so an update that matched
+	// nothing reads as a spent step.
+	db.prisma.user.count.mockReset();
+	db.prisma.user.count.mockResolvedValue(1);
 });
 
 describe('R3 on #841, as data', () => {
