@@ -477,9 +477,7 @@ export const actions: Actions = {
 		if (!secretBase32) return invalid();
 
 		// R3 on #841: the password, plus a code from the secret being enrolled (7.5.1). A wrong
-		// password and a wrong code now read alike (#854 class 2), where they used to differ. The
-		// confirming code is the first one spent: `reauthenticate` records its step (#818), so the
-		// code typed here, which someone may have watched, cannot then sign in.
+		// password and a wrong code now read alike (#854 class 2), where they used to differ.
 		const reauth = await reauthenticate('confirmTotpSetup', {
 			user,
 			ip,
@@ -497,7 +495,11 @@ export const actions: Actions = {
 				data: {
 					totpSecretEncrypted: encryptTotpSecret(secretBase32),
 					totpEnabled: true,
-					totpEnabledAt: new Date()
+					totpEnabledAt: new Date(),
+					// The confirming code is the first one spent (#818), written with the secret it is a
+					// step of, so the code typed here, which someone may have watched, cannot then sign
+					// in. Not at re-authentication: see `judgeEnrolmentCode`.
+					totpLastUsedStep: reauth.totpStep
 				}
 			});
 			await tx.recoveryCode.deleteMany({ where: { userId: user.id } });

@@ -373,7 +373,26 @@ describe('password plus a code from the new secret (confirmTotpSetup)', () => {
 			newTotpSecret: fresh
 		});
 
-		expect(outcome).toEqual({ ok: true });
+		expect(outcome).toEqual({ ok: true, totpStep: expect.any(Number) });
+	});
+
+	// The contradiction pass on #818: an enrolment code is JUDGED here and spent by the enabling
+	// write, never here. Separates « judged only » from « spent at verification », which let a
+	// session holder with no password move the account's step ahead with a wrong password.
+	it.each([
+		['the right', PASSWORD],
+		['a wrong', 'not-it']
+	])('spends no step with %s password', async (_, password) => {
+		db.prisma.user.findUnique.mockResolvedValue(account({ totp: false }));
+
+		await reauthenticate('confirmTotpSetup', {
+			user: { id: USER, sessionId: SESSION },
+			ip: IP,
+			form: form({ password, code: codeFor(fresh) }),
+			newTotpSecret: fresh
+		});
+
+		expect(db.prisma.user.updateMany).not.toHaveBeenCalled();
 	});
 
 	// The contradiction pass on S1: enrolling over an EXISTING second factor replaced it with the
@@ -415,7 +434,7 @@ describe('password plus a code from the new secret (confirmTotpSetup)', () => {
 			newTotpSecret: fresh
 		});
 
-		expect(outcome).toEqual({ ok: true });
+		expect(outcome).toEqual({ ok: true, totpStep: expect.any(Number) });
 	});
 
 	it('refuses a code from another secret as wrong-totp', async () => {

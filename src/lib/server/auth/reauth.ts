@@ -2,7 +2,11 @@ import * as m from '$lib/paraglide/messages';
 import { REAUTH_FIELDS } from '$lib/domain/reauthFields';
 import { verifyPassword, type AuthUser } from '$lib/server/auth';
 import { isReauthRateLimited, recordReauthAttempt } from '$lib/server/auth/rateLimit';
-import { acceptTotpCode } from '$lib/server/auth/totpAcceptance';
+import {
+	acceptTotpCode,
+	judgeEnrolmentCode,
+	type TotpAcceptance
+} from '$lib/server/auth/totpAcceptance';
 import { prisma } from '$lib/server/db';
 
 /**
@@ -32,12 +36,15 @@ import { prisma } from '$lib/server/db';
  *      against a code already used (below).
  *   5. A wrong factor records one attempt against the session's REAUTH counter.
  *
- * A VALID CODE IS SPENT AT STEP 4, even when the password was wrong or the action is then refused
- * (#818, `acceptTotpCode`). That is the safe direction: a code spent, never a code reusable. Its
- * cost is the owner who mistyped the password waiting for the next code, and the sentence they get
- * on retrying the same one, `reused-totp`, tells them so. That reason is reported WHATEVER the
- * password answered, and it has to be: reported only beside a right password, a replayed code
- * would answer « was this password right » to whoever holds the session.
+ * A VALID CODE AGAINST THE STORED SECRET IS SPENT AT STEP 4, even when the password was wrong or
+ * the action is then refused (#818, `acceptTotpCode`). That is the safe direction: a code spent,
+ * never a code reusable. Its cost is the owner who mistyped the password waiting for the next code,
+ * and the sentence they get on retrying the same one, `reused-totp`, tells them so. That reason is
+ * reported WHATEVER the password answered, and it has to be: reported only beside a right
+ * password, a replayed code would answer « was this password right » to whoever holds the session.
+ *
+ * AN ENROLMENT CODE IS ONLY JUDGED HERE (`judgeEnrolmentCode`): the success carries its step, and
+ * `confirmTotpSetup` writes that step with the secret. See `totpAcceptance.ts` for why.
  *
  * WHAT A SUCCESS IS FOR: the action then writes its change through `commitWithRotatedToken` (or
  * `commitEndingSession` for deleting the account), which commits it together with a new session
@@ -112,6 +119,9 @@ export type ReauthRefused =
 
 export type ReauthOutcome = { ok: true } | ReauthRefused;
 
+/** Enrolment's success carries the step of the code it judged, for the enabling write to record. */
+export type EnrolmentOutcome = { ok: true; totpStep: number } | ReauthRefused;
+
 interface ReauthInput {
 	/**
 	 * `locals.user`, whole: its `id` finds the account and its `sessionId` keys the counter (#879).
@@ -129,7 +139,7 @@ const TOTP_CODE_PATTERN = /^[0-9]{6}$/;
 export function reauthenticate(
 	action: 'confirmTotpSetup',
 	input: ReauthInput & { newTotpSecret: string }
-): Promise<ReauthOutcome>;
+): Promise<EnrolmentOutcome>;
 export function reauthenticate(
 	action: Exclude<ReauthAction, 'confirmTotpSetup'>,
 	input: ReauthInput
@@ -137,7 +147,7 @@ export function reauthenticate(
 export async function reauthenticate(
 	action: ReauthAction,
 	input: ReauthInput & { newTotpSecret?: string }
-): Promise<ReauthOutcome> {
+): Promise<ReauthOutcome | EnrolmentOutcome> {
 	// THE single exit. L3 emits its `reauth` event here, with `action` and `outcome.reason`, and
 	// nowhere else: every path below returns into this line.
 	const outcome = await decide(REAUTH_FACTORS[action], input);
@@ -147,7 +157,7 @@ export async function reauthenticate(
 async function decide(
 	factors: ReauthFactors,
 	{ user, ip, form, newTotpSecret }: ReauthInput & { newTotpSecret?: string }
-): Promise<ReauthOutcome> {
+): Promise<ReauthOutcome | EnrolmentOutcome> {
 	if (await isReauthRateLimited(user.sessionId)) return { ok: false, reason: 'rate-limited' };
 
 	const account = await prisma.user.findUnique({
@@ -178,22 +188,21 @@ async function decide(
 
 	// Both evaluated before either is acted on: see step 4 in the header.
 	const passwordOk = await verifyPassword(password, account.passwordHash);
-	const codeVerdict = !asksCode
-		? 'accepted'
-		: await acceptTotpCode(
-				user.id,
-				factors === 'password+new-secret-code'
-					? { enrolling: newTotpSecret ?? '' }
-					: { stored: storedSecret ?? '' },
-				code
-			);
+	const enrolledStep =
+		factors === 'password+new-secret-code' ? judgeEnrolmentCode(newTotpSecret ?? '', code) : null;
+	let codeVerdict: TotpAcceptance = 'accepted';
+	if (factors === 'password+new-secret-code') {
+		codeVerdict = enrolledStep === null ? 'wrong' : 'accepted';
+	} else if (asksCode) {
+		codeVerdict = await acceptTotpCode(user.id, storedSecret ?? '', code);
+	}
 
 	if (!passwordOk || codeVerdict !== 'accepted') {
 		await recordReauthAttempt(user.sessionId, ip);
 		if (codeVerdict === 'reused') return refuse('reused-totp');
 		return refuse(passwordOk ? 'wrong-totp' : 'wrong-password');
 	}
-	return { ok: true };
+	return enrolledStep === null ? { ok: true } : { ok: true, totpStep: enrolledStep };
 }
 
 function readField(form: FormData, name: string): string {

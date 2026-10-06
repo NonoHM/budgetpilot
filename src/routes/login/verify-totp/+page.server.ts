@@ -49,7 +49,7 @@ export const actions: Actions = {
 		// A TOTP code is spent here, by `acceptTotpCode`, even if the sign-in then fails: see why there.
 		let verdict: TotpAcceptance = 'wrong';
 		if (TOTP_CODE_PATTERN.test(code)) {
-			verdict = await acceptTotpCode(user.id, { stored: user.totpSecretEncrypted }, code);
+			verdict = await acceptTotpCode(user.id, user.totpSecretEncrypted, code);
 		} else if (RECOVERY_CODE_PATTERN.test(code)) {
 			verdict = (await tryConsumeRecoveryCode(user.id, code.toUpperCase())) ? 'accepted' : 'wrong';
 		}
