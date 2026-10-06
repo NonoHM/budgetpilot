@@ -13,6 +13,16 @@ import type { PrismaBetterSqlite3 } from '@prisma/adapter-better-sqlite3';
  * Measured by `transactionIsolation.db-smoke.ts`: on SQLite the outside write was undone, and an
  * outside read saw the uncommitted value; on PostgreSQL and MariaDB neither happened.
  *
+ * WHEN another request can get in: only while the transaction awaits something that is NOT the
+ * database (a timer, a network call, an async hash). better-sqlite3 is synchronous, so a callback
+ * that awaits only database calls never yields to the event loop, and a request arriving meanwhile
+ * runs after it. Measured through `createPrismaClient` on 2026-10-06: work scheduled with
+ * `setImmediate` or `setTimeout(0)` interleaved 0 times in 4 trials of 1 and 2000 database-only
+ * awaits, and 2 times in 2 trials with one 20 ms timer added, its write then undone. No production
+ * callback awaits anything else today (the sweep below), so this closes a trap rather than a live
+ * loss: the first transaction that awaits a fetch or a hash would otherwise lose other requests'
+ * writes silently, with every test written against database-only callbacks still green.
+ *
  * The precedent is the sibling adapter: `@prisma/adapter-libsql` 7.10.0 takes ONE mutex in every
  * base query and in `startTransaction`, and releases it on commit or rollback. This decorator gives
  * the better-sqlite3 adapter the same shape from outside, through Prisma's public driver-adapter
@@ -31,9 +41,10 @@ import type { PrismaBetterSqlite3 } from '@prisma/adapter-better-sqlite3';
  *
  * ## What it changes, honestly
  *
- * On SQLite a request now WAITS while another request's transaction is open, where before it
- * silently joined it. The longest holder is a backup restore, up to its `LONG_TRANSACTION_OPTIONS`
- * timeout. PostgreSQL and MariaDB are untouched; they never had the defect.
+ * On SQLite a request now WAITS while another request's transaction is open and awaiting something
+ * else, where before it silently joined it. A database-only transaction already held the one
+ * thread to its end, so for those nothing changes. PostgreSQL and MariaDB are untouched; they
+ * never had the defect.
  *
  * A query on the GLOBAL client made inside a transaction callback now waits for the transaction
  * that is waiting for it. Prisma's own interactive-transaction timeout then rolls that transaction
@@ -164,10 +175,10 @@ function releasingOnClose(inner: Transaction, release: () => void): Transaction 
 				if (firstClose) await inner.executeRaw(ROLLBACK);
 			} catch (error) {
 				// The ordinary case: Prisma's own ROLLBACK, or a successful close, already ended it.
-				// Anything else is a SQLite I/O-level failure on ROLLBACK, and it is rethrown below
-				// AFTER releasing: a transaction SQLite could not roll back is already beyond what this
-				// layer can repair, while keeping the hold would stop every query on the connection
-				// until a restart. A loud error beats a silent outage.
+				// SQLite's ROLLBACK either ends the transaction or answers exactly that, so what is
+				// left here is a JavaScript-level failure, such as a handle already disposed, on a
+				// connection that is dead anyway. It is rethrown below AFTER releasing, so it is seen
+				// rather than turned into every later query waiting on a hold nobody will release.
 				if (!isNoActiveTransaction(error)) failure = { error };
 			}
 			try {
