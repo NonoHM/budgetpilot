@@ -377,6 +377,29 @@ describe('the record of the last step', () => {
 		expect((await signInWithCode(user.id, codeAt(secret, 1))).accepted).toBe(true);
 	});
 
+	// Contradiction pass 2 on #818: separates « enrolment records the step of the CODE » from « it
+	// records the server's current step ». Every other enrolment here types the current step's code,
+	// where the two are the same number; a phone one step ahead is where they differ, and recording
+	// the server's step would leave that code usable once more at sign-in.
+	it("enrolment records its code's step, not the server's: a code one step ahead cannot then sign in", async () => {
+		expect.assertions(2);
+		const user = await seedAccount('enrol-ahead');
+		const secret = generateTotpSecretBase32();
+		const ahead = codeAt(secret, 1);
+
+		await settingsAction('confirmTotpSetup', await mintSession(user.id), {
+			[REAUTH_FIELDS.password]: PASSWORD,
+			[REAUTH_FIELDS.code]: ahead,
+			secretBase32: secret
+		});
+		expect(await totpEnabled(user.id)).toBe(true);
+
+		expect(await signInWithCode(user.id, ahead)).toEqual({
+			accepted: false,
+			error: m.totp_error_code_reused()
+		});
+	});
+
 	// The contradiction pass on #818: a stolen session with no password posts its OWN secret, a code
 	// for the next step and a wrong password. Separates « an enrolment code is only verified during
 	// re-authentication, and spent by the enabling write » from « spent at verification »: spent
