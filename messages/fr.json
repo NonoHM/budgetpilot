@@ -51,6 +51,7 @@
 	"mfa_verify_recovery_hint": "Appareil perdu ? Utilisez l'un de vos codes de récupération à la place du code à 6 chiffres.",
 	"mfa_verify_error_invalid_code": "Code invalide",
 	"mfa_verify_error_too_many_attempts": "Trop de tentatives. Réessayez dans quelques minutes.",
+	"totp_error_code_reused": "Ce code a déjà été utilisé. Attendez que votre application en affiche un nouveau.",
 	"register_page_title": "Inscription - BudgetPilot",
 	"register_heading": "Inscription",
 	"register_email_label": "Email",
