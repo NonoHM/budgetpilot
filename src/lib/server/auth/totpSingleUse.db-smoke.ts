@@ -234,7 +234,7 @@ describe('one TOTP code is accepted once (v5.0.0-6.5.1, #818)', () => {
 	// Separates « re-authentication keeps no memory of sign-in » (2, measured on main) from « one
 	// record of the last step, consulted by both » (1). `disableTotp` is the action the issue names.
 	it('a code used to sign in is accepted once more by no re-authenticated action', async () => {
-		expect.assertions(1);
+		expect.assertions(2);
 		const secret = generateTotpSecretBase32();
 		const user = await seedAccount('login-then-reauth', secret);
 		const code = codeAt(secret, 0);
@@ -245,10 +245,14 @@ describe('one TOTP code is accepted once (v5.0.0-6.5.1, #818)', () => {
 			[REAUTH_FIELDS.password]: PASSWORD,
 			[REAUTH_FIELDS.code]: code
 		});
-		const accepted = Number(signIn.accepted) + Number(!(await totpEnabled(user.id)));
-		console.log(`[#818] one code, sign-in then disableTotp: accepted ${accepted} time(s)`);
+		const disabled = !(await totpEnabled(user.id));
+		console.log(
+			`[#818] one code, sign-in then disableTotp: accepted ${Number(signIn.accepted) + Number(disabled)} time(s)`
+		);
 
-		expect(accepted).toBe(1);
+		// One assertion per route, so a red names which one accepted.
+		expect(signIn.accepted, 'sign-in accepted the code').toBe(true);
+		expect(disabled, 'disableTotp accepted the same code').toBe(false);
 	});
 
 	// The calibration for the figure above, on the re-authentication side: the same action with a
@@ -303,7 +307,8 @@ describe('a reused code is refused for that reason, on both screens', () => {
 
 describe('the record of the last step', () => {
 	// Separates « read, then write » (several requests read « not used yet », all accepted) from one
-	// conditional update the engine serialises (exactly one matches). Run on all three engines by CI.
+	// conditional update the engine serialises (exactly one matches). Run by CI on PostgreSQL and
+	// MariaDB; on SQLite locally for this change (#891).
 	// The challenges are opened FIRST and the codes then posted together, for several accounts at
 	// once: with two submissions that each opened their own challenge, a read-then-write break went
 	// red on SQLite and MariaDB and stayed green on PostgreSQL, where one request finished before
@@ -369,6 +374,34 @@ describe('the record of the last step', () => {
 		});
 		// The calibration: the next step's code signs in, so the refusal is the spent step.
 		expect((await signInWithCode(user.id, codeAt(secret, 1))).accepted).toBe(true);
+	});
+
+	// The contradiction pass on #818: a stolen session with no password posts its OWN secret, a code
+	// for the next step and a wrong password. Separates « an enrolment code is only verified during
+	// re-authentication, and spent by the enabling write » from « spent at verification »: spent
+	// there, the account's step moves ahead and the owner's own enrolment, a moment later, is
+	// refused as a reused code.
+	it("a refused enrolment spends nothing: the owner's enrolment then succeeds", async () => {
+		expect.assertions(2);
+		const user = await seedAccount('enrol-after-refused');
+		const thief = await mintSession(user.id);
+		const thiefSecret = generateTotpSecretBase32();
+
+		await settingsAction('confirmTotpSetup', thief, {
+			[REAUTH_FIELDS.password]: 'not-the-password',
+			[REAUTH_FIELDS.code]: codeAt(thiefSecret, 1),
+			secretBase32: thiefSecret
+		});
+		expect(await totpEnabled(user.id)).toBe(false);
+
+		const owner = await mintSession(user.id);
+		const ownerSecret = generateTotpSecretBase32();
+		await settingsAction('confirmTotpSetup', owner, {
+			[REAUTH_FIELDS.password]: PASSWORD,
+			[REAUTH_FIELDS.code]: codeAt(ownerSecret, 0),
+			secretBase32: ownerSecret
+		});
+		expect(await totpEnabled(user.id)).toBe(true);
 	});
 
 	// Separates « disabling forgets the old secret's last step » from « it keeps it »: kept, a new
