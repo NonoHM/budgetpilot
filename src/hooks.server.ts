@@ -4,7 +4,6 @@ import { sequence } from '@sveltejs/kit/hooks';
 import { paraglideMiddleware } from '$lib/paraglide/server';
 import {
 	areSecureCookiesEnabled,
-	clearSessionCookie,
 	readSessionUser,
 	SESSION_COOKIE,
 	signInUrl
@@ -214,9 +213,11 @@ export const handleAuth: Handle = async ({ event, resolve }) => {
 	const user = await readSessionUser(token);
 	event.locals.user = user;
 
-	if (token && !user) {
-		clearSessionCookie(event.cookies);
-	}
+	// A cookie that resolves to no session is LEFT in place, never deleted here. It grants nothing,
+	// and the next sign-in overwrites it. Deleting it is what turned a harmless race into a sign-out:
+	// a request another tab sent with the token a re-authenticated change had just replaced (#249)
+	// would answer with a deletion, and the browser applying that after the change's own response
+	// lost the new cookie. `/logout` and account deletion still clear the cookie they end.
 
 	const routeId = event.route.id;
 	if (routeId && !PUBLIC_ROUTES.has(routeId) && !user) {

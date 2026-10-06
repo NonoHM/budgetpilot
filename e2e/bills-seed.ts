@@ -462,7 +462,11 @@ export const ALL_BILL_STREAMS: BillStreamSeed[] = FIXTURE.all;
 export async function seedBillStreams(): Promise<void> {
 	const context = await request.newContext({
 		baseURL: E2E_BASE_URL,
-		extraHTTPHeaders: E2E_API_HEADERS
+		extraHTTPHeaders: E2E_API_HEADERS,
+		// EMPTY, explicitly: `request.newContext` inherits the suite's shared session from
+		// playwright.config.ts, and signing in over a live session revokes it (#249), which would
+		// sign every later spec out.
+		storageState: { cookies: [], origins: [] }
 	});
 
 	try {
@@ -496,7 +500,10 @@ export async function withOtherUserContext<T>(
 ): Promise<T> {
 	const context = await request.newContext({
 		baseURL: E2E_BASE_URL,
-		extraHTTPHeaders: E2E_API_HEADERS
+		extraHTTPHeaders: E2E_API_HEADERS,
+		// EMPTY, explicitly: see seedBillStreams. Signing in over the inherited shared session would
+		// revoke it (#249).
+		storageState: { cookies: [], origins: [] }
 	});
 
 	try {

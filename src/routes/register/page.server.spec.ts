@@ -65,7 +65,7 @@ describe('/register action', () => {
 		db.prisma.session.create.mockResolvedValue({ id: 'session-a' });
 		// ensureDefaultCategoriesSeeded calls user.updateMany; count:0 = already seeded, no-op.
 		db.prisma.user.updateMany.mockResolvedValue({ count: 0 });
-		const cookies = { set: vi.fn() };
+		const cookies = { get: vi.fn(), set: vi.fn() };
 
 		await expect(
 			runRegister(cookies, {
@@ -93,7 +93,7 @@ describe('/register action', () => {
 		db.prisma.user.findUnique.mockResolvedValue(null);
 
 		const result = await runRegister(
-			{ set: vi.fn() },
+			{ get: vi.fn(), set: vi.fn() },
 			{
 				email: 'a@example.test',
 				password: 'mot-de-passe-long'
@@ -118,7 +118,7 @@ describe('/register action', () => {
 
 		await expect(
 			runRegister(
-				{ set: vi.fn() },
+				{ get: vi.fn(), set: vi.fn() },
 				{
 					email: 'a@example.test',
 					password: 'mot-de-passe-long',
@@ -135,7 +135,7 @@ describe('/register action', () => {
 		db.prisma.user.findUnique.mockResolvedValue(null);
 
 		const result = await runRegister(
-			{ set: vi.fn() },
+			{ get: vi.fn(), set: vi.fn() },
 			{
 				email: 'a@example.test',
 				password: 'mot-de-passe-long',
@@ -158,7 +158,7 @@ describe('/register action', () => {
 		db.prisma.user.findUnique.mockResolvedValue(null);
 
 		const result = await runRegister(
-			{ set: vi.fn() },
+			{ get: vi.fn(), set: vi.fn() },
 			{
 				email: 'a@example.test',
 				password: 'mot-de-passe-long',
@@ -186,7 +186,7 @@ describe('/register action', () => {
 		db.prisma.user.count.mockResolvedValue(0);
 		db.prisma.user.findUnique.mockResolvedValue(null);
 		const badToken = await runRegister(
-			{ set: vi.fn() },
+			{ get: vi.fn(), set: vi.fn() },
 			{
 				email: 'a@example.test',
 				password: 'mot-de-passe-long',
@@ -199,7 +199,7 @@ describe('/register action', () => {
 		db.prisma.user.count.mockResolvedValue(1);
 		db.prisma.user.findUnique.mockResolvedValue(null);
 		const closed = await runRegister(
-			{ set: vi.fn() },
+			{ get: vi.fn(), set: vi.fn() },
 			{ email: 'a@example.test', password: 'mot-de-passe-long' }
 		);
 
@@ -222,7 +222,7 @@ describe('/register action', () => {
 
 		await expect(
 			runRegister(
-				{ set: vi.fn() },
+				{ get: vi.fn(), set: vi.fn() },
 				{
 					email: 'owner@example.test',
 					password: 'mot-de-passe-long',
@@ -268,7 +268,7 @@ describe('/register action', () => {
 		db.prisma.user.findUnique.mockResolvedValue(null);
 
 		const result = await runRegister(
-			{ set: vi.fn() },
+			{ get: vi.fn(), set: vi.fn() },
 			{ email: 'a@example.test', password: 'mot-de-passe-long' }
 		);
 
@@ -286,7 +286,7 @@ describe('/register action', () => {
 		db.prisma.user.findUnique.mockResolvedValue(null);
 
 		const result = await runRegister(
-			{ set: vi.fn() },
+			{ get: vi.fn(), set: vi.fn() },
 			{ email: 'a@example.test', password: 'mot-de-passe-long' }
 		);
 
@@ -305,7 +305,7 @@ describe('/register action', () => {
 		db.prisma.user.findUnique.mockResolvedValue(null);
 
 		const result = await runRegister(
-			{ set: vi.fn() },
+			{ get: vi.fn(), set: vi.fn() },
 			{
 				email: 'a@example.test',
 				password: 'mot-de-passe-long',
@@ -330,7 +330,7 @@ describe('/register action', () => {
 		db.prisma.user.findUnique.mockResolvedValue(null);
 		db.prisma.user.create.mockResolvedValue({ id: 'user-should-not-exist' });
 		rateLimit.isRegisterRateLimited.mockResolvedValueOnce(true);
-		const cookies = { set: vi.fn() };
+		const cookies = { get: vi.fn(), set: vi.fn() };
 
 		const result = await runRegister(cookies, {
 			email: 'a@example.test',
@@ -357,7 +357,7 @@ describe('/register action', () => {
 		db.prisma.user.updateMany.mockResolvedValue({ count: 0 });
 
 		const result = await runRegister(
-			{ set: vi.fn() },
+			{ get: vi.fn(), set: vi.fn() },
 			{ email: 'nouveau@example.test', password: 'mot-de-passe-long' },
 			{ user: { role: 'ADMIN' } }
 		);
@@ -376,7 +376,7 @@ describe('/register action', () => {
 		db.prisma.user.create.mockResolvedValue({ id: 'user-b' });
 		db.prisma.session.create.mockResolvedValue({ id: 'session-b' });
 		db.prisma.user.updateMany.mockResolvedValue({ count: 0 });
-		const cookies = { set: vi.fn() };
+		const cookies = { get: vi.fn(), set: vi.fn() };
 
 		await expect(
 			runRegister(cookies, {
@@ -397,7 +397,7 @@ describe('/register action', () => {
 		rateLimit.isRegisterRateLimited.mockResolvedValueOnce(true);
 
 		const result = await runRegister(
-			{ set: vi.fn() },
+			{ get: vi.fn(), set: vi.fn() },
 			{ email: 'a@example.test', password: 'mot-de-passe-long' }
 		);
 
@@ -414,7 +414,7 @@ describe('/register action', () => {
 		db.prisma.user.findUnique.mockResolvedValue(null);
 
 		const result = await runRegister(
-			{ set: vi.fn() },
+			{ get: vi.fn(), set: vi.fn() },
 			{ email: 'pas-un-email', password: 'mot-de-passe-long' }
 		);
 
@@ -433,7 +433,7 @@ describe('/register action', () => {
 		db.prisma.user.updateMany.mockResolvedValue({ count: 0 });
 
 		await runRegister(
-			{ set: vi.fn() },
+			{ get: vi.fn(), set: vi.fn() },
 			{ email: 'succes@example.test', password: 'mot-de-passe-long' }
 		).catch(() => undefined);
 
@@ -459,7 +459,7 @@ describe('/register action — invitation', () => {
 
 		await expect(
 			runRegister(
-				{ set: vi.fn() },
+				{ get: vi.fn(), set: vi.fn() },
 				{ email: 'invite@example.test', password: 'mot-de-passe-long' },
 				{ user: null },
 				'valid-invite-token'
@@ -478,7 +478,7 @@ describe('/register action — invitation', () => {
 		invitations.findValidInvitationByToken.mockResolvedValue(null);
 
 		const result = await runRegister(
-			{ set: vi.fn() },
+			{ get: vi.fn(), set: vi.fn() },
 			{ email: 'invite@example.test', password: 'mot-de-passe-long' },
 			{ user: null },
 			'expired-token'
@@ -498,7 +498,7 @@ describe('/register action — invitation', () => {
 		});
 
 		const result = await runRegister(
-			{ set: vi.fn() },
+			{ get: vi.fn(), set: vi.fn() },
 			{ email: 'autre@example.test', password: 'mot-de-passe-long' },
 			{ user: null },
 			'nominative-token'
@@ -515,7 +515,7 @@ describe('/register action — invitation', () => {
 		db.prisma.user.count.mockResolvedValue(2);
 		db.prisma.user.create.mockResolvedValue({ id: 'user-race-loser' });
 		db.prisma.invitation.updateMany.mockResolvedValue({ count: 0 });
-		const cookies = { set: vi.fn() };
+		const cookies = { get: vi.fn(), set: vi.fn() };
 
 		const result = await runRegister(
 			cookies,
@@ -555,8 +555,8 @@ describe('/register action — invitation', () => {
 				return { count: 1 };
 			});
 
-			const cookiesA = { set: vi.fn() };
-			const cookiesB = { set: vi.fn() };
+			const cookiesA = { get: vi.fn(), set: vi.fn() };
+			const cookiesB = { get: vi.fn(), set: vi.fn() };
 
 			const [resultA, resultB] = await Promise.allSettled([
 				runRegister(
@@ -601,7 +601,7 @@ describe('/register action — invitation', () => {
 			db.prisma.user.create.mockResolvedValue({ id: 'user-invited-by-admin' });
 			db.prisma.invitation.updateMany.mockResolvedValue({ count: 1 });
 			db.prisma.user.updateMany.mockResolvedValue({ count: 0 });
-			const cookies = { set: vi.fn() };
+			const cookies = { get: vi.fn(), set: vi.fn() };
 
 			const result = await runRegister(
 				cookies,
@@ -633,7 +633,7 @@ describe('/register action — invitation', () => {
 
 			await expect(
 				runRegister(
-					{ set: vi.fn() },
+					{ get: vi.fn(), set: vi.fn() },
 					{ email: 'open-invite@example.test', password: 'mot-de-passe-long' },
 					{ user: null },
 					'open-mode-invite-token'
@@ -654,7 +654,7 @@ describe('/register action — invitation', () => {
 			invitations.findValidInvitationByToken.mockResolvedValue({ id: 'invite-dup', email: null });
 			db.prisma.user.count.mockResolvedValue(2);
 			db.prisma.user.create.mockRejectedValue({ code: 'P2002' });
-			const cookies = { set: vi.fn() };
+			const cookies = { get: vi.fn(), set: vi.fn() };
 
 			const result = await runRegister(
 				cookies,
@@ -687,7 +687,7 @@ describe('/register action — invitation', () => {
 
 			await expect(
 				runRegister(
-					{ set: vi.fn() },
+					{ get: vi.fn(), set: vi.fn() },
 					{ email: 'Cible@Example.TEST', password: 'mot-de-passe-long' },
 					{ user: null },
 					'case-insensitive-invite-token'
@@ -836,7 +836,7 @@ type LoadResult = {
 };
 
 async function runRegister(
-	cookies: { set: ReturnType<typeof vi.fn> },
+	cookies: { get: ReturnType<typeof vi.fn>; set: ReturnType<typeof vi.fn> },
 	input: Record<string, string>,
 	locals: { user: null | { role: string } } = { user: null },
 	inviteToken?: string

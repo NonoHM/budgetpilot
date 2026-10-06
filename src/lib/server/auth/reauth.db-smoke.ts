@@ -105,7 +105,11 @@ describe('revokeSession resolves the session with the caller IN the where clause
 		formData.set('currentPassword', password);
 		const action = actions.revokeSession as unknown as (event: unknown) => Promise<unknown>;
 		return (await action({
-			cookies: { get: (name: string) => (name === SESSION_COOKIE ? callerToken : undefined) },
+			// `set` receives the rotated token (#249); these tests read the rows, not the cookie.
+			cookies: {
+				get: (name: string) => (name === SESSION_COOKIE ? callerToken : undefined),
+				set: () => {}
+			},
 			getClientAddress: () => freshAddress(),
 			request: new Request('http://localhost/settings', { method: 'POST', body: formData }),
 			locals: { user: await readSessionUser(callerToken) }
@@ -162,7 +166,11 @@ describe('the re-authentication counter belongs to the session that guessed', ()
 		formData.set('currentPassword', password);
 		const action = actions.revokeOtherSessions as unknown as (event: unknown) => Promise<unknown>;
 		return (await action({
-			cookies: { get: (name: string) => (name === SESSION_COOKIE ? token : undefined) },
+			// `set` receives the rotated token (#249); these tests read the rows, not the cookie.
+			cookies: {
+				get: (name: string) => (name === SESSION_COOKIE ? token : undefined),
+				set: () => {}
+			},
 			getClientAddress: () => ip,
 			request: new Request('http://localhost/settings', { method: 'POST', body: formData }),
 			locals: { user: await readSessionUser(token) }

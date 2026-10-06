@@ -30,6 +30,12 @@ import { prisma } from '$lib/server/db';
  *      whatever the first answered. A wrong password and a wrong code then cost the same work, so
  *      the response time does not say which one failed. The password is reported first.
  *   5. A wrong factor records one attempt against the session's REAUTH counter.
+ *
+ * WHAT A SUCCESS IS FOR: the action then writes its change through `commitWithRotatedToken` (or
+ * `commitEndingSession` for deleting the account), which commits it together with a new session
+ * token (#249, `v5.0.0-7.2.4`). Not here: rotating at the proof rather than at the commit left the
+ * action's whole work as a window in which a logout could not find the session.
+ * `sessionRotation.db-smoke.ts` drives every key of `REAUTH_FACTORS` and fails on one that does not.
  */
 
 /** What an action asks for. R3 on #841, « Factors per action ». */

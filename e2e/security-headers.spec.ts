@@ -58,9 +58,9 @@ test.describe('ASVS response headers on a built server', () => {
 	// describing an authenticated request.
 	//
 	// Passing an explicit empty state is what makes anonymity a declared fact rather than an
-	// inherited default. Note for anyone reusing the pattern: `e2e/transactions-filter-persistence.spec.ts`
-	// builds a context the same way and then calls `loginE2eUser` on it, which is harmless there
-	// (it wants a session) and is not evidence that the context starts clean.
+	// inherited default. It is no longer harmless anywhere: since #249 signing in over a live
+	// session revokes it, so a context that inherits the shared session and then signs in ends that
+	// session for every later spec. The six helpers that did so now pass an empty state too.
 	let anon: APIRequestContext;
 
 	test.beforeAll(async () => {

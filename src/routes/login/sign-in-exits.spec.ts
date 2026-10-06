@@ -65,7 +65,7 @@ function postEvent(url: URL, fields: Record<string, string>) {
 	const body = new FormData();
 	for (const [key, value] of Object.entries(fields)) body.set(key, value);
 	return {
-		cookies: { set: vi.fn() },
+		cookies: { get: vi.fn(), set: vi.fn() },
 		getClientAddress: () => '127.0.0.1',
 		request: new Request(url, { method: 'POST', body }),
 		url

@@ -3,6 +3,7 @@ import bcrypt from 'bcrypt';
 import { error, redirect, type Cookies } from '@sveltejs/kit';
 import * as m from '$lib/paraglide/messages';
 import { prisma } from '$lib/server/db';
+import { isTransientWriteConflict, withConcurrentWriteRetry } from '$lib/server/database/upsert';
 import type { Role } from './database/types.ts';
 
 export const SESSION_COOKIE = 'budgetpilot_session';
@@ -174,6 +175,13 @@ export function getSessionCookieOptions(expires: Date) {
 }
 
 export async function createSession(userId: string, cookies: Cookies): Promise<void> {
+	// `v5.0.0-7.2.4`, « terminates the current session token », at sign-in (#249). `/login`'s load
+	// sends a signed-in visitor away, but its action never looks, so a POST from a browser that
+	// still holds a live cookie would otherwise leave that session live for every copy of it.
+	// Revoked BEFORE the new session is created, so a failure in between fails closed: the browser
+	// is signed out and signs in again, rather than the old token surviving the sign-in.
+	await revokeSessionToken(cookies.get(SESSION_COOKIE));
+
 	const token = createSessionToken();
 	const expiresAt = getSessionExpiresAt();
 
@@ -315,6 +323,161 @@ export async function revokeSessionToken(token: string | undefined): Promise<voi
 		data: {
 			revokedAt: new Date()
 		}
+	});
+}
+
+type TransactionClient = Parameters<Parameters<(typeof prisma)['$transaction']>[0]>[0];
+
+/** Prisma's interactive-transaction budget, for a change that runs long (a restore). */
+type TransactionOptions = { maxWait?: number; timeout?: number };
+
+/** The session this request arrived on, as the hook resolved it and as the browser presented it. */
+function liveSession(sessionId: string, presented: string) {
+	return {
+		id: sessionId,
+		tokenHash: hashSessionToken(presented),
+		revokedAt: null,
+		expiresAt: { gt: new Date() }
+	};
+}
+
+/** A session that ended before its change could commit: the request is sent to sign in. */
+const sessionEnded = () => redirect(303, '/login');
+
+/**
+ * Commits a re-authenticated change TOGETHER with a new token for the session that made it
+ * (`v5.0.0-7.2.4`, #249, R3 on #841). Every action in `REAUTH_FACTORS` that keeps its session writes
+ * through this, and so does the forced password change: a copy of the cookie taken before the change
+ * stops working when it commits, and the browser that made the request is handed the new token.
+ *
+ * THE ROW IS KEPT, ONLY ITS TOKEN CHANGES. Same id, so the per-session re-authentication counter
+ * (#879), the session list and `/logout` keep their subject; same `expiresAt`, so rotating never
+ * extends the absolute lifetime (`v5.0.0-7.3.2`), which the session-lifetime chantier rules on.
+ *
+ * THE ROTATION IS THE LAST STATEMENT OF THE CHANGE'S OWN TRANSACTION, a compare-and-set on the token
+ * presented that refuses a row revoked or expired since the hook resolved it. So the change and the
+ * new token commit together or not at all: a session revoked from another device, or logged out
+ * from another tab, before the commit rolls the change back and is sent to sign in; one revoked
+ * after it is revoked with its new token, since a revocation names the row; and two requests on one
+ * cookie cannot both commit. Rotating any earlier, at the re-authentication, left the whole
+ * of the action's work as a window in which a logout could not find the session (the contradiction
+ * pass on #249). A re-authentication whose action is then refused changes nothing, the token included.
+ *
+ * A request the same browser sends with the old token while this response is in flight (another
+ * tab, a hover preload) is served as signed out, and `handleAuth` leaves the cookie alone, so the
+ * new one arrives intact whatever the order. What stays, both inside that one round trip and both
+ * the owner racing themselves: a response that never reaches the browser (a native form submitted
+ * twice, a proxy timing out a long restore) leaves it holding a token that no longer resolves, and
+ * its owner signs in again; and a logout sent from another tab with the replaced token finds no
+ * session, so it ends nothing. Closing either needs the previous token kept on the row. The busy
+ * state that would prevent the double submit is #883's.
+ */
+export async function commitWithRotatedToken<T>(
+	user: Pick<AuthUser, 'sessionId'>,
+	cookies: Cookies,
+	change: (tx: TransactionClient) => Promise<T>,
+	options?: TransactionOptions
+): Promise<T> {
+	const presented = cookies.get(SESSION_COOKIE);
+	if (!presented) throw sessionEnded();
+	const token = createSessionToken();
+
+	// Retried WHOLE when the engine aborts it: two sessions of one account revoking each other at
+	// once lock the two rows in opposite orders, and PostgreSQL or MariaDB answers one side with a
+	// deadlock. Run again, that side's compare-and-set sees the other's revocation and is sent to
+	// sign in, which is the answer it should have had; without the retry it was a 500.
+	const { result, expiresAt } = await withConcurrentWriteRetry(
+		() => rotateWithin(user.sessionId, presented, token, change, options),
+		isTransientWriteConflict
+	);
+
+	cookies.set(SESSION_COOKIE, token, getSessionCookieOptions(expiresAt));
+	return result;
+}
+
+/** One attempt of `commitWithRotatedToken`: the change, then the compare-and-set, one transaction. */
+function rotateWithin<T>(
+	sessionId: string,
+	presented: string,
+	token: string,
+	change: (tx: TransactionClient) => Promise<T>,
+	options?: TransactionOptions
+): Promise<{ result: T; expiresAt: Date }> {
+	return prisma.$transaction(async (tx) => {
+		const result = await change(tx);
+		// The update is the ONLY place the session is judged live: a read ahead of it with the same
+		// predicate would answer first in every test and leave this one unexercised (break B11).
+		const { count } = await tx.session.updateMany({
+			where: liveSession(sessionId, presented),
+			data: { tokenHash: hashSessionToken(token) }
+		});
+		// Thrown inside the transaction, so the change above is rolled back with it.
+		if (count !== 1) throw sessionEnded();
+		// `expiresAt` has no writer after `createSession`: the value read here is the row's own.
+		const { expiresAt } = await tx.session.findUniqueOrThrow({
+			where: { id: sessionId },
+			select: { expiresAt: true }
+		});
+		return { result, expiresAt };
+	}, options);
+}
+
+/**
+ * The same guarantee for the one re-authenticated change that ends its own session, deleting the
+ * account: the session is claimed (revoked by the same compare-and-set) as the transaction's FIRST
+ * statement, since the change itself deletes the row a later check would read. A session that ended
+ * before the claim deletes nothing. The caller clears the cookie.
+ */
+export async function commitEndingSession<T>(
+	user: Pick<AuthUser, 'sessionId'>,
+	cookies: Cookies,
+	change: (tx: TransactionClient) => Promise<T>
+): Promise<T> {
+	const presented = cookies.get(SESSION_COOKIE);
+	if (!presented) throw sessionEnded();
+
+	// Retried whole on an engine abort, for the reason `commitWithRotatedToken` gives.
+	return withConcurrentWriteRetry(
+		() =>
+			prisma.$transaction(async (tx) => {
+				const { count } = await tx.session.updateMany({
+					where: liveSession(user.sessionId, presented),
+					data: { revokedAt: new Date() }
+				});
+				if (count !== 1) throw sessionEnded();
+				return change(tx);
+			}),
+		isTransientWriteConflict
+	);
+}
+
+/**
+ * Ends the session this request arrived on, by its ROW, which is what `/logout` means. By the row and
+ * not by the token presented: a logout that started before a concurrent re-authentication committed
+ * carries a token that no longer matches once it has, and a match on the token would then end
+ * nothing while the other tab's response signed the browser back in (the contradiction pass on #249).
+ */
+export async function revokeSession(sessionId: string): Promise<void> {
+	await prisma.session.updateMany({
+		where: { id: sessionId, revokedAt: null },
+		data: { revokedAt: new Date() }
+	});
+}
+
+/**
+ * Revokes every live session of the account except the one this request arrived on: « log out
+ * other sessions », and every password change. Identified by the session's ID, never by comparing
+ * token hashes: the request's own token is replaced in the same transaction, and a predicate written
+ * against a token hash revokes the caller's own session the moment the two orders meet (measured on
+ * #249, CONTEXT.md « Session, and its token »).
+ */
+export function revokeSessionsOtherThan(
+	client: TransactionClient,
+	user: Pick<AuthUser, 'id' | 'sessionId'>
+) {
+	return client.session.updateMany({
+		where: { userId: user.id, revokedAt: null, id: { not: user.sessionId } },
+		data: { revokedAt: new Date() }
 	});
 }
 

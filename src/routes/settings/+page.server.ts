@@ -4,10 +4,11 @@ import { fail, redirect, type Actions } from '@sveltejs/kit';
 import * as m from '$lib/paraglide/messages';
 import {
 	clearSessionCookie,
+	commitEndingSession,
+	commitWithRotatedToken,
 	hashPassword,
-	hashSessionToken,
 	requireUser,
-	SESSION_COOKIE
+	revokeSessionsOtherThan
 } from '$lib/server/auth';
 import {
 	buildTotpUri,
@@ -56,10 +57,8 @@ import type { PageServerLoad } from './$types';
 
 const BACKUP_MAX_BYTES = 20_000_000;
 
-export const load: PageServerLoad = async ({ cookies, locals }) => {
+export const load: PageServerLoad = async ({ locals }) => {
 	const user = requireUser(locals.user);
-	const currentToken = cookies.get(SESSION_COOKIE);
-	const currentTokenHash = currentToken ? hashSessionToken(currentToken) : null;
 
 	const [
 		account,
@@ -84,7 +83,6 @@ export const load: PageServerLoad = async ({ cookies, locals }) => {
 			where: { userId: user.id },
 			select: {
 				id: true,
-				tokenHash: true,
 				createdAt: true,
 				expiresAt: true,
 				revokedAt: true
@@ -127,7 +125,9 @@ export const load: PageServerLoad = async ({ cookies, locals }) => {
 		id: session.id,
 		createdAt: session.createdAt,
 		expiresAt: session.expiresAt,
-		isCurrent: currentTokenHash === session.tokenHash,
+		// By the row the hook resolved, never by the cookie: a re-authentication earlier in this same
+		// request has rotated the token, and the hash the browser presented matches no row any more.
+		isCurrent: session.id === user.sessionId,
 		status:
 			session.revokedAt || session.expiresAt <= new Date()
 				? ('revoked' as const)
@@ -182,8 +182,6 @@ export const actions: Actions = {
 		const formData = await request.formData();
 		const newPassword = getFormValue(formData, 'newPassword');
 		const confirmPassword = getFormValue(formData, 'confirmPassword');
-		const currentToken = cookies.get(SESSION_COOKIE);
-		const currentTokenHash = currentToken ? hashSessionToken(currentToken) : null;
 
 		// The NEW password's shape is the person's own input (#854 class 1), so it is refused before
 		// any secret is read and without consuming a re-authentication attempt.
@@ -200,9 +198,10 @@ export const actions: Actions = {
 		if (!reauth.ok) return fail(400, { passwordError: reauthRefusalMessage(reauth) });
 
 		const newPasswordHash = await hashPassword(newPassword);
-		const now = new Date();
 
-		await prisma.$transaction(async (tx) => {
+		// R3 on #841: every session but this one is revoked, and this one's token is replaced in the
+		// same commit (#249), so no token that existed before the new password outlives it.
+		await commitWithRotatedToken(user, cookies, async (tx) => {
 			await tx.user.update({
 				where: { id: user.id },
 				data: {
@@ -210,16 +209,7 @@ export const actions: Actions = {
 				}
 			});
 
-			await tx.session.updateMany({
-				where: {
-					userId: user.id,
-					revokedAt: null,
-					...(currentTokenHash ? { tokenHash: { not: currentTokenHash } } : {})
-				},
-				data: {
-					revokedAt: now
-				}
-			});
+			await revokeSessionsOtherThan(tx, user);
 		});
 
 		return {
@@ -232,8 +222,6 @@ export const actions: Actions = {
 		const user = requireUser(locals.user);
 		const ip = resolveClientAddress({ getClientAddress, request });
 		const formData = await request.formData();
-		const currentToken = cookies.get(SESSION_COOKIE);
-		const currentTokenHash = currentToken ? hashSessionToken(currentToken) : null;
 
 		const reauth = await reauthenticate('revokeOtherSessions', {
 			user,
@@ -242,16 +230,7 @@ export const actions: Actions = {
 		});
 		if (!reauth.ok) return fail(400, { sessionsError: reauthRefusalMessage(reauth) });
 
-		await prisma.session.updateMany({
-			where: {
-				userId: user.id,
-				revokedAt: null,
-				...(currentTokenHash ? { tokenHash: { not: currentTokenHash } } : {})
-			},
-			data: {
-				revokedAt: new Date()
-			}
-		});
+		await commitWithRotatedToken(user, cookies, (tx) => revokeSessionsOtherThan(tx, user));
 
 		return {
 			sessionsSuccess: m.settings_success_sessions_revoked()
@@ -262,8 +241,6 @@ export const actions: Actions = {
 		const ip = resolveClientAddress({ getClientAddress, request });
 		const formData = await request.formData();
 		const sessionId = getFormValue(formData, 'sessionId');
-		const currentToken = cookies.get(SESSION_COOKIE);
-		const currentTokenHash = currentToken ? hashSessionToken(currentToken) : null;
 
 		if (!sessionId) {
 			return fail(400, { sessionsError: m.settings_error_session_revoke_failed() });
@@ -279,19 +256,21 @@ export const actions: Actions = {
 		// engine in `reauth.db-smoke.ts`.
 		const target = await prisma.session.findFirst({
 			where: { id: sessionId, userId: user.id },
-			select: { tokenHash: true }
+			select: { id: true }
 		});
 		if (!target) {
 			return fail(404, { sessionsError: m.settings_error_session_revoke_failed() });
 		}
-		if (currentTokenHash && target.tokenHash === currentTokenHash) {
+		if (target.id === user.sessionId) {
 			return fail(400, { sessionsError: m.settings_error_session_revoke_current() });
 		}
 
-		await prisma.session.updateMany({
-			where: { id: sessionId, userId: user.id, revokedAt: null },
-			data: { revokedAt: new Date() }
-		});
+		await commitWithRotatedToken(user, cookies, (tx) =>
+			tx.session.updateMany({
+				where: { id: sessionId, userId: user.id, revokedAt: null },
+				data: { revokedAt: new Date() }
+			})
+		);
 
 		return {
 			sessionsSuccess: m.settings_success_session_revoked()
@@ -316,7 +295,9 @@ export const actions: Actions = {
 		const reauth = await reauthenticate('deleteAccount', { user, ip, form: formData });
 		if (!reauth.ok) return fail(400, { deleteError: reauthRefusalMessage(reauth) });
 
-		await prisma.$transaction(async (tx) => {
+		// The session is claimed first and deleted with the rest (#249): one that ended before the
+		// claim deletes nothing.
+		await commitEndingSession(user, cookies, async (tx) => {
 			await tx.session.deleteMany({
 				where: { userId: user.id }
 			});
@@ -342,7 +323,7 @@ export const actions: Actions = {
 		clearSessionCookie(cookies);
 		throw redirect(303, '/login');
 	},
-	restoreData: async ({ getClientAddress, locals, request }) => {
+	restoreData: async ({ cookies, getClientAddress, locals, request }) => {
 		const user = requireUser(locals.user);
 		const ip = resolveClientAddress({ getClientAddress, request });
 		const formData = await request.formData();
@@ -418,7 +399,11 @@ export const actions: Actions = {
 		}
 
 		try {
-			await restoreBackup(user.id, parsed.data);
+			// The restore and the new session token commit together (#249). A refusal above, about the
+			// file, changes nothing, the token included.
+			await restoreBackup(user.id, parsed.data, (change, options) =>
+				commitWithRotatedToken(user, cookies, change, options)
+			);
 		} catch (caught) {
 			if (caught instanceof BackupImportError) {
 				return fail(400, { restoreError: caught.message });
@@ -471,7 +456,7 @@ export const actions: Actions = {
 	// Requires the current password, symmetric to disableTotp: enabling a second factor
 	// is at least as sensitive as disabling it (otherwise an already-open session would
 	// be enough to enroll an attacker's device and obtain the recovery codes).
-	confirmTotpSetup: async ({ getClientAddress, locals, request }) => {
+	confirmTotpSetup: async ({ cookies, getClientAddress, locals, request }) => {
 		const user = requireUser(locals.user);
 		const ip = resolveClientAddress({ getClientAddress, request });
 		const formData = await request.formData();
@@ -504,7 +489,7 @@ export const actions: Actions = {
 		const recoveryCodes = generateRecoveryCodes();
 		const recoveryCodeHashes = await Promise.all(recoveryCodes.map((c) => hashRecoveryCode(c)));
 
-		await prisma.$transaction(async (tx) => {
+		await commitWithRotatedToken(user, cookies, async (tx) => {
 			await tx.user.update({
 				where: { id: user.id },
 				data: {
@@ -521,7 +506,7 @@ export const actions: Actions = {
 
 		return { totpEnableSuccess: true, recoveryCodes };
 	},
-	disableTotp: async ({ getClientAddress, locals, request }) => {
+	disableTotp: async ({ cookies, getClientAddress, locals, request }) => {
 		const user = requireUser(locals.user);
 		const ip = resolveClientAddress({ getClientAddress, request });
 		const formData = await request.formData();
@@ -532,7 +517,7 @@ export const actions: Actions = {
 		const reauth = await reauthenticate('disableTotp', { user, ip, form: formData });
 		if (!reauth.ok) return fail(400, { totpDisableError: reauthRefusalMessage(reauth) });
 
-		await prisma.$transaction(async (tx) => {
+		await commitWithRotatedToken(user, cookies, async (tx) => {
 			await tx.user.update({
 				where: { id: user.id },
 				data: { totpEnabled: false, totpSecretEncrypted: null, totpEnabledAt: null }

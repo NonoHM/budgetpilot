@@ -25,6 +25,37 @@ construction, `X` an argued exception, `N/A` not applicable with a stated reason
 
 ---
 
+## 2026-10-05, session token rotation
+
+Branch `fix/249-rotate-session-on-reauth` (#249, ruling R3 on #841). **Letters below are quoted
+from the local L2 assessment report (untracked, not in a clone, #601)**, which describes the
+assessment of 2026-08-13 and not a current state. One row moves.
+
+### `v5.0.0-7.2.4`: `X` to `A`, with one argued remainder
+
+> Verify that the application generates a new session token on user authentication, including
+> re-authentication, and terminates the current session token.
+
+The assessment's `X` named two gaps: no re-authentication minted a new token, and signing in over a
+live session left the old token live. Both are closed. Every re-authenticated change in
+`REAUTH_FACTORS`, and the forced password change, commits together with a new token for the session
+that made it, and the token the request presented stops resolving; signing in revokes the session
+the browser presented. Verified by attack: a copy of the cookie taken before the change answers 303
+after it while the browser that made it stays signed in (`e2e/reauth-dialog.spec.ts`, run by CI on
+the default SQLite engine), and `sessionRotation.db-smoke.ts` drives every key of the registry
+through its route, run by CI on PostgreSQL and MariaDB and on SQLite for this change.
+
+**The remainder, argued rather than closed:** a re-authentication whose action is then refused (a
+session id that is not the caller's, a backup that does not parse) changes nothing, the token
+included. The rotation is part of the change's commit so that a logout or a revocation landing
+during the action's work is seen; rotating at the proof instead left that work as a window in which
+a logout could not find the session. A refused action changes no privilege, which is the case the
+requirement guards. A request carrying the replaced token is served as signed out without deleting
+the cookie, so a concurrent tab cannot discard the new one. What stays, within the one round trip
+between the commit and the browser storing the new cookie, and only for the owner racing
+themselves in two tabs: a logout sent with the replaced token finds no session and ends nothing.
+Closing it would need the previous token kept on the row.
+
 ## 2026-10-02, the data classification
 
 Branch `docs/817-data-classification` (#817). **Letters below are quoted from

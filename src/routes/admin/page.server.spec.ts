@@ -39,6 +39,19 @@ const rateLimit = vi.hoisted(() => ({
 vi.mock('$lib/server/db', () => ({ prisma: db.prisma }));
 vi.mock('$lib/server/auth/invitations', () => invitations);
 vi.mock('$lib/server/auth/rateLimit', () => rateLimit);
+// The commit rotates the ADMIN's session token in the same transaction (#249). The rotation is
+// `sessionRotation.db-smoke.ts`'s, against a real engine, where both actions are driven through this
+// route. Here the commit runs the change on the fake transaction and rotates nothing.
+vi.mock('$lib/server/auth', async (importOriginal) => {
+	const real = await importOriginal<typeof import('$lib/server/auth')>();
+	type Change = (client: typeof tx) => Promise<unknown>;
+	return {
+		...real,
+		commitWithRotatedToken: vi.fn(async (_user: unknown, _cookies: unknown, change: Change) =>
+			db.prisma.$transaction(change)
+		)
+	};
+});
 // The helper runs for real; the spy only exposes the REASON it decided, which no response carries.
 vi.mock('$lib/server/auth/reauth', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('$lib/server/auth/reauth')>();

@@ -120,12 +120,29 @@ vi.mock('$lib/server/import/accountMemory', () => accountMemory);
 vi.mock('$lib/server/net-worth/service', () => netWorthService);
 // The re-authentication helper runs for real; the spy only lets a test read the REASON it decided,
 // which no response carries (#854 class 2: the screen gets one sentence whatever failed).
+// The commit a re-authenticated change goes through rotates the session token in the same
+// transaction (#249). The rotation is `sessionRotation.db-smoke.ts`'s, against a real engine, where
+// every action in `REAUTH_FACTORS` is driven through this route. Here the commit runs the change on
+// the fake transaction and rotates nothing, so the fake needs no session row to compare-and-set.
+vi.mock('$lib/server/auth', async (importOriginal) => {
+	const real = await importOriginal<typeof import('$lib/server/auth')>();
+	type Change = (client: typeof tx) => Promise<unknown>;
+	return {
+		...real,
+		commitWithRotatedToken: vi.fn(async (_user: unknown, _cookies: unknown, change: Change) =>
+			db.prisma.$transaction(change)
+		),
+		commitEndingSession: vi.fn(async (_user: unknown, _cookies: unknown, change: Change) =>
+			db.prisma.$transaction(change)
+		)
+	};
+});
 vi.mock('$lib/server/auth/reauth', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('$lib/server/auth/reauth')>();
 	return { ...actual, reauthenticate: vi.fn(actual.reauthenticate) };
 });
 
-const { hashPassword, hashSessionToken, SESSION_COOKIE } = await import('$lib/server/auth');
+const { commitWithRotatedToken, hashPassword, SESSION_COOKIE } = await import('$lib/server/auth');
 const reauth = await import('$lib/server/auth/reauth');
 const { actions, load } = await import('./+page.server');
 
@@ -154,7 +171,6 @@ describe('/settings', () => {
 		expect.assertions(7);
 
 		const token = 'session-courante';
-		const currentTokenHash = hashSessionToken(token);
 		// expiresAt is compared against the real system clock (new Date()) by the source under
 		// test, not a mocked one — must stay relative to "now" rather than a fixed calendar
 		// date, or this becomes a time bomb once the real date passes it (a hardcoded
@@ -165,10 +181,18 @@ describe('/settings', () => {
 			email: 'user-a@example.test',
 			role: 'USER'
 		});
+		// Two rows, so « current » is decided rather than defaulted: the row the hook resolved
+		// (`locals.user.sessionId`) is current and the other is not, whatever the cookie holds. The
+		// cookie may already carry a token rotated earlier in this request (#249).
 		db.prisma.session.findMany.mockResolvedValue([
 			{
-				id: 'session-1',
-				tokenHash: currentTokenHash,
+				id: 'session-a',
+				createdAt: sessionCreatedAt,
+				expiresAt: sessionExpiresAt,
+				revokedAt: null
+			},
+			{
+				id: 'session-b',
 				createdAt: sessionCreatedAt,
 				expiresAt: sessionExpiresAt,
 				revokedAt: null
@@ -191,7 +215,6 @@ describe('/settings', () => {
 			where: { userId: 'user-a' },
 			select: {
 				id: true,
-				tokenHash: true,
 				createdAt: true,
 				expiresAt: true,
 				revokedAt: true
@@ -204,10 +227,17 @@ describe('/settings', () => {
 		});
 		expect(result.sessions).toEqual([
 			{
-				id: 'session-1',
+				id: 'session-a',
 				createdAt: sessionCreatedAt,
 				expiresAt: sessionExpiresAt,
 				isCurrent: true,
+				status: 'active'
+			},
+			{
+				id: 'session-b',
+				createdAt: sessionCreatedAt,
+				expiresAt: sessionExpiresAt,
+				isCurrent: false,
 				status: 'active'
 			}
 		]);
@@ -311,7 +341,6 @@ describe('/settings', () => {
 		expect.assertions(7);
 
 		const oldPasswordHash = await hashPassword('mot-de-passe-actuel');
-		const currentTokenHash = hashSessionToken('session-courante');
 		db.prisma.user.findUnique.mockResolvedValue({ passwordHash: oldPasswordHash });
 		tx.user.update.mockResolvedValue({ id: 'user-a' });
 		tx.session.updateMany.mockResolvedValue({ count: 2 });
@@ -339,12 +368,14 @@ describe('/settings', () => {
 		expect(tx.user.update.mock.calls[0][0].data.passwordHash).not.toBe(
 			'nouveau-mot-de-passe-solide'
 		);
+		// Spared by its ROW: the re-authentication has already rotated this session's token (#249),
+		// so a hash comparison would revoke the caller's own session along with the others.
 		expect(tx.session.updateMany).toHaveBeenCalledWith(
 			expect.objectContaining({
 				where: {
 					userId: 'user-a',
 					revokedAt: null,
-					tokenHash: { not: currentTokenHash }
+					id: { not: 'session-a' }
 				}
 			})
 		);
@@ -421,8 +452,7 @@ describe('/settings', () => {
 	it('révoque seulement les autres sessions du user courant', async () => {
 		expect.assertions(2);
 
-		const currentTokenHash = hashSessionToken('session-courante');
-		db.prisma.session.updateMany.mockResolvedValue({ count: 3 });
+		tx.session.updateMany.mockResolvedValue({ count: 3 });
 		db.prisma.user.findUnique.mockResolvedValue({
 			passwordHash: await hashPassword('mot-de-passe-actuel')
 		});
@@ -433,11 +463,11 @@ describe('/settings', () => {
 		});
 
 		expect(result).toEqual({ sessionsSuccess: 'Les autres sessions ont été déconnectées.' });
-		expect(db.prisma.session.updateMany).toHaveBeenCalledWith({
+		expect(tx.session.updateMany).toHaveBeenCalledWith({
 			where: {
 				userId: 'user-a',
 				revokedAt: null,
-				tokenHash: { not: currentTokenHash }
+				id: { not: 'session-a' }
 			},
 			data: {
 				revokedAt: expect.any(Date)
@@ -455,8 +485,8 @@ describe('/settings', () => {
 		it('révoque une session ciblée appartenant au user courant', async () => {
 			expect.assertions(3);
 
-			db.prisma.session.findFirst.mockResolvedValue({ tokenHash: 'autre-session-hash' });
-			db.prisma.session.updateMany.mockResolvedValue({ count: 1 });
+			db.prisma.session.findFirst.mockResolvedValue({ id: 'session-cible' });
+			tx.session.updateMany.mockResolvedValue({ count: 1 });
 
 			const result = await runAction('revokeSession', {
 				token: 'session-courante',
@@ -468,9 +498,9 @@ describe('/settings', () => {
 			// half, with another account's session id, is `reauth.db-smoke.ts`.
 			expect(db.prisma.session.findFirst).toHaveBeenCalledWith({
 				where: { id: 'session-cible', userId: 'user-a' },
-				select: { tokenHash: true }
+				select: { id: true }
 			});
-			expect(db.prisma.session.updateMany).toHaveBeenCalledWith({
+			expect(tx.session.updateMany).toHaveBeenCalledWith({
 				where: { id: 'session-cible', userId: 'user-a', revokedAt: null },
 				data: { revokedAt: expect.any(Date) }
 			});
@@ -486,7 +516,7 @@ describe('/settings', () => {
 
 			expect(result.status).toBe(400);
 			expect(typeof result.data.sessionsError).toBe('string');
-			expect(db.prisma.session.updateMany).not.toHaveBeenCalled();
+			expect(tx.session.updateMany).not.toHaveBeenCalled();
 		});
 
 		it('refuse de révoquer une session appartenant à un autre utilisateur (404, aucune mutation)', async () => {
@@ -502,23 +532,24 @@ describe('/settings', () => {
 
 			expect(result.status).toBe(404);
 			expect(typeof result.data.sessionsError).toBe('string');
-			expect(db.prisma.session.updateMany).not.toHaveBeenCalled();
+			expect(tx.session.updateMany).not.toHaveBeenCalled();
 		});
 
 		it('refuse de révoquer la session courante via cette action dédiée', async () => {
 			expect.assertions(3);
 
-			const currentTokenHash = hashSessionToken('session-courante');
-			db.prisma.session.findFirst.mockResolvedValue({ tokenHash: currentTokenHash });
+			// The current session is the row the hook resolved, `locals.user.sessionId`, and is
+			// recognised by that id: its token hash changed when the re-authentication rotated it.
+			db.prisma.session.findFirst.mockResolvedValue({ id: 'session-a' });
 
 			const result = (await runAction('revokeSession', {
 				token: 'session-courante',
-				input: { sessionId: 'session-courante-id', currentPassword: 'mot-de-passe-actuel' }
+				input: { sessionId: 'session-a', currentPassword: 'mot-de-passe-actuel' }
 			})) as { status: number; data: { sessionsError: string } };
 
 			expect(result.status).toBe(400);
 			expect(typeof result.data.sessionsError).toBe('string');
-			expect(db.prisma.session.updateMany).not.toHaveBeenCalled();
+			expect(tx.session.updateMany).not.toHaveBeenCalled();
 		});
 	});
 
@@ -1127,7 +1158,7 @@ describe('/settings', () => {
 		});
 
 		it('appelle restoreBackup avec le userId du user connecté, pas un userId venant du fichier', async () => {
-			expect.assertions(3);
+			expect.assertions(4);
 
 			backupImport.restoreBackup.mockResolvedValue(undefined);
 			const file = buildBackupFile(JSON.stringify(buildValidBackupPayload()));
@@ -1141,6 +1172,23 @@ describe('/settings', () => {
 			});
 			expect(backupImport.restoreBackup).toHaveBeenCalledTimes(1);
 			expect(backupImport.restoreBackup.mock.calls[0][0]).toBe('user-a');
+			// #249: the restore commits through the rotating commit, for the caller's own session, with
+			// the restore's transaction budget passed through. Separates « restored and rotated in one
+			// commit » from « restored in a plain transaction », which leaves the presented token live.
+			const commit = (
+				backupImport.restoreBackup.mock.calls[0] as unknown as [
+					string,
+					unknown,
+					(change: () => Promise<void>, options: { timeout: number }) => Promise<void>
+				]
+			)[2];
+			await commit(async () => {}, { timeout: 1 });
+			expect(commitWithRotatedToken).toHaveBeenCalledWith(
+				expect.objectContaining({ sessionId: 'session-a' }),
+				expect.anything(),
+				expect.any(Function),
+				{ timeout: 1 }
+			);
 		});
 
 		it('remonte une BackupImportError (incohérence référentielle) en erreur 400 sans planter', async () => {
@@ -1767,13 +1815,13 @@ describe('S1: each re-authenticating settings action, through the real action', 
 			fields: () => ({ sessionId: 'session-cible' }),
 			codeFrom: 'stored',
 			errorKey: 'sessionsError',
-			writes: () => [db.prisma.session.updateMany, db.prisma.session.findFirst]
+			writes: () => [tx.session.updateMany, db.prisma.session.findFirst]
 		},
 		revokeOtherSessions: {
 			fields: () => ({}),
 			codeFrom: 'stored',
 			errorKey: 'sessionsError',
-			writes: () => [db.prisma.session.updateMany]
+			writes: () => [tx.session.updateMany]
 		},
 		changePassword: {
 			fields: () => ({
@@ -1899,8 +1947,8 @@ describe('S1: each re-authenticating settings action, through the real action', 
 			totpEnabled: true,
 			totpSecretEncrypted: storedSecretEncrypted
 		});
-		db.prisma.session.findFirst.mockResolvedValue({ tokenHash: 'autre-session-hash' });
-		db.prisma.session.updateMany.mockResolvedValue({ count: 1 });
+		db.prisma.session.findFirst.mockResolvedValue({ id: 'autre-session' });
+		tx.session.updateMany.mockResolvedValue({ count: 1 });
 		backupImport.restoreBackup.mockResolvedValue(undefined);
 	});
 

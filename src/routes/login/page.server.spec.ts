@@ -48,7 +48,7 @@ describe('/login action', () => {
 		db.prisma.session.create.mockResolvedValue({ id: 'session-a' });
 		// ensureDefaultCategoriesSeeded calls user.updateMany; count:0 = already seeded, no-op.
 		db.prisma.user.updateMany.mockResolvedValue({ count: 0 });
-		const cookies = { set: vi.fn() };
+		const cookies = { get: vi.fn(), set: vi.fn() };
 
 		await expect(
 			runLogin(cookies, {
@@ -75,7 +75,7 @@ describe('/login action', () => {
 		db.prisma.user.findUnique.mockResolvedValue({ id: 'user-a', passwordHash });
 
 		const result = await runLogin(
-			{ set: vi.fn() },
+			{ get: vi.fn(), set: vi.fn() },
 			{
 				email: 'a@example.test',
 				password: 'mauvais-mot-de-passe'
@@ -97,7 +97,7 @@ describe('/login action', () => {
 		db.prisma.user.findUnique.mockResolvedValue(null);
 
 		const result = await runLogin(
-			{ set: vi.fn() },
+			{ get: vi.fn(), set: vi.fn() },
 			{
 				email: 'inconnu@example.test',
 				password: 'peu-importe-le-mot-de-passe'
@@ -114,7 +114,7 @@ describe('/login action', () => {
 		db.prisma.user.findUnique.mockResolvedValue(null);
 
 		await runLogin(
-			{ set: vi.fn() },
+			{ get: vi.fn(), set: vi.fn() },
 			{
 				email: ' A@Example.TEST ',
 				password: 'peu-importe-le-mot-de-passe'
@@ -134,7 +134,7 @@ describe('/login action', () => {
 		rateLimit.isLoginRateLimited.mockResolvedValueOnce(true);
 
 		const result = await runLogin(
-			{ set: vi.fn() },
+			{ get: vi.fn(), set: vi.fn() },
 			{
 				email: 'a@example.test',
 				password: 'peu-importe'
@@ -151,7 +151,7 @@ describe('/login action', () => {
 
 		const passwordHash = await hashPassword('mot-de-passe-long');
 		db.prisma.user.findUnique.mockResolvedValue({ id: 'user-a', passwordHash, totpEnabled: true });
-		const cookies = { set: vi.fn() };
+		const cookies = { get: vi.fn(), set: vi.fn() };
 
 		await expect(
 			runLogin(cookies, {
@@ -169,7 +169,10 @@ describe('/login action', () => {
 	});
 });
 
-async function runLogin(cookies: { set: ReturnType<typeof vi.fn> }, input: Record<string, string>) {
+async function runLogin(
+	cookies: { get: ReturnType<typeof vi.fn>; set: ReturnType<typeof vi.fn> },
+	input: Record<string, string>
+) {
 	const formData = new FormData();
 	for (const [key, value] of Object.entries(input)) formData.set(key, value);
 

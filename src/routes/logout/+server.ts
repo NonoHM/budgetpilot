@@ -1,9 +1,12 @@
 import { redirect, type RequestHandler } from '@sveltejs/kit';
-import { clearSessionCookie, revokeSessionToken, SESSION_COOKIE } from '$lib/server/auth';
+import { clearSessionCookie, revokeSession } from '$lib/server/auth';
 
-export const POST: RequestHandler = async ({ cookies }) => {
-	const token = cookies.get(SESSION_COOKIE);
-	await revokeSessionToken(token);
+export const POST: RequestHandler = async ({ cookies, locals }) => {
+	// By the session the hook resolved, so a logout that started before another tab's
+	// re-authenticated change committed still ends the session once its token has been replaced
+	// (#249). With no session resolved there is nothing to end: `handleAuth` only lets that request
+	// through as a redirect to /login, which never reaches this handler.
+	if (locals.user) await revokeSession(locals.user.sessionId);
 	clearSessionCookie(cookies);
 	throw redirect(303, '/login');
 };

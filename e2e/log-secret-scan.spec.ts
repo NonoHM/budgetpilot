@@ -144,6 +144,8 @@ const SECRETS = {
 const minted = {
 	sessionToken: '',
 	recoverySessionToken: '',
+	/** The tokens a re-authenticated change rotates the admin's session to (#249), one per change. */
+	rotatedSessionTokens: [] as string[],
 	totpSecret: '',
 	recoveryCodes: [] as string[],
 	invitationToken: '',
@@ -461,6 +463,8 @@ async function exerciseAuthPaths(): Promise<void> {
 		code
 	});
 	minted.recoveryCodes = (confirm.data.recoveryCodes as string[] | undefined) ?? [];
+	// The enrolment commits with a new session token (#249): a value minted here, so it is searched.
+	minted.rotatedSessionTokens.push(sessionCookie(confirm.response.headers()['set-cookie']));
 
 	// 5. An invitation, redeemed by a second account from a client with no session.
 	const invite = await action(admin, 'invitation-create', '/admin?/createInvitation', {
@@ -489,6 +493,7 @@ async function exerciseAuthPaths(): Promise<void> {
 		code: new OTPAuth.TOTP({ secret: OTPAuth.Secret.fromBase32(minted.totpSecret) }).generate()
 	});
 	minted.temporaryPassword = String(reset.data.temporaryPassword ?? '');
+	minted.rotatedSessionTokens.push(sessionCookie(reset.response.headers()['set-cookie']));
 	const memberAgain = await newClient();
 	await action(memberAgain, 'temporary-password-login', '/login', {
 		email: SECRETS.memberEmail,
@@ -565,6 +570,10 @@ function mintedValues(): [string, string][] {
 	return [
 		['sessionToken', minted.sessionToken],
 		['recoverySessionToken', minted.recoverySessionToken],
+		...minted.rotatedSessionTokens.map((value, index): [string, string] => [
+			`rotatedSessionToken[${index}]`,
+			value
+		]),
 		['totpSecret', minted.totpSecret],
 		...minted.recoveryCodes.map((value, index): [string, string] => [
 			`recoveryCode[${index}]`,
@@ -635,6 +644,11 @@ test.describe('v5.0.0-16.2.5: no secret reaches the log', () => {
 		expect({
 			sessionToken: minted.sessionToken.length > 20,
 			recoverySessionToken: minted.recoverySessionToken.length > 20,
+			// Two re-authenticated changes, each answered with a new token distinct from the one before.
+			rotatedSessionTokens:
+				minted.rotatedSessionTokens.length === 2 &&
+				minted.rotatedSessionTokens.every((value) => value.length > 20) &&
+				new Set([minted.sessionToken, ...minted.rotatedSessionTokens]).size === 3,
 			totpSecret: /^[A-Z2-7]{32}$/.test(minted.totpSecret),
 			recoveryCodes:
 				minted.recoveryCodes.length > 0 &&
@@ -649,6 +663,7 @@ test.describe('v5.0.0-16.2.5: no secret reaches the log', () => {
 		}).toEqual({
 			sessionToken: true,
 			recoverySessionToken: true,
+			rotatedSessionTokens: true,
 			totpSecret: true,
 			recoveryCodes: true,
 			invitationToken: true,
