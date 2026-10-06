@@ -886,6 +886,29 @@ async function assertDepictsAccountsSection(page) {
 	}
 }
 
+const TOTP_PERIOD_MS = 30_000;
+/** The last TOTP time step this run typed a code for, on any secret. */
+let lastSpentTotpStep = -Infinity;
+
+/**
+ * A code for a step LATER than any this run has spent (#818). The server accepts a code once per
+ * account, and refuses every step at or below the last one it accepted, so the current step's code
+ * is refused when this run, or one less than thirty seconds earlier, already typed it. The server's
+ * window reaches one step ahead, so a target further out than that is waited for, until the moment
+ * its step comes inside the window, rather than sent to be refused.
+ */
+async function nextTotpCode(secret) {
+	const { TOTP, Secret } = await import('otpauth');
+	const target = Math.max(Math.floor(Date.now() / TOTP_PERIOD_MS), lastSpentTotpStep + 1);
+	const insideWindowAt = (target - 1) * TOTP_PERIOD_MS;
+	const wait = insideWindowAt - Date.now();
+	if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
+	lastSpentTotpStep = target;
+	return new TOTP({ issuer: 'BudgetPilot', secret: Secret.fromBase32(secret) }).generate({
+		timestamp: target * TOTP_PERIOD_MS
+	});
+}
+
 /** Opens the enrolment dialog from the two-factor switch. */
 async function openTotpSetup(page) {
 	await page.getByRole('switch', { name: 'Enable two-factor authentication' }).click();
@@ -898,9 +921,8 @@ async function openTotpSetup(page) {
  * this is not a re-implementation of the algorithm — it is the same one, driven from outside.
  */
 async function completeTotpSetup(page) {
-	const { TOTP, Secret } = await import('otpauth');
 	const secret = await page.locator('input[name="secretBase32"]').inputValue();
-	const code = new TOTP({ issuer: 'BudgetPilot', secret: Secret.fromBase32(secret) }).generate();
+	const code = await nextTotpCode(secret);
 	await page.getByLabel('Current password').fill(PASSWORD);
 	await page.locator('input[name="code"]').fill(code);
 	// Until the enrolment's own response has landed, not for a fixed time: it carries the new session
@@ -935,13 +957,17 @@ async function main() {
 		if (!TOTP_SECRET) {
 			throw new Error('[docs] this account has two-factor enabled: set DOC_TOTP_SECRET');
 		}
-		const { TOTP, Secret } = await import('otpauth');
-		const code = new TOTP({
-			issuer: 'BudgetPilot',
-			secret: Secret.fromBase32(TOTP_SECRET)
-		}).generate();
-		const second = await ctx.post('/login/verify-totp', { form: { code }, maxRedirects: 0 });
-		const secondBody = await second.json();
+		const signIn = async () =>
+			(
+				await ctx.post('/login/verify-totp', {
+					form: { code: await nextTotpCode(TOTP_SECRET) },
+					maxRedirects: 0
+				})
+			).json();
+		let secondBody = await signIn();
+		// Once more, on the next step: a run that ended less than thirty seconds ago may have spent
+		// this one on the same account (#818), which nothing in this process can know beforehand.
+		if (secondBody.type !== 'redirect') secondBody = await signIn();
 		if (secondBody.type !== 'redirect') {
 			throw new Error(`[docs] second factor failed: ${JSON.stringify(secondBody).slice(0, 200)}`);
 		}

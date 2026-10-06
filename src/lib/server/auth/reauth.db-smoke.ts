@@ -236,6 +236,9 @@ describe('the helper against real rows', () => {
 		const session = await mintSession(a.id);
 		const totp = new OTPAuth.TOTP({ secret: OTPAuth.Secret.fromBase32(secret) });
 		const right = totp.generate();
+		// `right` is spent by the first call (#818), so the wrong-password case needs a code that is
+		// still unspent: the next step's, inside the window.
+		const next = totp.generate({ timestamp: Date.now() + 30_000 });
 		const wrong = totp.generate({ timestamp: Date.now() + 10 * 30_000 });
 
 		const decide = (fields: Record<string, string>) =>
@@ -249,7 +252,7 @@ describe('the helper against real rows', () => {
 		expect(await decide({ currentPassword: PASSWORD_A, code: wrong })).toMatchObject({
 			reason: 'wrong-totp'
 		});
-		expect(await decide({ currentPassword: 'wrong', code: right })).toMatchObject({
+		expect(await decide({ currentPassword: 'wrong', code: next })).toMatchObject({
 			reason: 'wrong-password'
 		});
 		expect(await decide({ currentPassword: PASSWORD_A })).toMatchObject({ reason: 'missing-totp' });

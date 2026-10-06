@@ -9,7 +9,9 @@ const db = vi.hoisted(() => ({
 	prisma: {
 		user: {
 			findUnique: vi.fn(),
-			updateMany: vi.fn()
+			updateMany: vi.fn(),
+			// The account's factor is unchanged since it was read (#818): a refused step is a spent one.
+			count: vi.fn(async () => 1)
 		},
 		session: {
 			create: vi.fn()
@@ -46,7 +48,18 @@ vi.mock('$lib/server/auth/rateLimit', () => rateLimit);
 const { encryptTotpSecret, generateTotpSecretBase32, hashRecoveryCode } =
 	await import('$lib/server/auth/totp');
 const OTPAuth = await import('otpauth');
+const m = await import('$lib/paraglide/messages');
 const { actions } = await import('./+page.server');
+
+/**
+ * `user.updateMany` answers two different claims in this route: the TOTP step (#818), and the
+ * default-seeding claims, answered « already seeded » so a sign-in writes no defaults here.
+ */
+function userClaims({ totpStepMatches }: { totpStepMatches: boolean }) {
+	db.prisma.user.updateMany.mockImplementation(async (args: { data: Record<string, unknown> }) => ({
+		count: 'totpLastUsedStep' in args.data && totpStepMatches ? 1 : 0
+	}));
+}
 
 describe('/login/verify-totp action', () => {
 	beforeEach(() => {
@@ -66,13 +79,37 @@ describe('/login/verify-totp action', () => {
 			totpEnabled: true,
 			totpSecretEncrypted: encryptTotpSecret(secret)
 		});
-		db.prisma.user.updateMany.mockResolvedValue({ count: 0 });
+		userClaims({ totpStepMatches: true });
 		const cookies = { get: vi.fn(), set: vi.fn() };
 
 		await expect(runVerify(cookies, code)).rejects.toMatchObject({ status: 303 });
 
 		expect(db.prisma.session.create).toHaveBeenCalledTimes(1);
 		expect(mfaChallenge.consumeMfaChallenge).toHaveBeenCalledWith('challenge-1', cookies);
+	});
+
+	// #818: a valid code whose step was already accepted. Whether the step WAS accepted is the
+	// engine's to decide (`totpSingleUse.db-smoke.ts`); here the fake says so, and what is under test
+	// is what the route does with the answer: the reason, no session, an attempt counted.
+	it('refuses a code already used with its own sentence, and signs nobody in', async () => {
+		expect.assertions(4);
+
+		const secret = generateTotpSecretBase32();
+		const code = new OTPAuth.TOTP({ secret: OTPAuth.Secret.fromBase32(secret) }).generate();
+		mfaChallenge.readMfaChallenge.mockResolvedValue({ id: 'challenge-1', userId: 'user-a' });
+		db.prisma.user.findUnique.mockResolvedValue({
+			id: 'user-a',
+			totpEnabled: true,
+			totpSecretEncrypted: encryptTotpSecret(secret)
+		});
+		userClaims({ totpStepMatches: false });
+
+		const result = await runVerify({ get: vi.fn(), set: vi.fn() }, code);
+
+		expect(result.status).toBe(400);
+		expect(result.data).toEqual({ error: m.totp_error_code_reused() });
+		expect(db.prisma.session.create).not.toHaveBeenCalled();
+		expect(rateLimit.recordMfaAttempt).toHaveBeenCalledWith('challenge-1', expect.any(String));
 	});
 
 	it('rejette un code invalide et enregistre la tentative de rate limiting', async () => {

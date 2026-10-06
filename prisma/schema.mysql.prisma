@@ -68,6 +68,13 @@ model User {
   totpSecretEncrypted             String? @db.Text
   totpEnabled                     Boolean                    @default(false)
   totpEnabledAt                   DateTime?
+  /// The TOTP time step (Unix seconds divided by the 30-second period) of the last code accepted for
+  /// this user, so a code is accepted once (#818, `ASVS v5.0.0-6.5.1`). NULL: no code accepted
+  /// since two-factor was last turned off, or ever. Set by `acceptTotpCode`
+  /// (`src/lib/server/auth/totpAcceptance.ts`) as one conditional update, written with the secret by
+  /// `confirmTotpSetup`, and cleared with the secret by `disableTotp`. A step is about 5.97e7 in 2026, and a signed 32-bit integer holds steps until
+  /// the year 4011, so `Int` is wide enough on all three engines.
+  totpLastUsedStep                Int?
   /// When this user dismissed the offer to rename the seeded categories into their own language
   /// (#162). NULL means never dismissed, which is the state every existing row starts in.
   ///

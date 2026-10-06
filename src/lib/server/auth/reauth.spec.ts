@@ -21,7 +21,7 @@ vi.hoisted(() => {
  */
 
 const db = vi.hoisted(() => ({
-	prisma: { user: { findUnique: vi.fn() } }
+	prisma: { user: { findUnique: vi.fn(), updateMany: vi.fn(), count: vi.fn() } }
 }));
 const rateLimit = vi.hoisted(() => ({
 	isReauthRateLimited: vi.fn(async () => false),
@@ -90,6 +90,15 @@ beforeEach(() => {
 	rateLimit.isReauthRateLimited.mockResolvedValue(false);
 	rateLimit.recordReauthAttempt.mockReset();
 	rateLimit.recordReauthAttempt.mockResolvedValue(undefined);
+	// The step a valid code records (#818) is accepted unless a test says otherwise. Whether a REAL
+	// engine accepts it is `totpSingleUse.db-smoke.ts`'s; here the fake answers and the helper's
+	// decision over the answer is what is tested.
+	db.prisma.user.updateMany.mockReset();
+	db.prisma.user.updateMany.mockResolvedValue({ count: 1 });
+	// The account's factor is still the one the code was judged against, so an update that matched
+	// nothing reads as a spent step.
+	db.prisma.user.count.mockReset();
+	db.prisma.user.count.mockResolvedValue(1);
 });
 
 describe('R3 on #841, as data', () => {
@@ -273,6 +282,55 @@ describe('password plus TOTP when enabled (7.5.1)', () => {
 
 		expect(vi.mocked(verifyTotpCode)).toHaveBeenCalledTimes(1);
 	});
+
+	// #818: the step of a valid code is spent at verification, even when the password then fails.
+	// Separates « spent whatever the password said » from « spent only on success », which would let
+	// the same code be replayed after a deliberately wrong password.
+	it('with TOTP: a wrong password still spends the right code', async () => {
+		db.prisma.user.findUnique.mockResolvedValue(account({ totp: true }));
+
+		await reauthenticate('deleteAccount', {
+			user: { id: USER, sessionId: SESSION },
+			ip: IP,
+			form: form({ password: 'not-it', code: codeFor(secret) })
+		});
+
+		// The predicate itself is the engine's to judge (`totpSingleUse.db-smoke.ts`), not restated.
+		expect(db.prisma.user.updateMany).toHaveBeenCalledTimes(1);
+		expect(db.prisma.user.updateMany).toHaveBeenCalledWith(
+			expect.objectContaining({ where: expect.objectContaining({ id: USER }) })
+		);
+	});
+
+	it('with TOTP: the right password and a code already used is reused-totp, recorded', async () => {
+		db.prisma.user.findUnique.mockResolvedValue(account({ totp: true }));
+		db.prisma.user.updateMany.mockResolvedValue({ count: 0 });
+
+		const outcome = await reauthenticate('changePassword', {
+			user: { id: USER, sessionId: SESSION },
+			ip: IP,
+			form: form({ password: PASSWORD, code: codeFor(secret) })
+		});
+
+		expect(outcome).toEqual({ ok: false, reason: 'reused-totp', asked: 'password-and-code' });
+		expect(rateLimit.recordReauthAttempt).toHaveBeenCalledWith(SESSION, IP);
+	});
+
+	// The class 2 property of the reused reason: it must not depend on the password, or a replayed
+	// code would answer « was this password right » to whoever holds the session. Separates
+	// « reused whatever the password » from « reused only beside the right one ».
+	it('with TOTP: a wrong password and a code already used is reused-totp too', async () => {
+		db.prisma.user.findUnique.mockResolvedValue(account({ totp: true }));
+		db.prisma.user.updateMany.mockResolvedValue({ count: 0 });
+
+		const outcome = await reauthenticate('changePassword', {
+			user: { id: USER, sessionId: SESSION },
+			ip: IP,
+			form: form({ password: 'not-it', code: codeFor(secret) })
+		});
+
+		expect(outcome).toEqual({ ok: false, reason: 'reused-totp', asked: 'password-and-code' });
+	});
 });
 
 describe('password plus TOTP, required (disableTotp)', () => {
@@ -319,7 +377,26 @@ describe('password plus a code from the new secret (confirmTotpSetup)', () => {
 			newTotpSecret: fresh
 		});
 
-		expect(outcome).toEqual({ ok: true });
+		expect(outcome).toEqual({ ok: true, totpStep: expect.any(Number) });
+	});
+
+	// The contradiction pass on #818: an enrolment code is JUDGED here and spent by the enabling
+	// write, never here. Separates « judged only » from « spent at verification », which let a
+	// session holder with no password move the account's step ahead with a wrong password.
+	it.each([
+		['the right', PASSWORD],
+		['a wrong', 'not-it']
+	])('spends no step with %s password', async (_, password) => {
+		db.prisma.user.findUnique.mockResolvedValue(account({ totp: false }));
+
+		await reauthenticate('confirmTotpSetup', {
+			user: { id: USER, sessionId: SESSION },
+			ip: IP,
+			form: form({ password, code: codeFor(fresh) }),
+			newTotpSecret: fresh
+		});
+
+		expect(db.prisma.user.updateMany).not.toHaveBeenCalled();
 	});
 
 	// The contradiction pass on S1: enrolling over an EXISTING second factor replaced it with the
@@ -361,7 +438,7 @@ describe('password plus a code from the new secret (confirmTotpSetup)', () => {
 			newTotpSecret: fresh
 		});
 
-		expect(outcome).toEqual({ ok: true });
+		expect(outcome).toEqual({ ok: true, totpStep: expect.any(Number) });
 	});
 
 	it('refuses a code from another secret as wrong-totp', async () => {
@@ -495,6 +572,14 @@ describe('what a refusal says (#854 class 2)', () => {
 		expect(reauthRefusalMessage({ ok: false, reason: 'totp-already-enabled' })).toBe(
 			m.settings_mfa_error_already_enabled()
 		);
+	});
+
+	// #818: the one credential reason with its own sentence, because waiting for the next code is
+	// the one thing that helps. Safe only because the reason does not depend on the password.
+	it('a code already used says so', () => {
+		expect(
+			reauthRefusalMessage({ ok: false, reason: 'reused-totp', asked: 'password-and-code' })
+		).toBe(m.totp_error_code_reused());
 	});
 
 	it('the limiter keeps its own sentence', () => {

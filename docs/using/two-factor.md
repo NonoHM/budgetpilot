@@ -64,6 +64,10 @@ A code is valid for its own thirty-second window and the one either side of
 it, so a phone whose clock is slightly off still works. If codes are refused
 one after another, check the clock on the phone rather than the app.
 
+Each code works once. If you are asked for a code just after typing one, for
+example to change a setting right after signing in, wait for your app to show
+a new code.
+
 ## Turn it off
 
 Same switch, and it asks for **your password and a current code**. Turning
@@ -89,9 +93,9 @@ button anywhere in BudgetPilot will change that.** In particular:
 
 The only way back is on the server, in the database, by whoever runs the
 instance. If that is you, [operations](../operations.md) is where the
-database lives; the two columns to clear are `totpEnabled` and
-`totpSecretEncrypted` on your row in the `User` table. If the instance is
-run by someone else, they can do it and you cannot.
+database lives; the three columns to clear are `totpEnabled`,
+`totpSecretEncrypted` and `totpLastUsedStep` on your row in the `User` table.
+If the instance is run by someone else, they can do it and you cannot.
 
 That is the whole trade: two-factor buys real protection, and on a
 self-hosted instance the fallback is a person with database access rather

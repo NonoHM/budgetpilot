@@ -4,7 +4,8 @@ import { createSession, redirectAfterSignIn } from '$lib/server/auth';
 import { consumeMfaChallenge, readMfaChallenge } from '$lib/server/auth/mfaChallenge';
 import { isMfaRateLimited, recordMfaAttempt } from '$lib/server/auth/rateLimit';
 import { resolveClientAddress } from '$lib/server/net/clientAddress';
-import { verifyTotpCode, decryptTotpSecret, verifyRecoveryCode } from '$lib/server/auth/totp';
+import { verifyRecoveryCode } from '$lib/server/auth/totp';
+import { acceptTotpCode, type TotpAcceptance } from '$lib/server/auth/totpAcceptance';
 import { ensureDefaultCategoriesSeeded } from '$lib/server/categories/defaults';
 import { ensureDefaultRulesSeeded } from '$lib/server/categorization/defaultRules';
 import { prisma } from '$lib/server/db';
@@ -45,15 +46,20 @@ export const actions: Actions = {
 			throw redirect(303, '/login');
 		}
 
-		const ok = TOTP_CODE_PATTERN.test(code)
-			? verifyTotpCodeSafely(user.totpSecretEncrypted, code)
-			: RECOVERY_CODE_PATTERN.test(code)
-				? await tryConsumeRecoveryCode(user.id, code.toUpperCase())
-				: false;
+		// A TOTP code is spent here, by `acceptTotpCode`, even if the sign-in then fails: see why there.
+		let verdict: TotpAcceptance = 'wrong';
+		if (TOTP_CODE_PATTERN.test(code)) {
+			verdict = await acceptTotpCode(user.id, user.totpSecretEncrypted, code);
+		} else if (RECOVERY_CODE_PATTERN.test(code)) {
+			verdict = (await tryConsumeRecoveryCode(user.id, code.toUpperCase())) ? 'accepted' : 'wrong';
+		}
 
-		if (!ok) {
+		if (verdict !== 'accepted') {
 			await recordMfaAttempt(challenge.id, ip);
-			return invalid();
+			// A spent code says so (#818): whoever typed it twice needs the next one, not a clock
+			// check. Nothing in that is usable: the password is already proven at this step, and a
+			// spent step is never accepted again.
+			return verdict === 'reused' ? fail(400, { error: m.totp_error_code_reused() }) : invalid();
 		}
 
 		await ensureDefaultCategoriesSeeded(user.id);
@@ -64,16 +70,6 @@ export const actions: Actions = {
 		redirectAfterSignIn(url);
 	}
 };
-
-// A rotated/corrupted key makes GCM decryption fail (invalid auth tag):
-// treated as an invalid code rather than letting the request crash with a 500.
-function verifyTotpCodeSafely(secretEncrypted: string, code: string): boolean {
-	try {
-		return verifyTotpCode(decryptTotpSecret(secretEncrypted), code);
-	} catch {
-		return false;
-	}
-}
 
 async function tryConsumeRecoveryCode(userId: string, code: string): Promise<boolean> {
 	const candidates = await prisma.recoveryCode.findMany({

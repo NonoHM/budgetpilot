@@ -495,7 +495,11 @@ export const actions: Actions = {
 				data: {
 					totpSecretEncrypted: encryptTotpSecret(secretBase32),
 					totpEnabled: true,
-					totpEnabledAt: new Date()
+					totpEnabledAt: new Date(),
+					// The confirming code is the first one spent (#818), written with the secret it is a
+					// step of, so the code typed here, which someone may have watched, cannot then sign
+					// in. Not at re-authentication: see `judgeEnrolmentCode`.
+					totpLastUsedStep: reauth.totpStep
 				}
 			});
 			await tx.recoveryCode.deleteMany({ where: { userId: user.id } });
@@ -520,7 +524,14 @@ export const actions: Actions = {
 		await commitWithRotatedToken(user, cookies, async (tx) => {
 			await tx.user.update({
 				where: { id: user.id },
-				data: { totpEnabled: false, totpSecretEncrypted: null, totpEnabledAt: null }
+				// The last accepted step goes with the secret it was a step of (#818): NULL reads « no
+				// code accepted since two-factor was last turned off ».
+				data: {
+					totpEnabled: false,
+					totpSecretEncrypted: null,
+					totpEnabledAt: null,
+					totpLastUsedStep: null
+				}
 			});
 			await tx.recoveryCode.deleteMany({ where: { userId: user.id } });
 		});

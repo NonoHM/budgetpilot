@@ -487,10 +487,13 @@ async function exerciseAuthPaths(): Promise<void> {
 			?.id ?? ''
 	);
 	// The admin re-authenticates (#229): their own password, and a code because step 4 enrolled TOTP.
+	// The NEXT step's code, still inside the window: the enrolment spent the current one (#818).
 	const reset = await action(admin, 'admin-reset', '/admin?/resetPassword', {
 		targetUserId: memberId,
 		currentPassword: SECRETS.password,
-		code: new OTPAuth.TOTP({ secret: OTPAuth.Secret.fromBase32(minted.totpSecret) }).generate()
+		code: new OTPAuth.TOTP({ secret: OTPAuth.Secret.fromBase32(minted.totpSecret) }).generate({
+			timestamp: Date.now() + 30_000
+		})
 	});
 	minted.temporaryPassword = String(reset.data.temporaryPassword ?? '');
 	minted.rotatedSessionTokens.push(sessionCookie(reset.response.headers()['set-cookie']));

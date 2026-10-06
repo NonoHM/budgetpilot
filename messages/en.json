@@ -51,6 +51,7 @@
 	"mfa_verify_recovery_hint": "Lost your device? Use one of your recovery codes instead of the 6-digit code.",
 	"mfa_verify_error_invalid_code": "Invalid code",
 	"mfa_verify_error_too_many_attempts": "Too many attempts. Try again in a few minutes.",
+	"totp_error_code_reused": "This code was already used. Wait for your app to show a new one.",
 	"register_page_title": "Sign up - BudgetPilot",
 	"register_heading": "Sign up",
 	"register_email_label": "Email",

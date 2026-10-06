@@ -33,7 +33,10 @@ const db = vi.hoisted(() => ({
 		user: {
 			findUnique: vi.fn(),
 			findUniqueOrThrow: vi.fn(),
-			update: vi.fn()
+			update: vi.fn(),
+			// The step a valid code records (#818): accepted. The engine's answer is
+			// `totpSingleUse.db-smoke.ts`'s; here the action's outcome is what is tested.
+			updateMany: vi.fn(async () => ({ count: 1 }))
 		},
 		session: {
 			findMany: vi.fn(),
@@ -1260,13 +1263,15 @@ describe('/settings', () => {
 		});
 
 		it('confirmTotpSetup active le TOTP et renvoie 10 codes de récupération affichés une seule fois', async () => {
-			expect.assertions(5);
+			expect.assertions(6);
 
 			const { generateTotpSecretBase32 } = await import('$lib/server/auth/totp');
 			const OTPAuth = await import('otpauth');
 			const secretBase32 = generateTotpSecretBase32();
 			const totp = new OTPAuth.TOTP({ secret: OTPAuth.Secret.fromBase32(secretBase32) });
-			const code = totp.generate();
+			// Read once: the step asserted below is the one this code was generated for.
+			const now = Date.now();
+			const code = totp.generate({ timestamp: now });
 			const passwordHash = await hashPassword('mot-de-passe-long');
 			db.prisma.user.findUnique.mockResolvedValue({ passwordHash });
 
@@ -1281,6 +1286,8 @@ describe('/settings', () => {
 			const updateArgs = tx.user.update.mock.calls[0][0];
 			expect(updateArgs.data.totpEnabled).toBe(true);
 			expect(updateArgs.data.totpSecretEncrypted).not.toContain(secretBase32);
+			// #818: the confirming code's step, written in the same update as the secret.
+			expect(updateArgs.data.totpLastUsedStep).toBe(Math.floor(now / 30_000));
 		});
 
 		it('confirmTotpSetup rejette un code invalide sans activer le TOTP, et renvoie un QR frais pour réessayer', async () => {
@@ -1970,9 +1977,10 @@ describe('S1: each re-authenticating settings action, through the real action', 
 			if (thrown?.status !== 303) throw thrown;
 		});
 
-		await expect(vi.mocked(reauth.reauthenticate).mock.results[0]?.value).resolves.toEqual({
-			ok: true
-		});
+		// Enrolment's success also carries the judged code's step (#818), for the enabling write.
+		await expect(vi.mocked(reauth.reauthenticate).mock.results[0]?.value).resolves.toEqual(
+			action === 'confirmTotpSetup' ? { ok: true, totpStep: expect.any(Number) } : { ok: true }
+		);
 		const written = CASES[action].writes().some((write) => write.mock.calls.length > 0);
 		expect(written).toBe(true);
 	});
