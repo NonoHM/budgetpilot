@@ -3,6 +3,7 @@ import { PrismaMariaDb } from '@prisma/adapter-mariadb';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { describe, expect, it, vi } from 'vitest';
 import { createDatabaseAdapter } from './adapter';
+import { SerializedSqliteAdapterFactory } from './serializedSqliteAdapter';
 
 vi.mock('@prisma/adapter-pg', async (importOriginal) => {
 	const original = await importOriginal<typeof import('@prisma/adapter-pg')>();
@@ -17,10 +18,22 @@ vi.mock('@prisma/adapter-mariadb', async (importOriginal) => {
 });
 
 describe('createDatabaseAdapter', () => {
-	it('builds a better-sqlite3 adapter for sqlite', () => {
+	it('serialises the sqlite adapter, so an outside query cannot join an open transaction', () => {
 		expect.assertions(1);
 
-		expect(createDatabaseAdapter('sqlite', 'file:./dev.db')).toBeInstanceOf(PrismaBetterSqlite3);
+		// #889: without the decorator a plain query runs inside whatever transaction is open on the
+		// one shared connection, and its rollback undoes the write. See serializedSqliteAdapter.ts.
+		expect(createDatabaseAdapter('sqlite', 'file:./dev.db')).toBeInstanceOf(
+			SerializedSqliteAdapterFactory
+		);
+	});
+
+	it('serialises a better-sqlite3 adapter for sqlite, not some other driver', () => {
+		expect.assertions(1);
+
+		expect(createDatabaseAdapter('sqlite', 'file:./dev.db').adapterName).toBe(
+			new PrismaBetterSqlite3({ url: 'file:./dev.db' }).adapterName
+		);
 	});
 
 	it('builds a pg adapter for postgresql', () => {
