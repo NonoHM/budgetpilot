@@ -57,6 +57,11 @@ locally for this change (#891): the same two figures are now 1, eight concurrent
 one code are accepted once, an older code is refused after a newer one, the code that confirmed
 enrolment cannot then sign in, and a refused enrolment leaves the owner's own enrolment accepted.
 
+One case stays open by design: re-enrolling the SAME secret, through a hand-crafted request
+since no screen offers it (every setup issues a fresh secret), moves the step back, so a code
+spent before the disable can be accepted once more; it grants nothing, because posting the secret
+means knowing it, and knowing it already mints every code.
+
 Recovery codes were already single use, consumed by a conditional update on sign-in. Re-authentication
 accepts no recovery code at all (#886).
 
