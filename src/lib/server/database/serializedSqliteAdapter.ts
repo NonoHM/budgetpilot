@@ -18,6 +18,17 @@ import type { PrismaBetterSqlite3 } from '@prisma/adapter-better-sqlite3';
  * the better-sqlite3 adapter the same shape from outside, through Prisma's public driver-adapter
  * interfaces, without reaching into the adapter's private fields.
  *
+ * ## The close the hold depends on
+ *
+ * Releasing on `rollback()` is only safe if the transaction is really over, and Prisma does not
+ * always make it so: when the COMMIT statement itself fails (SQLITE_BUSY because another
+ * connection holds a read, such as the documented `normalize-names --dry-run` against the live
+ * volume or a SQLite browser, or an I/O error), Prisma 7.10.0 calls `rollback()` with no ROLLBACK
+ * statement, and SQLite leaves the transaction open. So `rollback()` sends ROLLBACK itself, under
+ * the hold, and treats « no transaction is active » as the ordinary case. Without that, measured
+ * through Prisma's own client, the next outside write ran inside the dead transaction, the next
+ * transaction was refused, and the one after waited forever on the adapter's leaked mutex.
+ *
  * ## What it changes, honestly
  *
  * On SQLite a request now WAITS while another request's transaction is open, where before it
@@ -84,8 +95,40 @@ function createLock(): { acquire(): Promise<() => void> } {
 	};
 }
 
-/** The transaction, unchanged, except that closing it releases the hold it was opened under. */
+const ROLLBACK: Parameters<Transaction['executeRaw']>[0] = {
+	sql: 'ROLLBACK',
+	args: [],
+	argTypes: []
+};
+
+/**
+ * SQLite's answer to a ROLLBACK when no transaction is open. Matched on the driver's original code
+ * AND its exact message, because the code alone is SQLITE_ERROR, SQLite's generic one, shared by
+ * every other failure a ROLLBACK could meet; the adapter maps it to `kind: 'sqlite'`,
+ * `extendedCode: 1`, which says no more. The spec calibrates this against the real error: every
+ * ordinary rollback reaches it, and would reject if it stopped matching.
+ */
+function isNoActiveTransaction(error: unknown): boolean {
+	if (!(error instanceof Error) || typeof error.cause !== 'object' || error.cause === null) {
+		return false;
+	}
+	const cause = error.cause as { originalCode?: unknown; originalMessage?: unknown };
+	return (
+		cause.originalCode === 'SQLITE_ERROR' &&
+		cause.originalMessage === 'cannot rollback - no transaction is active'
+	);
+}
+
+/**
+ * The transaction, unchanged, except that closing it releases the hold it was opened under, and
+ * that rolling it back makes sure it is really rolled back first.
+ */
 function releasingOnClose(inner: Transaction, release: () => void): Transaction {
+	// Only the FIRST close may touch the connection. The ROLLBACK `rollback()` sends goes to the ONE
+	// connection, so sent again by a late second close it would end whichever transaction holds the
+	// connection by then. The release is already idempotent (see `createLock`); this is the same
+	// guarantee one level down, in SQL.
+	let closed = false;
 	return {
 		provider: inner.provider,
 		adapterName: inner.adapterName,
@@ -93,10 +136,11 @@ function releasingOnClose(inner: Transaction, release: () => void): Transaction 
 		// Queries ON the transaction take no lock: it is already held, by this transaction.
 		queryRaw: (query) => inner.queryRaw(query),
 		executeRaw: (query) => inner.executeRaw(query),
-		// Prisma sends the COMMIT or ROLLBACK statement through `executeRaw` above, then calls one
-		// of these. Every close path reaches one of them, including a failed COMMIT, which Prisma
-		// follows with `rollback()`.
+		// Prisma usually sends the COMMIT or ROLLBACK statement through `executeRaw` above, then
+		// calls one of these. Every close path reaches one of them, including a failed COMMIT,
+		// which Prisma follows with `rollback()` and NO ROLLBACK statement; see `rollback()`.
 		async commit() {
+			closed = true;
 			try {
 				await inner.commit();
 			} finally {
@@ -104,11 +148,34 @@ function releasingOnClose(inner: Transaction, release: () => void): Transaction 
 			}
 		},
 		async rollback() {
+			// Sent HERE, unconditionally, because Prisma does not always send it. When the COMMIT
+			// statement itself fails (SQLITE_BUSY while another connection holds a read, or an I/O
+			// error), Prisma 7.10.0 calls `rollback()` without a ROLLBACK statement, and on SQLite a
+			// failed COMMIT leaves the transaction OPEN. Releasing then would hand the next caller a
+			// connection still inside BEGIN: its write would join the dead transaction (#889 again),
+			// and the next BEGIN would fail after the adapter took its private mutex, which it never
+			// releases, so every transaction after that would wait forever.
+			//
+			// Under our hold, so nobody else can have begun anything on the connection meanwhile.
+			const firstClose = !closed;
+			closed = true;
+			let failure: { error: unknown } | undefined;
+			try {
+				if (firstClose) await inner.executeRaw(ROLLBACK);
+			} catch (error) {
+				// The ordinary case: Prisma's own ROLLBACK, or a successful close, already ended it.
+				// Anything else is a SQLite I/O-level failure on ROLLBACK, and it is rethrown below
+				// AFTER releasing: a transaction SQLite could not roll back is already beyond what this
+				// layer can repair, while keeping the hold would stop every query on the connection
+				// until a restart. A loud error beats a silent outage.
+				if (!isNoActiveTransaction(error)) failure = { error };
+			}
 			try {
 				await inner.rollback();
 			} finally {
 				release();
 			}
+			if (failure) throw failure.error;
 		},
 		...(inner.createSavepoint && { createSavepoint: inner.createSavepoint.bind(inner) }),
 		...(inner.rollbackToSavepoint && {

@@ -205,8 +205,28 @@ describe('a release that runs twice', () => {
 		const outside = connection.executeRaw(statement('UPDATE t SET v = 1 WHERE id = 2'));
 
 		expect(await stateAfter(outside, SETTLES_MS)).toBe('pending');
-		await rollBack(second);
+		await second.executeRaw(statement('ROLLBACK')).catch(() => undefined);
+		await second.rollback();
 		await outside;
+	});
+
+	it('and sends nothing, so it cannot end the transaction that took the hold next', async () => {
+		expect.assertions(1);
+
+		// `rollback()` sends its own ROLLBACK, on the ONE connection. Sent again by a late second
+		// close of the first transaction, it would end whichever transaction holds the connection by
+		// then, and that one's write would vanish. Separates « only the first close touches the
+		// connection » from « every close does ».
+		const first = await connection.startTransaction();
+		await rollBack(first);
+		const second = await connection.startTransaction();
+		await second.executeRaw(statement('UPDATE t SET v = 1 WHERE id = 1'));
+		await first.rollback();
+		const seenBySecond = await second.queryRaw(statement('SELECT v FROM t WHERE id = 1'));
+		await second.executeRaw(statement('ROLLBACK')).catch(() => undefined);
+		await second.rollback();
+
+		expect(Number(seenBySecond.rows[0][0])).toBe(1);
 	});
 });
 
