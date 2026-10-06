@@ -146,6 +146,12 @@ const SIGN_IN_EXITS: readonly SignInExit[] = [
 				totpEnabled: true,
 				totpSecretEncrypted: encryptTotpSecret(secret)
 			});
+			// The code's step is accepted (#818); the seeding claims still find nothing to seed.
+			db.prisma.user.updateMany.mockImplementation(
+				async (args: { data: Record<string, unknown> }) => ({
+					count: 'totpLastUsedStep' in args.data ? 1 : 0
+				})
+			);
 			return locationOf(() =>
 				(verifyTotp.actions.default as unknown as Handler)(
 					postEvent(urlWith('/login/verify-totp', redirectTo), { code })

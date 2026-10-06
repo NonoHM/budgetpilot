@@ -2,7 +2,7 @@ import * as m from '$lib/paraglide/messages';
 import { REAUTH_FIELDS } from '$lib/domain/reauthFields';
 import { verifyPassword, type AuthUser } from '$lib/server/auth';
 import { isReauthRateLimited, recordReauthAttempt } from '$lib/server/auth/rateLimit';
-import { decryptTotpSecret, verifyTotpCode } from '$lib/server/auth/totp';
+import { acceptTotpCode } from '$lib/server/auth/totpAcceptance';
 import { prisma } from '$lib/server/db';
 
 /**
@@ -28,8 +28,16 @@ import { prisma } from '$lib/server/db';
  *      oracle for one.
  *   4. Both factors, ALWAYS both: the password through bcrypt and the code through the TOTP window,
  *      whatever the first answered. A wrong password and a wrong code then cost the same work, so
- *      the response time does not say which one failed. The password is reported first.
+ *      the response time does not say which one failed. The password is reported first, except
+ *      against a code already used (below).
  *   5. A wrong factor records one attempt against the session's REAUTH counter.
+ *
+ * A VALID CODE IS SPENT AT STEP 4, even when the password was wrong or the action is then refused
+ * (#818, `acceptTotpCode`). That is the safe direction: a code spent, never a code reusable. Its
+ * cost is the owner who mistyped the password waiting for the next code, and the sentence they get
+ * on retrying the same one, `reused-totp`, tells them so. That reason is reported WHATEVER the
+ * password answered, and it has to be: reported only beside a right password, a replayed code
+ * would answer « was this password right » to whoever holds the session.
  *
  * WHAT A SUCCESS IS FOR: the action then writes its change through `commitWithRotatedToken` (or
  * `commitEndingSession` for deleting the account), which commits it together with a new session
@@ -87,6 +95,8 @@ export type ReauthCredentialRefusal =
 	| 'wrong-password'
 	| 'missing-totp'
 	| 'wrong-totp'
+	/** A valid code for a step already accepted for this account (#818). */
+	| 'reused-totp'
 	| 'totp-not-enabled'
 	| 'no-account';
 
@@ -168,30 +178,22 @@ async function decide(
 
 	// Both evaluated before either is acted on: see step 4 in the header.
 	const passwordOk = await verifyPassword(password, account.passwordHash);
-	const codeOk = !asksCode
-		? true
-		: factors === 'password+new-secret-code'
-			? verifyCodeSafely(() => verifyTotpCode(newTotpSecret ?? '', code))
-			: verifyCodeSafely(() => verifyTotpCode(decryptTotpSecret(storedSecret ?? ''), code));
+	const codeVerdict = !asksCode
+		? 'accepted'
+		: await acceptTotpCode(
+				user.id,
+				factors === 'password+new-secret-code'
+					? { enrolling: newTotpSecret ?? '' }
+					: { stored: storedSecret ?? '' },
+				code
+			);
 
-	if (!passwordOk || !codeOk) {
+	if (!passwordOk || codeVerdict !== 'accepted') {
 		await recordReauthAttempt(user.sessionId, ip);
+		if (codeVerdict === 'reused') return refuse('reused-totp');
 		return refuse(passwordOk ? 'wrong-totp' : 'wrong-password');
 	}
 	return { ok: true };
-}
-
-/**
- * A stored secret that will not decrypt (a rotated key) or a posted secret that is not base32 makes
- * the TOTP library throw. Either is a code that cannot be right, so it is answered as one rather
- * than as a 500 that would tell the caller something the refusal does not.
- */
-function verifyCodeSafely(verify: () => boolean): boolean {
-	try {
-		return verify();
-	} catch {
-		return false;
-	}
 }
 
 function readField(form: FormData, name: string): string {
@@ -209,6 +211,9 @@ export function reauthRefusalMessage(
 ): ReturnType<typeof m.reauth_error_password> {
 	if (refused.reason === 'rate-limited') return m.settings_error_reauth_too_many();
 	if (refused.reason === 'totp-already-enabled') return m.settings_mfa_error_already_enabled();
+	// Its own sentence, because waiting for the next code is the one thing that helps. Safe under
+	// class 2 only because the reason does not depend on the password: see the header.
+	if (refused.reason === 'reused-totp') return m.totp_error_code_reused();
 	return refused.asked === 'password'
 		? m.reauth_error_password()
 		: m.reauth_error_password_or_code();

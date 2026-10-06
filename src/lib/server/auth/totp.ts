@@ -31,14 +31,30 @@ export async function generateTotpQrCodeDataUrl(uri: string): Promise<string> {
 	return QRCode.toDataURL(uri);
 }
 
-// window: 1 tolerates a +/- 1 period (30s) clock skew on the user's device.
-export function verifyTotpCode(secretBase32: string, code: string): boolean {
+/**
+ * The time step `code` was generated for, or null when it matches no step in the window. A step is
+ * the number of 30-second periods since the Unix epoch, the counter RFC 6238 feeds to HOTP.
+ *
+ * window: 1 accepts the step before the current one (RFC 6238 section 5.2, network delay) and the
+ * one after it (section 6, a device clock running ahead).
+ *
+ * This only VERIFIES. Accepting a code also spends it, and that is `acceptTotpCode`
+ * (`totpAcceptance.ts`), which every route goes through (#818).
+ *
+ * `timestamp` is read ONCE and given to both the validation and the counter: otpauth reads the clock
+ * separately in each, so two reads straddling a step boundary would add the delta to the wrong step.
+ */
+export function verifyTotpCode(
+	secretBase32: string,
+	code: string,
+	timestamp: number = Date.now()
+): number | null {
 	const totp = new OTPAuth.TOTP({
 		issuer: ISSUER,
 		secret: OTPAuth.Secret.fromBase32(secretBase32)
 	});
-	const delta = totp.validate({ token: code, window: TOTP_WINDOW });
-	return delta !== null;
+	const delta = totp.validate({ token: code, window: TOTP_WINDOW, timestamp });
+	return delta === null ? null : totp.counter({ timestamp }) + delta;
 }
 
 // Human-readable/copyable format: 10 uppercase hex chars in 2 groups of 5, separated by a dash.

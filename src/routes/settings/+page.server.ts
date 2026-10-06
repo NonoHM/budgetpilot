@@ -477,7 +477,9 @@ export const actions: Actions = {
 		if (!secretBase32) return invalid();
 
 		// R3 on #841: the password, plus a code from the secret being enrolled (7.5.1). A wrong
-		// password and a wrong code now read alike (#854 class 2), where they used to differ.
+		// password and a wrong code now read alike (#854 class 2), where they used to differ. The
+		// confirming code is the first one spent: `reauthenticate` records its step (#818), so the
+		// code typed here, which someone may have watched, cannot then sign in.
 		const reauth = await reauthenticate('confirmTotpSetup', {
 			user,
 			ip,
@@ -520,7 +522,14 @@ export const actions: Actions = {
 		await commitWithRotatedToken(user, cookies, async (tx) => {
 			await tx.user.update({
 				where: { id: user.id },
-				data: { totpEnabled: false, totpSecretEncrypted: null, totpEnabledAt: null }
+				// The last accepted step goes with the secret it was a step of (#818): kept, a new
+				// secret enrolled within the same 30 seconds would have its first code refused as used.
+				data: {
+					totpEnabled: false,
+					totpSecretEncrypted: null,
+					totpEnabledAt: null,
+					totpLastUsedStep: null
+				}
 			});
 			await tx.recoveryCode.deleteMany({ where: { userId: user.id } });
 		});

@@ -18,7 +18,10 @@ const db = vi.hoisted(() => ({
 		user: {
 			findMany: vi.fn(),
 			findUnique: vi.fn(),
-			count: vi.fn()
+			count: vi.fn(),
+			// The step a valid code records (#818): accepted. The engine's answer is
+			// `totpSingleUse.db-smoke.ts`'s; here the re-authentication's outcome is what is tested.
+			updateMany: vi.fn(async () => ({ count: 1 }))
 		},
 		$transaction: vi.fn(async (callback: (client: typeof tx) => Promise<unknown>) => callback(tx))
 	}

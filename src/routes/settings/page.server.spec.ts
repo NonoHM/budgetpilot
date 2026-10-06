@@ -33,7 +33,10 @@ const db = vi.hoisted(() => ({
 		user: {
 			findUnique: vi.fn(),
 			findUniqueOrThrow: vi.fn(),
-			update: vi.fn()
+			update: vi.fn(),
+			// The step a valid code records (#818): accepted. The engine's answer is
+			// `totpSingleUse.db-smoke.ts`'s; here the action's outcome is what is tested.
+			updateMany: vi.fn(async () => ({ count: 1 }))
 		},
 		session: {
 			findMany: vi.fn(),

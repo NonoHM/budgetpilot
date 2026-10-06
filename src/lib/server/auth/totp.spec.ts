@@ -88,13 +88,14 @@ describe('verifyTotpCode', () => {
 	it('accepte un code TOTP valide généré pour le même secret', () => {
 		const secret = generateTotpSecretBase32();
 		const totp = new OTPAuth.TOTP({ secret: OTPAuth.Secret.fromBase32(secret) });
-		const code = totp.generate();
-		expect(verifyTotpCode(secret, code)).toBe(true);
+		const now = Date.now();
+		const code = totp.generate({ timestamp: now });
+		expect(verifyTotpCode(secret, code, now)).toBe(Math.floor(now / 30_000));
 	});
 
 	it('rejette un code invalide', () => {
 		const secret = generateTotpSecretBase32();
-		expect(verifyTotpCode(secret, '000000')).toBe(false);
+		expect(verifyTotpCode(secret, '000000')).toBeNull();
 	});
 
 	it('rejette un code valide pour un autre secret', () => {
@@ -102,7 +103,52 @@ describe('verifyTotpCode', () => {
 		const secretB = generateTotpSecretBase32();
 		const totp = new OTPAuth.TOTP({ secret: OTPAuth.Secret.fromBase32(secretB) });
 		const code = totp.generate();
-		expect(verifyTotpCode(secretA, code)).toBe(false);
+		expect(verifyTotpCode(secretA, code)).toBeNull();
+	});
+});
+
+/**
+ * #818: the step returned is what `acceptTotpCode` records and compares, so an off-by-one here is a
+ * code accepted twice (one step too low) or the next code refused (one step too high). A FIXED
+ * secret and fixed instants, so every figure is the same on every run: a random secret could, once in
+ * a few hundred thousand runs, give two steps of the window the same six digits.
+ */
+describe('verifyTotpCode: the step it matched (#818)', () => {
+	const SECRET = 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP';
+	const PERIOD = 30_000;
+	const K = 59_709_895;
+	const totp = new OTPAuth.TOTP({ secret: OTPAuth.Secret.fromBase32(SECRET) });
+	const codeAt = (step: number) => totp.generate({ timestamp: step * PERIOD });
+
+	// The fixture distinguishes only if the five codes are five different strings.
+	it('uses five distinct codes for steps K-2 to K+2', () => {
+		const codes = [K - 2, K - 1, K, K + 1, K + 2].map(codeAt);
+		expect(new Set(codes).size).toBe(5);
+	});
+
+	it('returns the step of each code in the window, read in the middle of step K', () => {
+		const middle = K * PERIOD + PERIOD / 2;
+		expect([K - 1, K, K + 1].map((step) => verifyTotpCode(SECRET, codeAt(step), middle))).toEqual([
+			K - 1,
+			K,
+			K + 1
+		]);
+	});
+
+	it('refuses the steps one past each edge of the window', () => {
+		const middle = K * PERIOD + PERIOD / 2;
+		expect(verifyTotpCode(SECRET, codeAt(K - 2), middle)).toBeNull();
+		expect(verifyTotpCode(SECRET, codeAt(K + 2), middle)).toBeNull();
+	});
+
+	// The boundary is the millisecond the step changes. At K * PERIOD - 1 the current step is K - 1,
+	// so the code for K + 1 is two ahead and refused, and the code for K is one ahead and matched AS
+	// K. One millisecond later the code for K + 1 is matched as K + 1.
+	it('moves the window at the first millisecond of a step, not before', () => {
+		const lastOfPrevious = K * PERIOD - 1;
+		expect(verifyTotpCode(SECRET, codeAt(K + 1), lastOfPrevious)).toBeNull();
+		expect(verifyTotpCode(SECRET, codeAt(K), lastOfPrevious)).toBe(K);
+		expect(verifyTotpCode(SECRET, codeAt(K + 1), K * PERIOD)).toBe(K + 1);
 	});
 });
 
