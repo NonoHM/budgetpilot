@@ -108,6 +108,11 @@ The list is tracked; the copies are not. Which of these bind the project, and ho
 - SLSA v1.2, source requirements: https://raw.githubusercontent.com/slsa-framework/slsa/v1.2/docs/spec/v1.2/source-requirements.md
 - OpenSSF Scorecard checks: https://raw.githubusercontent.com/ossf/scorecard/main/docs/checks.md
 
+## IETF
+
+- RFC 6238, TOTP: Time-Based One-Time Password Algorithm (May 2011, Informational), copy in
+  `auth/`: https://www.rfc-editor.org/rfc/rfc6238.txt
+
 ## Accessibility and testing
 
 - WCAG 2.2: https://www.w3.org/TR/WCAG22/
