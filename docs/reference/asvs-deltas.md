@@ -45,15 +45,17 @@ accepted by two separate sign-in challenges, and by a sign-in followed by a re-a
 accepted 0 times on both sides. The evidence was true and answered a narrower question than the
 row asks.
 
-Now every route that accepts a code goes through `acceptTotpCode`
-(`src/lib/server/auth/totpAcceptance.ts`): sign-in, re-authentication and enrolment. It records the
-time step of the code it accepts on the user's row, in one conditional update that refuses any
-step at or below the last one, which is what RFC 6238 section 5.2 asks: « The verifier MUST NOT
-accept the second attempt of the OTP after the successful validation has been issued for the first
-OTP, which ensures one-time only use of an OTP. » Verified by attack in
-`src/lib/server/auth/totpSingleUse.db-smoke.ts`, run by CI on all three engines: the same two
-figures are now 1, eight concurrent submissions of one code are accepted once, an older code is
-refused after a newer one, and the code that confirmed enrolment cannot then sign in.
+Now every code is judged in one module, `src/lib/server/auth/totpAcceptance.ts`. Sign-in and
+re-authentication go through `acceptTotpCode`, which records the time step of the code it accepts
+on the user's row, in one conditional update that refuses any step at or below the last one, which
+is what RFC 6238 section 5.2 asks: « The verifier MUST NOT accept the second attempt of the OTP
+after the successful validation has been issued for the first OTP, which ensures one-time only use
+of an OTP. » Enrolment judges its code without spending it, and writes its step in the same update
+that stores the secret, so a refused enrolment spends nothing. Verified by attack in
+`src/lib/server/auth/totpSingleUse.db-smoke.ts`, run by CI on PostgreSQL and MariaDB; on SQLite
+locally for this change (#891): the same two figures are now 1, eight concurrent submissions of
+one code are accepted once, an older code is refused after a newer one, the code that confirmed
+enrolment cannot then sign in, and a refused enrolment leaves the owner's own enrolment accepted.
 
 Recovery codes were already single use, consumed by a conditional update on sign-in. Re-authentication
 accepts no recovery code at all (#886).
