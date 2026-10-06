@@ -143,41 +143,63 @@ describe('a write made outside an open transaction, which then rolls back', () =
 		outsideFinishedWhileOpen: boolean;
 		transactionRejected: boolean;
 		insideRolledBack: boolean;
-		outsideSurvived: boolean;
+		outsideUpdateSurvived: boolean;
+		outsideUpdateManySurvived: boolean;
 	};
 
 	// One run, several figures, each asserted in its own test: an assertion placed after another is
 	// never evaluated while the first is red, so the figures are split rather than chained.
 	beforeAll(async () => {
 		const insideUserId = await createUser();
-		const outsideUserId = await createUser();
+		const updateUserId = await createUser();
+		const updateManyUserId = await createUser();
 
+		// Two outside writes, in PARALLEL, because Prisma sends them through different adapter
+		// methods on SQLite (`update` reads its row back, so it is a query; `updateMany` returns a
+		// count, so it is an execute), and run one after the other the first would hold the second
+		// back until the transaction had closed, hiding whether the second's own path is guarded.
 		const run = await runBesideRollback(insideUserId, () =>
-			prisma.user.update({ where: { id: outsideUserId }, data: { aiIncludeLabels: true } })
+			Promise.all([
+				prisma.user.update({ where: { id: updateUserId }, data: { aiIncludeLabels: true } }),
+				prisma.user.updateMany({ where: { id: updateManyUserId }, data: { aiIncludeLabels: true } })
+			])
 		);
 
 		figures = {
 			outsideFinishedWhileOpen: run.outsideFinishedWhileOpen,
 			transactionRejected: run.transactionRejected,
 			insideRolledBack: (await flag(insideUserId)) === false,
-			outsideSurvived: (await flag(outsideUserId)) === true
+			outsideUpdateSurvived: (await flag(updateUserId)) === true,
+			outsideUpdateManySurvived: (await flag(updateManyUserId)) === true
 		};
 	});
 
-	it('rolled the transaction back, so the probe measured a rollback at all', () => {
-		expect.assertions(2);
+	// These two are the precondition for the figures below: without a rollback, « survived » is
+	// trivially true.
+	it('rejected the transaction with the error it threw', () => {
+		expect.assertions(1);
 
-		// The precondition for the figure below: without a rollback, « survived » is trivially true.
 		expect(figures.transactionRejected).toBe(true);
+	});
+
+	it('rolled the inside write back', () => {
+		expect.assertions(1);
+
 		expect(figures.insideRolledBack).toBe(true);
 	});
 
-	it('keeps the outside write after the rollback, on every engine', () => {
+	// THE property of #889. Each separates « the outside write ran beside the transaction » from « it
+	// ran inside it and was undone ». Red on SQLite without serializedSqliteAdapter.ts.
+	it('keeps an outside update after the rollback, on every engine', () => {
 		expect.assertions(1);
 
-		// THE property of #889. Separates « the outside write ran beside the transaction » from
-		// « it ran inside it and was undone ». Red on SQLite without serializedSqliteAdapter.ts.
-		expect(figures.outsideSurvived).toBe(true);
+		expect(figures.outsideUpdateSurvived).toBe(true);
+	});
+
+	it('keeps an outside updateMany after the rollback, on every engine', () => {
+		expect.assertions(1);
+
+		expect(figures.outsideUpdateManySurvived).toBe(true);
 	});
 
 	it('makes the outside write wait on SQLite, and nowhere else', () => {
