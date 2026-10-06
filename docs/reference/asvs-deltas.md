@@ -25,6 +25,63 @@ construction, `X` an argued exception, `N/A` not applicable with a stated reason
 
 ---
 
+## 2026-10-06, a TOTP code is accepted once
+
+Branch `fix/818-totp-single-use` (#818). **Letters below are quoted from the local L2 assessment
+report (untracked, not in a clone, #601)**, which describes the assessment of 2026-08-13 and not a
+current state. Both rows are corrections as well as movements: each letter was wrong on the commit
+the assessment pinned, for the reason given under it.
+
+### `v5.0.0-6.5.1`: `A` recorded, not met on that commit; `A` now
+
+> Verify that lookup secrets, out-of-band authentication requests or codes, and time-based one-time
+> passwords (TOTPs) are only successfully usable once.
+
+The recorded evidence was « A TOTP code replayed within its window is refused ». The replay it
+describes was on the same sign-in challenge, which is refused because the challenge is consumed,
+not because the code is. Measured before this change against a real engine: one valid code was
+accepted by two separate sign-in challenges, and by a sign-in followed by a re-authenticated action
+(`disableTotp`), 2 times each, on SQLite, PostgreSQL and MariaDB. A code from outside the window was
+accepted 0 times on both sides. The evidence was true and answered a narrower question than the
+row asks.
+
+Now every route that accepts a code goes through `acceptTotpCode`
+(`src/lib/server/auth/totpAcceptance.ts`): sign-in, re-authentication and enrolment. It records the
+time step of the code it accepts on the user's row, in one conditional update that refuses any
+step at or below the last one, which is what RFC 6238 section 5.2 asks: « The verifier MUST NOT
+accept the second attempt of the OTP after the successful validation has been issued for the first
+OTP, which ensures one-time only use of an OTP. » Verified by attack in
+`src/lib/server/auth/totpSingleUse.db-smoke.ts`, run by CI on all three engines: the same two
+figures are now 1, eight concurrent submissions of one code are accepted once, an older code is
+refused after a newer one, and the code that confirmed enrolment cannot then sign in.
+
+Recovery codes were already single use, consumed by a conditional update on sign-in. Re-authentication
+accepts no recovery code at all (#886).
+
+### `v5.0.0-6.5.5`: `C` recorded; `X` now, argued
+
+> Verify that out-of-band authentication requests, codes, or tokens, as well as time-based one-time
+> passwords (TOTPs) have a defined lifetime. Out of band requests must have a maximum lifetime of 10
+> minutes and for TOTP a maximum lifetime of 30 seconds.
+
+The recorded evidence named « a bounded acceptance window » without its size. The window is one
+step either side of the current one, so a code is accepted for up to 90 seconds from the start of
+the step before its own. That is longer than the row's 30 seconds, so `C` did not hold, and the
+position is now argued rather than claimed.
+
+**The argument.** The step behind is RFC 6238 section 5.2's network-delay allowance: « We RECOMMEND
+that at most one time step is allowed as the network delay. » The step ahead is the drift limit of
+section 6, « a specific limit to the number of time steps a prover can be "out of synch" before
+being rejected », which « can be set both forward and backward from the calculated time step on
+receipt of the OTP value ». A phone a few seconds ahead of the server is the ordinary case on a
+self-hosted instance with no time service of its own, and a window of 0 would refuse its codes for
+part of every step. What the requirement protects against is a code that stays usable, and since
+`6.5.1` above a code is accepted at most once whatever the window: the 90 seconds bound when a code
+can be used, not how many times.
+
+**What would close it:** a window of 0, refusing the drifting phone, or a measured drift per user
+(section 6's resynchronisation), which nothing here does.
+
 ## 2026-10-05, session token rotation
 
 Branch `fix/249-rotate-session-on-reauth` (#249, ruling R3 on #841). **Letters below are quoted

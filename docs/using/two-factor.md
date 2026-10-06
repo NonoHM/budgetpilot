@@ -64,6 +64,10 @@ A code is valid for its own thirty-second window and the one either side of
 it, so a phone whose clock is slightly off still works. If codes are refused
 one after another, check the clock on the phone rather than the app.
 
+Each code works once. If you are asked for a code just after typing one, for
+example to change a setting right after signing in, wait for your app to show
+a new code.
+
 ## Turn it off
 
 Same switch, and it asks for **your password and a current code**. Turning

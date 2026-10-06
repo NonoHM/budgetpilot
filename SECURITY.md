@@ -139,6 +139,12 @@ the only way to a current count is the next full re-derivation. The list exists 
 movement is readable by whoever reads the claim, rather than living in a pull request body that
 stops being consulted once it merges.
 
+**The figure above is wrong by two rows on its own commit.** `v5.0.0-6.5.1` (a TOTP code usable
+once) was counted as met by attack, and a code was in fact accepted again on a second sign-in;
+`v5.0.0-6.5.5` (a 30-second TOTP lifetime) was counted as met by construction, and the window
+accepts a code for up to 90 seconds. Both are corrected, with the measurement, in the deltas entry
+of 2026-10-06 ([#818](https://github.com/NonoHM/budgetpilot/issues/818)).
+
 **This is not a claim of compliance, and no such claim exists to make.** OWASP certifies
 nobody against ASVS and warns specifically against trust marks that assert compliance
 with it. Anyone telling you a product is "ASVS certified" is describing something the
