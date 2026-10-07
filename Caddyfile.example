@@ -57,8 +57,10 @@ budget.example.com {
 	# database, tailed, rotated, and often shipped to a collector.
 	#
 	# `redirectTo` and `invite` are the same kind of leak. The login redirect
-	# copies the page the user was on, search string included, into
-	# `redirectTo` (#838). `invite` carries the invitation token (#825).
+	# puts the page the user was on into `redirectTo`: its path only since
+	# #838, its search string too in older versions, and a bookmarked or
+	# crafted link can still carry one. `invite` carries the invitation token
+	# (#825).
 	#
 	# The `Referer` header is the other door, and filtering the URL alone left
 	# it open. The app sends `Referrer-Policy: same-origin`, which puts the FULL

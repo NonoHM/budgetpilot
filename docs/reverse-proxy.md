@@ -163,9 +163,9 @@ that code stays valid, so `code` and `state` are deleted from every logged
 URL. `q` is deleted too: it's the `/transactions` search term, so it holds
 whatever merchant, amount or note the user typed to find their own
 transactions, and the access log is the one place in this stack that would
-keep that in plaintext outside the database. So are `redirectTo`, which the
-login redirect fills with the page you were on, search string included, and
-`invite`, which carries the invitation token.
+keep that in plaintext outside the database. So are `redirectTo`, which holds
+the page you were on when you were sent to sign in (older versions also kept
+its search string), and `invite`, which carries the invitation token.
 
 The `Referer` header is deleted as well. The app tells browsers to send the
 full address of the current page on every request to the same site, so
