@@ -221,13 +221,33 @@ describe('/login load: the closed-registration notice', () => {
 		const result = await runLoad(`http://localhost/login?notice=${encodeURIComponent(value)}`);
 		expect(result.notice).toBeNull();
 	});
+
+	// The inactivity reason (#221) is read from the session cookie, never from the query string:
+	// a link naming it, in any spelling, puts nothing on the page. That the cookie of a session
+	// ended by inactivity does produce it is `e2e/session-idle.spec.ts`, against the build.
+	it.each(['signed_out_idle', 'signedOutIdle', 'idle'])(
+		'a query string cannot claim the inactivity reason: %s',
+		async (value) => {
+			expect.assertions(1);
+			const result = await runLoad(`http://localhost/login?notice=${value}&${value}=true`);
+			expect(result.signedOutIdle).toBe(false);
+		}
+	);
 });
 
-async function runLoad(url: string): Promise<{ notice: string | null }> {
+type LoadResult = { notice: string | null; signedOutIdle: boolean };
+
+/** The load for a browser holding no session cookie. */
+async function runLoad(url: string): Promise<LoadResult> {
 	return (await (
 		load as unknown as (event: {
+			cookies: { get: () => undefined };
 			locals: { user: null };
 			url: URL;
-		}) => Promise<{ notice: string | null }>
-	)({ locals: { user: null }, url: new URL(url) })) as { notice: string | null };
+		}) => Promise<LoadResult>
+	)({
+		cookies: { get: () => undefined },
+		locals: { user: null },
+		url: new URL(url)
+	})) as LoadResult;
 }

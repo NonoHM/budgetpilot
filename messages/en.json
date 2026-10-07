@@ -43,6 +43,7 @@
 	"login_register_link": "Create an account",
 	"login_error_invalid_credentials": "Invalid credentials",
 	"login_error_too_many_attempts": "Too many attempts. Try again in a few minutes.",
+	"login_notice_signed_out_idle": "You were signed out after a period of inactivity.",
 	"mfa_verify_page_title": "Two-factor verification - BudgetPilot",
 	"mfa_verify_heading": "Two-factor verification",
 	"mfa_verify_description": "Enter the code from your authenticator app, or one of your recovery codes.",
