@@ -1,5 +1,5 @@
 import { realpathSync, statSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { privateKeyPathCandidates } from '$lib/server/banking/enablebanking/jwt';
 import { OperatorFacingError } from '$lib/server/operatorFacingError';
 import { readChoiceSetting } from './readSetting';
@@ -14,8 +14,8 @@ import { readChoiceSetting } from './readSetting';
  * replace it. Modelled on OpenSSH's `StrictModes`, which refuses a key file or directory that is
  * writable by others or owned by anyone but the user or root, and stricter on reading: OpenSSH
  * judges an authorized_keys file, which is not a secret, so read for others is refused here whoever
- * owns the file. A symlink is judged at its target, file and directory both, and the directory
- * holding the link is judged too: whoever can write it can point the link elsewhere.
+ * owns the file. A path through a symbolic link is refused rather than followed, and every
+ * directory up to `/` is judged, as OpenSSH's `safe_path` walks it.
  *
  * Both halves of the triad, for a file that holds a secret:
  * - confidentiality: another account READING it learns TOTP_ENCRYPTION_KEY, RATE_LIMIT_HASH_SECRET,
@@ -37,19 +37,19 @@ const OTHER_READ = 0o004;
 const GROUP_OR_OTHER_WRITE = 0o022;
 const ROOT_UID = 0;
 
+export type DirectoryFacts = { path: string; mode: number; uid: number };
+
 export type SecretFileFacts = {
 	/** The variable or file name the operator knows it by. */
 	label: string;
+	/** The resolved path. */
 	path: string;
 	mode: number;
 	uid: number;
-	directoryMode: number;
-	directoryUid: number;
-	/**
-	 * The directory holding the link, when the path reaches the file through one in another
-	 * directory. Whoever can write it can point the link at a file of their own.
-	 */
-	linkDirectory?: { mode: number; uid: number };
+	/** Whether the path as written passes through a symbolic link anywhere. */
+	throughLink: boolean;
+	/** Every directory from the one holding the file up to `/`, nearest first. */
+	directories: DirectoryFacts[];
 };
 
 const octal = (mode: number) => (mode & 0o7777).toString(8).padStart(3, '0');
@@ -79,25 +79,26 @@ export function secretFileProblems(files: SecretFileFacts[], processUid: number)
 				`${where} belongs to account ${file.uid}, not to the account the app runs as (${processUid}).`
 			);
 		}
-		if ((file.directoryMode & GROUP_OR_OTHER_WRITE) !== 0) {
+		if (file.throughLink) {
 			problems.push(
-				`${where} is in a directory other accounts can write to (mode ${octal(file.directoryMode)}), so they can replace it.`
+				`${where} is reached through a symbolic link, so the file checked might not be the file read. Point the setting at the file itself.`
 			);
 		}
-		if (!trusted(file.directoryUid, processUid)) {
-			problems.push(
-				`${where} is in a directory that belongs to account ${file.directoryUid}, so that account can replace it.`
-			);
-		}
-		if (file.linkDirectory && (file.linkDirectory.mode & GROUP_OR_OTHER_WRITE) !== 0) {
-			problems.push(
-				`${where} is reached through a link in a directory other accounts can write to (mode ${octal(file.linkDirectory.mode)}), so they can point it elsewhere.`
-			);
-		}
-		if (file.linkDirectory && !trusted(file.linkDirectory.uid, processUid)) {
-			problems.push(
-				`${where} is reached through a link in a directory that belongs to account ${file.linkDirectory.uid}, so that account can point it elsewhere.`
-			);
+		// Every directory up to `/`, as OpenSSH's `safe_path` walks it: whoever can write one of them,
+		// or owns it, can rename the branch below it and put another file in its place.
+		for (const [index, directory] of file.directories.entries()) {
+			const place = index === 0 ? 'is in a directory' : `is under ${directory.path}, which`;
+			const owned = index === 0 ? 'that belongs to' : 'belongs to';
+			if ((directory.mode & GROUP_OR_OTHER_WRITE) !== 0) {
+				problems.push(
+					`${where} ${place} other accounts can write to (mode ${octal(directory.mode)}), so they can replace it.`
+				);
+			}
+			if (!trusted(directory.uid, processUid)) {
+				problems.push(
+					`${where} ${place} ${owned} account ${directory.uid}, so that account can replace it.`
+				);
+			}
 		}
 		return problems;
 	});
@@ -107,30 +108,29 @@ export function secretFileProblems(files: SecretFileFacts[], processUid: number)
 type Inspection = { facts: SecretFileFacts } | { label: string; path: string; error: string };
 
 /**
- * Stats the file and its directory. `null` only when the file does not exist: no `.env` is the
- * Docker case, and a missing key file is reported by bank sync itself. Any other failure (EACCES on
- * a directory without the search bit, for one) is a finding in strict mode, never « no file ».
+ * Stats the file and every directory above it. `null` only when the file does not exist: no `.env`
+ * is the Docker case, and a missing key file is reported by bank sync itself. Any other failure
+ * (EACCES on a directory without the search bit, for one) is a finding in strict mode, never « no
+ * file ». A path through a symbolic link is reported, and its target still judged.
  */
 function inspect(label: string, path: string): Inspection | null {
 	try {
-		// Both directories matter when the path is a link: the target's can replace the file, and the
-		// link's can point the link elsewhere (OpenSSH walks every component for the same reason).
 		const real = realpathSync(path);
 		const file = statSync(real);
-		const directory = statSync(dirname(real));
-		const linkDirectory =
-			realpathSync(dirname(path)) === dirname(real) ? undefined : statSync(dirname(path));
+		const directories: DirectoryFacts[] = [];
+		for (let directory = dirname(real); ; directory = dirname(directory)) {
+			const facts = statSync(directory);
+			directories.push({ path: directory, mode: facts.mode, uid: facts.uid });
+			if (dirname(directory) === directory) break;
+		}
 		return {
 			facts: {
 				label,
 				path: real,
 				mode: file.mode,
 				uid: file.uid,
-				directoryMode: directory.mode,
-				directoryUid: directory.uid,
-				...(linkDirectory && {
-					linkDirectory: { mode: linkDirectory.mode, uid: linkDirectory.uid }
-				})
+				throughLink: real !== resolve(path),
+				directories
 			}
 		};
 	} catch (caught) {

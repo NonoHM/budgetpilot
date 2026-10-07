@@ -66,8 +66,11 @@ file named by `ENABLE_BANKING_PRIVATE_KEY_PATH`, and refuses to start when:
 - every account can read the file, whoever owns it;
 - the file belongs to the account the app runs as, and its group can read it;
 - the file belongs to an account other than that one or root;
-- the folder holding it can be written by other accounts, or belongs to
-  another account, since either lets that account replace the file;
+- the folder holding it, or any folder above it up to `/`, can be written by
+  other accounts or belongs to another account than the app's or root, since
+  either lets that account replace the file;
+- the path goes through a symbolic link, since a link can point elsewhere
+  between the check and the read: point the setting at the file itself;
 - the file exists but cannot be inspected.
 
 The message names each file, what is wrong, and the fix. On a host install,
@@ -94,9 +97,9 @@ file or folder owned by an account other than the app's or root. They are
 stricter on reading, since OpenSSH judges files that are not secrets: a file
 every account can read is refused even when root owns it. A file root owns
 with group read is accepted, because that is how systemd hands a credential to
-a service (`LoadCredential=`). A symlink is judged at its target, and the
-folder holding the link is checked by the same rules, since whoever can write
-it can point the link elsewhere. This switch
+a service (`LoadCredential=`). A file reached through a symbolic link is
+refused, and every folder up to `/` is checked, as OpenSSH does. A file under
+`/tmp` is therefore refused, since every account can write to `/tmp`. This switch
 contributes to ASVS `v5.0.0-13.3.2`, « Verify that access to secret assets
 adheres to the principle of least privilege », without meeting it on its own:
 it is off by default, and a secret passed as an environment variable has no
@@ -237,17 +240,15 @@ the limit the IETF cookie specification draft asks every browser to apply
 (`draft-ietf-httpbis-rfc6265bis-22`, section 5.5). A longer lifetime would
 mostly keep a copied cookie usable.
 
-**How 30 days compares with NIST SP 800-63B-4.** ASVS
-`v5.0.0-7.1.1` asks that the session lifetime be documented, with « justification
-for any deviations from NIST SP 800-63B re-authentication requirements ». NIST
-asks that a sign-in last « no more than 30 days » for a password alone, and « no
-more than 24 hours », with an inactivity timeout of « no more than 1 hour »,
-once a second factor is in use. The default meets the first. With two-factor
-authentication turned on it does not meet the second: the default favours
-staying signed in on a personal device, and there is no inactivity timeout yet
-([#221](https://github.com/NonoHM/budgetpilot/issues/221)). If your instance is
-reachable from the internet and your users have two-factor authentication, set
-`SESSION_TTL_DAYS=1`.
+**What NIST SP 800-63B-4 asks.** A sign-in should last « no more than 30
+days » for a password alone, and « no more than 24 hours », with an inactivity
+timeout of « no more than 1 hour », once a second factor is in use. The default
+of 30 days applies to every account, with or without two-factor
+authentication, and the app has no inactivity timeout yet
+([#221](https://github.com/NonoHM/budgetpilot/issues/221)). `SESSION_TTL_DAYS=1`
+gives every account a lifetime within NIST's 24 hours. Whether the default
+should differ for two-factor accounts is open in
+[#919](https://github.com/NonoHM/budgetpilot/issues/919).
 
 **`INVITATION_TTL_HOURS`** bounds how long an invitation link works. Anyone
 holding the link can create an account with it, so it stays short. The ceiling,
