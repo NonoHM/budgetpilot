@@ -72,6 +72,7 @@ export const ATTRIBUTE = {
 	configDefault: 'budgetpilot.config.default',
 	configDirection: 'budgetpilot.config.direction',
 	configBelowHonestMinimum: 'budgetpilot.config.below_honest_minimum',
+	configFileMode: 'budgetpilot.config.file_mode',
 	monitor: 'budgetpilot.monitor',
 
 	// Boot backfills.
@@ -135,6 +136,7 @@ export const EVENT = {
 	configBootstrapTokenEmpty: 'budgetpilot.config.bootstrap_token_empty',
 	configBoundChanged: 'budgetpilot.config.bound_changed',
 	configLogLevelChanged: 'budgetpilot.config.log_level_changed',
+	configEnvFileExposed: 'budgetpilot.config.env_file_exposed',
 
 	requestFailed: 'budgetpilot.request.failed',
 	requestNotFound: 'budgetpilot.request.not_found',

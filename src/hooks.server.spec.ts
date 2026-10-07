@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { readdirSync, readFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { APP_VERSION } from '$lib/server/appVersion';
 import { REGISTRY } from '$lib/server/logging/events';
@@ -553,7 +554,7 @@ describe('startupEvents', () => {
 		const { startupEvents } = await import('./hooks.server');
 		const [line] = startupEvents(
 			{ BP_LOG_LEVEL: 'loud', BP_SECURITY_LOG: 'maybe' },
-			{ secureCookies: true, trustedProxyRanges: 1 }
+			{ secureCookies: true, trustedProxyRanges: 1, exposedEnvFileMode: null }
 		);
 		expect(line).toEqual({
 			...startup({ originSet: false, secureCookies: true, trustedProxyRanges: 1 }),
@@ -568,7 +569,9 @@ describe('startupEvents', () => {
 	it('reports ORIGIN unset as its own event, whose sentence names the failure and the remedy', async () => {
 		const { startupEvents } = await import('./hooks.server');
 		// No proxy range and insecure cookies, so the order of all four events is asserted too.
-		expect(startupEvents({}, { secureCookies: false, trustedProxyRanges: 0 })).toEqual([
+		expect(
+			startupEvents({}, { secureCookies: false, trustedProxyRanges: 0, exposedEnvFileMode: null })
+		).toEqual([
 			startup({ originSet: false, secureCookies: false, trustedProxyRanges: 0 }),
 			{ event: E.configOriginUnset, attributes: {} },
 			{ event: E.configTrustedProxiesUnset, attributes: {} },
@@ -583,7 +586,10 @@ describe('startupEvents', () => {
 	it('treats a blank ORIGIN as unset', async () => {
 		const { startupEvents } = await import('./hooks.server');
 		expect(
-			startupEvents({ ORIGIN: '   ' }, { secureCookies: true, trustedProxyRanges: 2 })
+			startupEvents(
+				{ ORIGIN: '   ' },
+				{ secureCookies: true, trustedProxyRanges: 2, exposedEnvFileMode: null }
+			)
 		).toEqual([
 			startup({ originSet: false, secureCookies: true, trustedProxyRanges: 2 }),
 			{ event: E.configOriginUnset, attributes: {} }
@@ -595,7 +601,7 @@ describe('startupEvents', () => {
 		expect(
 			startupEvents(
 				{ ORIGIN: 'http://localhost:3999' },
-				{ secureCookies: true, trustedProxyRanges: 2 }
+				{ secureCookies: true, trustedProxyRanges: 2, exposedEnvFileMode: null }
 			)
 		).toEqual([
 			startup({ originSet: true, secureCookies: true, trustedProxyRanges: 2 }),
@@ -605,6 +611,59 @@ describe('startupEvents', () => {
 		// http://localhost:3000, so moving APP_PORT alone produces exactly this state.
 		expect(REGISTRY[E.configOriginSet].body).toMatch(/refused as cross-site/);
 	});
+
+	// Separates a startup that reports a .env other accounts can use from one that says nothing
+	// about it (#826). The decision itself is envFileMode.spec.ts's; this is the line it produces.
+	it('reports a .env other accounts can use, with its mode and the remedy', async () => {
+		const { startupEvents } = await import('./hooks.server');
+		expect(
+			startupEvents(
+				{ ORIGIN: 'http://localhost:3999' },
+				{ secureCookies: true, trustedProxyRanges: 2, exposedEnvFileMode: '644' }
+			)
+		).toEqual([
+			startup({ originSet: true, secureCookies: true, trustedProxyRanges: 2 }),
+			{ event: E.configOriginSet, attributes: { [A.configOrigin]: 'http://localhost:3999' } },
+			{ event: E.configEnvFileExposed, attributes: { [A.configFileMode]: '644' } }
+		]);
+		expect(REGISTRY[E.configEnvFileExposed].body).toMatch(/Run chmod 600 \.env\.$/);
+	});
+});
+
+// The wiring: the module reads the mode of the .env in the working directory when it loads, which
+// is once per server start. Separates a hooks module that performs the check from one that passes
+// the fact as absent; a 600 file in the same run is the calibration that the 644 line is about the
+// mode and not about the file's presence.
+describe('the .env mode check when the server starts', () => {
+	it.skipIf(process.platform === 'win32')(
+		'logs the warning once for a 644 .env in the working directory and never for a 600 one',
+		async () => {
+			const directory = mkdtempSync(join(tmpdir(), 'hooks-env-'));
+			const cwd = vi.spyOn(process, 'cwd').mockReturnValue(directory);
+			try {
+				const warningsAt = async (mode: number) => {
+					writeFileSync(join(directory, '.env'), 'X=1\n');
+					chmodSync(join(directory, '.env'), mode);
+					logged.length = 0;
+					vi.resetModules();
+					await import('./hooks.server');
+					return logged.filter(
+						(line) => (line as { event: string }).event === E.configEnvFileExposed
+					);
+				};
+				const loose = await warningsAt(0o644);
+				const tight = await warningsAt(0o600);
+
+				expect({ loose, tight }).toEqual({
+					loose: [{ event: E.configEnvFileExposed, attributes: { [A.configFileMode]: '644' } }],
+					tight: []
+				});
+			} finally {
+				cwd.mockRestore();
+				rmSync(directory, { recursive: true, force: true });
+			}
+		}
+	);
 });
 
 describe('escapeHtmlAttribute', () => {

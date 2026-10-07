@@ -5,10 +5,11 @@ import { execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { createInterface } from 'node:readline/promises';
 import { existsSync } from 'node:fs';
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { createServer } from 'node:net';
 import path from 'node:path';
+import { writeEnvFile } from './env-file.mjs';
 
 const rootDir = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const envExamplePath = path.join(rootDir, '.env.example');
@@ -180,7 +181,7 @@ if (useDocker) {
 	content = setEnvValue(content, 'DATABASE_URL', 'file:/data/budgetpilot.db');
 }
 
-await writeFile(envPath, content, 'utf8');
+await writeEnvFile(envPath, content);
 
 console.log('\n.env created with three freshly generated secrets.\n');
 

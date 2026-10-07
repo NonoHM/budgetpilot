@@ -213,6 +213,7 @@ line does not carry is absent, not empty.
 | `budgetpilot.config.default`                  | The default of that bound.                                                                                | number  | a whole number                                                                                                                              | `100`                                                                | Operational    |
 | `budgetpilot.config.direction`                | Whether the operator raised or lowered the bound.                                                         | string  | `raised`, `lowered`                                                                                                                         | `"raised"`                                                           | Operational    |
 | `budgetpilot.config.below_honest_minimum`     | Whether the value is below the smallest value that still works for a normal user.                         | boolean | `true`, `false`                                                                                                                             | `false`                                                              | Operational    |
+| `budgetpilot.config.file_mode`                | The permission bits of `.env`, in octal.                                                                  | string  | three octal digits                                                                                                                          | `"644"`                                                              | Operational    |
 | `budgetpilot.monitor`                         | Which monitoring is switched off.                                                                         | string  | always `security_log`                                                                                                                       | `"security_log"`                                                     | Operational    |
 | `budgetpilot.backfill.name`                   | Which one-time boot upgrade of stored data is running.                                                    | string  | `name_keys`, `dedupe_key_hashes`, `dedupe_key_recompute`, `statement_accounts`                                                              | `"name_keys"`                                                        | Operational    |
 | `budgetpilot.backfill.stage`                  | The step of that upgrade.                                                                                 | string  | `keys`, `accounts_named`, `batches_filed`                                                                                                   | `"keys"`                                                             | Operational    |
@@ -271,6 +272,7 @@ below asks nothing.
 | `budgetpilot.config.bootstrap_token_empty`    | Nothing to do if you create accounts by invitation. Otherwise set `BOOTSTRAP_TOKEN`, because no one can register without it.                                                                                                                |
 | `budgetpilot.config.bound_changed`            | Nothing to do if you changed the bound on purpose. `docs/configuration.md` says what each direction costs; `below_honest_minimum: true` means the value is too low for normal use.                                                          |
 | `budgetpilot.config.log_level_changed`        | Nothing to do if you set `BP_LOG_LEVEL` on purpose. At `warn`, the informational lines, such as the page-not-found ones, are not written.                                                                                                   |
+| `budgetpilot.config.env_file_exposed`         | Run `chmod 600 .env` in the directory the app starts from. Until then, any other account on this machine can read the secrets in it, and with a write bit set, change them.                                                                 |
 | `budgetpilot.request.failed`                  | A visitor met an error page. Find this line with the reference they were shown (the tutorial shows how), read the error class and code, and fix the cause. During a flood, look for a `budgetpilot.log.suppressed` line in the same minute. |
 | `budgetpilot.backfill.merges_blocked`         | Run `scripts/normalize-names.mjs --dry-run` to see which names now read as duplicates, then merge or rename them. Nothing was changed, so nothing is broken meanwhile.                                                                      |
 | `budgetpilot.net_worth.links_withdrawn`       | In Settings, choose again which synchronized bank account feeds each net worth line named in the app. Until you do, those lines are not fed.                                                                                                |
@@ -442,6 +444,21 @@ Severity WARN.
 | Attribute                      | Level       |
 | ------------------------------ | ----------- |
 | `budgetpilot.config.log_level` | Operational |
+
+### `budgetpilot.config.env_file_exposed`
+
+Severity WARN.
+
+> The .env file in the working directory can be read or written by other accounts on this machine. It holds the secrets, and whoever can write it can change DATABASE_URL or ORIGIN. Run chmod 600 .env.
+
+| Attribute                      | Level       |
+| ------------------------------ | ----------- |
+| `budgetpilot.config.file_mode` | Operational |
+
+It reads only the `.env` in the working directory, not `.env.local` or a file
+passed with `--env-file`. Under WSL on `/mnt/c` (drvfs mounted without the
+`metadata` option), `chmod` has no effect and the line keeps the mode it found:
+keep the install in the Linux filesystem.
 
 ### `budgetpilot.request.failed`
 

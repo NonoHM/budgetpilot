@@ -247,7 +247,8 @@ and offers you a free one, keeping `APP_PORT` and `ORIGIN` in sync for you.
 
 No Node.js on the machine? Skip `npm run setup` and write the `.env` by hand
 with the block from [option A step 2](#2-create-your-env). It's the same
-file, the script just saves you the typing.
+file, the script just saves you the typing. If you write it in an editor
+instead, run `chmod 600 .env` afterwards, because it holds the three secrets.
 
 `--build` compiles the image. The first build takes 5 to 10 minutes because
 two dependencies (bcrypt, better-sqlite3) are compiled from source inside

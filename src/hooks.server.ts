@@ -11,6 +11,7 @@ import {
 import { resolveDatabaseProvider } from '$lib/server/database/provider';
 import { warnIfDatabaseRoleIsOverprivileged } from '$lib/server/database/privileges';
 import { assertEnvironmentConfigured } from '$lib/server/env/assertConfigured';
+import { exposedEnvFileMode, readEnvFileMode } from '$lib/server/env/envFileMode';
 import { ensureNameKeysBackfilled } from '$lib/server/naming/boot';
 import {
 	ensureDedupeKeyHashesBackfilled,
@@ -89,11 +90,16 @@ const secureCookies = areSecureCookiesEnabled();
 // Rate limiting keys on the client IP, so whether X-Forwarded-For is trusted is a security state
 // worth reporting on every start (#219).
 const trustedProxyRanges = parseTrustedProxies(process.env.TRUSTED_PROXIES);
+// A .env other local accounts can read or write is a secret disclosed to them, or a configuration
+// they can rewrite (#826). Read here, once per start; reported, never refused.
+// Under Docker the file is on the host, read by Compose, so this check cannot see it: creation
+// (scripts/env-file.mjs, the docs' .env block) and the upgrade step in docs/operations.md cover it.
+const envFileExposure = exposedEnvFileMode(readEnvFileMode(process.cwd()), process.platform);
 
 /**
  * What the server says about itself when it starts, as events: `sys_startup` with the
  * security-relevant configuration as closed values, then one line per state an operator should act
- * on. A pure function of the environment and two facts read above, for its spec.
+ * on. A pure function of the environment and three facts read above, for its spec.
  *
  * Never DATABASE_URL, which carries the database password: only the provider. Never the raw
  * PUBLIC_INSTANCE value: the mode it selects. The configured ORIGIN is printed because it is the
@@ -103,7 +109,7 @@ const trustedProxyRanges = parseTrustedProxies(process.env.TRUSTED_PROXIES);
  */
 export function startupEvents(
 	env: Record<string, string | undefined>,
-	facts: { secureCookies: boolean; trustedProxyRanges: number }
+	facts: { secureCookies: boolean; trustedProxyRanges: number; exposedEnvFileMode: string | null }
 ): LogEvent[] {
 	const settings = describeLogSettings(env);
 	const origin = env.ORIGIN?.trim();
@@ -129,12 +135,19 @@ export function startupEvents(
 		events.push({ event: E.configTrustedProxiesUnset, attributes: {} });
 	}
 	if (!facts.secureCookies) events.push({ event: E.configInsecureCookies, attributes: {} });
+	if (facts.exposedEnvFileMode !== null) {
+		events.push({
+			event: E.configEnvFileExposed,
+			attributes: { [A.configFileMode]: facts.exposedEnvFileMode }
+		});
+	}
 	return events;
 }
 
 for (const event of startupEvents(process.env, {
 	secureCookies,
-	trustedProxyRanges: trustedProxyRanges.length
+	trustedProxyRanges: trustedProxyRanges.length,
+	exposedEnvFileMode: envFileExposure
 })) {
 	log(event);
 }
