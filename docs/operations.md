@@ -617,6 +617,14 @@ Losing it is permanent. See
 [configuration](./configuration.md#the-three-secrets) for the other two
 secrets and how they behave.
 
+**If you pasted the `.env` block again to upgrade**, as an earlier README said,
+your key changed. If you still have the old `.env` and nobody has set up
+two-factor since, put its `TOTP_ENCRYPTION_KEY` back and restart. Otherwise,
+two-factor users sign in with a recovery code and set two-factor up again, and
+bank connections need reconnecting, as the list above describes. Restore any
+line you had added by hand, such as `ORIGIN`, `PUBLIC_INSTANCE` or the database
+settings: the block wrote only its own.
+
 ### The JSON export
 
 In the app, **Settings > Backup and restore** exports everything belonging
