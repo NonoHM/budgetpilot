@@ -14,7 +14,8 @@ import { readChoiceSetting } from './readSetting';
  * replace it. Modelled on OpenSSH's `StrictModes`, which refuses a key file or directory that is
  * writable by others or owned by anyone but the user or root, and stricter on reading: OpenSSH
  * judges an authorized_keys file, which is not a secret, so read for others is refused here whoever
- * owns the file. A symlink is judged at its target, file and directory both.
+ * owns the file. A symlink is judged at its target, file and directory both, and the directory
+ * holding the link is judged too: whoever can write it can point the link elsewhere.
  *
  * Both halves of the triad, for a file that holds a secret:
  * - confidentiality: another account READING it learns TOTP_ENCRYPTION_KEY, RATE_LIMIT_HASH_SECRET,
@@ -44,6 +45,11 @@ export type SecretFileFacts = {
 	uid: number;
 	directoryMode: number;
 	directoryUid: number;
+	/**
+	 * The directory holding the link, when the path reaches the file through one in another
+	 * directory. Whoever can write it can point the link at a file of their own.
+	 */
+	linkDirectory?: { mode: number; uid: number };
 };
 
 const octal = (mode: number) => (mode & 0o7777).toString(8).padStart(3, '0');
@@ -83,6 +89,16 @@ export function secretFileProblems(files: SecretFileFacts[], processUid: number)
 				`${where} is in a directory that belongs to account ${file.directoryUid}, so that account can replace it.`
 			);
 		}
+		if (file.linkDirectory && (file.linkDirectory.mode & GROUP_OR_OTHER_WRITE) !== 0) {
+			problems.push(
+				`${where} is reached through a link in a directory other accounts can write to (mode ${octal(file.linkDirectory.mode)}), so they can point it elsewhere.`
+			);
+		}
+		if (file.linkDirectory && !trusted(file.linkDirectory.uid, processUid)) {
+			problems.push(
+				`${where} is reached through a link in a directory that belongs to account ${file.linkDirectory.uid}, so that account can point it elsewhere.`
+			);
+		}
 		return problems;
 	});
 }
@@ -97,10 +113,13 @@ type Inspection = { facts: SecretFileFacts } | { label: string; path: string; er
  */
 function inspect(label: string, path: string): Inspection | null {
 	try {
-		// The target, not the link: the directory that can replace the file is the target's.
+		// Both directories matter when the path is a link: the target's can replace the file, and the
+		// link's can point the link elsewhere (OpenSSH walks every component for the same reason).
 		const real = realpathSync(path);
 		const file = statSync(real);
 		const directory = statSync(dirname(real));
+		const linkDirectory =
+			realpathSync(dirname(path)) === dirname(real) ? undefined : statSync(dirname(path));
 		return {
 			facts: {
 				label,
@@ -108,7 +127,10 @@ function inspect(label: string, path: string): Inspection | null {
 				mode: file.mode,
 				uid: file.uid,
 				directoryMode: directory.mode,
-				directoryUid: directory.uid
+				directoryUid: directory.uid,
+				...(linkDirectory && {
+					linkDirectory: { mode: linkDirectory.mode, uid: linkDirectory.uid }
+				})
 			}
 		};
 	} catch (caught) {

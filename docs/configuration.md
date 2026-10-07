@@ -94,7 +94,9 @@ file or folder owned by an account other than the app's or root. They are
 stricter on reading, since OpenSSH judges files that are not secrets: a file
 every account can read is refused even when root owns it. A file root owns
 with group read is accepted, because that is how systemd hands a credential to
-a service (`LoadCredential=`). A symlink is judged at its target. This switch
+a service (`LoadCredential=`). A symlink is judged at its target, and the
+folder holding the link is checked by the same rules, since whoever can write
+it can point the link elsewhere. This switch
 contributes to ASVS `v5.0.0-13.3.2`, « Verify that access to secret assets
 adheres to the principle of least privilege », without meeting it on its own:
 it is off by default, and a secret passed as an environment variable has no

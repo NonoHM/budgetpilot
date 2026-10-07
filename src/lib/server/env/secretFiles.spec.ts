@@ -104,6 +104,14 @@ describe('secretFileProblems', () => {
 		]);
 	});
 
+	it('refuses a link in a directory another account owns', () => {
+		expect(
+			secretFileProblems([safe({ linkDirectory: { mode: 0o40755, uid: 1000 } })], APP_UID)
+		).toStrictEqual([
+			'ENABLE_BANKING_PRIVATE_KEY_PATH (/app/keys/enablebanking.pem) is reached through a link in a directory that belongs to account 1000, so that account can point it elsewhere.'
+		]);
+	});
+
 	// Every problem of every file, never the first only: the boot report lists all of them.
 	it('lists every problem of every file', () => {
 		const env = safe({ label: '.env', path: '/srv/budgetpilot/.env', mode: 0o100644 });
@@ -203,6 +211,26 @@ describe.skipIf(process.platform === 'win32')('assertSecretFilesSafe', () => {
 			assertSecretFilesSafe({ BP_STRICT_SECRET_FILES: 'on' }, { cwd: directory })
 		).toThrow(
 			`.env (${target}) is in a directory other accounts can write to (mode 777), so they can replace it.`
+		);
+	});
+
+	// And the LINK's directory too: whoever can write the directory holding the link can point it
+	// at a file of their own, however safe the current target is (security review of #915, after
+	// the target-only fix). The target is safe here; the link sits in a directory every account can
+	// write to.
+	it('refuses a link in a directory other accounts can write to, even to a safe target', () => {
+		const safeDirectory = join(directory, 'safe');
+		mkdirSync(safeDirectory);
+		chmodSync(safeDirectory, 0o700);
+		const target = join(safeDirectory, 'env');
+		writeFileSync(target, 'planted\n');
+		chmodSync(target, 0o600);
+		const exposed = join(directory, 'exposed');
+		mkdirSync(exposed);
+		chmodSync(exposed, 0o777);
+		symlinkSync(target, join(exposed, '.env'));
+		expect(() => assertSecretFilesSafe({ BP_STRICT_SECRET_FILES: 'on' }, { cwd: exposed })).toThrow(
+			`.env (${target}) is reached through a link in a directory other accounts can write to (mode 777), so they can point it elsewhere.`
 		);
 	});
 
