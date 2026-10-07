@@ -11,9 +11,10 @@ import * as m from '../src/lib/paraglide/messages';
  * bar and any proxy access log that keeps query strings.
  *
  * Read on the build, because the redirect is thrown by `hooks.server.ts` on the server this suite
- * serves. Two tests, separating two states each:
+ * serves. Three tests, separating two states each:
  *
  * - the first is red while the search travels (the planted marker is counted in `Location`);
+ * - the second is red while a target saved with a search, before #838, is sent back whole;
  * - the journey is red when the pathname is dropped too, since a bare `/login` lands on `/`, and
  *   red while the search travels, since the landing then carries it.
  */
@@ -38,6 +39,28 @@ test('a signed-out request is sent to /login with its pathname and without its s
 			markers: location.split(MARKER).length - 1,
 			target: new URL(location, E2E_BASE_URL).searchParams.get('redirectTo')
 		}).toEqual({ status: 303, markers: 0, target: '/transactions' });
+	} finally {
+		await client.dispose();
+	}
+});
+
+test('a target saved with a search, followed while signed in, is sent back without it', async () => {
+	// The shape a redirect produced before #838 left in browser history.
+	const client = await apiRequest.newContext({
+		baseURL: E2E_BASE_URL,
+		extraHTTPHeaders: E2E_API_HEADERS,
+		storageState: 'e2e/.auth/user.json'
+	});
+	try {
+		const response = await client.get(`/login?redirectTo=${encodeURIComponent(REQUESTED)}`, {
+			maxRedirects: 0
+		});
+		const location = response.headers()['location'] ?? '';
+		expect({
+			status: response.status(),
+			markers: location.split(MARKER).length - 1,
+			location
+		}).toEqual({ status: 303, markers: 0, location: '/transactions' });
 	} finally {
 		await client.dispose();
 	}

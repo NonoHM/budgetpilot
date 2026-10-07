@@ -23,9 +23,11 @@ const {
 	hashSessionToken,
 	isNonAsciiEmail,
 	readSessionUser,
+	redirectAfterSignIn,
 	requireAdmin,
 	requireUser,
 	revokeSessionToken,
+	secondFactorUrl,
 	SESSION_COOKIE,
 	signInUrl,
 	validateEmail,
@@ -440,6 +442,45 @@ describe('signInUrl', () => {
 				expect(target).toBe('/transactions');
 			}),
 			{ seed: 838, numRuns: 1000 }
+		);
+	});
+});
+
+describe('the sign-in target consumers', () => {
+	// A target saved before #838 sits in browser history with the search the user typed, and
+	// following it must not put that search back in `Location`. The value is cut at the first `?`
+	// or `#` BEFORE `getSafeRedirect`, which itself never rewrites.
+	const SAVED = 'http://x.test/login?redirectTo=%2Ftransactions%3Fq%3Dsecret%26category%3DRent';
+
+	function thrownLocation(url: URL): unknown {
+		try {
+			redirectAfterSignIn(url);
+		} catch (thrown) {
+			return thrown;
+		}
+		return 'no redirect thrown';
+	}
+
+	it('redirectAfterSignIn sends the visitor to the path of a saved target, without its search', () => {
+		expect(thrownLocation(new URL(SAVED))).toMatchObject({
+			status: 303,
+			location: '/transactions'
+		});
+	});
+
+	it('redirectAfterSignIn drops a fragment too', () => {
+		expect(
+			thrownLocation(new URL('http://x.test/login?redirectTo=%2Fsettings%23tags'))
+		).toMatchObject({ status: 303, location: '/settings' });
+	});
+
+	it('secondFactorUrl hands over the path of a saved target, without its search', () => {
+		expect(secondFactorUrl(new URL(SAVED))).toBe('/login/verify-totp?redirectTo=%2Ftransactions');
+	});
+
+	it('secondFactorUrl drops a fragment too', () => {
+		expect(secondFactorUrl(new URL('http://x.test/login?redirectTo=%2Fsettings%23tags'))).toBe(
+			'/login/verify-totp?redirectTo=%2Fsettings'
 		);
 	});
 });
