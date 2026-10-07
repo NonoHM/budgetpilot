@@ -116,6 +116,24 @@ export function dumpItems(items, directory) {
 }
 
 /**
+ * The `--dump` entry point: read everything, refuse on an incomplete read exactly as the matcher
+ * does, and only then write the files. Writes nothing on a refusal, so TruffleHog never reads a
+ * partial folder. Returns the exit status.
+ *
+ * @param {ScanSource} source
+ * @param {string} directory
+ * @param {(line: string) => void} log
+ * @returns {0 | 1}
+ */
+export function runDump(source, directory, log) {
+	const items = readCompletely(source, log);
+	if (items === null) return 1;
+	mkdirSync(directory, { recursive: true });
+	log(`wrote ${dumpItems(items, directory).length} files for TruffleHog`);
+	return 0;
+}
+
+/**
  * The whole LINE goes in, not only the match: the claude.ai pattern matches just the host, so a
  * fingerprint of the match alone would admit any new address added to a baselined issue body later.
  * With the line, an edit to it is a new finding (and the old entry goes stale).
@@ -408,12 +426,7 @@ if (isMain()) {
 			// `--dump <directory>`: write the text for TruffleHog, after the same completeness check.
 			const directory = process.argv[4] ?? '';
 			if (!directory) throw new Error('--dump needs a directory');
-			const items = readCompletely(githubSource(repo), (line) => console.log(line));
-			if (items !== null) {
-				mkdirSync(directory, { recursive: true });
-				console.log(`wrote ${dumpItems(items, directory).length} files for TruffleHog`);
-				status = 0;
-			}
+			status = runDump(githubSource(repo), directory, (line) => console.log(line));
 		} else {
 			const baseline = parseBaseline(readFileSync(baselinePath, 'utf8'));
 			status = runScan(githubSource(repo), (line) => console.log(line), baseline);

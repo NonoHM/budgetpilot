@@ -124,9 +124,14 @@ jobs:
       - name: TruffleHog over the published text and the git history, calibrated in the same pass
         run: |
           published="$RUNNER_TEMP/published"
-          printf 'DATABASE_URL=postgres://%s:%s@%s:5432/app\n' planted "pw$(openssl rand -hex 8)" db.planted.invalid \
-            > "$published/zz-planted-calibration.env"
+          # Two plants: one in a .env, one in a .txt like every dumped file, so the pass must prove it
+          # reads the dump's own file type (contradiction pass on #916, F1).
+          for plant in zz-planted-calibration.env zz-planted-calibration.txt; do
+            printf 'DATABASE_URL=postgres://%s:%s@%s:5432/app\n' planted "pw$(openssl rand -hex 8)" db.planted.invalid \
+              > "$published/$plant"
+          done
           files=$(find "$published" -type f | wc -l)
+          empty=$(find "$published" -type f -empty | wc -l)
           set +e
           docker run --rm -v "$published:/scan:ro" "$IMAGE" filesystem /scan \
             --results=verified,unverified,unknown --no-ignore-tag --fail-on-scan-errors --no-update --json --log-level=2 \
@@ -138,24 +143,33 @@ jobs:
           git_status=$?
           set -e
 
-          # What each pass logged, by message name and count, and an error's own text on one line
-          # (control characters replaced, so it cannot start a line the runner reads as a command).
-          # Message names are constants in TruffleHog's code; no field value is printed.
+          # What each pass logged, by message name and count, and an error's own text, each on one line
+          # with control characters replaced, inside a stop-commands block, so nothing TruffleHog logs
+          # can be read by the runner as a workflow command. No field value other than an error's text.
+          token=$(openssl rand -hex 16)
+          echo "::stop-commands::${token}"
           for pass in text git; do
             echo "== $pass pass"
-            jq -rR 'fromjson? | "\(.level // "?") \(.msg // "?")"' "$RUNNER_TEMP/$pass.log" | sort | uniq -c | sort -rn | head -25
+            jq -rR 'fromjson? | "\(.level // "?") \(.msg // "?" | tostring | gsub("[[:cntrl:]]"; " "))"' "$RUNNER_TEMP/$pass.log" | sort | uniq -c | sort -rn | head -25
             jq -rR 'fromjson? | select(.level == "error") | "error: \(.msg): \(.error // "" | tostring | gsub("[[:cntrl:]]"; " ") | .[0:300])"' "$RUNNER_TEMP/$pass.log"
             jq -rR 'fromjson? | select(.msg == "finished scanning") | "read \(.chunks) chunks, \(.bytes) bytes"' "$RUNNER_TEMP/$pass.log"
           done
+          echo "::${token}::"
 
           refuse() { echo "REFUSED: $1" >&2; exit 1; }
           [ "$text_status" -eq 0 ] || refuse "the text pass exited $text_status"
           [ "$git_status" -eq 0 ] || refuse "the git pass exited $git_status"
-          planted=$(jq -s '[.[] | select(.SourceMetadata.Data.Filesystem.file | tostring | endswith("zz-planted-calibration.env"))] | length' "$RUNNER_TEMP/text.jsonl")
-          echo "calibration: the planted credential reported $planted time(s), expected 1; $files files written"
-          [ "$planted" -eq 1 ] || refuse "the text pass did not report the planted credential, so a clean result would mean nothing"
+          for plant in zz-planted-calibration.env zz-planted-calibration.txt; do
+            planted=$(jq -s --arg plant "$plant" '[.[] | select(.SourceMetadata.Data.Filesystem.file | tostring | endswith($plant))] | length' "$RUNNER_TEMP/text.jsonl")
+            echo "calibration: $plant reported $planted time(s), expected 1"
+            [ "$planted" -eq 1 ] || refuse "the text pass did not report $plant, so a clean result would mean nothing"
+          done
+          # A sum, so it shows the scan did not stop early; it cannot show that no single file was
+          # skipped (one long item yields several chunks). Empty files (a review with no text) yield
+          # none, so they are counted out.
+          echo "$files files written, $empty of them empty"
           chunks=$(jq -nR '[inputs | fromjson? | select(.msg == "finished scanning") | .chunks] | first // 0' "$RUNNER_TEMP/text.log")
-          [ "$chunks" -ge "$files" ] || refuse "the text pass read $chunks chunks for $files files"
+          [ "$chunks" -ge "$((files - empty))" ] || refuse "the text pass read $chunks chunks for $((files - empty)) non-empty files"
           git_chunks=$(jq -nR '[inputs | fromjson? | select(.msg == "finished scanning") | .chunks] | first // 0' "$RUNNER_TEMP/git.log")
           [ "$git_chunks" -gt 0 ] || refuse "the git pass read 0 chunks"
 

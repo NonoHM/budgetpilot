@@ -2,18 +2,21 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { execFileSync, spawnSync } from 'node:child_process';
 import {
 	chmodSync,
+	existsSync,
 	mkdirSync,
 	mkdtempSync,
+	readdirSync,
 	readFileSync,
 	rmSync,
 	symlinkSync,
 	writeFileSync
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
 	dumpItems,
+	runDump,
 	parseBaseline,
 	runScan,
 	scanItems,
@@ -634,6 +637,38 @@ describe('scheduled scan of published text', () => {
 	// TruffleHog's GitHub mode cannot run with the Actions token (#849: it asks GET /user first, which
 	// an integration token is refused), so the scan hands TruffleHog the same text this scan already
 	// read, as one file per item, and TruffleHog reads the folder with no token at all.
+	// The `--dump` entry point, through the function it calls: a source that read fewer issues than
+	// the repository reports must write NOTHING, or TruffleHog reads a partial folder and reports
+	// clean (contradiction pass on #916, F4: no test reached this path).
+	describe('runDump, the --dump entry point', () => {
+		const source = (read: number): ScanSource => ({
+			totals: () => ({ issues: 2, pulls: 0, commits: 0 }),
+			items: () =>
+				Array.from({ length: read }, (_, index) => ({
+					kind: 'item' as const,
+					number: index + 1,
+					where: 'body',
+					text: `issue ${index + 1}`
+				}))
+		});
+
+		it.each([
+			[2, 0, 2],
+			[1, 1, 0]
+		])('read %i of 2 issues: exits %i and writes %i files', (read, status, files) => {
+			const directory = join(mkdtempSync(join(tmpdir(), 'bp-rundump-')), 'published');
+			try {
+				const log: string[] = [];
+				expect({
+					status: runDump(source(read), directory, (line) => log.push(line)),
+					files: existsSync(directory) ? readdirSync(directory).length : 0
+				}).toStrictEqual({ status, files });
+			} finally {
+				rmSync(dirname(directory), { recursive: true, force: true });
+			}
+		});
+	});
+
 	describe('dumpItems, the text TruffleHog reads', () => {
 		it('writes every item as its own file, with its text, inside the folder', () => {
 			const directory = mkdtempSync(join(tmpdir(), 'bp-dump-'));
