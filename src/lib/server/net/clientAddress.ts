@@ -201,7 +201,8 @@ function readForwardedHop(hop: string): string | null {
  * FAIL CLOSED on a hop that names no address: the walk ends at the peer. Every entry left of the
  * one the proxy appended is text the client sent, so continuing past an unreadable hop would hand
  * the choice of address to the client. nginx's realip module and ASP.NET Core's
- * ForwardedHeadersMiddleware stop at the same point.
+ * ForwardedHeadersMiddleware also stop at an unparsable entry; they keep the last address already
+ * read, where this keeps the peer.
  */
 export function resolveForwardedClientAddress(
 	peer: string,
