@@ -69,6 +69,26 @@ vi.mock('$lib/server/categories/defaults', async (importOriginal) => {
 	};
 });
 
+/**
+ * The second gate. `/login` verifies the password (a bcrypt comparison, hundreds of milliseconds)
+ * and only then writes the challenge, or the session when two-factor is off; a hook set here runs
+ * after the comparison answered, which is where a change committing during the comparison lands.
+ */
+let afterPasswordCheck: (() => Promise<void>) | null = null;
+vi.mock('$lib/server/auth', async (importOriginal) => {
+	const actual = await importOriginal<typeof import('$lib/server/auth')>();
+	return {
+		...actual,
+		verifyPasswordTimingSafe: async (password: string, passwordHash: string | undefined) => {
+			const answer = await actual.verifyPasswordTimingSafe(password, passwordHash);
+			const hook = afterPasswordCheck;
+			afterPasswordCheck = null;
+			if (hook) await hook();
+			return answer;
+		}
+	};
+});
+
 const PASSWORD = 'pending-sign-in-smoke-password';
 const NEW_PASSWORD = 'pending-sign-in-smoke-new-password';
 const PERIOD_MS = 30_000;
@@ -169,8 +189,8 @@ async function run(
 	}
 }
 
-/** The password step, through the real `/login` action: a browser left at the code step. */
-async function passwordStep(account: Account): Promise<Browser> {
+/** Posts the account's password to the real `/login` action, from a new browser. */
+async function submitPassword(account: Account) {
 	const { actions } = await import('../../../routes/login/+page.server');
 	const browser = jar();
 	const answer = await run(
@@ -180,6 +200,12 @@ async function passwordStep(account: Account): Promise<Browser> {
 		browser,
 		formOf({ email: account.email, password: PASSWORD })
 	);
+	return { browser, answer: answer as { redirect?: string; status?: number; data?: unknown } };
+}
+
+/** The password step, through the real `/login` action: a browser left at the code step. */
+async function passwordStep(account: Account): Promise<Browser> {
+	const { browser, answer } = await submitPassword(account);
 	// The precondition every test below relies on: the password was accepted and a challenge opened.
 	expect(answer, 'the password step was refused').toHaveProperty('redirect');
 	expect(new URL(answer.redirect ?? '', 'http://localhost').pathname).toBe('/login/verify-totp');
@@ -214,6 +240,16 @@ async function mintSession(userId: string): Promise<string> {
 
 /** The refusal this issue asks for: sent back to the password step, holding no session. */
 const SENT_BACK = { location: '/login', signedIn: false } satisfies CodeAnswer;
+
+/** Live sessions of these accounts, now. */
+function liveSessionsOf(accounts: Account[]): Promise<number> {
+	return prisma.session.count({
+		where: {
+			userId: { in: accounts.map((account) => account.id) },
+			...liveSessionWhere(new Date())
+		}
+	});
+}
 
 /**
  * The actions that end an account's other sign-ins, each run from a session of its own and
@@ -318,11 +354,13 @@ beforeEach(() => {
 	step = Math.floor(Date.now() / PERIOD_MS);
 	vi.setSystemTime(step * PERIOD_MS + PERIOD_MS / 2);
 	betweenCodeAndSession = null;
+	afterPasswordCheck = null;
 });
 
 afterEach(() => {
 	vi.useRealTimers();
 	betweenCodeAndSession = null;
+	afterPasswordCheck = null;
 });
 
 afterAll(async () => {
@@ -389,21 +427,97 @@ describe('a sign-in waiting at the code step (#923)', () => {
 		const tokens = await Promise.all(targets.map(() => adminSession()));
 		const offset = (index: number) => (index * 3 * resetMs) / (CONCURRENT_ACCOUNTS - 1);
 
-		await Promise.all(
-			targets.flatMap((target, index) => [
-				new Promise((resolve) => setTimeout(resolve, offset(index))).then(() =>
-					codeStep(pendings[index] as Browser, codeAt(target.secret, 0))
-				),
-				adminReset(target, tokens[index])
-			])
+		const answers = await Promise.all(
+			targets.map(async (target, index) => {
+				const [answer] = await Promise.all([
+					new Promise((resolve) => setTimeout(resolve, offset(index))).then(() =>
+						codeStep(pendings[index] as Browser, codeAt(target.secret, 0))
+					),
+					adminReset(target, tokens[index])
+				]);
+				return answer;
+			})
 		);
 
-		const live = await prisma.session.count({
-			where: { userId: { in: targets.map((target) => target.id) }, ...liveSessionWhere(new Date()) }
-		});
+		// Both orders must have happened for the figure to mean « whatever the order »: how many codes
+		// were answered with a session (the reset then had to end it) is printed beside the figure.
+		const live = await liveSessionsOf(targets);
 		console.log(
-			`[#923] code racing a reset (${Math.round(resetMs)} ms), ${CONCURRENT_ACCOUNTS} accounts: ${live} live`
+			`[#923] code racing a reset (${Math.round(resetMs)} ms), ${CONCURRENT_ACCOUNTS} accounts: ` +
+				`${answers.filter((answer) => answer.location === '/').length} signed in at the time, ${live} live`
 		);
 		expect(live).toBe(0);
 	});
+
+	// FORCED, one step earlier (the contradiction pass on the design): the reset commits while
+	// `/login` is comparing the OLD password, so nothing is pending yet for the reset to end. Separates
+	// « the password step writes whatever it verified » (a challenge opened under the old password,
+	// signed in afterwards) from « it writes only if that password is still the account's » (the
+	// sign-in's own refusal, the sentence a wrong password gets). Two-factor on, then off.
+	it('refuses a password step whose password was reset while it was being checked', async () => {
+		const { login_error_invalid_credentials } = await import('$lib/paraglide/messages');
+		const target = await seedAccount('reset-during-check');
+		afterPasswordCheck = () => adminReset(target);
+
+		const { browser, answer } = await submitPassword(target);
+
+		expect(afterPasswordCheck, 'the gate ran').toBeNull();
+		expect(answer).toEqual({ status: 400, data: { error: login_error_invalid_credentials() } });
+		expect(browser.value(MFA_PENDING_COOKIE)).toBeUndefined();
+	});
+
+	it('refuses a sign-in without two-factor whose password was reset while it was being checked', async () => {
+		const { login_error_invalid_credentials } = await import('$lib/paraglide/messages');
+		const target = await seedAccount('reset-during-check-no-totp', { totp: false });
+		afterPasswordCheck = () => adminReset(target);
+
+		const { browser, answer } = await submitPassword(target);
+
+		expect(afterPasswordCheck, 'the gate ran').toBeNull();
+		expect(answer).toEqual({ status: 400, data: { error: login_error_invalid_credentials() } });
+		expect(browser.value(SESSION_COOKIE)).toBeUndefined();
+	});
+
+	// UNFORCED, at the password step: each account's password is posted at its own offset across a
+	// reset's measured duration, then its code if it got a challenge. Whatever the order, nothing the
+	// old password proved may be live afterwards. On main the late offsets are signed in; with only
+	// the challenges deleted, the posts that were comparing while the reset committed are.
+	for (const totp of [true, false]) {
+		it(`leaves no live session when the password step races a reset (two-factor ${totp ? 'on' : 'off'})`, async () => {
+			const warmUp = await seedAccount('password-race-warm-up');
+			const started = performance.now();
+			await adminReset(warmUp);
+			const resetMs = performance.now() - started;
+
+			const targets = await Promise.all(
+				Array.from({ length: CONCURRENT_ACCOUNTS }, (_, index) =>
+					seedAccount(`password-race-${index}`, { totp })
+				)
+			);
+			const tokens = await Promise.all(targets.map(() => adminSession()));
+			const offset = (index: number) => (index * 3 * resetMs) / (CONCURRENT_ACCOUNTS - 1);
+
+			const outcomes = await Promise.all(
+				targets.map(async (target, index) => {
+					const [signIn] = await Promise.all([
+						new Promise((resolve) => setTimeout(resolve, offset(index))).then(async () => {
+							const { browser } = await submitPassword(target);
+							if (browser.value(MFA_PENDING_COOKIE) === undefined) return browser;
+							await codeStep(browser, codeAt(target.secret, 0));
+							return browser;
+						}),
+						adminReset(target, tokens[index])
+					]);
+					return signIn.value(SESSION_COOKIE) !== undefined;
+				})
+			);
+
+			const live = await liveSessionsOf(targets);
+			console.log(
+				`[#923] password step racing a reset (${Math.round(resetMs)} ms, two-factor ${totp ? 'on' : 'off'}), ` +
+					`${CONCURRENT_ACCOUNTS} accounts: ${outcomes.filter(Boolean).length} signed in at the time, ${live} live`
+			);
+			expect(live).toBe(0);
+		});
+	}
 });
