@@ -455,6 +455,11 @@ Severity WARN.
 | ------------------------------ | ----------- |
 | `budgetpilot.config.file_mode` | Operational |
 
+It reads only the `.env` in the working directory, not `.env.local` or a file
+passed with `--env-file`. Under WSL on `/mnt/c` (drvfs mounted without the
+`metadata` option), `chmod` has no effect and the line keeps the mode it found:
+keep the install in the Linux filesystem.
+
 ### `budgetpilot.request.failed`
 
 Severity ERROR. Summarised when repeated.
