@@ -7,17 +7,17 @@
 //
 // The copies are tracked under docs/reference/standards/ (#601), each with its CC BY-SA 4.0 licence and
 // provenance, so a clone has them. Missing means the tree was damaged: the message says where to look.
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+// Reading them is `scripts/standards-citations.mjs`, shared with the gate that checks every citation
+// already in the tree (#650), so the two cannot disagree about what exists.
 import { execFileSync } from 'node:child_process';
-import { join } from 'node:path';
+import {
+	calibrationFailure,
+	findAisvsRequirement,
+	findAsvsRequirement,
+	loadStandards
+} from '../../../../scripts/standards-citations.mjs';
 
 const root = execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim();
-const find = (rel) => [join(root, rel)].find((p) => existsSync(p));
-
-const asvsPath = find(
-	'docs/reference/standards/asvs-5.0.0/OWASP_Application_Security_Verification_Standard_5.0.0_en.flat.json'
-);
-const aisvsDir = find('docs/reference/standards/aisvs-1.0/en');
 
 const ids = process.argv.slice(2);
 if (ids.length === 0) {
@@ -25,27 +25,15 @@ if (ids.length === 0) {
 	process.exit(2);
 }
 
-let asvs = null;
-if (asvsPath) asvs = JSON.parse(readFileSync(asvsPath, 'utf8')).requirements;
-let aisvsRows = null;
-if (aisvsDir) {
-	aisvsRows = new Map();
-	for (const f of readdirSync(aisvsDir).filter((n) => n.endsWith('.md'))) {
-		for (const line of readFileSync(join(aisvsDir, f), 'utf8').split('\n')) {
-			const m = line.match(/^\|\s*\*\*(\d+\.\d+\.\d+)\*\*\s*\|\s*(.+?)\s*\|\s*(\d)\s*\|\s*$/);
-			if (m) aisvsRows.set(m[1], { text: m[2].replace(/\*\*/g, ''), level: m[3], file: f });
-		}
-	}
-}
+const standards = loadStandards(root);
+const asvs = standards.asvs;
+const aisvsRows = standards.aisvs;
 
 // Calibrate in the same run: a known identifier must resolve, or every answer below is about the
 // parser, not the standard.
-if (asvs && !asvs.some((r) => r.req_id === 'V8.2.2')) {
-	console.error('calibration failed: V8.2.2 not found in the ASVS copy');
-	process.exit(2);
-}
-if (aisvsRows && !aisvsRows.has('9.2.1')) {
-	console.error('calibration failed: 9.2.1 not found in the AISVS copy');
+const calibration = calibrationFailure(standards);
+if (calibration) {
+	console.error(`calibration failed: ${calibration}`);
 	process.exit(2);
 }
 
@@ -60,7 +48,7 @@ for (const raw of ids) {
 			missing++;
 			continue;
 		}
-		const r = aisvsRows.get(id);
+		const r = findAisvsRequirement(standards, id);
 		if (!r) {
 			console.log(`${raw}: NOT FOUND in AISVS 1.0`);
 			missing++;
@@ -77,7 +65,7 @@ for (const raw of ids) {
 		missing++;
 		continue;
 	}
-	const r = asvs.find((x) => x.req_id === id);
+	const r = findAsvsRequirement(standards, id);
 	if (!r) {
 		console.log(`${raw}: NOT FOUND in ASVS 5.0.0`);
 		missing++;
