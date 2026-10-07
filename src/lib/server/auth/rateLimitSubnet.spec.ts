@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.hoisted(() => {
 	process.env.RATE_LIMIT_HASH_SECRET ??= 'a1'.repeat(32);
@@ -216,5 +216,77 @@ describe('a forwarded hop read with its port shifted in', () => {
 		expect(await queriedIpHash('REGISTER', bare)).not.toBe(
 			await queriedIpHash('REGISTER', routeAddress('2001:db8:0:5700::1:2'))
 		);
+	});
+});
+
+/**
+ * THE PREFIX IS AN OPERATOR SETTING, `BP_RATE_LIMIT_IPV6_PREFIX`: default 56, accepted 32 to 64,
+ * anything else refused at startup (ruled 2026-10-07). Above 64, one subscriber's /64 would hold
+ * more than one counter again; the comparables accept the same range (express-rate-limit logs an
+ * out-of-range value and uses it, Nextcloud clamps it), where this refuses it.
+ *
+ * Read per call, as the import limit is, so these tests set it with `vi.stubEnv`.
+ */
+describe('the prefix is the operator setting BP_RATE_LIMIT_IPV6_PREFIX', () => {
+	const SETTING = 'BP_RATE_LIMIT_IPV6_PREFIX';
+
+	afterEach(() => {
+		vi.unstubAllEnvs();
+	});
+
+	// Separates « the limiter reads the setting » from « the limiter keeps /56 whatever is set »:
+	// the two addresses differ only in bit 63, inside a /64 and outside a /56.
+	it('at 64, two networks of one /56 keep separate counters', async () => {
+		vi.stubEnv(SETTING, '64');
+		expect(await queriedIpHash('LOGIN', '2001:db8:0:5601::1')).not.toBe(
+			await queriedIpHash('LOGIN', '2001:db8:0:5600::1')
+		);
+	});
+
+	// Separates a /64 from a /65 or longer: the addresses differ in bit 64, the first outside.
+	it('at 64, two addresses of one /64 share a counter', async () => {
+		vi.stubEnv(SETTING, '64');
+		expect(await queriedIpHash('LOGIN', '2001:db8:0:5600:8000::1')).toBe(
+			await queriedIpHash('LOGIN', '2001:db8:0:5600::1')
+		);
+	});
+
+	// Separates a configured /48 from the default /56 on the bit where they disagree (bit 55).
+	it('at 48, neighbouring /56 networks share a counter', async () => {
+		vi.stubEnv(SETTING, '48');
+		expect(await queriedIpHash('LOGIN', '2001:db8:0:5700::1')).toBe(
+			await queriedIpHash('LOGIN', '2001:db8:0:5600::1')
+		);
+	});
+
+	async function startupProblemFor(value: string): Promise<string | undefined> {
+		const { ENVIRONMENT_CHECKS, collectEnvironmentProblems } =
+			await import('$lib/server/env/assertConfigured');
+		const registered = ENVIRONMENT_CHECKS.filter(([label]) => label === SETTING);
+		expect(registered).toHaveLength(1);
+		vi.stubEnv(SETTING, value);
+		const [problem] = await collectEnvironmentProblems(registered);
+		return problem;
+	}
+
+	// Separates refusing from clamping or ignoring: 65 is the one value past the ceiling, where a
+	// clamp would read 64 and start.
+	it('refuses 65 at startup, naming the ceiling', async () => {
+		expect(await startupProblemFor('65')).toMatch(
+			/^BP_RATE_LIMIT_IPV6_PREFIX=65 is above the ceiling of 64\. /
+		);
+	});
+
+	// The same at the floor: 31 is the one value below it.
+	it('refuses 31 at startup, naming the minimum', async () => {
+		expect(await startupProblemFor('31')).toMatch(
+			/^BP_RATE_LIMIT_IPV6_PREFIX=31 is below the minimum of 32\. /
+		);
+	});
+
+	// The calibration of the two refusals: the bounds themselves start.
+	it('starts at 32 and at 64', async () => {
+		expect(await startupProblemFor('32')).toBeUndefined();
+		expect(await startupProblemFor('64')).toBeUndefined();
 	});
 });
