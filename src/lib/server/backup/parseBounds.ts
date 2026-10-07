@@ -1,3 +1,4 @@
+import { SETTINGS } from '$lib/server/env/settings';
 import { readOperatorBound, reportBoundDeparture } from '$lib/server/env/operatorBound';
 import { OperatorFacingError } from '$lib/server/operatorFacingError';
 
@@ -57,7 +58,7 @@ import { OperatorFacingError } from '$lib/server/operatorFacingError';
  */
 
 /** How many separate JSON values a backup may contain. Measured, see above. */
-export const BACKUP_DEFAULT_MAX_JSON_NODES = 2_000_000;
+export const BACKUP_DEFAULT_MAX_JSON_NODES = SETTINGS.BACKUP_MAX_JSON_NODES.default;
 
 /**
  * The value above which a configured bound is REFUSED at boot rather than clamped.
@@ -74,7 +75,7 @@ export const BACKUP_DEFAULT_MAX_JSON_NODES = 2_000_000;
  * caps the input at 20 MB, so even with this bound removed entirely the ceiling is 702 MB rather
  * than unbounded. That is why the ceiling can be twice the default rather than equal to it.
  */
-export const BACKUP_MAX_JSON_NODES_CEILING = 4_000_000;
+export const BACKUP_MAX_JSON_NODES_CEILING = SETTINGS.BACKUP_MAX_JSON_NODES.max;
 
 /**
  * The most any export this application can produce at the 20 MB byte cap. Not a limit: the figure a

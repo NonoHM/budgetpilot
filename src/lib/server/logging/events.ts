@@ -1,4 +1,5 @@
 import { ATTRIBUTE as A, EVENT as E, type EventName } from './names.ts';
+import type { IntegerSettingName } from '../env/settings.ts';
 
 /**
  * Every event this application can write, as a type: the only way to put a line in the log is to
@@ -39,12 +40,8 @@ export interface ErrorFields {
 export type BackfillName =
 	'name_keys' | 'dedupe_key_hashes' | 'dedupe_key_recompute' | 'statement_accounts';
 
-export type BoundName =
-	| 'IMPORT_RATE_LIMIT_MAX_ATTEMPTS'
-	| 'BACKUP_MAX_JSON_NODES'
-	| 'CSV_MAX_COLUMNS'
-	| 'COLUMN_MAPPINGS_PER_USER'
-	| 'IMPORT_XLSX_MAX_UNCOMPRESSED_MB';
+/** Every whole-number setting, from the settings registry (R14): each one can depart from its default. */
+export type BoundName = IntegerSettingName;
 
 export type LogEvent =
 	| {

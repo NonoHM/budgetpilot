@@ -1,3 +1,4 @@
+import { SETTINGS } from '$lib/server/env/settings';
 import { inflateRawSync } from 'node:zlib';
 import { readOperatorBound, reportBoundDeparture } from '$lib/server/env/operatorBound';
 import { OperatorFacingError } from '$lib/server/operatorFacingError';
@@ -67,7 +68,7 @@ import { OperatorFacingError } from '$lib/server/operatorFacingError';
  * transient allocation is the bound itself, since each entry is materialised to be counted.
  */
 /** Megabytes, because that is the unit an operator thinks in and the one the errors speak. */
-export const XLSX_DEFAULT_MAX_UNCOMPRESSED_MB = 8;
+export const XLSX_DEFAULT_MAX_UNCOMPRESSED_MB = SETTINGS.IMPORT_XLSX_MAX_UNCOMPRESSED_MB.default;
 
 /**
  * The value above which a configured bound is REFUSED at boot rather than clamped.
@@ -115,7 +116,7 @@ export const XLSX_DEFAULT_MAX_UNCOMPRESSED_MB = 8;
  * it bounds memory rather than time is the one that turned out to matter. Tracked separately rather
  * than solved here, because a concurrency limit is a new control and not a cap.
  */
-export const XLSX_MAX_UNCOMPRESSED_CEILING_MB = 32;
+export const XLSX_MAX_UNCOMPRESSED_CEILING_MB = SETTINGS.IMPORT_XLSX_MAX_UNCOMPRESSED_MB.max;
 
 /**
  * The largest expansion LibreOffice produced for a workbook still under the upload cap. Not a limit:

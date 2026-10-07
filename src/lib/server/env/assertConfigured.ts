@@ -13,6 +13,15 @@ import { assertForwardingConfigSafe } from '$lib/server/net/clientAddress';
 import { OperatorFacingError } from '$lib/server/operatorFacingError';
 import { describeErrorForLog } from '$lib/server/errors';
 import { assertLoggingConfigured } from '$lib/server/logging';
+import {
+	assertBankSyncLookbackConfigured,
+	assertInvitationLifetimeConfigured,
+	assertLlmConnectTimeoutConfigured,
+	assertLlmTimeoutConfigured,
+	assertPasswordHashCostConfigured,
+	assertSessionLifetimeConfigured
+} from '$lib/server/env/readSetting';
+import { assertSecretFilesSafe } from '$lib/server/env/secretFiles';
 
 type Check = [name: string, run: () => void | Promise<void>];
 
@@ -102,7 +111,14 @@ export const ENVIRONMENT_CHECKS: Check[] = [
 	['CSV_MAX_COLUMNS', assertCsvColumnBoundConfigured],
 	['COLUMN_MAPPINGS_PER_USER', assertColumnMappingCapConfigured],
 	['IMPORT_RATE_LIMIT_MAX_ATTEMPTS', assertImportRateLimitConfigured],
-	['BP_LOG_LEVEL / BP_SECURITY_LOG', assertLoggingConfigured]
+	['BP_LOG_LEVEL / BP_SECURITY_LOG', assertLoggingConfigured],
+	['PASSWORD_HASH_COST', assertPasswordHashCostConfigured],
+	['SESSION_TTL_DAYS', assertSessionLifetimeConfigured],
+	['INVITATION_TTL_HOURS', assertInvitationLifetimeConfigured],
+	['BANK_SYNC_FIRST_LOOKBACK_DAYS', assertBankSyncLookbackConfigured],
+	['LLM_TIMEOUT_MS', assertLlmTimeoutConfigured],
+	['LLM_CONNECT_TIMEOUT_MS', assertLlmConnectTimeoutConfigured],
+	['BP_STRICT_SECRET_FILES', assertSecretFilesSafe]
 ];
 
 /**

@@ -4,6 +4,8 @@ import { failureCode, isTimeoutError } from '$lib/server/errors';
 import { stripMarkdown } from './plainText';
 import { parseHostsCsv } from '$lib/server/hosts';
 import { fetchWithRedirectGuard } from '$lib/server/net/redirectGuard';
+import { readIntegerSetting } from '$lib/server/env/readSetting';
+import { SETTINGS } from '$lib/server/env/settings';
 import { localLlmJsonSchema, localLlmNumPredict, localLlmResponseSchema } from './schema';
 import type { BudgetInsight, LocalLlmFailureCode, LocalLlmResult } from './types';
 
@@ -32,8 +34,8 @@ const DEFAULT_MODEL = 'qwen2.5:0.5b';
  * below what a cold Ollama needs just to load a model".
  */
 export const LOCAL_LLM_ENV_DEFAULTS = {
-	LLM_TIMEOUT_MS: 45_000,
-	LLM_CONNECT_TIMEOUT_MS: 2_000
+	LLM_TIMEOUT_MS: SETTINGS.LLM_TIMEOUT_MS.default,
+	LLM_CONNECT_TIMEOUT_MS: SETTINGS.LLM_CONNECT_TIMEOUT_MS.default
 } as const;
 const DEFAULT_ALLOWED_HOSTS = ['localhost', '127.0.0.1', '[::1]'];
 // host.docker.internal refers to the host machine itself from inside a Docker container:
@@ -116,11 +118,10 @@ export async function requestLocalBudgetInsights(
 	if (!baseUrl) return unavailable('not_configured');
 
 	const model = env.LLM_MODEL ?? DEFAULT_MODEL;
-	const timeoutMs = parsePositiveInt(env.LLM_TIMEOUT_MS, LOCAL_LLM_ENV_DEFAULTS.LLM_TIMEOUT_MS);
-	const connectTimeoutMs = parsePositiveInt(
-		env.LLM_CONNECT_TIMEOUT_MS,
-		LOCAL_LLM_ENV_DEFAULTS.LLM_CONNECT_TIMEOUT_MS
-	);
+	// Refused rather than replaced by the default (#754): `0x10` used to read as 16 ms. The boot
+	// checks refuse the same values before any request reaches this.
+	const timeoutMs = readIntegerSetting('LLM_TIMEOUT_MS', env);
+	const connectTimeoutMs = readIntegerSetting('LLM_CONNECT_TIMEOUT_MS', env);
 
 	if (!(await probeLocalLlmReachable(baseUrl, connectTimeoutMs, env))) {
 		return unavailable('unreachable');
@@ -252,11 +253,6 @@ function parseLocalLlmContent(content: string, truncated: boolean): LocalLlmResu
 	}));
 
 	return { summary: stripMarkdown(parsed.data.summary), insights };
-}
-
-function parsePositiveInt(value: string | undefined, fallback: number): number {
-	const parsed = Number(value);
-	return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
 function getAllowedHosts(env: NodeJS.ProcessEnv): string[] {

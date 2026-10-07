@@ -5,18 +5,28 @@ import * as m from '$lib/paraglide/messages';
 import { prisma } from '$lib/server/db';
 import { isTransientWriteConflict, withConcurrentWriteRetry } from '$lib/server/database/upsert';
 import type { Role } from './database/types.ts';
+import { readIntegerSetting } from '$lib/server/env/readSetting';
+import { SETTINGS } from '$lib/server/env/settings';
 
 export const SESSION_COOKIE = 'budgetpilot_session';
 export const BACKFILL_USER_ID = 'local-backfill-user';
 export const BACKFILL_USER_EMAIL = 'local-backfill@budgetpilot.local';
-const MIN_PASSWORD_COST = 12;
-const MAX_PASSWORD_COST = 15;
-const configuredPasswordCost = Number(process.env.PASSWORD_HASH_COST ?? MIN_PASSWORD_COST);
-const PASSWORD_COST =
-	Number.isInteger(configuredPasswordCost) && configuredPasswordCost >= MIN_PASSWORD_COST
-		? Math.min(configuredPasswordCost, MAX_PASSWORD_COST)
-		: MIN_PASSWORD_COST;
-const DEFAULT_SESSION_TTL_DAYS = 30;
+/**
+ * Read once, at import, because the timing-safe placeholder hash below is computed at import with
+ * the same cost. A refused value is NOT thrown here: a throw at import stops the server before the
+ * boot collector can list every problem at once (`assertConfigured.ts`). The collector's
+ * `assertPasswordHashCostConfigured` refuses the same value, so no instance ever serves under the
+ * default this falls back to. Before #754 a value above 15 was clamped to 15 and one below 12 became
+ * 12, both silently.
+ */
+function passwordCostAtImport(): number {
+	try {
+		return readIntegerSetting('PASSWORD_HASH_COST');
+	} catch {
+		return SETTINGS.PASSWORD_HASH_COST.default;
+	}
+}
+const PASSWORD_COST = passwordCostAtImport();
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 /**
  * C0 and C7 control characters, rejected on every path including the login lookup.
@@ -138,10 +148,14 @@ export function createSessionToken(): string {
 	return randomBytes(32).toString('base64url');
 }
 
+/**
+ * Read per call, so the lifetime stays configurable without a stateful redeploy. An unreadable or
+ * out-of-range value throws rather than falling back (#754); `assertSessionLifetimeConfigured`
+ * refuses it at boot, so in practice no request reaches the throw.
+ */
 export function getSessionExpiresAt(): Date {
-	const ttlDays = Number(process.env.SESSION_TTL_DAYS ?? DEFAULT_SESSION_TTL_DAYS);
-	const safeTtlDays = Number.isFinite(ttlDays) && ttlDays > 0 ? ttlDays : DEFAULT_SESSION_TTL_DAYS;
-	return new Date(Date.now() + safeTtlDays * 24 * 60 * 60 * 1000);
+	const ttlDays = readIntegerSetting('SESSION_TTL_DAYS');
+	return new Date(Date.now() + ttlDays * 24 * 60 * 60 * 1000);
 }
 
 // PUBLIC_INSTANCE is the ONE switch governing the Secure cookie flag, and it is

@@ -1,13 +1,11 @@
 import { createSessionToken, hashSessionToken, normalizeEmail } from '$lib/server/auth';
 import { prisma } from '$lib/server/db';
+import { readIntegerSetting } from '$lib/server/env/readSetting';
 
-const DEFAULT_INVITATION_TTL_HOURS = 72;
-
-// Same "parse+fallback" helper as SESSION_TTL_DAYS/PASSWORD_HASH_COST: read on every call,
-// not cached, to stay configurable without a stateful redeploy.
+// Read on every call, not cached, to stay configurable without a stateful redeploy. Refused rather
+// than replaced by the default (#754); `assertInvitationLifetimeConfigured` refuses it at boot.
 function getInvitationTtlHours(): number {
-	const raw = Number(process.env.INVITATION_TTL_HOURS ?? DEFAULT_INVITATION_TTL_HOURS);
-	return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_INVITATION_TTL_HOURS;
+	return readIntegerSetting('INVITATION_TTL_HOURS');
 }
 
 export interface CreatedInvitation {

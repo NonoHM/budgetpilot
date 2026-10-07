@@ -169,7 +169,8 @@ const SERVER_ENV = {
 	REGISTRATION_MODE: 'admin_only',
 	// bcrypt's floor. This instance exists for ten seconds and hashes a few passwords; the cost
 	// factor is not what this check is about, and 12 would spend seconds proving nothing.
-	PASSWORD_HASH_COST: '4',
+	// 12, the floor: a lower cost is refused at boot (#754), and 4 was always clamped to 12.
+	PASSWORD_HASH_COST: '12',
 	BOOTSTRAP_TOKEN: SECRETS.bootstrapToken,
 	RATE_LIMIT_HASH_SECRET: SECRETS.rateLimitSecret,
 	TOTP_ENCRYPTION_KEY: SECRETS.totpKey,

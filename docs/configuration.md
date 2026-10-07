@@ -1,8 +1,9 @@
 # Configuration
 
-Everything is configured through `.env`, sitting next to your compose file.
-[`.env.example`](../.env.example) is the authoritative reference and carries
-a comment on every variable. This page is the prose version: what you'd
+For operators. Everything is configured through `.env`, sitting next to your
+compose file. [Configuration reference](configuration-reference.md) lists every
+variable with its default and the values it accepts; it is generated from the
+code, so it cannot fall out of date. This page is the prose version: what you'd
 actually want to change, and why.
 
 After editing `.env`, restart the app for it to take effect:
@@ -47,6 +48,62 @@ WSL on `/mnt/c` (drvfs mounted without the `metadata` option), `chmod` has no
 effect and the warning keeps the mode it found, so keep the install in the Linux
 filesystem. Under Git Bash, Node runs as a Windows program and the check is
 skipped.
+
+## Refusing to start on an exposed secret file
+
+`.env` holds the three secrets above, and sometimes a database password. Every
+start already writes a `budgetpilot.config.env_file_exposed` warning when other
+accounts on the machine can read or write it. To refuse to start instead, set:
+
+```dotenv
+BP_STRICT_SECRET_FILES=on   # default: off, which only warns
+```
+
+With it on, the app checks `.env` in the directory it starts from and the
+file named by `ENABLE_BANKING_PRIVATE_KEY_PATH`, and refuses to start when:
+
+- another account can change the file;
+- every account can read the file, whoever owns it;
+- the file belongs to the account the app runs as, and its group can read it;
+- the file belongs to an account other than that one or root;
+- the folder holding it, or any folder above it up to `/`, can be written by
+  other accounts or belongs to another account than the app's or root, since
+  either lets that account replace the file;
+- the path goes through a symbolic link, since a link can point elsewhere
+  between the check and the read: point the setting at the file itself;
+- the file exists but cannot be inspected.
+
+The message names each file, what is wrong, and the fix. On a host install,
+run these as the account that starts the app:
+
+```bash
+chmod 600 .env
+chmod 700 .     # or any mode where only you can write to the folder
+```
+
+**Under Docker**, the container never has a `.env` (Compose reads it on the
+host), so only the bank-signing key is checked, and the app runs as user 65532. Give the file and its folder to that user:
+
+```bash
+sudo chown 65532 keys keys/enablebanking.pem && sudo chmod 600 keys/enablebanking.pem
+```
+
+A file Docker Compose mounts as a `secrets:` entry keeps the owner and mode it
+has on the host, so the same command applies to it.
+
+The rules follow OpenSSH's `StrictModes`, which checks a user's key files:
+write access for other accounts is refused whoever owns the file, and so is a
+file or folder owned by an account other than the app's or root. They are
+stricter on reading, since OpenSSH judges files that are not secrets: a file
+every account can read is refused even when root owns it. A file root owns
+with group read is accepted, because that is how systemd hands a credential to
+a service (`LoadCredential=`). A file reached through a symbolic link is
+refused, and every folder up to `/` is checked, as OpenSSH does. A file under
+`/tmp` is therefore refused, since every account can write to `/tmp`. This switch
+contributes to ASVS `v5.0.0-13.3.2`, « Verify that access to secret assets
+adheres to the principle of least privilege », without meeting it on its own:
+it is off by default, and a secret passed as an environment variable has no
+file to check.
 
 ## Exposing it beyond localhost
 
@@ -158,13 +215,45 @@ Any unrecognized value falls back to `admin_only`.
 ## Passwords and sessions
 
 ```dotenv
-PASSWORD_HASH_COST=12    # bcrypt cost, 12 minimum, 15 maximum
-SESSION_TTL_DAYS=30      # how long a login lasts
-INVITATION_TTL_HOURS=72  # lifetime of an admin-generated invitation link
+PASSWORD_HASH_COST=12    # bcrypt cost: 12 to 15
+SESSION_TTL_DAYS=30      # how long a sign-in lasts: 1 to 400 days
+INVITATION_TTL_HOURS=72  # how long an invitation link stays valid: 1 to 720 hours
 ```
 
-Raising `PASSWORD_HASH_COST` makes login slower for everyone by design. 12
-is a sane default, don't go below it.
+A value outside its range stops the app at startup with a message naming the
+setting, the range and the default. It is never adjusted to the nearest
+allowed value, so the setting in force is always the one you wrote.
+
+**`PASSWORD_HASH_COST`** sets how much work storing and checking a password
+takes. Each step doubles it: one hash took 160 ms at 12 and 1.3 s at 15 on a
+desktop processor (measured 2026-10-07). 12 is above the minimum of 10 that the
+OWASP Password Storage Cheat Sheet and ASVS 5.0.0 Appendix C give for bcrypt.
+The ceiling is 15 because every sign-in pays the cost, so a higher value lets
+anyone who can reach the sign-in form keep the server busy. A raised cost
+applies to passwords set or changed afterwards; existing passwords keep the
+cost they were stored with.
+
+**`SESSION_TTL_DAYS`** is the absolute lifetime of a sign-in: when it ends, the
+user signs in again, however active they were. The ceiling is 400 days because
+Chrome and Firefox keep a cookie for at most 400 days whatever the server asks,
+the limit the IETF cookie specification draft asks every browser to apply
+(`draft-ietf-httpbis-rfc6265bis-22`, section 5.5). A longer lifetime would
+mostly keep a copied cookie usable.
+
+**What NIST SP 800-63B-4 asks.** A sign-in should last « no more than 30
+days » for a password alone, and « no more than 24 hours », with an inactivity
+timeout of « no more than 1 hour », once a second factor is in use. The default
+of 30 days applies to every account, with or without two-factor
+authentication, and the app has no inactivity timeout yet
+([#221](https://github.com/NonoHM/budgetpilot/issues/221)). `SESSION_TTL_DAYS=1`
+gives every account a lifetime within NIST's 24 hours. Whether the default
+should differ for two-factor accounts is open in
+[#919](https://github.com/NonoHM/budgetpilot/issues/919).
+
+**`INVITATION_TTL_HOURS`** bounds how long an invitation link works. Anyone
+holding the link can create an account with it, so it stays short. The ceiling,
+720 hours (30 days), is the longest validity NIST SP 800-63B-4 gives a recovery
+code, for one sent by post abroad.
 
 Two-factor authentication (TOTP) is per user and opt-in, enabled from
 Settings. No admin action exists to disable someone else's second factor,
@@ -252,10 +341,9 @@ an existing install actually costs.
 
 ## Writing a limit
 
-`CSV_MAX_COLUMNS`, `COLUMN_MAPPINGS_PER_USER`,
-`IMPORT_RATE_LIMIT_MAX_ATTEMPTS`, `BACKUP_MAX_JSON_NODES` and
-`IMPORT_XLSX_MAX_UNCOMPRESSED_MB` each take a whole number of at least 1. Write
-it with the digits 0 to 9 and nothing else.
+Every setting that takes a whole number (the
+[reference](configuration-reference.md) gives each one's range) is written
+with the digits 0 to 9 and nothing else, and must sit inside its range.
 
 Any other spelling stops the app at startup, with a message naming the
 variable: `0x10`, `1e2`, `12.0`, `+5` and `1_000` are all refused rather than

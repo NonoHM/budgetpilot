@@ -86,9 +86,7 @@ export function getEnableBankingCredentials(
  * tried paths only, never any file content.
  */
 function readPrivateKeyFile(rawPath: string): string {
-	const candidates = isAbsolute(rawPath)
-		? [rawPath]
-		: [...new Set([resolve(process.cwd(), rawPath), resolve(resolveProjectRoot(), rawPath)])];
+	const candidates = privateKeyPathCandidates(rawPath);
 	const found = candidates.find((candidate) => existsSync(candidate));
 	if (!found) {
 		throw new EnableBankingConfigurationError(
@@ -96,6 +94,17 @@ function readPrivateKeyFile(rawPath: string): string {
 		);
 	}
 	return readFileSync(found, 'utf8').trim();
+}
+
+/**
+ * Where ENABLE_BANKING_PRIVATE_KEY_PATH may point, in the order the key is looked for. The single
+ * definition: the strict secret-file check (#901) inspects the first of these that exists, which is
+ * the file this module then reads, so the check and the read cannot be about two different files.
+ */
+export function privateKeyPathCandidates(rawPath: string): string[] {
+	return isAbsolute(rawPath)
+		? [rawPath]
+		: [...new Set([resolve(process.cwd(), rawPath), resolve(resolveProjectRoot(), rawPath)])];
 }
 
 /** Nearest ancestor of this module containing a package.json; falls back to cwd. */

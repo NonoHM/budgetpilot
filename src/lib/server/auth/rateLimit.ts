@@ -1,3 +1,4 @@
+import { SETTINGS } from '$lib/server/env/settings';
 import { createHmac } from 'node:crypto';
 import { env } from '$env/dynamic/private';
 import { prisma } from '$lib/server/db';
@@ -33,7 +34,7 @@ const MAX_ATTEMPTS = 5;
  * It is the DEFAULT of `IMPORT_RATE_LIMIT_MAX_ATTEMPTS`, read by `resolveImportMaxAttempts` below.
  * An operator who sets nothing gets exactly this, so making it configurable changed no install.
  */
-export const IMPORT_DEFAULT_MAX_ATTEMPTS = 60;
+export const IMPORT_DEFAULT_MAX_ATTEMPTS = SETTINGS.IMPORT_RATE_LIMIT_MAX_ATTEMPTS.default;
 
 /**
  * The value above which a configured import limit is REFUSED at boot rather than clamped.
@@ -62,7 +63,7 @@ export const IMPORT_DEFAULT_MAX_ATTEMPTS = 60;
  * operator can raise is a limit an operator can remove, and a clamp reads as configured while
  * something else is in force.
  */
-export const IMPORT_MAX_ATTEMPTS_CEILING = 240;
+export const IMPORT_MAX_ATTEMPTS_CEILING = SETTINGS.IMPORT_RATE_LIMIT_MAX_ATTEMPTS.max;
 
 /**
  * The honest batch the default was chosen against, quoted so the boot warning can say what a

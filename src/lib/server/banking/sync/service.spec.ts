@@ -1020,7 +1020,7 @@ describe('syncBankConnection', () => {
 		expect(calendarDaysAsked(range)).toBe(90);
 	});
 
-	it('honors BANK_SYNC_FIRST_LOOKBACK_DAYS on the first sync, ignoring out-of-bounds values', async () => {
+	it('honors BANK_SYNC_FIRST_LOOKBACK_DAYS on the first sync, and refuses an unreadable or out-of-range value', async () => {
 		const runFirstSync = async (lookbackValue: string) => {
 			prismaMock.bankConnection.findFirst.mockResolvedValueOnce({
 				...activeConnection,
@@ -1050,11 +1050,19 @@ describe('syncBankConnection', () => {
 		};
 
 		expect(await runFirstSync('2200')).toBe(2200);
-		// The lower bound: one day is today alone.
+		// The two edges: one day is today alone, and 3650 is the ceiling itself.
 		expect(await runFirstSync('1')).toBe(1);
-		// Invalid or out-of-bounds values fall back to the 90-day default.
-		for (const invalid of ['0', '999999', 'not-a-number']) {
-			expect(await runFirstSync(invalid)).toBe(90);
+		expect(await runFirstSync('3650')).toBe(3650);
+		// Before #754 each of these became the 90-day default silently, and `parseInt` read `30days`
+		// as 30 and `1e3` as 1. Now each is refused with its reason; the boot check refuses the same
+		// values before any sync runs.
+		await expect(runFirstSync('3651')).rejects.toThrow(
+			'BANK_SYNC_FIRST_LOOKBACK_DAYS=3651 is above the ceiling of 3650.'
+		);
+		for (const unreadable of ['0', 'not-a-number', '30days', '1e3']) {
+			await expect(runFirstSync(unreadable)).rejects.toThrow(
+				`BANK_SYNC_FIRST_LOOKBACK_DAYS must be a whole number of at least 1, written in the digits 0 to 9 only (got ${JSON.stringify(unreadable)}).`
+			);
 		}
 	});
 
