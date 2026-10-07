@@ -35,6 +35,18 @@ if a release goes wrong the way back is the backup, not the old image. It
 takes a few seconds and it is the difference between a bad release costing you
 an afternoon and costing you your data.
 
+**Make `.env` private, once.** An install set up before `.env` was created with
+mode 600 can still have one that every account on the machine can read, and it
+holds the three secrets. Run this in the directory that holds it: next to your
+compose file under Docker, in the checkout without Docker.
+
+```bash
+chmod 600 .env
+```
+
+Without Docker, the app logs `budgetpilot.config.env_file_exposed` at startup
+until you do. Under Docker it cannot check: the container never sees the file.
+
 **Published image:**
 
 If `.env` pins an exact version, such as `BUDGETPILOT_VERSION=1.2.3`, which is

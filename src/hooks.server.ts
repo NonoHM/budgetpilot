@@ -92,6 +92,8 @@ const secureCookies = areSecureCookiesEnabled();
 const trustedProxyRanges = parseTrustedProxies(process.env.TRUSTED_PROXIES);
 // A .env other local accounts can read or write is a secret disclosed to them, or a configuration
 // they can rewrite (#826). Read here, once per start; reported, never refused.
+// Under Docker the file is on the host, read by Compose, so this check cannot see it: creation
+// (scripts/env-file.mjs, the docs' .env block) and the upgrade step in docs/operations.md cover it.
 const envFileExposure = exposedEnvFileMode(readEnvFileMode(process.cwd()), process.platform);
 
 /**
