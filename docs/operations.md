@@ -37,9 +37,16 @@ an afternoon and costing you your data.
 
 **Published image:**
 
+If `.env` pins an exact version, such as `BUDGETPILOT_VERSION=1.2.3`, which is
+what the `.env` block in the README and getting started writes, change it to
+the new number from the
+[releases page](https://github.com/NonoHM/budgetpilot/releases/latest) first.
+Otherwise the pull fetches the same version again. Then, with the
+`COMPOSE_FILE` export from the top of this page or the `-f` flag:
+
 ```bash
-docker compose pull
-docker compose up -d
+docker compose -f docker-compose.prebuilt.yml pull
+docker compose -f docker-compose.prebuilt.yml up -d
 ```
 
 `docker compose pull` follows whichever tag you pinned. On `latest` that
@@ -610,6 +617,14 @@ There is no way to read the encrypted values back without the original key.
 Losing it is permanent. See
 [configuration](./configuration.md#the-three-secrets) for the other two
 secrets and how they behave.
+
+**If you pasted the `.env` block again to upgrade**, as an earlier README said,
+your key changed. If you still have the old `.env` and nobody has set up
+two-factor since, put its `TOTP_ENCRYPTION_KEY` back and restart. Otherwise,
+two-factor users sign in with a recovery code and set two-factor up again, and
+bank connections need reconnecting, as the list above describes. Restore any
+line you had added by hand, such as `ORIGIN`, `PUBLIC_INSTANCE` or the database
+settings: the block wrote only its own.
 
 ### The JSON export
 
