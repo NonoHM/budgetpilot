@@ -82,14 +82,32 @@ curl -O https://raw.githubusercontent.com/NonoHM/budgetpilot/main/docker-compose
 Create your `.env`. This block generates three secrets and looks up the current release for you. Paste it whole:
 
 ```bash
-BUDGETPILOT_VERSION=${BUDGETPILOT_VERSION:-$(curl -fsSL https://api.github.com/repos/NonoHM/budgetpilot/releases/latest \
-  | grep -o '"tag_name": *"[^"]*"' | cut -d'"' -f4 | sed 's/.*v//')}
+BUDGETPILOT_LOOKUP=$(curl -fsSL https://api.github.com/repos/NonoHM/budgetpilot/releases/latest \
+  | grep -o '"tag_name": *"[^"]*"' | cut -d'"' -f4 | sed 's/.*v//')
 
-if [ -e .env ]; then
-  echo ".env already exists, so nothing was written: new secrets would make every two-factor setup unreadable. To change version, see https://github.com/NonoHM/budgetpilot/blob/main/docs/operations.md#updating"
-elif [ -z "$BUDGETPILOT_VERSION" ]; then
-  echo "Could not reach the Releases API, so no .env was written. Take the number from https://github.com/NonoHM/budgetpilot/releases/latest, run BUDGETPILOT_VERSION=x.y.z, then paste this block again."
+if ! command -v openssl >/dev/null 2>&1; then
+  echo "openssl is not installed, so no .env was written. Install it, then paste this block again." >&2
+  false
+elif [ -L .env ]; then
+  echo ".env is a symbolic link, so nothing was written. Remove it or replace it with a regular file, then paste this block again." >&2
+  false
+elif [ -s .env ] && grep -q '^TOTP_ENCRYPTION_KEY=.' .env; then
+  echo ".env already holds a TOTP_ENCRYPTION_KEY, so nothing was written: a new key would make every two-factor setup unreadable. To change version, see https://github.com/NonoHM/budgetpilot/blob/main/docs/operations.md#updating" >&2
+  false
+elif [ -s .env ]; then
+  echo ".env already has content, so nothing was written. Move it aside first (mv .env .env.old), then paste this block again." >&2
+  false
+elif [ -z "$BUDGETPILOT_LOOKUP" ] && [ -z "${BUDGETPILOT_VERSION#v}" ]; then
+  echo "Could not reach the Releases API, so no .env was written. Take the number from https://github.com/NonoHM/budgetpilot/releases/latest, run BUDGETPILOT_VERSION=x.y.z, then paste this block again." >&2
+  false
 else
+  if [ -n "$BUDGETPILOT_LOOKUP" ]; then
+    BUDGETPILOT_VERSION=$BUDGETPILOT_LOOKUP
+  else
+    BUDGETPILOT_VERSION=${BUDGETPILOT_VERSION#v}
+    echo "Lookup failed, using $BUDGETPILOT_VERSION from your shell." >&2
+  fi
+  rm -f .env
   (umask 077 && cat > .env <<EOF
 BOOTSTRAP_TOKEN=$(openssl rand -base64 32)
 RATE_LIMIT_HASH_SECRET=$(openssl rand -hex 32)
@@ -97,11 +115,11 @@ TOTP_ENCRYPTION_KEY=$(openssl rand -hex 32)
 BUDGETPILOT_VERSION=$BUDGETPILOT_VERSION
 APP_PORT=3000
 EOF
-  )
+  ) && echo "Wrote .env, pinned to BUDGETPILOT_VERSION=$BUDGETPILOT_VERSION."
 fi
 ```
 
-The block creates `.env` readable by your account only, because it holds the three secrets. If a `.env` already exists, it writes nothing: new secrets would make every two-factor setup unreadable.
+The block creates `.env` readable by your account only, because it holds the three secrets. If `.env` already has content, it writes nothing and says why.
 
 `BUDGETPILOT_VERSION` decides which image you run. Pin it and you know what you are on, and the app shows the same number in **Settings**. Leave it out and Docker quietly reuses whatever it downloaded last time, which is how people end up running a version they never chose.
 

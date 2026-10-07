@@ -61,14 +61,32 @@ secrets at rest. This block generates all three and writes the file for you.
 Paste it whole:
 
 ```bash
-BUDGETPILOT_VERSION=${BUDGETPILOT_VERSION:-$(curl -fsSL https://api.github.com/repos/NonoHM/budgetpilot/releases/latest \
-  | grep -o '"tag_name": *"[^"]*"' | cut -d'"' -f4 | sed 's/.*v//')}
+BUDGETPILOT_LOOKUP=$(curl -fsSL https://api.github.com/repos/NonoHM/budgetpilot/releases/latest \
+  | grep -o '"tag_name": *"[^"]*"' | cut -d'"' -f4 | sed 's/.*v//')
 
-if [ -e .env ]; then
-  echo ".env already exists, so nothing was written: new secrets would make every two-factor setup unreadable. To change version, see https://github.com/NonoHM/budgetpilot/blob/main/docs/operations.md#updating"
-elif [ -z "$BUDGETPILOT_VERSION" ]; then
-  echo "Could not reach the Releases API, so no .env was written. Take the number from https://github.com/NonoHM/budgetpilot/releases/latest, run BUDGETPILOT_VERSION=x.y.z, then paste this block again."
+if ! command -v openssl >/dev/null 2>&1; then
+  echo "openssl is not installed, so no .env was written. Install it, then paste this block again." >&2
+  false
+elif [ -L .env ]; then
+  echo ".env is a symbolic link, so nothing was written. Remove it or replace it with a regular file, then paste this block again." >&2
+  false
+elif [ -s .env ] && grep -q '^TOTP_ENCRYPTION_KEY=.' .env; then
+  echo ".env already holds a TOTP_ENCRYPTION_KEY, so nothing was written: a new key would make every two-factor setup unreadable. To change version, see https://github.com/NonoHM/budgetpilot/blob/main/docs/operations.md#updating" >&2
+  false
+elif [ -s .env ]; then
+  echo ".env already has content, so nothing was written. Move it aside first (mv .env .env.old), then paste this block again." >&2
+  false
+elif [ -z "$BUDGETPILOT_LOOKUP" ] && [ -z "${BUDGETPILOT_VERSION#v}" ]; then
+  echo "Could not reach the Releases API, so no .env was written. Take the number from https://github.com/NonoHM/budgetpilot/releases/latest, run BUDGETPILOT_VERSION=x.y.z, then paste this block again." >&2
+  false
 else
+  if [ -n "$BUDGETPILOT_LOOKUP" ]; then
+    BUDGETPILOT_VERSION=$BUDGETPILOT_LOOKUP
+  else
+    BUDGETPILOT_VERSION=${BUDGETPILOT_VERSION#v}
+    echo "Lookup failed, using $BUDGETPILOT_VERSION from your shell." >&2
+  fi
+  rm -f .env
   (umask 077 && cat > .env <<EOF
 BOOTSTRAP_TOKEN=$(openssl rand -base64 32)
 RATE_LIMIT_HASH_SECRET=$(openssl rand -hex 32)
@@ -76,13 +94,12 @@ TOTP_ENCRYPTION_KEY=$(openssl rand -hex 32)
 BUDGETPILOT_VERSION=$BUDGETPILOT_VERSION
 APP_PORT=3000
 EOF
-  )
+  ) && echo "Wrote .env, pinned to BUDGETPILOT_VERSION=$BUDGETPILOT_VERSION."
 fi
 ```
 
 The block creates `.env` readable by your account only, because it holds the
-three secrets. If a `.env` already exists, it writes nothing: new secrets would
-make every two-factor setup unreadable.
+three secrets. If `.env` already has content, it writes nothing and says why.
 
 Check it worked:
 
@@ -91,9 +108,9 @@ cat .env
 ```
 
 You should see five lines. The first three carry a long random value after
-the `=`, and `BUDGETPILOT_VERSION` carries a version number like `0.13.1`. If
-any of the three secrets is empty, `openssl` isn't installed. Install it,
-or see [generating secrets without openssl](#generating-secrets-without-openssl)
+the `=`, and `BUDGETPILOT_VERSION` carries a version number like `0.13.1`.
+Without `openssl`, the block writes nothing and says so. Install it, or see
+[generating secrets without openssl](#generating-secrets-without-openssl)
 below.
 
 ### Why the version line matters
