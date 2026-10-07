@@ -34,7 +34,8 @@
 
 import { execFileSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
-import { readFileSync, realpathSync } from 'node:fs';
+import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { KINDS, calibrate, findPrivateReferences, redact } from './private-references.mjs';
 
@@ -50,6 +51,86 @@ import { KINDS, calibrate, findPrivateReferences, redact } from './private-refer
 /** @param {Item} item */
 function locationOf(item) {
 	return item.number === undefined ? item.where : `#${item.number} ${item.where}`;
+}
+
+/**
+ * Every item, or `null` after logging why a clean result would mean nothing: no issue read at all,
+ * or fewer issues, pull requests or commit messages than the repository reports. The one
+ * definition both consumers of the text call, the matcher here and TruffleHog through `--dump`, so
+ * neither can scan half the text and report clean.
+ *
+ * @param {ScanSource} source
+ * @param {(line: string) => void} log
+ * @returns {Item[] | null}
+ */
+function readCompletely(source, log) {
+	const totals = source.totals();
+	const items = source.items();
+	const count = (/** @type {ItemKind} */ kind) => items.filter((i) => i.kind === kind).length;
+	const read = { items: count('item'), comments: count('comment'), commits: count('commit') };
+	log(
+		`read ${read.items} issues and pull requests and ${read.comments} comments, ` +
+			`${read.commits} commit messages; the repository reports ${totals.issues} issues, ` +
+			`${totals.pulls} pull requests and ${totals.commits} commits`
+	);
+
+	const refusals = [];
+	if (read.items === 0) refusals.push('read no issue or pull request');
+	if (read.items < totals.issues + totals.pulls) {
+		refusals.push(
+			`read ${read.items} issues and pull requests, fewer than the ` +
+				`${totals.issues + totals.pulls} the repository reports`
+		);
+	}
+	if (read.commits < totals.commits) {
+		refusals.push(
+			`read ${read.commits} commit messages, fewer than the ${totals.commits} reported`
+		);
+	}
+	for (const refusal of refusals) log(`REFUSED: ${refusal}. A clean result would mean nothing.`);
+	return refusals.length > 0 ? null : items;
+}
+
+/**
+ * Writes each item's text to its own file in `directory`, for TruffleHog's `filesystem` mode (#849:
+ * its GitHub mode asks `GET /user` first, which the Actions token is refused). The file name is the
+ * item's location reduced to letters, digits, `.`, `_` and `-`, so a result names where the text
+ * came from and no name can leave the folder; an index prefix keeps two items with one location
+ * apart. Returns the paths written, in order.
+ *
+ * @param {Item[]} items
+ * @param {string} directory
+ * @returns {string[]}
+ */
+export function dumpItems(items, directory) {
+	return items.map((item, index) => {
+		const name =
+			`${String(index).padStart(5, '0')}-${locationOf(item).replace(/[^A-Za-z0-9._-]+/g, '-')}`.slice(
+				0,
+				120
+			);
+		const path = join(directory, `${name}.txt`);
+		writeFileSync(path, item.text);
+		return path;
+	});
+}
+
+/**
+ * The `--dump` entry point: read everything, refuse on an incomplete read exactly as the matcher
+ * does, and only then write the files. Writes nothing on a refusal, so TruffleHog never reads a
+ * partial folder. Returns the exit status.
+ *
+ * @param {ScanSource} source
+ * @param {string} directory
+ * @param {(line: string) => void} log
+ * @returns {0 | 1}
+ */
+export function runDump(source, directory, log) {
+	const items = readCompletely(source, log);
+	if (items === null) return 1;
+	mkdirSync(directory, { recursive: true });
+	log(`wrote ${dumpItems(items, directory).length} files for TruffleHog`);
+	return 0;
 }
 
 /**
@@ -137,34 +218,8 @@ export function runScan(source, log, baseline = []) {
 		);
 		log(`calibration: ${KINDS.map((kind) => `${kind} ${planted[kind]}`).join(', ')}`);
 
-		const totals = source.totals();
-		const items = source.items();
-		const count = (/** @type {ItemKind} */ kind) => items.filter((i) => i.kind === kind).length;
-		const read = { items: count('item'), comments: count('comment'), commits: count('commit') };
-		log(
-			`read ${read.items} issues and pull requests and ${read.comments} comments, ` +
-				`${read.commits} commit messages; the repository reports ${totals.issues} issues, ` +
-				`${totals.pulls} pull requests and ${totals.commits} commits`
-		);
-
-		const refusals = [];
-		if (read.items === 0) refusals.push('read no issue or pull request');
-		if (read.items < totals.issues + totals.pulls) {
-			refusals.push(
-				`read ${read.items} issues and pull requests, fewer than the ` +
-					`${totals.issues + totals.pulls} the repository reports`
-			);
-		}
-		if (read.commits < totals.commits) {
-			refusals.push(
-				`read ${read.commits} commit messages, fewer than the ${totals.commits} reported`
-			);
-		}
-		if (refusals.length > 0) {
-			for (const refusal of refusals)
-				log(`REFUSED: ${refusal}. A clean result would mean nothing.`);
-			return 1;
-		}
+		const items = readCompletely(source, log);
+		if (items === null) return 1;
 
 		const findings = scanItems(items);
 		const admitted = new Set(baseline.map((entry) => entry.fingerprint));
@@ -367,8 +422,15 @@ if (isMain()) {
 	if (inActions) console.log(`::stop-commands::${token}`);
 	let status = /** @type {0 | 1} */ (1);
 	try {
-		const baseline = parseBaseline(readFileSync(baselinePath, 'utf8'));
-		status = runScan(githubSource(repo), (line) => console.log(line), baseline);
+		if (process.argv[3] === '--dump') {
+			// `--dump <directory>`: write the text for TruffleHog, after the same completeness check.
+			const directory = process.argv[4] ?? '';
+			if (!directory) throw new Error('--dump needs a directory');
+			status = runDump(githubSource(repo), directory, (line) => console.log(line));
+		} else {
+			const baseline = parseBaseline(readFileSync(baselinePath, 'utf8'));
+			status = runScan(githubSource(repo), (line) => console.log(line), baseline);
+		}
 	} catch (error) {
 		console.log(`FAILED before scanning: ${error instanceof Error ? error.message : error}`);
 	}
