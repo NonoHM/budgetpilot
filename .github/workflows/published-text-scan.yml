@@ -137,8 +137,10 @@ jobs:
           echo "TruffleHog exit $status; log $(wc -l < "$RUNNER_TEMP/trufflehog-scan.log") lines, $(jq -nR '[inputs | fromjson? | .msg] | length' "$RUNNER_TEMP/trufflehog-scan.log") JSON"
           jq -rR 'fromjson? | "\(.level // "?") \(.msg // "?")"' "$RUNNER_TEMP/trufflehog-scan.log" | sort | uniq -c | sort -rn | head -40
           # An error line's own text, cut short: it names what stopped the scan (a refused clone, a
-          # permission). The Actions token is masked by the runner in anything printed.
-          jq -rR 'fromjson? | select(.level == "error") | "error: \(.msg): \(.error // "" | tostring | .[0:300])"' "$RUNNER_TEMP/trufflehog-scan.log"
+          # permission). The Actions token is masked by the runner in anything printed. Control
+          # characters become spaces, so the text cannot start a new line that the runner would read as
+          # a workflow command (`::...`).
+          jq -rR 'fromjson? | select(.level == "error") | "error: \(.msg): \(.error // "" | tostring | gsub("[[:cntrl:]]"; " ") | .[0:300])"' "$RUNNER_TEMP/trufflehog-scan.log"
           # What it read, from its own log: the issue and pull request passes, and the totals.
           for pass in 'Scanning issues' 'Scanning pull requests'; do
             if ! grep -q "\"msg\":\"${pass}\"" "$RUNNER_TEMP/trufflehog-scan.log"; then
