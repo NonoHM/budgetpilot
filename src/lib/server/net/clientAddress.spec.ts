@@ -228,6 +228,39 @@ describe('resolveForwardedClientAddress', () => {
 		).toEqual(['2001:db8:1:2:3:4:5:6', '10.0.0.1', '10.0.0.1', '::3:4:5:6:7:8:9']);
 	});
 
+	// Separates « an ambiguous hop is read as written » from « it is read only where its two
+	// readings agree on the first 64 bits ». Written by a proxy that appends a port without
+	// brackets, `2001:db8::100:b:c:d:4431` is 2001:db8:0:0:100:b:c:d with port 4431, but reads as
+	// 2001:db8:0:100:b:c:d:4431, which moves the client's interface identifier into its prefix.
+	it('an unbracketed hop that may end in a port is unreadable where its readings disagree on the prefix', () => {
+		expect(
+			[
+				'6.6.6.6, 2001:db8::100:b:c:d:4431',
+				'6.6.6.6, 2001:db8::100:b:c:d:0',
+				'6.6.6.6, 2001::5600:100:b:c:d:4431'
+			].map((header) => resolveForwardedClientAddress('10.0.0.1', header, trusted))
+		).toEqual(Array(3).fill('10.0.0.1'));
+	});
+
+	// The calibration of the refusal above: where the two readings share their first 64 bits, the
+	// hop is read as written, so a proxy writing bare addresses (nginx, Caddy, HAProxy, Traefik)
+	// loses no client to the peer. The last spelling ends in a hex letter, which no port does.
+	it('an unbracketed hop whose readings agree on the prefix is read as written', () => {
+		expect(
+			[
+				'6.6.6.6, 2001:db8:0:5600::1:2',
+				'6.6.6.6, 2001:db8::5:1',
+				'6.6.6.6, 64:ff9b::c633:6407',
+				'6.6.6.6, 2001:db8::100:b:c:d:abcd'
+			].map((header) => resolveForwardedClientAddress('10.0.0.1', header, trusted))
+		).toEqual([
+			'2001:db8:0:5600::1:2',
+			'2001:db8::5:1',
+			'64:ff9b::c633:6407',
+			'2001:db8::100:b:c:d:abcd'
+		]);
+	});
+
 	it('the entry point every route calls applies the same reading', () => {
 		const request = new Request('http://app.example.test/login', {
 			headers: { 'x-forwarded-for': '6.6.6.6, 203.0.113.5:51234' }

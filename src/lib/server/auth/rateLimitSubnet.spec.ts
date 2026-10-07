@@ -114,6 +114,27 @@ describe('the address counter keys an IPv6 client by its /56', () => {
 });
 
 describe('an address has one counter however it is written', () => {
+	// Separates stripping the zone from keying the text whole: Node reports a link-local peer as
+	// `fe80::<id>%<interface>`, which `parseIp` refuses, and a text key gives every interface
+	// identifier on the segment its own counter. Reachable when the app listens on IPv6.
+	it('link-local peers on one interface share a counter, whatever identifier they pick', async () => {
+		expect(await queriedIpHash('REGISTER', 'fe80::abcd:1234%eth0')).toBe(
+			await queriedIpHash('REGISTER', 'fe80::1%eth0')
+		);
+	});
+
+	// Separates folding the well-known NAT64 prefix (RFC 6052, 64:ff9b::/96) from masking it: behind
+	// a translator every IPv4 client arrives inside that one /96, and a /56 of it is one counter for
+	// all of them, where each had its own before.
+	it('an IPv4 client behind the well-known NAT64 prefix keeps its IPv4 counter', async () => {
+		expect(await queriedIpHash('REGISTER', '64:ff9b::c633:6407')).toBe(
+			await queriedIpHash('REGISTER', '198.51.100.7')
+		);
+		expect(await queriedIpHash('REGISTER', '64:ff9b::198.51.100.6')).toBe(
+			await queriedIpHash('REGISTER', '198.51.100.6')
+		);
+	});
+
 	// Separates a numeric key from a textual one. A proxy and the socket can spell one address
 	// differently, and a textual key would give the client one counter per spelling.
 	it('the spellings of one IPv6 address share a counter', async () => {
@@ -153,8 +174,12 @@ describe('an address has one counter however it is written', () => {
  * with `::` cannot be told from an address followed by a port. When the proxy appended a port, the
  * reading is shifted by one group: the `::` stands for one zero group fewer, and the client's
  * interface identifier, which the client chooses, moves into the fourth group, inside the /56. A
- * client choosing a source port below 10000 makes the port read as a group, so this is reachable
- * behind any trusted proxy that writes an unbracketed IPv6 with its port.
+ * client choosing a source port below 10000, or port 0, makes the port read as a group, so this is
+ * reachable behind any trusted proxy that writes an unbracketed IPv6 with its port.
+ *
+ * Such a hop is unreadable where its two readings (as written, and without its last group) disagree
+ * on the first 64 bits, and the walk stops at the proxy, as it does for every unreadable hop. Where
+ * they agree, either reading gives the same key at any prefix the setting accepts.
  *
  * Driven through `resolveClientAddress`, the function every route calls before the limiter, with
  * the peer on the trusted list exactly as a proxy deployment has it.
@@ -178,7 +203,7 @@ describe('a forwarded hop read with its port shifted in', () => {
 	/** Every first interface-identifier group whose high byte reaches the /56 when shifted. */
 	const FIRST_GROUPS = Array.from({ length: 255 }, (_, i) => ((i + 1) << 8).toString(16));
 
-	// Separates a key built from the bits both readings agree on from a /56 of the shifted
+	// Separates refusing a hop whose readings disagree on the prefix from keying the shifted
 	// reading, which lets the client pick 255 counters by picking its interface identifier.
 	it('a client in 2001:db8::/64 holds one counter whatever interface identifier it picks', async () => {
 		const hashes = new Set<string>();
@@ -187,10 +212,19 @@ describe('a forwarded hop read with its port shifted in', () => {
 		}
 		expect(FIRST_GROUPS).toHaveLength(255);
 		expect(hashes.size).toBe(1);
-		// And it is the client's own counter: the one its address has when the proxy brackets it.
-		expect([...hashes][0]).toBe(
-			await queriedIpHash('REGISTER', routeAddress('[2001:db8::100:b:c:d]:4431'))
-		);
+		// The one counter is the proxy's: the hop was unreadable and the walk stopped at the peer.
+		expect([...hashes][0]).toBe(await queriedIpHash('REGISTER', PROXY));
+	});
+
+	// Separates a condition on « a group of decimal digits » from one on « a port of at least 1 »:
+	// port 0 shifts the reading exactly as any other.
+	it('the same holds when the port written is 0', async () => {
+		const hashes = new Set<string>();
+		for (const group of FIRST_GROUPS) {
+			hashes.add(await queriedIpHash('REGISTER', routeAddress(`2001:db8::${group}:b:c:d:0`)));
+		}
+		expect(FIRST_GROUPS).toHaveLength(255);
+		expect(hashes.size).toBe(1);
 	});
 
 	// Separates the same from a key that only holds when the zero run reaches the fourth group:
