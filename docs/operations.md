@@ -41,11 +41,12 @@ If `.env` pins an exact version, such as `BUDGETPILOT_VERSION=1.2.3`, which is
 what the `.env` block in the README and getting started writes, change it to
 the new number from the
 [releases page](https://github.com/NonoHM/budgetpilot/releases/latest) first.
-Otherwise the pull fetches the same version again. Then:
+Otherwise the pull fetches the same version again. Then, with the
+`COMPOSE_FILE` export from the top of this page or the `-f` flag:
 
 ```bash
-docker compose pull
-docker compose up -d
+docker compose -f docker-compose.prebuilt.yml pull
+docker compose -f docker-compose.prebuilt.yml up -d
 ```
 
 `docker compose pull` follows whichever tag you pinned. On `latest` that

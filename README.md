@@ -123,7 +123,7 @@ The block creates `.env` readable by your account only, because it holds the thr
 
 `BUDGETPILOT_VERSION` decides which image you run. Pin it and you know what you are on, and the app shows the same number in **Settings**. Leave it out and Docker quietly reuses whatever it downloaded last time, which is how people end up running a version they never chose.
 
-If the lookup cannot reach GitHub, no `.env` is written and the message tells you what to do instead. It will not fall back to an unpinned image behind your back. To upgrade later, change `BUDGETPILOT_VERSION` in `.env`, then pull and start again, as [updating](docs/operations.md#updating) describes.
+If the lookup cannot reach GitHub, no `.env` is written and the message tells you what to do instead. It will not fall back to an unpinned image behind your back. To upgrade later, change `BUDGETPILOT_VERSION` in `.env` to the new number, then run `docker compose -f docker-compose.prebuilt.yml pull` and `docker compose -f docker-compose.prebuilt.yml up -d`, as [updating](docs/operations.md#updating) describes. Never paste the block again: it refuses, because new secrets would lock out two-factor.
 
 You will not find an `ORIGIN` line, on purpose. The compose file works it out from `APP_PORT`, so changing the port here is all you need. Set `ORIGIN` yourself only for a LAN address, a hostname, or a reverse proxy. See [configuration](docs/configuration.md).
 
