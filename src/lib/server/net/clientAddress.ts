@@ -154,6 +154,41 @@ export function ipIsTrusted(ip: string, trusted: readonly CidrRange[]): boolean 
 	});
 }
 
+/** A port as a proxy writes one after an address: 1 to 65535, as nginx's `ngx_parse_addr_port`. */
+function isPort(text: string): boolean {
+	return /^\d{1,5}$/.test(text) && Number(text) >= 1 && Number(text) <= 65535;
+}
+
+/**
+ * The address one X-Forwarded-For hop names, or null when it names none.
+ *
+ * Proxies write the client either bare or with the port it connected from: Azure Application
+ * Gateway writes « a comma-separated list of IP:port », IIS ARR likewise. Read, in order:
+ * `[ipv6]` and `[ipv6]:port` (RFC 3986's form); `a.b.c.d:port`; nine colon-separated groups whose
+ * last is a port, which cannot be an address and so is an unbracketed IPv6 with its port; anything
+ * else whole. An unbracketed IPv6 of eight groups or fewer followed by a port cannot be told from
+ * an address and is read as one: docs/reverse-proxy.md asks the proxy to bracket it.
+ */
+function readForwardedHop(hop: string): string | null {
+	const text = hop.trim();
+	const bracketed = /^\[([^\]]*)\](?::(.*))?$/.exec(text);
+	let address = text;
+	if (bracketed) {
+		if (bracketed[2] !== undefined && !isPort(bracketed[2])) return null;
+		address = bracketed[1];
+		if (!address.includes(':')) return null;
+	} else if (text.includes('.') && text.split(':').length === 2) {
+		const [v4, port] = text.split(':');
+		if (!isPort(port)) return null;
+		address = v4;
+	} else if (text.split(':').length === 9 && !text.includes('::')) {
+		const cut = text.lastIndexOf(':');
+		if (!isPort(text.slice(cut + 1))) return null;
+		address = text.slice(0, cut);
+	}
+	return parseIp(address) ? address : null;
+}
+
 /**
  * The real client IP for rate limiting.
  *
@@ -162,6 +197,12 @@ export function ipIsTrusted(ip: string, trusted: readonly CidrRange[]): boolean 
  * is trusted, the client is the rightmost XFF entry that is NOT itself an allowlisted proxy, which
  * walks back through a chain of trusted proxies without an XFF-depth setting: each hop the operator
  * trusts is skipped, and the first address none of them vouches for is the client.
+ *
+ * FAIL CLOSED on a hop that names no address: the walk ends at the peer. Every entry left of the
+ * one the proxy appended is text the client sent, so continuing past an unreadable hop would hand
+ * the choice of address to the client. nginx's realip module and ASP.NET Core's
+ * ForwardedHeadersMiddleware also stop at an unparsable entry; they keep the last address already
+ * read, where this keeps the peer.
  */
 export function resolveForwardedClientAddress(
 	peer: string,
@@ -172,14 +213,11 @@ export function resolveForwardedClientAddress(
 	if (!ipIsTrusted(peer, trusted)) return peer; // spoofed from a non-proxy source: ignore XFF
 	if (!forwardedFor) return peer;
 
-	const hops = forwardedFor
-		.split(',')
-		.map((hop) => hop.trim())
-		.filter(Boolean);
+	const hops = forwardedFor.split(',');
 	for (let i = hops.length - 1; i >= 0; i -= 1) {
-		const hop = hops[i];
-		if (!parseIp(hop)) continue; // skip a malformed segment rather than key on garbage
-		if (!ipIsTrusted(hop, trusted)) return hop;
+		const address = readForwardedHop(hops[i]);
+		if (address === null) return peer;
+		if (!ipIsTrusted(address, trusted)) return address;
 	}
 	return peer;
 }

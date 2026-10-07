@@ -218,7 +218,7 @@ special about the app: terminate TLS, forward to the container on port 3000,
 and set `ORIGIN` to the public HTTPS URL. Don't use the overlay in that
 case, just publish `APP_PORT` as usual and point your proxy at it.
 
-Two things to carry over yourself:
+Three things to carry over yourself:
 
 - Set `TRUSTED_PROXIES` to your proxy's address or CIDR so the per-IP rate
   limits see real client addresses. Find it with `docker network inspect` on
@@ -228,6 +228,18 @@ Two things to carry over yourself:
   set. Only trust the header once the app is unreachable except through your
   proxy: a client that can reach the app from inside the trusted range can
   still forge the header.
+- Make your proxy add the visitor's address to `X-Forwarded-For`. Caddy and
+  Traefik do this without any setting. In nginx, add
+  `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;`, and in
+  HAProxy, add `option forwardfor`. A proxy that passes the visitor's own
+  header through unchanged lets the visitor choose the address the rate
+  limits count.
+
+  If your proxy writes the port after the address, it must put IPv6
+  addresses in brackets, like `[2001:db8::7]:51234`. When BudgetPilot meets an
+  entry it cannot read, it counts the request as coming from your proxy, so
+  every such visitor shares one limit.
+
 - Remove the whole query string from the logged request address and from
   the logged `Location` response header, not a list of parameters by name. The bank sync callback's `code` and `state`, the
   invitation token and what users type to find their own transactions all
