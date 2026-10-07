@@ -218,7 +218,7 @@ special about the app: terminate TLS, forward to the container on port 3000,
 and set `ORIGIN` to the public HTTPS URL. Don't use the overlay in that
 case, just publish `APP_PORT` as usual and point your proxy at it.
 
-Two things to carry over yourself:
+Three things to carry over yourself:
 
 - Set `TRUSTED_PROXIES` to your proxy's address or CIDR so the per-IP rate
   limits see real client addresses. Find it with `docker network inspect` on
@@ -228,6 +228,16 @@ Two things to carry over yourself:
   set. Only trust the header once the app is unreachable except through your
   proxy: a client that can reach the app from inside the trusted range can
   still forge the header.
+- Make the proxy add the address it sees to `X-Forwarded-For`, or replace
+  the header, never pass the client's header through unchanged: the app
+  reads the rightmost entry your proxy did not vouch for, and a header passed
+  through untouched lets the client write that entry. nginx does this with
+  `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for`, HAProxy with
+  `option forwardfor`. The app reads an entry written with its port
+  (`203.0.113.7:51234`), but an IPv6 address followed by a port must be in
+  brackets (`[2001:db8::7]:51234`), because without them the port reads as
+  part of the address. When the app cannot read your proxy's entry at all,
+  it rate limits every visitor as your proxy's own address.
 - Remove the whole query string from the logged request address and from
   the logged `Location` response header, not a list of parameters by name. The bank sync callback's `code` and `state`, the
   invitation token and what users type to find their own transactions all
