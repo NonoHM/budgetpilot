@@ -212,9 +212,10 @@ const SAFE_DEFAULT = '/';
 const SINGLE_SLASH_VISIBLE_ASCII = /^\/(?!\/)[\x21-\x7e]*$/;
 
 /** Clause 2. A browser's URL parser reads a backslash as a slash, so `/\host` is `//host`. Read
- * over the whole value, query included: a target whose query carries a raw backslash, which the
- * parser leaves unencoded there, is refused, and that visitor lands on `/`. A loss accepted so that
- * the clause stays one test. */
+ * over the whole value, query included: a value whose query carries a raw backslash, which the
+ * parser leaves unencoded there, is refused. The sign-in callers below never reach that case,
+ * since `requestedPath` cuts the query off first (#838); the clause stays one test for any other
+ * caller. */
 const BACKSLASH = /\\/;
 
 /** Clause 3. A dot segment, `%2e` included: resolved, `/.//host` collapses to `//host`. No producer
