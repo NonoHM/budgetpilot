@@ -82,21 +82,30 @@ curl -O https://raw.githubusercontent.com/NonoHM/budgetpilot/main/docker-compose
 Create your `.env`. This block generates three secrets and looks up the current release for you. Paste it whole:
 
 ```bash
-BUDGETPILOT_VERSION=$(curl -fsSL https://api.github.com/repos/NonoHM/budgetpilot/releases/latest \
-  | grep -o '"tag_name": *"[^"]*"' | cut -d'"' -f4 | sed 's/.*v//')
+BUDGETPILOT_VERSION=${BUDGETPILOT_VERSION:-$(curl -fsSL https://api.github.com/repos/NonoHM/budgetpilot/releases/latest \
+  | grep -o '"tag_name": *"[^"]*"' | cut -d'"' -f4 | sed 's/.*v//')}
 
-cat > .env <<EOF
+if [ -e .env ]; then
+  echo ".env already exists, so nothing was written: new secrets would make every two-factor setup unreadable. To change version, see https://github.com/NonoHM/budgetpilot/blob/main/docs/operations.md#updating"
+elif [ -z "$BUDGETPILOT_VERSION" ]; then
+  echo "Could not reach the Releases API, so no .env was written. Take the number from https://github.com/NonoHM/budgetpilot/releases/latest, run BUDGETPILOT_VERSION=x.y.z, then paste this block again."
+else
+  (umask 077 && cat > .env <<EOF
 BOOTSTRAP_TOKEN=$(openssl rand -base64 32)
 RATE_LIMIT_HASH_SECRET=$(openssl rand -hex 32)
 TOTP_ENCRYPTION_KEY=$(openssl rand -hex 32)
-BUDGETPILOT_VERSION=${BUDGETPILOT_VERSION:?Could not reach the Releases API. Take the number from https://github.com/NonoHM/budgetpilot/releases/latest and run BUDGETPILOT_VERSION=x.y.z, then paste this block again.}
+BUDGETPILOT_VERSION=$BUDGETPILOT_VERSION
 APP_PORT=3000
 EOF
+  )
+fi
 ```
+
+The block creates `.env` readable by your account only, because it holds the three secrets. If a `.env` already exists, it writes nothing: new secrets would make every two-factor setup unreadable.
 
 `BUDGETPILOT_VERSION` decides which image you run. Pin it and you know what you are on, and the app shows the same number in **Settings**. Leave it out and Docker quietly reuses whatever it downloaded last time, which is how people end up running a version they never chose.
 
-If the lookup cannot reach GitHub, no `.env` is written and the message tells you what to do instead. It will not fall back to an unpinned image behind your back. To upgrade later, run the same block again. See [running it day to day](docs/operations.md).
+If the lookup cannot reach GitHub, no `.env` is written and the message tells you what to do instead. It will not fall back to an unpinned image behind your back. To upgrade later, change `BUDGETPILOT_VERSION` in `.env`, then pull and start again, as [updating](docs/operations.md#updating) describes.
 
 You will not find an `ORIGIN` line, on purpose. The compose file works it out from `APP_PORT`, so changing the port here is all you need. Set `ORIGIN` yourself only for a LAN address, a hostname, or a reverse proxy. See [configuration](docs/configuration.md).
 

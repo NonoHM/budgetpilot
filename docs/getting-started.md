@@ -61,17 +61,28 @@ secrets at rest. This block generates all three and writes the file for you.
 Paste it whole:
 
 ```bash
-BUDGETPILOT_VERSION=$(curl -fsSL https://api.github.com/repos/NonoHM/budgetpilot/releases/latest \
-  | grep -o '"tag_name": *"[^"]*"' | cut -d'"' -f4 | sed 's/.*v//')
+BUDGETPILOT_VERSION=${BUDGETPILOT_VERSION:-$(curl -fsSL https://api.github.com/repos/NonoHM/budgetpilot/releases/latest \
+  | grep -o '"tag_name": *"[^"]*"' | cut -d'"' -f4 | sed 's/.*v//')}
 
-cat > .env <<EOF
+if [ -e .env ]; then
+  echo ".env already exists, so nothing was written: new secrets would make every two-factor setup unreadable. To change version, see https://github.com/NonoHM/budgetpilot/blob/main/docs/operations.md#updating"
+elif [ -z "$BUDGETPILOT_VERSION" ]; then
+  echo "Could not reach the Releases API, so no .env was written. Take the number from https://github.com/NonoHM/budgetpilot/releases/latest, run BUDGETPILOT_VERSION=x.y.z, then paste this block again."
+else
+  (umask 077 && cat > .env <<EOF
 BOOTSTRAP_TOKEN=$(openssl rand -base64 32)
 RATE_LIMIT_HASH_SECRET=$(openssl rand -hex 32)
 TOTP_ENCRYPTION_KEY=$(openssl rand -hex 32)
-BUDGETPILOT_VERSION=${BUDGETPILOT_VERSION:?Could not reach the Releases API. Take the number from https://github.com/NonoHM/budgetpilot/releases/latest and run BUDGETPILOT_VERSION=x.y.z, then paste this block again.}
+BUDGETPILOT_VERSION=$BUDGETPILOT_VERSION
 APP_PORT=3000
 EOF
+  )
+fi
 ```
+
+The block creates `.env` readable by your account only, because it holds the
+three secrets. If a `.env` already exists, it writes nothing: new secrets would
+make every two-factor setup unreadable.
 
 Check it worked:
 
