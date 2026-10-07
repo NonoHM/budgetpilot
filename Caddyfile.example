@@ -45,22 +45,22 @@ budget.example.com {
 
 	# What the access log must not keep, and where each item comes from.
 	#
-	# The bank consent callback carries an OAuth-style one-time `code` in its
-	# query string. Dropping `code` and `state` from the access log keeps that
-	# secret out of a file that tends to be world-readable, shipped to a log
-	# collector, or kept far longer than the code stays valid.
+	# The query string, all of it. It carries the bank consent callback's
+	# one-time `code` and `state`, the invitation token in `invite` (#825), the
+	# page a sign-in returns to in `redirectTo`, and what the user typed to find
+	# their own transactions: the search term `q`, and the `category`, `from`,
+	# `to`, `tag`, `importBatch` and `qMode` the app writes into its own list,
+	# paging and export links. An access log tends to be world-readable, shipped
+	# to a log collector, or kept far longer than any of that stays valid or
+	# private, and it is the one place in this stack that would keep it in
+	# plaintext outside the database.
 	#
-	# `q` is dropped for the same reason with a different payload: it is the
-	# /transactions search term, so it holds whatever merchant, amount or note
-	# the user typed to find their own transactions. An access log is the one
-	# place in this stack that would keep that in plaintext outside the
-	# database, tailed, rotated, and often shipped to a collector.
-	#
-	# `redirectTo` and `invite` are the same kind of leak. The login redirect
-	# puts the page the user was on into `redirectTo`: its path only since
-	# #838, its search string too in older versions, and a bookmarked or
-	# crafted link can still carry one. `invite` carries the invitation token
-	# (#825).
+	# The filter removes everything from the `?` on, so the log keeps the path.
+	# It used to delete parameters by name, and that list had missed the six
+	# filter parameters above (#838): a list of names drifts each time a link
+	# gains a parameter, a pattern does not. Caddy takes ONE filter per field,
+	# so never add a second `request>uri` line. Measured on Caddy 2.11: one
+	# order is refused at startup, the other silently drops the earlier line.
 	#
 	# The `Referer` header is the other door, and filtering the URL alone left
 	# it open. The app sends `Referrer-Policy: same-origin`, which puts the FULL
@@ -79,13 +79,7 @@ budget.example.com {
 		format filter {
 			wrap console
 			fields {
-				request>uri query {
-					delete code
-					delete state
-					delete q
-					delete redirectTo
-					delete invite
-				}
+				request>uri regexp \?.* ""
 				request>headers>Referer delete
 
 				# The client address is personal data too, and it is logged raw by
