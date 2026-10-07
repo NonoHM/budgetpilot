@@ -308,7 +308,8 @@ Failed sign-ins, two-factor codes, registrations, invitation links, bank
 connections and imports are each limited per address in a sliding 15-minute
 window, and all but registrations and invitation links also per account or
 per sign-in. An IPv4 address counts as one client. An IPv6
-address counts by its first 56 bits, because an internet provider gives each
+address counts by its first 56 bits (one reached through the NAT64 prefix
+`64:ff9b::/96` counts as its IPv4 address), because an internet provider gives each
 customer a whole block of IPv6 addresses rather than one: RIPE-690, the
 European operators' recommendation, advises a /56 for a home and a /48 for a
 business, and a phone network gives each phone its own /64. Counted one address
@@ -316,9 +317,9 @@ at a time, one customer could change address before every attempt and never
 reach the limit.
 
 Everyone inside one /56 shares that budget, as everyone behind one home router
-shares one IPv4 address. A person who fails five times locks the address limit
-for the others in the block for up to 15 minutes; the limit on each account is
-separate and still applies.
+shares one IPv4 address. A person who fails to sign in five times locks the sign-in
+address limit for the others in the block for up to 15 minutes; the limit on
+each account is separate and still applies.
 
 - Lower it to `48` if your users connect from businesses, which may hold a
   whole /48: at 56, each /56 inside a /48 is a separate client.

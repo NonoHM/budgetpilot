@@ -174,10 +174,14 @@ function isPort(text: string): boolean {
  * prefix the rate limiter keys on (`rateLimitAddressKey`): `2001:db8::100:b:c:d:4431` is
  * 2001:db8:0:0:100:b:c:d with port 4431, and reads as 2001:db8:0:100:b:c:d:4431. Where the text
  * without its last group is also an address, the two readings must share their first 64 bits, the
- * longest prefix the limiter accepts, so either gives the same key; otherwise the hop is
- * unreadable, and the walk stops at the peer as for any unreadable hop. Both readings are returned,
- * because the walk must also ask whether each is a trusted proxy. A bare address with no port, as
- * nginx, Caddy, HAProxy and Traefik write it, is refused only when its zero run ends before its
+ * longest prefix the limiter accepts, so either gives the same IPv6 key; otherwise the hop is
+ * unreadable, and the walk stops at the peer as for any unreadable hop. The exception is a reading
+ * `rateLimitAddressKey` folds to IPv4 (NAT64, mapped): written with a port, such a client keys on
+ * the shared prefix of the whole reading, which fails closed. Both readings are returned, because
+ * the walk must also ask whether each is a trusted proxy, and a hop whose readings disagree on that
+ * stops the walk: an IPv6 proxy trusted as a single address can then cut an honest chain short,
+ * which docs/reverse-proxy.md avoids by trusting its /64. A bare address with no port, written as
+ * RFC 5952 asks (nginx, Caddy, HAProxy, Traefik), is refused only when its zero run ends before its
  * fourth group, at least two groups follow it, and its last group happens to be all digits:
  * `X:0:0:S:…`, the first /48 of a /16.
  */
