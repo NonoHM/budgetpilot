@@ -37,7 +37,7 @@ after the rotation can no longer be matched ([logs](./logging.md#the-client-addr
 already use. Edit `.env` directly to flip a single setting.
 
 Keep `.env` readable by your account only: `chmod 600 .env`. `npm run setup`
-already does. When the `.env` in the directory the app starts from can be read
+and the `.env` block in the README already do. When the `.env` in the directory the app starts from can be read
 or written by other accounts on the machine, the app logs a
 `budgetpilot.config.env_file_exposed` warning at startup with the mode it
 found ([logs](./logging.md#what-to-do)). It reads that one file only, not
