@@ -239,9 +239,13 @@ describe('resolveForwardedClientAddress', () => {
 			[
 				'6.6.6.6, 2001:db8::100:b:c:d:4431',
 				'6.6.6.6, 2001:db8::100:b:c:d:0',
-				'6.6.6.6, 2001::5600:100:b:c:d:4431'
+				'6.6.6.6, 2001::5600:100:b:c:d:4431',
+				// The readings differ only in bits 56 to 63 (0:ff against 0:0), inside the /64 the
+				// setting may be raised to and outside the default /56: separates comparing the first 64
+				// bits from comparing the first 56.
+				'6.6.6.6, 2001:db8::ff:b:c:d:4431'
 			].map((header) => resolveForwardedClientAddress('10.0.0.1', header, trusted))
-		).toEqual(Array(3).fill('10.0.0.1'));
+		).toEqual(Array(4).fill('10.0.0.1'));
 	});
 
 	// The calibration of the refusal above: where the two readings share their first 64 bits, the
