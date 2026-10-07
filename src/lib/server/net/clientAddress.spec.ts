@@ -172,9 +172,11 @@ describe('resolveForwardedClientAddress', () => {
 				'6.6.6.6, 2001:db8::5:51234',
 				'6.6.6.6, 203.0.113.5:51234:1',
 				// Port 0 is no source port; nginx's ngx_parse_addr_port refuses it too.
-				'6.6.6.6, 203.0.113.5:0'
+				'6.6.6.6, 203.0.113.5:0',
+				'6.6.6.6, [2001:db8::5]:99999',
+				'6.6.6.6, [2001:db8::5]:http'
 			].map((header) => resolveForwardedClientAddress('10.0.0.1', header, trusted))
-		).toEqual(Array(7).fill('10.0.0.1'));
+		).toEqual(Array(9).fill('10.0.0.1'));
 	});
 
 	it('an unreadable value the client wrote to the left is never reached', () => {
@@ -204,7 +206,7 @@ describe('resolveForwardedClientAddress', () => {
 		fc.assert(
 			fc.property(fc.string({ maxLength: 40 }), appended, (prefix, { hop, expected }) => {
 				const header = `${prefix}, 6.6.6.6, ${hop}`;
-				return resolveForwardedClientAddress('10.0.0.1', header, trusted) === expected;
+				expect(resolveForwardedClientAddress('10.0.0.1', header, trusted)).toBe(expected);
 			}),
 			{ seed: 7239, numRuns: 2000 }
 		);
