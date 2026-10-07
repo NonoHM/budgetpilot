@@ -1,5 +1,13 @@
 import type { Cookies } from '@sveltejs/kit';
-import { createSessionToken, hashSessionToken, areSecureCookiesEnabled } from '$lib/server/auth';
+import {
+	createSessionToken,
+	hashSessionToken,
+	areSecureCookiesEnabled,
+	passwordStillCurrent,
+	SignInSuperseded,
+	type TransactionClient
+} from '$lib/server/auth';
+import { isTransientWriteConflict, withConcurrentWriteRetry } from '$lib/server/database/upsert';
 import { prisma } from '$lib/server/db';
 
 export const MFA_PENDING_COOKIE = 'budgetpilot_mfa_pending';
@@ -17,14 +25,27 @@ function getChallengeCookieOptions(expires: Date) {
 
 // Opaque token like Session: only its hash is persisted, never the userId in clear
 // text client-side. Never creates a usable session — just a token pending a TOTP code.
-export async function createMfaChallenge(userId: string, cookies: Cookies): Promise<void> {
+// Written only while `verifiedHash` is still the account's password (#923): a password change
+// committed during the comparison throws `SignInSuperseded`, one committed after deletes the row.
+export async function createMfaChallenge(
+	userId: string,
+	verifiedHash: string,
+	cookies: Cookies
+): Promise<void> {
 	const token = createSessionToken();
 	const expiresAt = new Date(Date.now() + CHALLENGE_TTL_MS);
 
 	await prisma.pendingMfaChallenge.deleteMany({ where: { expiresAt: { lt: new Date() } } });
-	await prisma.pendingMfaChallenge.create({
-		data: { userId, tokenHash: hashSessionToken(token), expiresAt }
-	});
+	await withConcurrentWriteRetry(
+		() =>
+			prisma.$transaction(async (tx) => {
+				await passwordStillCurrent(tx, userId, verifiedHash);
+				await tx.pendingMfaChallenge.create({
+					data: { userId, tokenHash: hashSessionToken(token), expiresAt }
+				});
+			}),
+		isTransientWriteConflict
+	);
 
 	cookies.set(MFA_PENDING_COOKIE, token, getChallengeCookieOptions(expiresAt));
 }
@@ -48,9 +69,23 @@ export async function readMfaChallenge(cookies: Cookies): Promise<PendingChallen
 	return { id: challenge.id, userId: challenge.userId };
 }
 
-// Single-use, called only after a valid TOTP/backup code (or if MFA was
-// disabled in the meantime): a failed code doesn't consume the challenge, only rate
-// limiting by challenge id + IP bounds the number of attempts.
+/**
+ * Claims the challenge for the session written in the same transaction (`createSession`'s
+ * `stillProven`), after a valid code: deleted here, and only if it is still there and unexpired.
+ * A challenge ended meanwhile by a password change or « log out other sessions »
+ * (`endPendingSignIns`) matches nothing, and the sign-in is refused with `SignInSuperseded` (#923).
+ * Checked by the count, never by an earlier read: the read at the start of the request is what a
+ * change landing during the code check makes stale.
+ */
+export async function claimMfaChallenge(tx: TransactionClient, id: string): Promise<void> {
+	const { count } = await tx.pendingMfaChallenge.deleteMany({
+		where: { id, expiresAt: { gt: new Date() } }
+	});
+	if (count !== 1) throw new SignInSuperseded();
+}
+
+// Single-use, called when MFA was disabled in the meantime: a failed code doesn't consume the
+// challenge, only rate limiting by challenge id + IP bounds the number of attempts.
 export async function consumeMfaChallenge(id: string, cookies: Cookies): Promise<void> {
 	await prisma.pendingMfaChallenge.deleteMany({ where: { id } });
 	clearMfaChallengeCookie(cookies);

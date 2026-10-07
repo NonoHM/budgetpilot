@@ -5,8 +5,8 @@ vi.hoisted(() => {
 		'0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'.slice(0, 64);
 });
 
-const db = vi.hoisted(() => ({
-	prisma: {
+const db = vi.hoisted(() => {
+	const prisma = {
 		user: {
 			findUnique: vi.fn(),
 			updateMany: vi.fn(),
@@ -27,12 +27,19 @@ const db = vi.hoisted(() => ({
 		recoveryCode: {
 			findMany: vi.fn(),
 			updateMany: vi.fn()
-		}
-	}
-}));
+		},
+		// `createSession` writes inside a transaction (#923); the fake runs it against itself.
+		$transaction: vi.fn(async (callback: (client: unknown) => Promise<unknown>) => callback(prisma))
+	};
+	return { prisma };
+});
 
 const mfaChallenge = vi.hoisted(() => ({
 	readMfaChallenge: vi.fn(),
+	// The claim runs inside the session's transaction (#923); here it succeeds, and what the route
+	// does with a refused one is the sign-in's to answer.
+	claimMfaChallenge: vi.fn(async () => undefined),
+	clearMfaChallengeCookie: vi.fn(),
 	consumeMfaChallenge: vi.fn(async () => undefined)
 }));
 
@@ -67,7 +74,7 @@ describe('/login/verify-totp action', () => {
 	});
 
 	it('crée une session et consomme le challenge sur code TOTP valide', async () => {
-		expect.assertions(3);
+		expect.assertions(4);
 
 		const secret = generateTotpSecretBase32();
 		const totp = new OTPAuth.TOTP({ secret: OTPAuth.Secret.fromBase32(secret) });
@@ -85,7 +92,8 @@ describe('/login/verify-totp action', () => {
 		await expect(runVerify(cookies, code)).rejects.toMatchObject({ status: 303 });
 
 		expect(db.prisma.session.create).toHaveBeenCalledTimes(1);
-		expect(mfaChallenge.consumeMfaChallenge).toHaveBeenCalledWith('challenge-1', cookies);
+		expect(mfaChallenge.claimMfaChallenge).toHaveBeenCalledWith(expect.anything(), 'challenge-1');
+		expect(mfaChallenge.clearMfaChallengeCookie).toHaveBeenCalledWith(cookies);
 	});
 
 	// #818: a valid code whose step was already accepted. Whether the step WAS accepted is the

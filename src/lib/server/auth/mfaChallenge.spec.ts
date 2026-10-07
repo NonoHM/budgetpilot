@@ -1,14 +1,20 @@
 import { describe, expect, it, vi } from 'vitest';
 
-const db = vi.hoisted(() => ({
-	prisma: {
+// The transaction runs its callback against the same fake. Whether the password check refuses a
+// superseded hash is decided by the engine, so it is asserted in `pendingSignIn.db-smoke.ts`.
+const db = vi.hoisted(() => {
+	const prisma = {
 		pendingMfaChallenge: {
 			create: vi.fn(),
 			findUnique: vi.fn(),
 			deleteMany: vi.fn()
-		}
-	}
-}));
+		},
+		user: { updateMany: vi.fn(async () => ({ count: 1 })) },
+		$transaction: vi.fn()
+	};
+	prisma.$transaction.mockImplementation((run: (tx: typeof prisma) => unknown) => run(prisma));
+	return { prisma };
+});
 
 vi.mock('$lib/server/db', () => ({ prisma: db.prisma }));
 
@@ -37,7 +43,7 @@ describe('createMfaChallenge', () => {
 		db.prisma.pendingMfaChallenge.create.mockResolvedValue({ id: 'challenge-1' });
 		const cookies = fakeCookies();
 
-		await createMfaChallenge('user-a', cookies as never);
+		await createMfaChallenge('user-a', 'hash-a', cookies as never);
 
 		expect(cookies.set).toHaveBeenCalledWith(
 			MFA_PENDING_COOKIE,

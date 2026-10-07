@@ -4,6 +4,9 @@ const tx = vi.hoisted(() => ({
 	session: {
 		deleteMany: vi.fn()
 	},
+	pendingMfaChallenge: {
+		deleteMany: vi.fn(async () => ({ count: 0 }))
+	},
 	transaction: {
 		deleteMany: vi.fn()
 	},

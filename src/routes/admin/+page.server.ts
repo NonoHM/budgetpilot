@@ -2,6 +2,7 @@ import { fail, type Actions } from '@sveltejs/kit';
 import * as m from '$lib/paraglide/messages';
 import {
 	commitWithRotatedToken,
+	endPendingSignIns,
 	generateTemporaryPassword,
 	hashPassword,
 	isNonAsciiEmail,
@@ -141,6 +142,9 @@ export const actions: Actions = {
 					forcePasswordChange: true
 				}
 			});
+			// The target's sign-ins waiting at their code step end with the password, before the
+			// sessions (#923, see `endPendingSignIns`).
+			await endPendingSignIns(tx, targetUserId);
 			await tx.session.deleteMany({ where: { userId: targetUserId } });
 		});
 

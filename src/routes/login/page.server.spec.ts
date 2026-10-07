@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
-const db = vi.hoisted(() => ({
-	prisma: {
+const db = vi.hoisted(() => {
+	const prisma = {
 		user: {
 			// `load` calls isSelfRegistrationOpen(), which counts users. Non-zero so these cases
 			// exercise an ordinary claimed instance rather than the bootstrap state.
@@ -19,9 +19,20 @@ const db = vi.hoisted(() => ({
 		categoryNatureMapping: {
 			findMany: vi.fn(),
 			createMany: vi.fn()
-		}
-	}
-}));
+		},
+		// `createSession` writes inside a transaction (#923); the fake runs it against itself.
+		$transaction: vi.fn(async (callback: (client: unknown) => Promise<unknown>) => callback(prisma))
+	};
+	return { prisma };
+});
+
+/**
+ * `user.updateMany` answers two claims on the password step: the seeding's (`count: 0`, already
+ * seeded) and the compare-and-set that the verified hash is still the password (#923, `count: 1`).
+ */
+function answerUserUpdateMany(args: { data: Record<string, unknown> }) {
+	return { count: 'passwordHash' in args.data ? 1 : 0 };
+}
 
 const rateLimit = vi.hoisted(() => ({
 	isLoginRateLimited: vi.fn(async () => false),
@@ -47,7 +58,7 @@ describe('/login action', () => {
 		db.prisma.user.findUnique.mockResolvedValue({ id: 'user-a', passwordHash });
 		db.prisma.session.create.mockResolvedValue({ id: 'session-a' });
 		// ensureDefaultCategoriesSeeded calls user.updateMany; count:0 = already seeded, no-op.
-		db.prisma.user.updateMany.mockResolvedValue({ count: 0 });
+		db.prisma.user.updateMany.mockImplementation(async (args) => answerUserUpdateMany(args));
 		const cookies = { get: vi.fn(), set: vi.fn() };
 
 		await expect(
@@ -163,7 +174,7 @@ describe('/login action', () => {
 			location: expect.stringContaining('/login/verify-totp')
 		});
 
-		expect(mfaChallenge.createMfaChallenge).toHaveBeenCalledWith('user-a', cookies);
+		expect(mfaChallenge.createMfaChallenge).toHaveBeenCalledWith('user-a', passwordHash, cookies);
 		expect(db.prisma.session.create).not.toHaveBeenCalled();
 		expect(cookies.set).not.toHaveBeenCalled();
 	});

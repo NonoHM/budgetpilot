@@ -2,15 +2,18 @@ import bcrypt from 'bcrypt';
 import fc from 'fast-check';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const db = vi.hoisted(() => ({
-	prisma: {
+const db = vi.hoisted(() => {
+	const prisma = {
 		session: {
 			create: vi.fn(),
 			findUnique: vi.fn(),
 			updateMany: vi.fn()
-		}
-	}
-}));
+		},
+		// `createSession` writes inside a transaction (#923); the fake runs it against itself.
+		$transaction: vi.fn(async (callback: (client: unknown) => Promise<unknown>) => callback(prisma))
+	};
+	return { prisma };
+});
 
 vi.mock('$lib/server/db', () => ({ prisma: db.prisma }));
 
