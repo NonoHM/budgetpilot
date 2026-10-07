@@ -1,0 +1,220 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+vi.hoisted(() => {
+	process.env.RATE_LIMIT_HASH_SECRET ??= 'a1'.repeat(32);
+});
+
+const db = vi.hoisted(() => ({
+	prisma: {
+		loginAttempt: {
+			count: vi.fn(),
+			create: vi.fn(),
+			deleteMany: vi.fn()
+		}
+	}
+}));
+
+vi.mock('$lib/server/db', () => ({ prisma: db.prisma }));
+
+const limiter = await import('./rateLimit');
+const { resolveClientAddress } = await import('$lib/server/net/clientAddress');
+
+/**
+ * THE ADDRESS COUNTER KEYS AN IPv6 CLIENT BY ITS /56, NOT BY ITS FULL ADDRESS.
+ *
+ * An end site is given a whole IPv6 prefix, never one address: a /64 at the least and commonly a
+ * /56 or a /48, and every address inside it is the same subscriber. Keyed on the full address, one
+ * subscriber holds 2^64 or more counters and the per-address limit never trips. These tests pin
+ * the key as the /56 by its two boundary bits: bit 56 (the first outside the prefix, where a /56
+ * key and a /57 key disagree) must NOT separate two addresses, and bit 55 (the last inside, where
+ * a /55 key and a /56 key disagree) must.
+ *
+ * Each kind that counts the address is driven through its own exported pair, because the kinds
+ * reach the key through different call sites and a loop asserting one value would not say which.
+ */
+type AddressKeyed = {
+	check: (ip: string) => Promise<boolean>;
+	record: (ip: string) => Promise<void>;
+};
+
+const ADDRESS_KEYED: Record<string, AddressKeyed> = {
+	LOGIN: {
+		check: (ip) => limiter.isLoginRateLimited('user@example.test', ip),
+		record: (ip) => limiter.recordFailedLoginAttempt('user@example.test', ip)
+	},
+	REGISTER: {
+		check: (ip) => limiter.isRegisterRateLimited(ip),
+		record: (ip) => limiter.recordRegisterAttempt(ip)
+	},
+	INVITE: {
+		check: (ip) => limiter.isInviteRateLimited(ip),
+		record: (ip) => limiter.recordInviteAttempt(ip)
+	},
+	MFA: {
+		check: (ip) => limiter.isMfaRateLimited('challenge-1', ip),
+		record: (ip) => limiter.recordMfaAttempt('challenge-1', ip)
+	},
+	BANK_SYNC_START: {
+		check: (ip) => limiter.isBankSyncStartRateLimited('user-1', ip),
+		record: (ip) => limiter.recordBankSyncStartAttempt('user-1', ip)
+	},
+	IMPORT: {
+		check: (ip) => limiter.isImportRateLimited('user-1', ip),
+		record: (ip) => limiter.recordImportAttempt('user-1', ip)
+	}
+};
+
+const KINDS = Object.keys(ADDRESS_KEYED);
+
+/** The address hash a check COUNTS against. Found by its column, never by call order. */
+async function queriedIpHash(kind: string, ip: string): Promise<string> {
+	db.prisma.loginAttempt.count.mockClear();
+	await ADDRESS_KEYED[kind].check(ip);
+	const wheres = db.prisma.loginAttempt.count.mock.calls.map((call) => call[0].where);
+	const withAddress = wheres.filter((where) => where.ipHash !== undefined);
+	expect(withAddress).toHaveLength(1);
+	return withAddress[0].ipHash;
+}
+
+/** The address hash a record WRITES, which must be the one the check counts. */
+async function recordedIpHash(kind: string, ip: string): Promise<string> {
+	db.prisma.loginAttempt.create.mockClear();
+	await ADDRESS_KEYED[kind].record(ip);
+	expect(db.prisma.loginAttempt.create).toHaveBeenCalledTimes(1);
+	return db.prisma.loginAttempt.create.mock.calls[0][0].data.ipHash;
+}
+
+beforeEach(() => {
+	vi.clearAllMocks();
+	db.prisma.loginAttempt.count.mockResolvedValue(0);
+	db.prisma.loginAttempt.create.mockResolvedValue({});
+	db.prisma.loginAttempt.deleteMany.mockResolvedValue({ count: 0 });
+});
+
+describe('the address counter keys an IPv6 client by its /56', () => {
+	// Separates a /56 key from a full-address key and from a /57 key: the two addresses differ in
+	// bit 56 (0x5600 against 0x5680 in the fourth group) and in every bit after it.
+	it.each(KINDS)('%s: two addresses inside one /56 are counted as one client', async (kind) => {
+		const first = '2001:db8:0:5600::1';
+		const second = '2001:db8:0:5680:abcd:ef01:2345:6789';
+		expect(await queriedIpHash(kind, second)).toBe(await queriedIpHash(kind, first));
+		expect(await recordedIpHash(kind, second)).toBe(await recordedIpHash(kind, first));
+		// The row written is the row counted: a record keyed one way and a check keyed another
+		// would each pass the line above and never meet.
+		expect(await recordedIpHash(kind, first)).toBe(await queriedIpHash(kind, first));
+	});
+
+	// Separates a /56 key from a /55 or shorter one: the two addresses differ ONLY in bit 55
+	// (0x5600 against 0x5700), the last bit inside the prefix.
+	it.each(KINDS)('%s: neighbouring /56 networks keep separate counters', async (kind) => {
+		expect(await queriedIpHash(kind, '2001:db8:0:5700::1')).not.toBe(
+			await queriedIpHash(kind, '2001:db8:0:5600::1')
+		);
+	});
+});
+
+describe('an address has one counter however it is written', () => {
+	// Separates a numeric key from a textual one. A proxy and the socket can spell one address
+	// differently, and a textual key would give the client one counter per spelling.
+	it('the spellings of one IPv6 address share a counter', async () => {
+		const spellings = [
+			'2001:db8::1',
+			'2001:DB8::1',
+			'2001:0db8:0000:0000:0000:0000:0000:0001',
+			'2001:db8:0:0::1'
+		];
+		const hashes = new Set<string>();
+		for (const spelling of spellings) hashes.add(await queriedIpHash('REGISTER', spelling));
+		expect(spellings).toHaveLength(4);
+		expect(hashes.size).toBe(1);
+	});
+
+	// Separates folding the IPv4-mapped form from keying it as an IPv6 address in ::ffff:0:0/96,
+	// which a dual-stack listener reports for a v4 client.
+	it('an IPv4-mapped IPv6 address shares the counter of its IPv4 address', async () => {
+		expect(await queriedIpHash('REGISTER', '::ffff:198.51.100.7')).toBe(
+			await queriedIpHash('REGISTER', '198.51.100.7')
+		);
+	});
+
+	// Separates « IPv6 grouped by prefix » from « every address grouped by prefix »: an IPv4
+	// address is one subscriber at most, so two addresses one bit apart stay two counters.
+	it.each(KINDS)('%s: two IPv4 addresses one bit apart keep separate counters', async (kind) => {
+		expect(await queriedIpHash(kind, '198.51.100.7')).not.toBe(
+			await queriedIpHash(kind, '198.51.100.6')
+		);
+	});
+});
+
+/**
+ * AN UNBRACKETED IPv6 HOP WITH A PORT CANNOT SHIFT THE CLIENT'S OWN BITS INTO THE KEY.
+ *
+ * `readForwardedHop` reads `2001:db8::a:b:c:d:4431` as an address, because eight groups or fewer
+ * with `::` cannot be told from an address followed by a port. When the proxy appended a port, the
+ * reading is shifted by one group: the `::` stands for one zero group fewer, and the client's
+ * interface identifier, which the client chooses, moves into the fourth group, inside the /56. A
+ * client choosing a source port below 10000 makes the port read as a group, so this is reachable
+ * behind any trusted proxy that writes an unbracketed IPv6 with its port.
+ *
+ * Driven through `resolveClientAddress`, the function every route calls before the limiter, with
+ * the peer on the trusted list exactly as a proxy deployment has it.
+ */
+describe('a forwarded hop read with its port shifted in', () => {
+	const PROXY = '10.0.0.1';
+	const env = { TRUSTED_PROXIES: PROXY } as NodeJS.ProcessEnv;
+
+	function routeAddress(forwardedFor: string): string {
+		return resolveClientAddress(
+			{
+				getClientAddress: () => PROXY,
+				request: new Request('http://example.test/register', {
+					headers: { 'x-forwarded-for': forwardedFor }
+				})
+			},
+			env
+		);
+	}
+
+	/** Every first interface-identifier group whose high byte reaches the /56 when shifted. */
+	const FIRST_GROUPS = Array.from({ length: 255 }, (_, i) => ((i + 1) << 8).toString(16));
+
+	// Separates a key built from the bits both readings agree on from a /56 of the shifted
+	// reading, which lets the client pick 255 counters by picking its interface identifier.
+	it('a client in 2001:db8::/64 holds one counter whatever interface identifier it picks', async () => {
+		const hashes = new Set<string>();
+		for (const group of FIRST_GROUPS) {
+			hashes.add(await queriedIpHash('REGISTER', routeAddress(`2001:db8::${group}:b:c:d:4431`)));
+		}
+		expect(FIRST_GROUPS).toHaveLength(255);
+		expect(hashes.size).toBe(1);
+		// And it is the client's own counter: the one its address has when the proxy brackets it.
+		expect([...hashes][0]).toBe(
+			await queriedIpHash('REGISTER', routeAddress('[2001:db8::100:b:c:d]:4431'))
+		);
+	});
+
+	// Separates the same from a key that only holds when the zero run reaches the fourth group:
+	// here the run is groups one and two, so the shifted reading moves the fourth group too.
+	it('a client in 2001:0:0:5600::/64 holds one counter whatever interface identifier it picks', async () => {
+		const hashes = new Set<string>();
+		for (const group of FIRST_GROUPS) {
+			hashes.add(await queriedIpHash('REGISTER', routeAddress(`2001::5600:${group}:b:c:d:4431`)));
+		}
+		expect(FIRST_GROUPS).toHaveLength(255);
+		expect(hashes.size).toBe(1);
+	});
+
+	// Separates « an ambiguous spelling loses only the bits it cannot vouch for » from « an
+	// ambiguous spelling is grouped coarsely »: a proxy writing a bare address with no port (nginx,
+	// Caddy, HAProxy, Traefik) produces this spelling for an ordinary client, and that client keeps
+	// its own /56.
+	it('a bare address whose last group could be a port keeps its own /56', async () => {
+		const bare = routeAddress('2001:db8:0:5600::1:2');
+		expect(await queriedIpHash('REGISTER', bare)).toBe(
+			await queriedIpHash('REGISTER', routeAddress('[2001:db8:0:5600::1]'))
+		);
+		expect(await queriedIpHash('REGISTER', bare)).not.toBe(
+			await queriedIpHash('REGISTER', routeAddress('2001:db8:0:5700::1:2'))
+		);
+	});
+});
