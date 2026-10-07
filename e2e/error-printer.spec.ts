@@ -51,7 +51,8 @@ const SERVER_ENV = {
 	NODE_ENV: 'production',
 	PUBLIC_INSTANCE: 'false',
 	REGISTRATION_MODE: 'admin_only',
-	PASSWORD_HASH_COST: '4',
+	// 12, the floor: a lower cost is refused at boot (#754), and 4 was always clamped to 12.
+	PASSWORD_HASH_COST: '12',
 	BOOTSTRAP_TOKEN: 'errorprinter-bootstrap-token-5b1c77',
 	RATE_LIMIT_HASH_SECRET: 'beef'.repeat(16),
 	TOTP_ENCRYPTION_KEY: 'feed'.repeat(16),

@@ -1,4 +1,4 @@
-import { statSync } from 'node:fs';
+import { realpathSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { privateKeyPathCandidates } from '$lib/server/banking/enablebanking/jwt';
 import { OperatorFacingError } from '$lib/server/operatorFacingError';
@@ -12,7 +12,9 @@ import { readChoiceSetting } from './readSetting';
  * `.env` world-readable. This is the switch for an operator who wants the refusal, and it checks
  * what C1's warning did not: who OWNS the file, and whether its DIRECTORY lets another account
  * replace it. Modelled on OpenSSH's `StrictModes`, which refuses a key file or directory that is
- * writable by others or owned by anyone but the user or root.
+ * writable by others or owned by anyone but the user or root, and stricter on reading: OpenSSH
+ * judges an authorized_keys file, which is not a secret, so read for others is refused here whoever
+ * owns the file. A symlink is judged at its target, file and directory both.
  *
  * Both halves of the triad, for a file that holds a secret:
  * - confidentiality: another account READING it learns TOTP_ENCRYPTION_KEY, RATE_LIMIT_HASH_SECRET,
@@ -28,6 +30,8 @@ import { readChoiceSetting } from './readSetting';
 
 /** Read for group and others. Execute grants nothing on a data file (#906's rule). */
 const GROUP_OR_OTHER_READ = 0o044;
+/** Read for others alone: refused on any secret file, whoever owns it. */
+const OTHER_READ = 0o004;
 /** Write for group and others: on a file, changing it; on a directory, replacing a file in it. */
 const GROUP_OR_OTHER_WRITE = 0o022;
 const ROOT_UID = 0;
@@ -50,19 +54,19 @@ export function secretFileProblems(files: SecretFileFacts[], processUid: number)
 	return files.flatMap((file) => {
 		const where = `${file.label} (${file.path})`;
 		const problems: string[] = [];
-		// OpenSSH's split, from its source: write bits are refused whoever owns the file, read bits only
-		// on a file the app itself owns. A file root owns with read bits is how Docker Compose and
-		// systemd hand a secret to an unprivileged process, and refusing it would refuse a correct
-		// setup (measured 2026-10-07: a Compose `file:` secret keeps the host's owner and mode, and a
-		// systemd credential reads as root, mode 440).
+		// Write for group or others is refused whoever owns the file. Read for others is refused
+		// whoever owns it too: a root-owned 644 secret is readable by every account on the host
+		// (contradiction pass on #915). Read for the GROUP is refused only on the app's own file:
+		// a systemd credential is root, mode 0400 plus an ACL that `stat` reports as group read 440.
 		const ownFile = file.uid === processUid;
-		const exposedBits = ownFile ? GROUP_OR_OTHER_READ | GROUP_OR_OTHER_WRITE : GROUP_OR_OTHER_WRITE;
-		if ((file.mode & exposedBits) !== 0) {
+		if (ownFile && (file.mode & (GROUP_OR_OTHER_READ | GROUP_OR_OTHER_WRITE)) !== 0) {
 			problems.push(
-				ownFile
-					? `${where} can be read or written by other accounts (mode ${octal(file.mode)}).`
-					: `${where} can be changed by other accounts (mode ${octal(file.mode)}).`
+				`${where} can be read or written by other accounts (mode ${octal(file.mode)}).`
 			);
+		} else if (!ownFile && (file.mode & GROUP_OR_OTHER_WRITE) !== 0) {
+			problems.push(`${where} can be changed by other accounts (mode ${octal(file.mode)}).`);
+		} else if (!ownFile && (file.mode & OTHER_READ) !== 0) {
+			problems.push(`${where} can be read by other accounts (mode ${octal(file.mode)}).`);
 		}
 		if (!trusted(file.uid, processUid)) {
 			problems.push(
@@ -93,12 +97,14 @@ type Inspection = { facts: SecretFileFacts } | { label: string; path: string; er
  */
 function inspect(label: string, path: string): Inspection | null {
 	try {
-		const file = statSync(path);
-		const directory = statSync(dirname(path));
+		// The target, not the link: the directory that can replace the file is the target's.
+		const real = realpathSync(path);
+		const file = statSync(real);
+		const directory = statSync(dirname(real));
 		return {
 			facts: {
 				label,
-				path,
+				path: real,
 				mode: file.mode,
 				uid: file.uid,
 				directoryMode: directory.mode,

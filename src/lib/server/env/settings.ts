@@ -223,7 +223,7 @@ export const SETTINGS = {
 		max: 400,
 		unit: 'days',
 		ceiling:
-			'Browsers keep a cookie for at most 400 days whatever the server asks, so a longer lifetime mostly keeps a copied cookie usable.',
+			'Chrome and Firefox keep a cookie for at most 400 days whatever the server asks, the limit the IETF cookie draft recommends, so a longer lifetime mostly keeps a copied cookie usable.',
 		summary: 'How long a sign-in lasts before the user must sign in again.',
 		page: 'configuration.md#passwords-and-sessions'
 	},
@@ -237,7 +237,7 @@ export const SETTINGS = {
 		max: 720,
 		unit: 'hours',
 		ceiling:
-			'An invitation link is a credential anyone holding it can use. 720 hours is 30 days, the longest validity NIST SP 800-63B-4 allows a one-time code sent by mail.',
+			'An invitation link is a credential anyone holding it can use. 720 hours is 30 days, the longest validity NIST SP 800-63B-4 gives a recovery code, for one sent by post abroad.',
 		summary: 'How long an invitation link stays valid.',
 		page: 'configuration.md#passwords-and-sessions'
 	},

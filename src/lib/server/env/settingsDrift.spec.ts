@@ -41,7 +41,8 @@ const PRODUCTION = trackedFiles(
 	'src/*.js',
 	'src/*.svelte',
 	'boot.mjs',
-	'healthcheck.mjs'
+	'healthcheck.mjs',
+	'prisma.config.ts'
 )
 	.filter((path) => !/\.(spec|test|db-smoke)\.ts$/.test(path))
 	.filter((path) => !path.startsWith('src/lib/server/database/generated/'))
@@ -81,6 +82,34 @@ const COMPUTED_READS_EXPLAINED: Record<string, string> = {
 		'not an environment read: indexes a string named `source` character by character'
 };
 
+/**
+ * Read forms the two patterns above cannot resolve to a name, forbidden in production code so that
+ * « every name read is declared » is true by construction rather than by today's luck (contradiction
+ * pass on #915: none existed, and none would have been caught).
+ */
+const UNREADABLE_FORMS: Record<string, RegExp> = {
+	'destructuring the environment': /(?:const|let|var)\s*\{[^}]*\}\s*=\s*(?:process\.env|env)\b/,
+	'renaming the SvelteKit env import':
+		/import\s*\{[^}]*\benv\s+as\s+\w+[^}]*\}\s*from\s*['"]\$env\//,
+	'a $env/static import, which bakes the value into the build': /from\s*['"]\$env\/static\//,
+	'a key that is neither a name nor a plain identifier':
+		/(?:process\.env|\benv|\bsource)\??\.?\[\s*(?!['"]|[A-Za-z_$][\w$]*\s*\])/
+};
+
+/** Each exemption by file and form, with why its names are still known. */
+const UNREADABLE_FORMS_EXPLAINED: Record<string, string> = {
+	'prisma.config.ts#a key that is neither a name nor a plain identifier':
+		'copies `.env` lines into `process.env`, filtered by its own pattern to DATABASE_URL and DATABASE_PROVIDER, both declared',
+	'src/lib/server/security/sourceScan.ts#a key that is neither a name nor a plain identifier':
+		'not an environment read: `source[i + 1]` indexes a string named `source`'
+};
+
+function unreadableFormsIn(path: string, text: string): string[] {
+	return Object.entries(UNREADABLE_FORMS)
+		.filter(([, pattern]) => pattern.test(text))
+		.map(([form]) => `${path}#${form}`);
+}
+
 const entries = Object.entries(SETTINGS) as [string, Setting][];
 const declared = new Set(entries.map(([name]) => name));
 
@@ -119,6 +148,30 @@ describe('settings drift between the registry and the tree', () => {
 			namesRead: readByName.size >= 20,
 			undeclared: [...readByName].filter(([name]) => !declared.has(name))
 		}).toStrictEqual({ filesRead: true, namesRead: true, undeclared: [] });
+	});
+
+	// Calibration first, then the tree: each planted form must be found by the same function.
+	it('forbids every read form it cannot resolve to a name, and keeps no stale exemption', () => {
+		const planted = {
+			'destructuring the environment': 'const { BP_PLANT } = process.env;',
+			'renaming the SvelteKit env import':
+				"import { env as privateEnv } from '$env/dynamic/private';",
+			'a $env/static import, which bakes the value into the build':
+				"import { BP_PLANT } from '$env/static/private';",
+			'a key that is neither a name nor a plain identifier': 'process.env[`BP_PLANT`];'
+		};
+		const found = PRODUCTION.flatMap((path) => unreadableFormsIn(path, read(path)));
+		expect({
+			plantedFound: Object.entries(planted).map(
+				([form, text]) => unreadableFormsIn('planted.ts', text)[0] === `planted.ts#${form}`
+			),
+			unexplained: found.filter((site) => !(site in UNREADABLE_FORMS_EXPLAINED)),
+			stale: Object.keys(UNREADABLE_FORMS_EXPLAINED).filter((site) => !found.includes(site))
+		}).toStrictEqual({
+			plantedFound: [true, true, true, true],
+			unexplained: [],
+			stale: []
+		});
 	});
 
 	it('explains every computed-key read, and keeps no stale explanation', () => {

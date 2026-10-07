@@ -63,7 +63,8 @@ With it on, the app checks `.env` in the directory it starts from and the
 file named by `ENABLE_BANKING_PRIVATE_KEY_PATH`, and refuses to start when:
 
 - another account can change the file;
-- the file belongs to the account the app runs as, and other accounts can read it;
+- every account can read the file, whoever owns it;
+- the file belongs to the account the app runs as, and its group can read it;
 - the file belongs to an account other than that one or root;
 - the folder holding it can be written by other accounts, or belongs to
   another account, since either lets that account replace the file;
@@ -78,20 +79,22 @@ chmod 700 .     # or any mode where only you can write to the folder
 ```
 
 **Under Docker**, the container never has a `.env` (Compose reads it on the
-host), so only the bank-signing key is checked, and the app runs as user 65532. Either give the file and its folder to that user, or to root with the
-file readable by all, which is how a Compose secret is mounted:
+host), so only the bank-signing key is checked, and the app runs as user 65532. Give the file and its folder to that user:
 
 ```bash
 sudo chown 65532 keys keys/enablebanking.pem && sudo chmod 600 keys/enablebanking.pem
-# or
-sudo chown root:root keys keys/enablebanking.pem && sudo chmod 444 keys/enablebanking.pem
 ```
 
-The rules are those of OpenSSH's `StrictModes`, which checks a user's key
-files the same way: write access for others is refused whoever owns the file,
-and read access only when the file belongs to the account itself. A file owned
-by root and readable by all is accepted because that is how Docker Compose and
-systemd hand a secret to a process that does not run as root. This switch
+A file Docker Compose mounts as a `secrets:` entry keeps the owner and mode it
+has on the host, so the same command applies to it.
+
+The rules follow OpenSSH's `StrictModes`, which checks a user's key files:
+write access for other accounts is refused whoever owns the file, and so is a
+file or folder owned by an account other than the app's or root. They are
+stricter on reading, since OpenSSH judges files that are not secrets: a file
+every account can read is refused even when root owns it. A file root owns
+with group read is accepted, because that is how systemd hands a credential to
+a service (`LoadCredential=`). A symlink is judged at its target. This switch
 contributes to ASVS `v5.0.0-13.3.2`, « Verify that access to secret assets
 adheres to the principle of least privilege », without meeting it on its own:
 it is off by default, and a secret passed as an environment variable has no
@@ -227,10 +230,10 @@ cost they were stored with.
 
 **`SESSION_TTL_DAYS`** is the absolute lifetime of a sign-in: when it ends, the
 user signs in again, however active they were. The ceiling is 400 days because
-Chrome, Firefox and Safari keep a cookie for at most 400 days whatever the
-server asks (the limit in the IETF cookie specification draft,
-`draft-ietf-httpbis-rfc6265bis-22`, section 5.5). A longer lifetime would only
-keep a copied cookie usable.
+Chrome and Firefox keep a cookie for at most 400 days whatever the server asks,
+the limit the IETF cookie specification draft asks every browser to apply
+(`draft-ietf-httpbis-rfc6265bis-22`, section 5.5). A longer lifetime would
+mostly keep a copied cookie usable.
 
 **How 30 days compares with NIST SP 800-63B-4.** ASVS
 `v5.0.0-7.1.1` asks that the session lifetime be documented, with « justification
@@ -246,8 +249,8 @@ reachable from the internet and your users have two-factor authentication, set
 
 **`INVITATION_TTL_HOURS`** bounds how long an invitation link works. Anyone
 holding the link can create an account with it, so it stays short. The ceiling,
-720 hours (30 days), is the longest validity NIST SP 800-63B-4 gives any
-one-time code, for one sent by post.
+720 hours (30 days), is the longest validity NIST SP 800-63B-4 gives a recovery
+code, for one sent by post abroad.
 
 Two-factor authentication (TOTP) is per user and opt-in, enabled from
 Settings. No admin action exists to disable someone else's second factor,

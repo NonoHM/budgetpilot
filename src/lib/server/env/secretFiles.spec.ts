@@ -1,5 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import {
+	chmodSync,
+	mkdirSync,
+	mkdtempSync,
+	realpathSync,
+	rmSync,
+	symlinkSync,
+	writeFileSync
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { assertSecretFilesSafe, secretFileProblems, type SecretFileFacts } from './secretFiles';
@@ -50,15 +58,22 @@ describe('secretFileProblems', () => {
 		expect(secretFileProblems([safe({ mode: 0o100700 })], APP_UID)).toStrictEqual([]);
 	});
 
-	// OpenSSH's own split (research, 2026-10-07): read bits on a file another trusted account owns
-	// are how a container or a service manager hands a secret over. A Compose `file:` secret keeps the
-	// host's owner and mode inside the container, and a systemd credential is root, mode 0400 plus an
-	// ACL that `stat` reports as 440. Refusing their read bits would refuse a correct setup.
+	// A systemd credential is root, mode 0400 plus an ACL for the unit's user, which `stat` reports
+	// as 440 (the group bits show the ACL mask). Group read on a file root owns is accepted for that.
+	it('accepts group read on a file root owns, as systemd reports a credential (mode 440)', () => {
+		expect(secretFileProblems([safe({ uid: 0, mode: 0o100440 })], APP_UID)).toStrictEqual([]);
+	});
+
+	// Read for OTHERS is refused whoever owns the file: a root-owned 644 secret is what `sudo cp`
+	// leaves, and every account on the host can read it (contradiction pass on #915). OpenSSH
+	// accepts it for an authorized_keys file, which is not a secret; this is.
 	it.each([
-		[0o100444, 'a root-owned file readable by all, as a Compose secret mounts it'],
-		[0o100440, 'a root-owned credential with a group read bit, as systemd reports it']
-	])('accepts read bits on a file root owns (mode %o, %s)', (mode) => {
-		expect(secretFileProblems([safe({ uid: 0, mode })], APP_UID)).toStrictEqual([]);
+		[0o100644, '644', 'a root-owned file every account can read, as sudo cp leaves it'],
+		[0o100444, '444', 'a Compose file secret mounted root, mode 444']
+	])('refuses read for others on a file root owns (mode %o, %s)', (mode, octal) => {
+		expect(secretFileProblems([safe({ uid: 0, mode })], APP_UID)).toStrictEqual([
+			`ENABLE_BANKING_PRIVATE_KEY_PATH (/app/keys/enablebanking.pem) can be read by other accounts (mode ${octal}).`
+		]);
 	});
 
 	it('refuses write bits on a file root owns', () => {
@@ -106,7 +121,9 @@ describe('secretFileProblems', () => {
 describe.skipIf(process.platform === 'win32')('assertSecretFilesSafe', () => {
 	let directory: string;
 	beforeEach(() => {
-		directory = mkdtempSync(join(tmpdir(), 'bp-secret-files-'));
+		// Real path: the check reports a file at its resolved path, and a temporary directory can sit
+		// behind a symlink (`/var` on macOS).
+		directory = realpathSync(mkdtempSync(join(tmpdir(), 'bp-secret-files-')));
 	});
 	afterEach(() => {
 		rmSync(directory, { recursive: true, force: true });
@@ -170,6 +187,24 @@ describe.skipIf(process.platform === 'win32')('assertSecretFilesSafe', () => {
 			}
 		}
 	);
+
+	// A symlink is judged at its target: the directory that can replace the file is the TARGET's,
+	// not the link's (contradiction pass on #915). The link sits in the safe test directory; the
+	// target sits in one every account can write to.
+	it('judges a symlinked .env at its target, directory included', () => {
+		const exposed = join(directory, 'exposed');
+		mkdirSync(exposed);
+		chmodSync(exposed, 0o777);
+		const target = join(exposed, 'env');
+		writeFileSync(target, 'planted\n');
+		chmodSync(target, 0o600);
+		symlinkSync(target, join(directory, '.env'));
+		expect(() =>
+			assertSecretFilesSafe({ BP_STRICT_SECRET_FILES: 'on' }, { cwd: directory })
+		).toThrow(
+			`.env (${target}) is in a directory other accounts can write to (mode 777), so they can replace it.`
+		);
+	});
 
 	it('refuses a value of the switch it does not know, rather than reading it as off', () => {
 		expect(() =>

@@ -322,14 +322,14 @@ No output, or only lines ending in `=`, means there is nothing to change. An
 empty value still means the default. Otherwise, compare each value with this
 table:
 
-| Setting                         | Accepted from 1.3.0 | What happened before                                                                                    |
-| ------------------------------- | ------------------- | ------------------------------------------------------------------------------------------------------- |
-| `PASSWORD_HASH_COST`            | 12 to 15            | Below 12 was replaced by 12, above 15 by 15                                                             |
-| `SESSION_TTL_DAYS`              | 1 to 400            | Any positive number was used, fractions included (`0.5` was 12 hours); anything unreadable became 30    |
-| `INVITATION_TTL_HOURS`          | 1 to 720            | Any positive number was used, fractions included; anything unreadable became 72                         |
-| `BANK_SYNC_FIRST_LOOKBACK_DAYS` | 1 to 3650           | A value outside the range or unreadable became 90; `30days` was read as 30                              |
-| `LLM_TIMEOUT_MS`                | 1 to 600000         | Any positive whole number was used; `0x10` was read as 16 and `1e3` as 1000; anything else became 45000 |
-| `LLM_CONNECT_TIMEOUT_MS`        | 1 to 60000          | Same as above; anything else became 2000                                                                |
+| Setting                         | Accepted from 1.3.0 | What happened before                                                                                                                   |
+| ------------------------------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `PASSWORD_HASH_COST`            | 12 to 15            | Below 12 became 12 and above 15 became 15; `13.0` and `0xd` were read as 13; anything unreadable became 12                             |
+| `SESSION_TTL_DAYS`              | 1 to 400            | Any positive number was used, fractions included (`0.5` was 12 hours); `0`, a negative number or anything unreadable became 30         |
+| `INVITATION_TTL_HOURS`          | 1 to 720            | Any positive number was used, fractions included, with no ceiling; `0`, a negative number or anything unreadable became 72             |
+| `BANK_SYNC_FIRST_LOOKBACK_DAYS` | 1 to 3650           | A value outside the range or unreadable became 90; `30days` was read as 30                                                             |
+| `LLM_TIMEOUT_MS`                | 1 to 600000         | Any positive whole number was used, with no ceiling; `0x10` was read as 16 and `1e3` as 1000; `0`, `1.5` or anything else became 45000 |
+| `LLM_CONNECT_TIMEOUT_MS`        | 1 to 60000          | Same as above, with no ceiling; `0`, `1.5` or anything else became 2000                                                                |
 
 Every value is written with the digits 0 to 9 only. Each range is wide enough
 that a value chosen on purpose fits; the reasons for each limit are in

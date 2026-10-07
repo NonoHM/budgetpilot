@@ -82,7 +82,8 @@ const SERVER_ENV = {
 	NODE_ENV: 'production',
 	PUBLIC_INSTANCE: 'false',
 	REGISTRATION_MODE: 'admin_only',
-	PASSWORD_HASH_COST: '4',
+	// 12, the floor: a lower cost is refused at boot (#754), and 4 was always clamped to 12.
+	PASSWORD_HASH_COST: '12',
 	BOOTSTRAP_TOKEN: 'loginjection-bootstrap-token-2a7d',
 	RATE_LIMIT_HASH_SECRET: 'abba'.repeat(16),
 	TOTP_ENCRYPTION_KEY: 'c0de'.repeat(16),
