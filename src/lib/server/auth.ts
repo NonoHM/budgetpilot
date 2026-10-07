@@ -197,10 +197,10 @@ export async function createSession(userId: string, cookies: Cookies): Promise<v
 }
 
 /**
- * The query parameter carrying where a visitor goes once signed in. The three functions below are
- * its only reader and writers, so a route cannot redirect to it without the check;
- * `src/lib/server/security/redirect-param.spec.ts` fails when any other production line names it,
- * one comment quoting a measured response excepted.
+ * The query parameter carrying where a visitor goes once signed in. `requestedPath`, `signInUrl`
+ * and `secondFactorUrl` below are its only reader and writers, so a route cannot redirect to it
+ * without the check; `src/lib/server/security/redirect-param.spec.ts` fails when any other
+ * production line names it, one comment quoting a measured response excepted.
  */
 const REDIRECT_PARAM = 'redirectTo';
 
@@ -212,9 +212,10 @@ const SAFE_DEFAULT = '/';
 const SINGLE_SLASH_VISIBLE_ASCII = /^\/(?!\/)[\x21-\x7e]*$/;
 
 /** Clause 2. A browser's URL parser reads a backslash as a slash, so `/\host` is `//host`. Read
- * over the whole value, query included: a target whose query carries a raw backslash, which the
- * parser leaves unencoded there, is refused, and that visitor lands on `/`. A loss accepted so that
- * the clause stays one test. */
+ * over the whole value, query included: a value whose query carries a raw backslash, which the
+ * parser leaves unencoded there, is refused. The sign-in callers below never reach that case,
+ * since `requestedPath` cuts the query off first (#838); the clause stays one test for any other
+ * caller. */
 const BACKSLASH = /\\/;
 
 /** Clause 3. A dot segment, `%2e` included: resolved, `/.//host` collapses to `//host`. No producer
@@ -259,19 +260,29 @@ export function getSafeRedirect(value: string | null): string {
 	return value;
 }
 
-/** Sends a visitor who has just signed in, or already was, to the target they asked for if safe. */
+/** The target as a path: cut at the first `?` or `#` BEFORE `getSafeRedirect`, which never
+ * rewrites. A target saved before #838 still carries the search the user typed, and sending it
+ * back would put that search in `Location` again. */
+function requestedPath(url: URL): string | null {
+	return url.searchParams.get(REDIRECT_PARAM)?.split(/[?#]/, 1)[0] ?? null;
+}
+
+/** Sends a visitor who has just signed in, or already was, to the path they asked for if safe. */
 export function redirectAfterSignIn(url: URL): never {
-	throw redirect(303, getSafeRedirect(url.searchParams.get(REDIRECT_PARAM)));
+	throw redirect(303, getSafeRedirect(requestedPath(url)));
 }
 
-/** `/login`, remembering the page a signed-out visitor asked for. */
+/** `/login`, remembering the page a signed-out visitor asked for: its pathname only. The search
+ * carries what the user typed (`q`, a category name, a date range, a tag), and this URL reaches
+ * the address bar and any proxy access log, so the user retypes it instead (#838). The app-side
+ * control for operators without the query string filters in `Caddyfile.example`. */
 export function signInUrl(requested: URL): string {
-	return `/login?${REDIRECT_PARAM}=${encodeURIComponent(requested.pathname + requested.search)}`;
+	return `/login?${REDIRECT_PARAM}=${encodeURIComponent(requested.pathname)}`;
 }
 
-/** The second-factor step, carrying the target forward already checked. */
+/** The second-factor step, carrying the target forward as a path, already checked. */
 export function secondFactorUrl(url: URL): string {
-	const target = getSafeRedirect(url.searchParams.get(REDIRECT_PARAM));
+	const target = getSafeRedirect(requestedPath(url));
 	return `/login/verify-totp?${new URLSearchParams({ [REDIRECT_PARAM]: target })}`;
 }
 

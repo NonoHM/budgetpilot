@@ -174,11 +174,10 @@ for (const exit of SIGN_IN_EXITS) {
 			});
 		}
 
-		// The positive control: an exit that ignored the parameter would pass every case above.
-		it('sends the visitor to the internal path they asked for', async () => {
-			expect(await exit.target('/transactions?period=2026-01')).toBe(
-				'/transactions?period=2026-01'
-			);
+		// The positive control: an exit that ignored the parameter would pass every case above. The
+		// query is dropped by design (#838): a target saved before then carries what the user typed.
+		it('sends the visitor to the internal path they asked for, without its query', async () => {
+			expect(await exit.target('/transactions?period=2026-01')).toBe('/transactions');
 		});
 	});
 }
