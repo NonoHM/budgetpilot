@@ -112,6 +112,10 @@ The list is tracked; the copies are not. Which of these bind the project, and ho
 
 - RFC 6238, TOTP: Time-Based One-Time Password Algorithm (May 2011, Informational), copy in
   `auth/`: https://www.rfc-editor.org/rfc/rfc6238.txt
+- RFC 5952, A Recommendation for IPv6 Address Text Representation (August 2010, Standards Track), copy in
+  `logging/`: https://www.rfc-editor.org/rfc/rfc5952.txt
+- RFC 4007, IPv6 Scoped Address Architecture (March 2005, Standards Track), copy in
+  `logging/`: https://www.rfc-editor.org/rfc/rfc4007.txt
 
 ## Accessibility and testing
 
