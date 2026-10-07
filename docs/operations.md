@@ -655,7 +655,8 @@ file holds and what the validator checks are in the
 3. Copy your old `.env` across, or at minimum the same three secrets. A
    different `TOTP_ENCRYPTION_KEY` means every two-factor setup in the
    restored database is unreadable, permanently. See
-   [the encryption key](#the-encryption-key).
+   [the encryption key](#the-encryption-key). Then run `chmod 600 .env` on
+   the new machine, because a copy does not always keep the file's mode.
 4. Restore the database with the matching command above (`docker compose cp`
    on SQLite, `pg_restore` or `mariadb` on a server engine).
 5. Adjust `ORIGIN` if the URL changed.

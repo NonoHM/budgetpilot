@@ -14,6 +14,7 @@ compile native code during `npm install`). On Debian/Ubuntu that's
 nvm install && nvm use   # Node 24.18.0
 npm install
 cp .env.example .env
+chmod 600 .env           # it holds the secrets below: your account only
 ```
 
 Generate the required secrets and paste them into `.env`. Leaving them
