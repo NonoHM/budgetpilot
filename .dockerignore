@@ -2,12 +2,16 @@ node_modules
 .svelte-kit
 build
 .git
-.env
-# Every .env.*, as .gitignore has it. The temporary file scripts/env-file.mjs leaves if it is killed
-# between open and rename holds the secrets, and so can a .env.local or .env.production; the
-# builder's `COPY . .` would put any of them in a layer. Nothing in the image build reads
+# Every .env and .env.*, at ANY depth: a bare pattern here matches only at the context root. The
+# temporary file scripts/env-file.mjs leaves if it is killed between open and rename holds the
+# secrets, and so can a .env.local, a .env.production or the .env of a checkout nested in this one;
+# the builder's `COPY . .` would put any of them in a layer. Nothing in the image build reads
 # .env.example or .env.test, so neither is kept.
-.env.*
+**/.env
+**/.env.*
+# Agent tooling, including .claude/worktrees/, which holds other checkouts of this repository with
+# their own .env files. Nothing under .claude is read by the image build.
+.claude
 *.db
 dev.db
 prisma/dev.db
