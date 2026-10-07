@@ -156,22 +156,22 @@ Two things, both worth knowing about.
 `budgetpilot:3000`. Port 3000 is the container's own port, which never
 changes: `APP_PORT` only affects host publishing and is unused here.
 
-**It strips the query string from its access log.** The query string is
+**It strips query strings from its access log.** The query string is
 where the app's addresses carry what a log must not keep: the one-time `code`
 and `state` of the bank sync consent callback, the invitation token, and what
 you typed to find your own transactions, such as a search term, a category
 name, a date range or a tag. Access logs tend to be world-readable, shipped
 to a log collector, or kept far longer than any of that stays valid or
-private. So the example removes everything after the `?` in each logged
-address and keeps the path. Caddy's error log is not covered yet: when the
-app does not answer, it writes the full address, query string included, and
-the `Referer` (#900).
+private. So the example removes everything after the `?` from the request
+address, keeping the path, and from the `Location` header a redirect sends
+back. Caddy's error log is not covered yet: when the app does not answer, it
+writes the full address, query string included, and the `Referer` (#900).
 
 It removes the whole query string rather than a list of named parameters,
 because a list goes stale: an earlier list missed six parameters the app was
 already writing into its own links. Caddy applies one filter per field, so
-don't add a second `request>uri` line. Depending on the order, Caddy either
-refuses to start or ignores one of the two.
+don't add a second line for either field. Depending on the order, Caddy
+either refuses to start or ignores one of the two.
 
 The `Referer` header is deleted as well. The app tells browsers to send the
 full address of the current page on every request to the same site, so
@@ -228,8 +228,8 @@ Two things to carry over yourself:
   set. Only trust the header once the app is unreachable except through your
   proxy: a client that can reach the app from inside the trusted range can
   still forge the header.
-- Remove the whole query string from every logged address, not a list of
-  parameters by name. The bank sync callback's `code` and `state`, the
+- Remove the whole query string from the logged request address and from
+  the logged `Location` response header, not a list of parameters by name. The bank sync callback's `code` and `state`, the
   invitation token and what users type to find their own transactions all
   travel there, and a list of names misses the next parameter the app adds.
   Delete the `Referer` request header too, or the search term comes back

@@ -90,7 +90,8 @@ Each is an operator choice or a protocol fact, recorded here so that none passes
   (`getLocalBaseUrl`, `src/lib/server/insights/local-llm.ts`).
 - The bank consent callback carries the one-time `code` and the `state` in its query string, as an
   OAuth-style flow does (`src/routes/imports/bank-connections/callback/+server.ts`). The application
-  never logs them, and `Caddyfile.example` removes the whole query string from the proxy access log.
+  never logs them, and `Caddyfile.example` removes the query string from the request URI and from
+  the `Location` response header in the proxy access log.
 - The invitation token travels in a query string (#825).
 
 ## What the code does today
@@ -331,11 +332,12 @@ the measured instance, and our own code cannot reach it because the lint rule fo
 Rule 2 gives free text the level of what it is about, and nobody knows what a dependency will
 print, so this page cannot classify it, any more than the last row, which is what #846 is about.
 
-The reverse proxy is outside this module. `Caddyfile.example` removes the query string and the
-`Referer` header from its access log and keeps the client address raw by default. That departs
-from the `Personal` log cell above as an operator choice, which the file's comment explains (whoever
-blocks an abuser needs the real address) beside a commented `ip_mask` block that masks it. Its
-error log is not filtered (see the gaps).
+The reverse proxy is outside this module. `Caddyfile.example` removes the query string from the
+request URI and from the `Location` response header in its access log, deletes the `Referer`
+request header, and keeps the client address raw by default. That departs from the `Personal` log
+cell above as an operator choice, which the file's comment explains (whoever blocks an abuser needs
+the real address) beside a commented `ip_mask` block that masks it. Its error log is not filtered
+(see the gaps).
 
 ### What reaches another host
 
