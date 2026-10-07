@@ -13,8 +13,20 @@ import {
 import { containsNulByte } from '../server/security/sourceScan';
 
 /**
- * Every ASVS and AISVS identifier cited in a tracked file resolves against the tracked copy of its
- * standard (#650).
+ * Every ASVS 5.0.0 and AISVS 1.0 citation written in one of the spellings below, in a tracked file,
+ * names an identifier that EXISTS in the tracked copy of its standard (#650).
+ *
+ * WHAT IS MATCHED, and nothing else (`SPELLINGS` in the module is the definition):
+ * `v5.0.0-8.2.2` (also `v5.0.0-V8.2.2`), `V8.2.2` and section `V5.1`, `ASVS 5.0.0 14.1.1`, a bare
+ * backticked number in the few files `BARE_ASVS_FILES` names, `aisvs:9.2.1`, `v1.0-C9.2.1`,
+ * `AISVS C9.2.1` and `AISVS 9.2.1`, Appendix C `AC.3.1`; and a list continuing any of those but the
+ * last two (`v5.0.0-8.2.2/8.3.1`, `AISVS C9.2.1, C9.2.2`), across at most one line break per item.
+ * A citation in any other form is not read, and the PR that introduced this file lists the known
+ * unread sites.
+ *
+ * EXISTENCE, NOT MEANING. A real identifier cited for the wrong requirement resolves, and so does an
+ * ASVS 4.0.3 number that happens to exist in 5.0.0. What this catches is the #650 shape: a number
+ * that names nothing.
  *
  * WHY A GATE. An identifier with requirement text written to fit it is internally consistent, so
  * nothing else catches it: it reads exactly like a verified claim. #650 is the instance, an ASVS
@@ -51,10 +63,23 @@ import { containsNulByte } from '../server/security/sourceScan';
  *   staleness test goes red, naming the entry. Separates an allowlist whose every entry still
  *   admits something from one carrying an entry that would silently admit a future slip.
  * - (d) The matcher replaced by one that matches nothing (`matchAll` over an empty pattern in
- *   `findCitations`): the floor goes red (0 resolved), the calibration goes red (nothing found),
+ *   `findCitations`): the floor goes red (0 resolved), both calibrations go red (nothing found),
  *   and the staleness test goes red (both entries admit nothing); the tree test stays GREEN, which
  *   is the whole reason the floor exists. Separates a scan that read the tree's citations from one
  *   that read none and reports a clean tree.
+ *
+ * A CONTRADICTION PASS then found shapes the first matcher let through. Each was planted in a
+ * tracked file and seen GREEN before the fix, then RED after it on the planted line, then removed
+ * (same procedure as above). Each plant separates a spelling the gate reads from one it skips:
+ *
+ * - a bare `` `14.1.9` `` in `docs/reference/asvs-deltas.md`: red at line 128 after the fix;
+ * - a list wrapped onto a ` * ` comment line in `e2e/idor-two-account.spec.ts`: red at line 22;
+ * - an Appendix C row changed to `AC.3.` + `99` in `confidentiality-guards.md`: red at line 114;
+ * - an AISVS list with its chapter letter on the second item: red on that item;
+ * - the versioned form with a `V` before an invented number in `SECURITY.md`: red at line 144;
+ * - the reverse, versions after the standard's name (« ASVS V5.0 », « AISVS V1.0 ») planted in
+ *   `SECURITY.md`: four false positives before the fix, green after it; and the AISVS form with a
+ *   capital `V` and an invented number: red on that number rather than on its version.
  */
 
 const REPO_ROOT = fileURLToPath(new URL('../../../', import.meta.url));
@@ -98,7 +123,8 @@ const HOW_TO_READ = [
 	'names a nonexistent identifier ON PURPOSE (a correction note), add an ALLOWED_UNRESOLVED entry',
 	'with its reason in this file.',
 	'ARTEFACT: the matched text is not a citation of that standard (a product version, a number that',
-	'only looks like one). Then the spelling misread: narrow its pattern in',
+	'only looks like one, a bare number in a file listed in BARE_ASVS_FILES that is not a row). Then',
+	'the spelling misread: narrow its pattern, its skip or its file list in',
 	'scripts/standards-citations.mjs, never the allowlist.'
 ].join('\n');
 
@@ -133,10 +159,33 @@ const CALIBRATION_TEXT = [
 		' and not V',
 		'8.1.1)'
 	),
-	// Negatives: the tree carries each of these and none is a citation.
+	// A list wrapped across comment lines keeps its later items, on their own line numbers (10, 11
+	// and 12, 13), whether the marker is ` * ` or `//`.
+	join('(`v5.0.0-', '8.2.2', '`, `', '8.3.1', '`,\n * `', '8.99.1', '`)'),
+	join('ASVS 5.0.0 ', '14.1.1', ';\n// and ', '14.2.3'),
+	// An AISVS list carries its chapter letter; an ASVS list does not take one.
+	join('AISVS C', '9.2.1', ', C', '9.2.99'),
+	join('v5.0.0-', '8.2.2', ', C', '9.2.1'),
+	// A `V` after the version is the same citation.
+	join('v5.0.0-V', '8.2.2', ' and v5.0.0-V', '8.2.99'),
+	// Appendix C, a requirement, an invented one in the skill's form, and a section.
+	join('AC.', '3.1', ', aisvs:AC.', '3.99', ' and AC.', '3'),
+	// AISVS's capitalised versioned form is read as AISVS, and its version is not an ASVS section.
+	join('AISVS V1.0-C', '9.2.1', ' and V', '1.0-C', '9.2.99'),
+	// Negatives: none is a citation. A version after the standard's name names the standard, and
+	// a bare backticked number is read only in a file listed in `BARE_ASVS_FILES`.
 	'self-assessed against ASVS 5.0.0 Level 2, AISVS 1.0 is locked, Node 24.18.0, v1.2.3',
+	'ASVS V5.0, ASVS V5.0.0, ASVS V4.0.3, `14.1.2` outside a listed file',
 	join('V', '5.0.0-', '8.2.2', ' in capitals is one citation, not two')
 ].join('\n');
+
+/** The same planted shape read under a listed path and under an unlisted one. */
+const LISTED_FILE_TEXT = join('rows `14.1.2` and `14.1.', '9`, a section `5.1`, a version 5.0.0');
+const LISTED_FILE_PATH = 'docs/reference/asvs-deltas.md';
+const EXPECTED_LISTED_FILE = [
+	{ line: 1, spelling: 'asvs-bare-in-listed-file', id: '14.1.2', resolves: true },
+	{ line: 1, spelling: 'asvs-bare-in-listed-file', id: '14.1.9', resolves: false }
+];
 
 /** Written out by hand, so it does not share a source with the matcher. */
 const EXPECTED_CALIBRATION = [
@@ -160,7 +209,22 @@ const EXPECTED_CALIBRATION = [
 	{ line: 9, spelling: 'asvs-versioned+list', id: '8.4.1', resolves: true },
 	{ line: 9, spelling: 'asvs-versioned+list', id: '8.4.99', resolves: false },
 	{ line: 9, spelling: 'asvs-v-prefixed', id: '8.1.1', resolves: true },
-	{ line: 11, spelling: 'asvs-versioned', id: '8.2.2', resolves: true }
+	{ line: 10, spelling: 'asvs-versioned', id: '8.2.2', resolves: true },
+	{ line: 10, spelling: 'asvs-versioned+list', id: '8.3.1', resolves: true },
+	{ line: 11, spelling: 'asvs-versioned+list', id: '8.99.1', resolves: false },
+	{ line: 12, spelling: 'asvs-after-name', id: '14.1.1', resolves: true },
+	{ line: 13, spelling: 'asvs-after-name+list', id: '14.2.3', resolves: true },
+	{ line: 14, spelling: 'aisvs-after-name', id: '9.2.1', resolves: true },
+	{ line: 14, spelling: 'aisvs-after-name+list', id: '9.2.99', resolves: false },
+	{ line: 15, spelling: 'asvs-versioned', id: '8.2.2', resolves: true },
+	{ line: 16, spelling: 'asvs-versioned', id: '8.2.2', resolves: true },
+	{ line: 16, spelling: 'asvs-versioned', id: '8.2.99', resolves: false },
+	{ line: 17, spelling: 'aisvs-appendix-c', id: 'AC.3.1', resolves: true },
+	{ line: 17, spelling: 'aisvs-appendix-c', id: join('AC.', '3.99'), resolves: false },
+	{ line: 17, spelling: 'aisvs-appendix-c', id: 'AC.3', resolves: true },
+	{ line: 18, spelling: 'aisvs-versioned', id: '9.2.1', resolves: true },
+	{ line: 18, spelling: 'aisvs-versioned', id: '9.2.99', resolves: false },
+	{ line: 21, spelling: 'asvs-versioned', id: '8.2.2', resolves: true }
 ];
 
 type Located = Citation & { path: string; text: string; resolves: boolean };
@@ -190,7 +254,7 @@ function scanTree() {
 
 	const locate = (path: string, text: string): Located[] => {
 		const lines = text.split('\n');
-		return findCitations(text).map((c) => ({
+		return findCitations(text, path).map((c) => ({
 			...c,
 			path,
 			text: lines[c.line - 1],
@@ -246,7 +310,9 @@ function scanTree() {
 						c.text.includes(entry.lineIncludes)
 				)
 		),
-		calibration: locate('<calibration>', CALIBRATION_TEXT)
+		calibration: locate('<calibration>', CALIBRATION_TEXT),
+		listedFile: locate(LISTED_FILE_PATH, LISTED_FILE_TEXT),
+		unlistedFile: locate('<calibration>', LISTED_FILE_TEXT)
 	};
 }
 
@@ -267,12 +333,12 @@ describe('every ASVS and AISVS citation in a tracked file resolves', () => {
 		expect.assertions(4);
 
 		expect(scan.calibrationFailure).toBeNull();
-		// Measured 2026-10-07 on the commit that added this file: 1206 of 1324 tracked files read,
-		// 365 of 367 citations resolved (the other 2 are the allowlisted lines), 40 upstream copies
+		// Measured 2026-10-07 after the contradiction pass: 1206 of 1324 tracked files read, 409 of
+		// 411 citations resolved (the other 2 are the allowlisted lines), 40 upstream copies
 		// skipped. The run prints the current figures. Each floor sits below its figure so an
 		// ordinary edit does not move it; what it must not survive is the reading collapsing.
 		expect(scan.filesRead).toBeGreaterThan(1000);
-		expect(scan.resolved).toBeGreaterThan(300);
+		expect(scan.resolved).toBeGreaterThan(350);
 		// The exclusion is read from the SHA256SUMS files. Zero would mean their format moved and the
 		// standards' own text is being read as citations.
 		expect(scan.upstreamSkipped).toBeGreaterThan(30);
@@ -284,6 +350,15 @@ describe('every ASVS and AISVS citation in a tracked file resolves', () => {
 		expect(
 			scan.calibration.map(({ line, spelling, id, resolves }) => ({ line, spelling, id, resolves }))
 		).toEqual(EXPECTED_CALIBRATION);
+	});
+
+	it('reads a bare backticked number in a listed file, and nowhere else', () => {
+		expect.assertions(2);
+
+		expect(
+			scan.listedFile.map(({ line, spelling, id, resolves }) => ({ line, spelling, id, resolves }))
+		).toEqual(EXPECTED_LISTED_FILE);
+		expect(scan.unlistedFile).toEqual([]);
 	});
 
 	it('finds no citation that does not resolve, outside the lines allowed by name', () => {

@@ -12,9 +12,8 @@
 import { execFileSync } from 'node:child_process';
 import {
 	calibrationFailure,
-	findAisvsRequirement,
-	findAsvsRequirement,
-	loadStandards
+	loadStandards,
+	lookup
 } from '../../../../scripts/standards-citations.mjs';
 
 const root = execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim();
@@ -37,9 +36,12 @@ if (calibration) {
 	process.exit(2);
 }
 
+// `lookup` is the gate's own definition of « exists », so a section such as `V5.1` or `aisvs:C9.2`
+// resolves here exactly when the gate accepts it.
 let missing = 0;
 for (const raw of ids) {
 	if (/^aisvs:/i.test(raw)) {
+		// `9.2.1` or `C9.2.1` for a chapter; `AC.3.1` for Appendix C keeps its prefix.
 		const id = raw.replace(/^aisvs:/i, '').replace(/^C/i, '');
 		if (!aisvsRows) {
 			console.log(
@@ -48,16 +50,18 @@ for (const raw of ids) {
 			missing++;
 			continue;
 		}
-		const r = findAisvsRequirement(standards, id);
+		const r = lookup(standards, { standard: 'AISVS', id });
 		if (!r) {
 			console.log(`${raw}: NOT FOUND in AISVS 1.0`);
 			missing++;
 			continue;
 		}
-		console.log(`AISVS 1.0 C${id} (Level ${r.level}): "${r.text}"`);
+		const shown = id.startsWith('AC.') ? id : `C${id}`;
+		if (r.kind === 'section') console.log(`AISVS 1.0 ${shown} (section): "${r.text}"`);
+		else console.log(`AISVS 1.0 ${shown} (Level ${r.level}): "${r.text}"`);
 		continue;
 	}
-	const id = 'V' + raw.replace(/^v5\.0\.0-/i, '').replace(/^V/i, '');
+	const id = raw.replace(/^v5\.0\.0-/i, '').replace(/^V/i, '');
 	if (!asvs) {
 		console.log(
 			`${raw}: tracked ASVS copy missing: expected docs/reference/standards/asvs-5.0.0/ (#601)`
@@ -65,14 +69,18 @@ for (const raw of ids) {
 		missing++;
 		continue;
 	}
-	const r = findAsvsRequirement(standards, id);
+	const r = lookup(standards, { standard: 'ASVS', id });
 	if (!r) {
 		console.log(`${raw}: NOT FOUND in ASVS 5.0.0`);
 		missing++;
 		continue;
 	}
-	const above = Number(r.L) > 2 ? ', above our Level 2 target' : '';
-	console.log(`ASVS v5.0.0-${id.slice(1)} (Level ${r.L}${above}): "${r.req_description}"`);
+	if (r.kind === 'section') {
+		console.log(`ASVS v5.0.0-${id} (section): "${r.text}"`);
+		continue;
+	}
+	const above = Number(r.level) > 2 ? ', above our Level 2 target' : '';
+	console.log(`ASVS v5.0.0-${id} (Level ${r.level}${above}): "${r.text}"`);
 }
 console.log(
 	`resolved ${ids.length - missing} of ${ids.length}; read ${asvs ? asvs.length : 0} ASVS and ${aisvsRows ? aisvsRows.size : 0} AISVS requirements`
