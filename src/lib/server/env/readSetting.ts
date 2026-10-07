@@ -99,3 +99,8 @@ export function assertLlmConnectTimeoutConfigured(): void {
 export function assertSessionIdleTimeoutConfigured(): void {
 	checkIntegerSetting('BP_SESSION_IDLE_TIMEOUT_HOURS');
 }
+
+// Added with the setting itself, read per call by the rate limiter's address key.
+export function assertRateLimitIpv6PrefixConfigured(): void {
+	checkIntegerSetting('BP_RATE_LIMIT_IPV6_PREFIX');
+}

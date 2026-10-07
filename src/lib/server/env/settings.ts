@@ -255,6 +255,20 @@ export const SETTINGS = {
 		summary: 'How long an invitation link stays valid.',
 		page: 'configuration.md#passwords-and-sessions'
 	},
+	BP_RATE_LIMIT_IPV6_PREFIX: {
+		kind: 'integer',
+		tier: 'advanced',
+		group: 'Accounts and sessions',
+		readBy: 'app',
+		default: 56,
+		min: 32,
+		max: 64,
+		unit: 'bits',
+		ceiling:
+			'An end site is given a /64 at the least, so above 64 one subscriber holds more than one counter, and choosing a new address resets the per-address limit.',
+		summary: 'How many leading bits of an IPv6 address the sign-in limits count as one client.',
+		page: 'configuration.md#how-attempts-are-counted-per-address'
+	},
 
 	// ── Database ────────────────────────────────────────────────────────────────────────────────
 	DATABASE_PROVIDER: {

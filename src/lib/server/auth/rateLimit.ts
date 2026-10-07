@@ -4,6 +4,8 @@ import { env } from '$env/dynamic/private';
 import { prisma } from '$lib/server/db';
 import { readOperatorBound, reportBoundDeparture } from '$lib/server/env/operatorBound';
 import { OperatorFacingError } from '$lib/server/operatorFacingError';
+import { rateLimitAddressKey } from '$lib/server/net/clientAddress';
+import { readIntegerSetting } from '$lib/server/env/readSetting';
 
 const WINDOW_MS = 15 * 60 * 1000;
 // REAUTH is deliberately shorter than the 15-minute LOGIN/etc window. Every REAUTH action sits
@@ -169,6 +171,15 @@ function hashRateLimitKey(value: string): string {
 }
 
 /**
+ * The one hashing of the ADDRESS dimension, for counting and for recording alike: an IPv6 client is
+ * keyed by its prefix (`BP_RATE_LIMIT_IPV6_PREFIX`, read per call), because every address inside
+ * the prefix it was given is the same subscriber. See `rateLimitAddressKey`.
+ */
+function hashAddress(ip: string): string {
+	return hashRateLimitKey(rateLimitAddressKey(ip, readIntegerSetting('BP_RATE_LIMIT_IPV6_PREFIX')));
+}
+
+/**
  * At least one key, by type: no key would be no counter, and a limiter that never refuses.
  * `subject` is stored in the `emailHash` column whatever it is.
  */
@@ -188,7 +199,7 @@ async function isRateLimited(kind: AttemptKind, keys: RateLimitKeys): Promise<bo
 		);
 	}
 	if (keys.ip !== undefined) {
-		const ipHash = hashRateLimitKey(keys.ip);
+		const ipHash = hashAddress(keys.ip);
 		checks.push(
 			prisma.loginAttempt.count({ where: { ipHash, kind, createdAt: { gte: windowStart } } })
 		);
@@ -201,7 +212,7 @@ async function isRateLimited(kind: AttemptKind, keys: RateLimitKeys): Promise<bo
 }
 
 async function recordAttempt(kind: AttemptKind, ip: string, email?: string): Promise<void> {
-	const ipHash = hashRateLimitKey(ip);
+	const ipHash = hashAddress(ip);
 	const emailHash = email !== undefined ? hashRateLimitKey(email) : null;
 	const cleanupBefore = new Date(Date.now() - WINDOW_MS * 4);
 	await Promise.all([

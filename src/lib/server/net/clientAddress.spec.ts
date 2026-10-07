@@ -222,10 +222,12 @@ describe('resolveForwardedClientAddress', () => {
 				'6.6.6.6, 2001:db8:1:2:3:4:5:6:51234',
 				'6.6.6.6, 2001:db8:1:2:3:4:5:6:0',
 				'6.6.6.6, 2001:db8:1:2:3:4:5:6:7:8',
-				// Nine parts with `::` is an address (`::` stands for one zero group), not one with a port.
+				// Nine parts with `::` is not this form: read whole it is 0:3:4:5:6:7:8:9, and it may also
+				// be ::3:4:5:6:7:8 with port 9. The two readings disagree on the first 64 bits, so it is
+				// unreadable (the next test but one).
 				'6.6.6.6, ::3:4:5:6:7:8:9'
 			].map((header) => resolveForwardedClientAddress('10.0.0.1', header, trusted))
-		).toEqual(['2001:db8:1:2:3:4:5:6', '10.0.0.1', '10.0.0.1', '::3:4:5:6:7:8:9']);
+		).toEqual(['2001:db8:1:2:3:4:5:6', '10.0.0.1', '10.0.0.1', '10.0.0.1']);
 	});
 
 	// Separates « an ambiguous hop is read as written » from « it is read only where its two

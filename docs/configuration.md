@@ -298,6 +298,36 @@ Two-factor authentication (TOTP) is per user and opt-in, enabled from
 Settings. No admin action exists to disable someone else's second factor,
 deliberately, so keep your recovery codes.
 
+## How attempts are counted per address
+
+```dotenv
+BP_RATE_LIMIT_IPV6_PREFIX=56   # default: one IPv6 /56 is one client, 32 to 64
+```
+
+Failed sign-ins, two-factor codes, registrations, invitation links, bank
+connections and imports are each limited per account and per address in a
+sliding 15-minute window. An IPv4 address counts as one client. An IPv6
+address counts by its first 56 bits, because an internet provider gives each
+customer a whole block of IPv6 addresses rather than one: RIPE-690, the
+European operators' recommendation, advises a /56 for a home and a /48 for a
+business, and a phone network gives each phone its own /64. Counted one address
+at a time, one customer could change address before every attempt and never
+reach the limit.
+
+Everyone inside one /56 shares that budget, as everyone behind one home router
+shares one IPv4 address. A person who fails five times locks the address limit
+for the others in the block for up to 15 minutes; the limit on each account is
+separate and still applies.
+
+- Lower it to `48` if your users connect from businesses, which may hold a
+  whole /48: at 56, each /56 inside a /48 is a separate client.
+- Raise it to `64` if many of your users connect from phones and you would
+  rather not have strangers on one carrier share a budget. A home with a /56
+  then has 256 budgets instead of one.
+
+Outside 32 to 64 the app refuses to start. Above 64, one customer would hold
+more than one budget again.
+
 ## Database
 
 BudgetPilot runs on SQLite, PostgreSQL, or MySQL/MariaDB. Two variables
