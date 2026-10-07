@@ -123,6 +123,14 @@ describe('an address has one counter however it is written', () => {
 		);
 	});
 
+	// Separates dropping the zone from keying it: the zone names the server's own interface, not
+	// the client, so link-local peers on every interface share the one fe80:: prefix.
+	it('the zone is dropped, not keyed: every interface shares the link-local counter', async () => {
+		expect(await queriedIpHash('REGISTER', 'fe80::1%eth1')).toBe(
+			await queriedIpHash('REGISTER', 'fe80::1%eth0')
+		);
+	});
+
 	// Separates folding the well-known NAT64 prefix (RFC 6052, 64:ff9b::/96) from masking it: behind
 	// a translator every IPv4 client arrives inside that one /96, and a /56 of it is one counter for
 	// all of them, where each had its own before.
@@ -132,6 +140,14 @@ describe('an address has one counter however it is written', () => {
 		);
 		expect(await queriedIpHash('REGISTER', '64:ff9b::198.51.100.6')).toBe(
 			await queriedIpHash('REGISTER', '198.51.100.6')
+		);
+	});
+
+	// Separates folding the well-known /96 from folding a wider prefix: 64:ff9b:1::/48 (RFC 8215) is
+	// for local translators with their own embedding, and keys as an IPv6 prefix like any other.
+	it('the local-use NAT64 prefix 64:ff9b:1::/48 is not folded', async () => {
+		expect(await queriedIpHash('REGISTER', '64:ff9b:1::c633:6407')).not.toBe(
+			await queriedIpHash('REGISTER', '198.51.100.7')
 		);
 	});
 
@@ -174,7 +190,7 @@ describe('an address has one counter however it is written', () => {
  * with `::` cannot be told from an address followed by a port. When the proxy appended a port, the
  * reading is shifted by one group: the `::` stands for one zero group fewer, and the client's
  * interface identifier, which the client chooses, moves into the fourth group, inside the /56. A
- * client choosing a source port below 10000, or port 0, makes the port read as a group, so this is
+ * client choosing a source port below 10000 makes the port read as a group, so this is
  * reachable behind any trusted proxy that writes an unbracketed IPv6 with its port.
  *
  * Such a hop is unreadable where its two readings (as written, and without its last group) disagree

@@ -257,14 +257,34 @@ describe('resolveForwardedClientAddress', () => {
 				'6.6.6.6, 2001:db8:0:5600::1:2',
 				'6.6.6.6, 2001:db8::5:1',
 				'6.6.6.6, 64:ff9b::c633:6407',
-				'6.6.6.6, 2001:db8::100:b:c:d:abcd'
+				'6.6.6.6, 2001:db8::100:b:c:d:abcd',
+				// Readings 2001:db8:0:5600:0:b:1:2 and 2001:db8:0:5600:0:0:b:1 agree on 64 bits and
+				// differ at bit 80: separates comparing 64 bits from comparing more.
+				'6.6.6.6, 2001:db8:0:5600::b:1:2'
 			].map((header) => resolveForwardedClientAddress('10.0.0.1', header, trusted))
 		).toEqual([
 			'2001:db8:0:5600::1:2',
 			'2001:db8::5:1',
 			'64:ff9b::c633:6407',
-			'2001:db8::100:b:c:d:abcd'
+			'2001:db8::100:b:c:d:abcd',
+			'2001:db8:0:5600::b:1:2'
 		]);
+	});
+
+	// Separates « trust an ambiguous hop when both readings are trusted » from « trust it on the
+	// reading taken whole ». Client 2001:db8:1:2::5 with port 10, written without brackets, reads
+	// whole as 2001:db8:1:2::5:10; when that one address is a trusted proxy, a walk trusting the
+	// whole reading skips the hop and hands the client the entry it wrote to the left.
+	it('an ambiguous hop is skipped as a proxy only when both of its readings are trusted', () => {
+		const narrow = parseTrustedProxies('10.0.0.1,2001:db8:1:2::5:10');
+		expect(
+			resolveForwardedClientAddress('10.0.0.1', '203.0.113.99, 2001:db8:1:2::5:10', narrow)
+		).toBe('10.0.0.1');
+		// The calibration: when both readings are trusted, the hop is a proxy and the walk goes on.
+		const wide = parseTrustedProxies('10.0.0.1,2001:db8:1:2::/64');
+		expect(
+			resolveForwardedClientAddress('10.0.0.1', '203.0.113.99, 2001:db8:1:2::5:10', wide)
+		).toBe('203.0.113.99');
 	});
 
 	it('the entry point every route calls applies the same reading', () => {
