@@ -12,6 +12,8 @@ import {
 } from '$lib/server/import/persist';
 import { recordSyncedBalance } from '$lib/server/net-worth/service';
 import { log } from '$lib/server/logging';
+import { readIntegerSetting } from '$lib/server/env/readSetting';
+import { SETTINGS } from '$lib/server/env/settings';
 import { ATTRIBUTE, EVENT } from '$lib/server/logging/names';
 import type { TransactionSource } from '$lib/domain/transaction';
 import type {
@@ -43,9 +45,8 @@ const AUTH_REQUEST_TTL_MS = 30 * 60 * 1000;
 /** Unattended-call budget: ~4 syncs/day (PSD2 posture), bypassable when the user explicitly asks. */
 const SYNC_MIN_INTERVAL_MS = 6 * 60 * 60 * 1000;
 /** First sync backfill window; later syncs re-fetch a small overlap (dedup absorbs it). */
-const FIRST_SYNC_LOOKBACK_DAYS = 90;
+const FIRST_SYNC_LOOKBACK_DAYS = SETTINGS.BANK_SYNC_FIRST_LOOKBACK_DAYS.default;
 const RESYNC_OVERLAP_DAYS = 7;
-const MAX_FIRST_SYNC_LOOKBACK_DAYS = 3650;
 
 /**
  * First-sync backfill window in days. BANK_SYNC_FIRST_LOOKBACK_DAYS overrides the
@@ -60,11 +61,9 @@ const MAX_FIRST_SYNC_LOOKBACK_DAYS = 3650;
  * throttle, so the PSD2 budget is unaffected.
  */
 function getFirstSyncLookbackDays(env: NodeJS.ProcessEnv): number {
-	const parsed = Number.parseInt(env.BANK_SYNC_FIRST_LOOKBACK_DAYS ?? '', 10);
-	if (!Number.isFinite(parsed) || parsed < 1 || parsed > MAX_FIRST_SYNC_LOOKBACK_DAYS) {
-		return FIRST_SYNC_LOOKBACK_DAYS;
-	}
-	return parsed;
+	// Refused rather than replaced by the default (#754): `30days` used to read as 30 and `1e3` as 1.
+	// `assertBankSyncLookbackConfigured` refuses the same values at boot.
+	return readIntegerSetting('BANK_SYNC_FIRST_LOOKBACK_DAYS', env);
 }
 const LAST_SYNC_ERROR_MAX_LENGTH = 200;
 const DAY_MS = 24 * 60 * 60 * 1000;

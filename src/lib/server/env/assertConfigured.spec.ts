@@ -223,19 +223,23 @@ describe('ENVIRONMENT_CHECKS', () => {
  * is a CLASSIFICATION the test owns rather than a copy of the registry: the registry itself is read.
  */
 const { readOperatorBound } = await import('./operatorBound');
+const { SETTINGS } = await import('./settings');
+type IntegerSettingName = import('./settings').IntegerSettingName;
 const { assertBootstrapTokenConfigured } = await import('$lib/server/auth/bootstrapToken');
 const { assertRateLimitSecretConfigured } = await import('$lib/server/auth/rateLimit');
 const { assertEncryptionKeyConfigured } = await import('$lib/server/crypto');
 const { assertDatabaseConfigured } = await import('$lib/server/database/bootCheck');
 const { assertForwardingConfigSafe } = await import('$lib/server/net/clientAddress');
 const { assertLoggingConfigured } = await import('$lib/server/logging');
+const { assertSecretFilesSafe } = await import('./secretFiles');
 const NOT_OPERATOR_BOUNDS = new Map<unknown, string>([
 	[assertDatabaseConfigured, 'a connection string and an engine name'],
 	[assertEncryptionKeyConfigured, 'a secret key'],
 	[assertRateLimitSecretConfigured, 'a secret key'],
 	[assertBootstrapTokenConfigured, 'a secret token'],
 	[assertForwardingConfigSafe, 'two variables that must not be set at all'],
-	[assertLoggingConfigured, 'two variables, each a closed set of words']
+	[assertLoggingConfigured, 'two variables, each a closed set of words'],
+	[assertSecretFilesSafe, 'a switch, on or off']
 ]);
 const OPERATOR_BOUNDS = ENVIRONMENT_CHECKS.filter(([, run]) => !NOT_OPERATOR_BOUNDS.has(run));
 
@@ -280,18 +284,32 @@ async function readingOf(name: string, run: () => void | Promise<void>, spelling
 
 // The first five are spellings `Number()` read as a number nobody wrote (before #745, on every
 // bound: `0x10` as 16, `1e1` as 10, `12.0` as 12, `+5` as 5, `0b11` as 3); the rest were already
-// refused and stay refused, now for the one reason. `12` is the calibration: a plain decimal must
-// come back as `read as 12`, so a probe that reads nothing cannot pass.
+// refused and stay refused, now for the one reason.
 const REFUSED_SPELLINGS = ['0x10', '1e1', '12.0', '+5', '0b11', '-1', '0', '1_0', '1 2', '１２'];
-const EXPECTED_READINGS: Record<string, string> = {
-	'12': 'read as 12',
-	' 12 ': 'read as 12',
-	'': 'the default',
-	'   ': 'the default',
-	...Object.fromEntries(
-		REFUSED_SPELLINGS.map((spelling) => [spelling, 'refused: not decimal digits'])
-	)
-};
+
+/**
+ * The calibration: a plain decimal that must come back as `read as <it>`, so a probe that reads
+ * nothing cannot pass. Taken from the settings registry rather than fixed at `12`, because it must
+ * be inside the bound's range and differ from its default, or the bound logs no departure and the
+ * reading is `the default`: `PASSWORD_HASH_COST` accepts 12 to 15 and defaults to 12 (#754).
+ */
+function calibrationFor(name: string): string {
+	const setting = SETTINGS[name as IntegerSettingName];
+	return String(setting.default === setting.min ? setting.min + 1 : setting.min);
+}
+
+function expectedReadings(name: string): Record<string, string> {
+	const plain = calibrationFor(name);
+	return {
+		[plain]: `read as ${plain}`,
+		[` ${plain} `]: `read as ${plain}`,
+		'': 'the default',
+		'   ': 'the default',
+		...Object.fromEntries(
+			REFUSED_SPELLINGS.map((spelling) => [spelling, 'refused: not decimal digits'])
+		)
+	};
+}
 
 describe('operator bounds', () => {
 	// Red on the tree before #745, with every bound's row reading `0x10` as 16, `1e1` as 10, `0b11`
@@ -314,13 +332,14 @@ describe('operator bounds', () => {
 		const readings: Record<string, Record<string, string>> = {};
 		for (const [name, run] of OPERATOR_BOUNDS) {
 			readings[name] = {};
-			for (const spelling of Object.keys(EXPECTED_READINGS)) {
+			for (const spelling of Object.keys(expectedReadings(name))) {
 				readings[name][spelling] = await readingOf(name, run, spelling);
 			}
 		}
-		expect({ boundsProbed: OPERATOR_BOUNDS.length > 0, readings }).toStrictEqual({
-			boundsProbed: true,
-			readings: Object.fromEntries(OPERATOR_BOUNDS.map(([name]) => [name, EXPECTED_READINGS]))
+		// Eleven since #754 added the six settings that used to read `Number()` or `parseInt()`.
+		expect({ boundsProbed: OPERATOR_BOUNDS.length, readings }).toStrictEqual({
+			boundsProbed: 11,
+			readings: Object.fromEntries(OPERATOR_BOUNDS.map(([name]) => [name, expectedReadings(name)]))
 		});
 	});
 

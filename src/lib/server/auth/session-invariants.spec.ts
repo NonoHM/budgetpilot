@@ -149,19 +149,45 @@ describe('v5.0.0-7.3.2: the absolute session lifetime', () => {
 		expect(ttlDaysOf(getSessionExpiresAt())).toBe(DOCUMENTED_DEFAULT_TTL_DAYS);
 	});
 
-	// The refusals matter more than the default: each of these, taken literally, would produce a
-	// session that never expires (NaN, so the comparison in `readSessionUser` is always false) or
-	// one already expired at creation. A silent fallback is the correct behaviour and it is
-	// invisible, so it is pinned.
-	it.each(['', 'abc', '0', '-5', 'Infinity', 'NaN', '30days'])(
-		'refuses %o and falls back to 30 rather than producing a session that never expires',
-		(value) => {
-			expect.assertions(1);
+	// Blank is unset (`KEY=` in a .env), never a value, so it reads as the default.
+	it.each(['', '   '])('reads the blank %o as the documented 30 days', (value) => {
+		expect.assertions(1);
 
-			process.env.SESSION_TTL_DAYS = value;
-			expect(ttlDaysOf(getSessionExpiresAt())).toBe(DOCUMENTED_DEFAULT_TTL_DAYS);
-		}
-	);
+		process.env.SESSION_TTL_DAYS = value;
+		expect(ttlDaysOf(getSessionExpiresAt())).toBe(DOCUMENTED_DEFAULT_TTL_DAYS);
+	});
+
+	// The ceiling is the browsers' own cap on a cookie's lifetime, so 400 is the last value that
+	// can take effect and 401 the first refused: the boundary pair, where `<` and `<=` disagree.
+	it('honours the ceiling of 400 days', () => {
+		expect.assertions(1);
+
+		process.env.SESSION_TTL_DAYS = '400';
+		expect(ttlDaysOf(getSessionExpiresAt())).toBe(400);
+	});
+
+	// Before #754 each of these fell back to 30 SILENTLY, or was read as a number nobody wrote
+	// (`0x10` as 16 days, `1e3` as 1000, `0.5` as 12 hours, `3000000` past year 9999). The boot check
+	// refuses them before any request; this asserts the reader refuses too, with the reason, rather
+	// than quietly applying a lifetime the operator did not choose.
+	it.each([
+		['abc', 'must be a whole number'],
+		['0', 'must be a whole number'],
+		['-5', 'must be a whole number'],
+		['Infinity', 'must be a whole number'],
+		['NaN', 'must be a whole number'],
+		['30days', 'must be a whole number'],
+		['0x10', 'must be a whole number'],
+		['1e3', 'must be a whole number'],
+		['0.5', 'must be a whole number'],
+		['401', 'SESSION_TTL_DAYS=401 is above the ceiling of 400.'],
+		['3000000', 'SESSION_TTL_DAYS=3000000 is above the ceiling of 400.']
+	])('refuses %o rather than applying a lifetime nobody wrote', (value, reason) => {
+		expect.assertions(1);
+
+		process.env.SESSION_TTL_DAYS = value;
+		expect(() => getSessionExpiresAt()).toThrow(reason);
+	});
 });
 
 /**

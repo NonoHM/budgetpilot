@@ -1,3 +1,4 @@
+import { SETTINGS } from '$lib/server/env/settings';
 import { prisma } from '$lib/server/db';
 import { readOperatorBound, reportBoundDeparture } from '$lib/server/env/operatorBound';
 import { candidateFingerprints } from './fingerprint';
@@ -32,13 +33,13 @@ import { OperatorFacingError } from '$lib/server/operatorFacingError';
  * and the import page's cap-reached banner links to Settings (« Supprimez-en une dans Paramètres »).
  * **Do not raise this number instead of pointing a user at that list.**
  */
-export const COLUMN_MAPPINGS_PER_USER_DEFAULT = 50;
+export const COLUMN_MAPPINGS_PER_USER_DEFAULT = SETTINGS.COLUMN_MAPPINGS_PER_USER.default;
 
 /**
  * Above this the cap stops being a cap. No measurement chose 500 (#327 introduced it without one):
  * it is ten times the default, and a user who reaches it frees rows one at a time in Settings.
  */
-export const COLUMN_MAPPINGS_PER_USER_CEILING = 500;
+export const COLUMN_MAPPINGS_PER_USER_CEILING = SETTINGS.COLUMN_MAPPINGS_PER_USER.max;
 
 export const COLUMN_MAPPINGS_PER_USER_ENV = 'COLUMN_MAPPINGS_PER_USER';
 

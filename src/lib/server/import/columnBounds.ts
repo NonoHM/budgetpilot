@@ -1,3 +1,4 @@
+import { SETTINGS } from '$lib/server/env/settings';
 import { readOperatorBound, reportBoundDeparture } from '$lib/server/env/operatorBound';
 import { OperatorFacingError } from '$lib/server/operatorFacingError';
 
@@ -50,10 +51,10 @@ import { OperatorFacingError } from '$lib/server/operatorFacingError';
  * you set is the bound that runs**. Same shape as `BACKUP_MAX_JSON_NODES`, and for the same
  * reason: a clamped limit reads as configured and behaves as something else.
  */
-export const CSV_DEFAULT_MAX_COLUMNS = 512;
+export const CSV_DEFAULT_MAX_COLUMNS = SETTINGS.CSV_MAX_COLUMNS.default;
 
 /** See the docstring above: past this the screen's page weight stops being meaningfully bounded. */
-export const CSV_MAX_COLUMNS_CEILING = 4_096;
+export const CSV_MAX_COLUMNS_CEILING = SETTINGS.CSV_MAX_COLUMNS.max;
 
 export const CSV_MAX_COLUMNS_ENV = 'CSV_MAX_COLUMNS';
 
