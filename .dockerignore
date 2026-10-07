@@ -12,6 +12,10 @@ build
 # Agent tooling, including .claude/worktrees/, which holds other checkouts of this repository with
 # their own .env files. Nothing under .claude is read by the image build.
 .claude
+# Private keys (keys/, AGENTS.md « Restricted paths ») and screenshots or throwaway data (scr/). Both
+# are gitignored, so a clone never has them, but a local build of this checkout would copy them.
+keys
+scr
 *.db
 dev.db
 prisma/dev.db
