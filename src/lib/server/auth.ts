@@ -264,9 +264,12 @@ export function redirectAfterSignIn(url: URL): never {
 	throw redirect(303, getSafeRedirect(url.searchParams.get(REDIRECT_PARAM)));
 }
 
-/** `/login`, remembering the page a signed-out visitor asked for. */
+/** `/login`, remembering the page a signed-out visitor asked for: its pathname only. The search
+ * carries what the user typed (`q`, a category name, a date range, a tag), and this URL reaches
+ * the address bar and any proxy access log, so the user retypes it instead (#838). The app-side
+ * control for operators without the `request>uri query` filter in `Caddyfile.example`. */
 export function signInUrl(requested: URL): string {
-	return `/login?${REDIRECT_PARAM}=${encodeURIComponent(requested.pathname + requested.search)}`;
+	return `/login?${REDIRECT_PARAM}=${encodeURIComponent(requested.pathname)}`;
 }
 
 /** The second-factor step, carrying the target forward already checked. */

@@ -1,7 +1,7 @@
 import { isRedirect, redirect } from '@sveltejs/kit';
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
-import { getSafeRedirect } from '$lib/server/auth';
+import { getSafeRedirect, signInUrl } from '$lib/server/auth';
 import { BYPASS_HOST, REDIRECT_BYPASSES, REDIRECT_KEPT } from './redirectBypasses';
 
 /**
@@ -49,13 +49,13 @@ describe('getSafeRedirect keeps what a legitimate flow produces', () => {
 		expect(getSafeRedirect('/transactions?q=a\\b')).toBe('/');
 	});
 
-	it('keeps what the sign-in hook builds from a request URL', () => {
-		// The producer is `hooks.server.ts`: pathname plus search of a parsed request URL, so the
-		// value arrives already in the parser's canonical form, including encoded non-ASCII.
+	it('keeps what signInUrl builds from a request URL', () => {
+		// The producer is `signInUrl`, called by `hooks.server.ts`: the pathname of a parsed request
+		// URL, so the value arrives already in the parser's canonical form, including encoded non-ASCII.
 		const request = new URL(
 			`${APP_ORIGIN}/transactions/caf${String.fromCharCode(0xe9)}?q=a b&tag=x`
 		);
-		const produced = request.pathname + request.search;
+		const produced = new URL(signInUrl(request), APP_ORIGIN).searchParams.get('redirectTo');
 		expect(getSafeRedirect(produced)).toBe(produced);
 	});
 });

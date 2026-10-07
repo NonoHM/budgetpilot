@@ -1,4 +1,5 @@
 import bcrypt from 'bcrypt';
+import fc from 'fast-check';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const db = vi.hoisted(() => ({
@@ -26,6 +27,7 @@ const {
 	requireUser,
 	revokeSessionToken,
 	SESSION_COOKIE,
+	signInUrl,
 	validateEmail,
 	validateNewEmail,
 	validatePassword,
@@ -411,5 +413,33 @@ describe('auth locale', () => {
 		const passwords = new Set(Array.from({ length: 10 }, () => generateTemporaryPassword()));
 
 		expect(passwords.size).toBe(10);
+	});
+});
+
+describe('signInUrl', () => {
+	// The search string carries what the user typed (`q`, a category name, a date range, a tag), and
+	// a proxy access log keeps query strings (#838). Only the pathname travels to /login.
+	it('carries the pathname and drops the search string', () => {
+		expect(signInUrl(new URL('http://x.test/transactions?q=secret&category=Rent'))).toBe(
+			'/login?redirectTo=%2Ftransactions'
+		);
+	});
+
+	it('carries a path with no search string unchanged', () => {
+		expect(signInUrl(new URL('http://x.test/settings'))).toBe('/login?redirectTo=%2Fsettings');
+	});
+
+	it('never carries a search string into the target, whatever the search was', () => {
+		fc.assert(
+			fc.property(fc.string(), (search) => {
+				const requested = new URL('http://x.test/transactions');
+				requested.search = search;
+				const target = new URL(signInUrl(requested), 'http://x.test').searchParams.get(
+					'redirectTo'
+				);
+				expect(target).toBe('/transactions');
+			}),
+			{ seed: 838, numRuns: 1000 }
+		);
 	});
 });
