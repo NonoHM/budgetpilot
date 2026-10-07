@@ -4,8 +4,10 @@
 
 - **[Getting started](./getting-started.md)**: install and first login, with
   or without Docker. Start here.
-- **[Configuration](./configuration.md)**: every setting, and how to reach
+- **[Configuration](./configuration.md)**: what to change, and how to reach
   the app from another machine.
+- **[Configuration reference](./configuration-reference.md)**: every setting,
+  its default and the values it accepts.
 - **[Reverse proxy](./reverse-proxy.md)**: optional Caddy overlay for a real
   domain with automatic HTTPS.
 - **[PostgreSQL or MySQL](./database-providers.md)**: optional, for installs
