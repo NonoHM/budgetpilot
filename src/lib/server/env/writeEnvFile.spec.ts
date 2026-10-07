@@ -116,3 +116,32 @@ describe('writeEnvFile', () => {
 		}).toEqual({ status: 3, code: 'EISDIR', entries: ['.env'], insideTheDirectory: [] });
 	});
 });
+
+/**
+ * Every call in Node's fs API that can create or replace a file. setup.mjs reads files and writes
+ * none itself, so any match there is a second way to the .env.
+ */
+const FILE_WRITERS =
+	/\b(?:writeFile|writeFileSync|appendFile|appendFileSync|createWriteStream|copyFile|copyFileSync|cp|cpSync|open|openSync|rename|renameSync)\s*\(/g;
+
+describe('scripts/setup.mjs', () => {
+	// Separates a setup that writes .env through writeEnvFile from one that writes it directly: the
+	// specs above exercise writeEnvFile alone, so a setup.mjs reverted to
+	// `writeFile(envPath, content, 'utf8')` would leave them all green while shipping 644.
+	it('writes .env through writeEnvFile, once, and through nothing else', () => {
+		const source = readFileSync(join(process.cwd(), 'scripts/setup.mjs'), 'utf8');
+
+		expect({
+			importsWriter: source.includes("import { writeEnvFile } from './env-file.mjs';"),
+			calls: source.match(/\bwriteEnvFile\(envPath, content\)/g)?.length ?? 0,
+			otherWriters: source.match(FILE_WRITERS) ?? []
+		}).toEqual({ importsWriter: true, calls: 1, otherWriters: [] });
+	});
+
+	// The detector's own calibration: the line setup.mjs used to carry is found.
+	it('recognises the direct write that setup.mjs used to make', () => {
+		expect("await writeFile(envPath, content, 'utf8');".match(FILE_WRITERS)).toEqual([
+			'writeFile('
+		]);
+	});
+});
