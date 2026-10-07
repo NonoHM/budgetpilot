@@ -174,9 +174,11 @@ describe('resolveForwardedClientAddress', () => {
 				// Port 0 is no source port; nginx's ngx_parse_addr_port refuses it too.
 				'6.6.6.6, 203.0.113.5:0',
 				'6.6.6.6, [2001:db8::5]:99999',
-				'6.6.6.6, [2001:db8::5]:http'
+				'6.6.6.6, [2001:db8::5]:http',
+				// Brackets hold an IPv6 literal only (RFC 3986 section 3.2.2).
+				'6.6.6.6, [203.0.113.5]'
 			].map((header) => resolveForwardedClientAddress('10.0.0.1', header, trusted))
-		).toEqual(Array(9).fill('10.0.0.1'));
+		).toEqual(Array(10).fill('10.0.0.1'));
 	});
 
 	it('an unreadable value the client wrote to the left is never reached', () => {
@@ -185,7 +187,7 @@ describe('resolveForwardedClientAddress', () => {
 		);
 	});
 
-	it('nothing the client writes before the hop the proxy appended changes the result (property)', () => {
+	it('the walk never passes the hop the proxy appended into the text before it (property)', () => {
 		// Addresses from the documentation ranges, none inside the 10.0.0.0/8 allowlist, so the
 		// generator does not ask the code under test which addresses are trusted.
 		const host = fc.integer({ min: 1, max: 254 });
@@ -219,9 +221,11 @@ describe('resolveForwardedClientAddress', () => {
 			[
 				'6.6.6.6, 2001:db8:1:2:3:4:5:6:51234',
 				'6.6.6.6, 2001:db8:1:2:3:4:5:6:0',
-				'6.6.6.6, 2001:db8:1:2:3:4:5:6:7:8'
+				'6.6.6.6, 2001:db8:1:2:3:4:5:6:7:8',
+				// Nine parts with `::` is an address (`::` stands for one zero group), not one with a port.
+				'6.6.6.6, ::3:4:5:6:7:8:9'
 			].map((header) => resolveForwardedClientAddress('10.0.0.1', header, trusted))
-		).toEqual(['2001:db8:1:2:3:4:5:6', '10.0.0.1', '10.0.0.1']);
+		).toEqual(['2001:db8:1:2:3:4:5:6', '10.0.0.1', '10.0.0.1', '::3:4:5:6:7:8:9']);
 	});
 
 	it('the entry point every route calls applies the same reading', () => {
