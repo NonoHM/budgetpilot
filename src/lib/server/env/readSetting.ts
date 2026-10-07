@@ -66,7 +66,7 @@ export function readChoiceSetting(
 /**
  * A boot check for one whole-number setting: refuse an unreadable or out-of-range value, and warn
  * when the value differs from the default. Not exported, so the naming rule in
- * `assertConfigured.spec.ts` sees only the six named checks below, each registered once.
+ * `assertConfigured.spec.ts` sees only the named checks below, each registered once.
  */
 function checkIntegerSetting(name: IntegerSettingName): void {
 	const value = readIntegerSetting(name);
@@ -93,4 +93,9 @@ export function assertLlmTimeoutConfigured(): void {
 }
 export function assertLlmConnectTimeoutConfigured(): void {
 	checkIntegerSetting('LLM_CONNECT_TIMEOUT_MS');
+}
+
+// Added with the setting itself (#221), so it never had a lenient reading to replace.
+export function assertSessionIdleTimeoutConfigured(): void {
+	checkIntegerSetting('BP_SESSION_IDLE_TIMEOUT_HOURS');
 }

@@ -227,6 +227,20 @@ export const SETTINGS = {
 		summary: 'How long a sign-in lasts before the user must sign in again.',
 		page: 'configuration.md#passwords-and-sessions'
 	},
+	BP_SESSION_IDLE_TIMEOUT_HOURS: {
+		kind: 'integer',
+		tier: 'common',
+		group: 'Accounts and sessions',
+		readBy: 'app',
+		default: 168,
+		min: 1,
+		max: 720,
+		unit: 'hours',
+		ceiling:
+			'720 hours is 30 days, the default sign-in lifetime, so a longer inactivity timeout would never end a session before SESSION_TTL_DAYS does at its default.',
+		summary: 'How long a sign-in can go unused before it ends, within its lifetime.',
+		page: 'configuration.md#passwords-and-sessions'
+	},
 	INVITATION_TTL_HOURS: {
 		kind: 'integer',
 		tier: 'common',

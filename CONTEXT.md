@@ -238,3 +238,19 @@ replaces the token and keeps the row, and `/logout` ends the row.
 > this request presented" revokes the caller's own session once its token has been replaced earlier
 > in the same request. Measured on #249 by restoring that predicate: a password change signed its
 > own owner out. The current session is `locals.user.sessionId`, never a hash of the cookie.
+
+## `expiresAt`, and the lifetime
+
+A session's **`expiresAt`** is the moment it stops working: the inactivity timeout after its last
+recorded use, never past its **lifetime**, which is `createdAt` plus `SESSION_TTL_DAYS` and is
+derived, never stored (#221). A use moves `expiresAt` later; nothing else does, except the startup
+step that applies a lowered setting by moving it earlier. The cookie lives to the end of the
+lifetime as computed when it was issued, not to `expiresAt`.
+
+> **What confusing them costs.** Until #221, `expiresAt` WAS the lifetime, and code written then
+> reads it that way. Setting the cookie to `expiresAt` would make the browser drop it at the
+> timeout, so the sign-in page could no longer say why the visitor was signed out; treating a moved
+> `expiresAt` as a lengthened lifetime would let a session outlive `SESSION_TTL_DAYS`. And the
+> design it replaced, a verdict recomputed from `lastSeenAt` and the setting in force, revived an
+> ended session when the timeout was raised or the app rolled back, because nothing stored the
+> moment it had ended (the contradiction passes on #221).

@@ -4,6 +4,8 @@ import {
 	createSession,
 	redirectAfterSignIn,
 	secondFactorUrl,
+	SESSION_COOKIE,
+	sessionEndedByInactivity,
 	validateEmail,
 	verifyPasswordTimingSafe
 } from '$lib/server/auth';
@@ -26,12 +28,16 @@ import type { PageServerLoad } from './$types';
 const NOTICES = ['registration_closed'] as const;
 type Notice = (typeof NOTICES)[number];
 
-export const load: PageServerLoad = async ({ locals, url }) => {
+export const load: PageServerLoad = async ({ cookies, locals, url }) => {
 	if (locals.user) redirectAfterSignIn(url);
 	const requested = url.searchParams.get('notice');
 	return {
 		canRegister: await isSelfRegistrationOpen(),
-		notice: NOTICES.includes(requested as Notice) ? (requested as Notice) : null
+		notice: NOTICES.includes(requested as Notice) ? (requested as Notice) : null,
+		// Why this visitor is signed out, when it is inactivity (#221). Read from the cookie the
+		// browser still holds (`handleAuth` leaves it in place), never from the URL, so no link can
+		// put this sentence on the page.
+		signedOutIdle: await sessionEndedByInactivity(cookies.get(SESSION_COOKIE))
 	};
 };
 

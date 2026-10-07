@@ -341,6 +341,18 @@ and the default. Edit that line in `.env`, or delete it to use the default,
 then run `docker compose up -d` again. To go back to the previous version
 while you decide, set `BUDGETPILOT_VERSION` back and run the same command.
 
+**1.3.0 ends a sign-in after 7 days without use**, inside the 30-day lifetime.
+There is nothing to do: a sign-in open at the upgrade counts its 7 days from
+the upgrade, so the upgrade signs nobody out. A sign-in that 1.3.0 ended for
+inactivity stays ended if you go back to an earlier version. An earlier version
+has no inactivity timeout and does not record use: under it, a sign-in made or
+used under 1.3.0 ends 7 days after its last use there, however active its user
+is; and after upgrading to 1.3.0
+again, a sign-in made or used only under it may end at once, and its user signs
+in again. To change the figure, set
+`BP_SESSION_IDLE_TIMEOUT_HOURS`, described in
+[Configuration](configuration.md#passwords-and-sessions).
+
 1.3.0 also adds `BP_STRICT_SECRET_FILES`, off by default, which makes the
 startup check on `.env` and the bank-signing key refuse rather than warn:
 [Refusing to start on an exposed secret file](configuration.md#refusing-to-start-on-an-exposed-secret-file).

@@ -25,6 +25,45 @@ construction, `X` an argued exception, `N/A` not applicable with a stated reason
 
 ---
 
+## 2026-10-07, the session inactivity timeout
+
+Branch `feat/221-session-idle-timeout` (#221, ruled on #919). **Letters below are quoted from the
+local L2 assessment report (untracked, not in a clone, #601)**, which describes the assessment of
+2026-08-13 and not a current state. Two rows move.
+
+### `v5.0.0-7.3.1`: `X` to `A`
+
+> Verify that there is an inactivity timeout such that re-authentication is enforced according to
+> risk analysis and documented security decisions.
+
+The assessment's `X` was « There is no inactivity timeout ». A session now ends once it has gone
+unused for `BP_SESSION_IDLE_TIMEOUT_HOURS` (default 168, accepted 1 to 720, ruled on #919), inside
+its absolute lifetime (`SESSION_TTL_DAYS`, counted from sign-in with the value in force). The check is a `where` clause the database evaluates on every
+request, the same one the token rotation of `v5.0.0-7.2.4` uses. Verified by attack: a session
+aged one minute past the timeout stops resolving, having resolved one minute inside it, on SQLite,
+PostgreSQL and MariaDB (`auth/sessionIdle.db-smoke.ts`); on the build, a browser whose session is
+aged past the timeout is sent to sign in (`e2e/session-idle.spec.ts`). The rounding is stated: use
+is recorded at most once per interval (an hour, or a twelfth of the timeout), so a session can end
+up to one interval early, never late. The moment a session stops working is stored in `expiresAt`,
+which 1.2.0 also reads, and only a use of a live session moves it later, so a raised timeout or a
+rollback cannot revive an ended session; the property is asserted on all three engines, including
+with no process running while the session goes idle.
+
+### `v5.0.0-7.1.1`: `X` to `C`
+
+> Verify that the user's session inactivity timeout and absolute maximum session lifetime are
+> documented, are appropriate in combination with other controls, and that the documentation
+> includes justification for any deviations from NIST SP 800-63B re-authentication requirements.
+
+The assessment's `X` was « Neither figure is documented and the NIST justification clause is
+untouched ». Both figures and their ranges are in
+[Configuration](../configuration.md#passwords-and-sessions), and the deviation from NIST SP
+800-63B-4's AAL2 figures for two-factor accounts is justified there as ruled on #919: no payment
+initiation, re-authentication on each of the nine actions in `REAUTH_FACTORS`, a bounded lifetime,
+and the inactivity timeout. Four other actions that change security state do not re-authenticate
+yet (#880), and the page says so. An operator can apply the AAL2 figures with two settings, which
+the same page names.
+
 ## 2026-10-06, a TOTP code is accepted once
 
 Branch `fix/818-totp-single-use` (#818). **Letters below are quoted from the local L2 assessment

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { join } from 'node:path';
-import { createSessionToken, getSessionExpiresAt, hashSessionToken } from '$lib/server/auth';
+import { createSessionToken, hashSessionToken, lifetimeEndsAt } from '$lib/server/auth';
 import {
 	blockCommentRanges,
 	isInComment,
@@ -124,7 +124,7 @@ describe('v5.0.0-7.2.3: session token entropy', () => {
 });
 
 describe('v5.0.0-7.3.2: the absolute session lifetime', () => {
-	/** Days between now and `expiresAt`, rounded to survive the milliseconds the call itself takes. */
+	/** Days between now and the end of the lifetime, rounded to survive the call's milliseconds. */
 	function ttlDaysOf(expires: Date): number {
 		return Math.round((expires.getTime() - Date.now()) / DAY_MS);
 	}
@@ -136,17 +136,17 @@ describe('v5.0.0-7.3.2: the absolute session lifetime', () => {
 		expect.assertions(2);
 
 		process.env.SESSION_TTL_DAYS = '7';
-		expect(ttlDaysOf(getSessionExpiresAt())).toBe(7);
+		expect(ttlDaysOf(lifetimeEndsAt(new Date()))).toBe(7);
 
 		process.env.SESSION_TTL_DAYS = '1';
-		expect(ttlDaysOf(getSessionExpiresAt())).toBe(1);
+		expect(ttlDaysOf(lifetimeEndsAt(new Date()))).toBe(1);
 	});
 
 	it('falls back to the documented 30 days when it is unset', () => {
 		expect.assertions(1);
 
 		delete process.env.SESSION_TTL_DAYS;
-		expect(ttlDaysOf(getSessionExpiresAt())).toBe(DOCUMENTED_DEFAULT_TTL_DAYS);
+		expect(ttlDaysOf(lifetimeEndsAt(new Date()))).toBe(DOCUMENTED_DEFAULT_TTL_DAYS);
 	});
 
 	// Blank is unset (`KEY=` in a .env), never a value, so it reads as the default.
@@ -154,7 +154,7 @@ describe('v5.0.0-7.3.2: the absolute session lifetime', () => {
 		expect.assertions(1);
 
 		process.env.SESSION_TTL_DAYS = value;
-		expect(ttlDaysOf(getSessionExpiresAt())).toBe(DOCUMENTED_DEFAULT_TTL_DAYS);
+		expect(ttlDaysOf(lifetimeEndsAt(new Date()))).toBe(DOCUMENTED_DEFAULT_TTL_DAYS);
 	});
 
 	// The ceiling is the browsers' own cap on a cookie's lifetime, so 400 is the last value that
@@ -163,7 +163,7 @@ describe('v5.0.0-7.3.2: the absolute session lifetime', () => {
 		expect.assertions(1);
 
 		process.env.SESSION_TTL_DAYS = '400';
-		expect(ttlDaysOf(getSessionExpiresAt())).toBe(400);
+		expect(ttlDaysOf(lifetimeEndsAt(new Date()))).toBe(400);
 	});
 
 	// Before #754 each of these fell back to 30 SILENTLY, or was read as a number nobody wrote
@@ -186,7 +186,7 @@ describe('v5.0.0-7.3.2: the absolute session lifetime', () => {
 		expect.assertions(1);
 
 		process.env.SESSION_TTL_DAYS = value;
-		expect(() => getSessionExpiresAt()).toThrow(reason);
+		expect(() => lifetimeEndsAt(new Date())).toThrow(reason);
 	});
 });
 

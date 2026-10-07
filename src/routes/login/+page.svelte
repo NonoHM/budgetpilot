@@ -20,6 +20,9 @@
 		<h1 class="text-2xl font-semibold tracking-normal">{m.login_heading()}</h1>
 	{/snippet}
 
+	{#if data.signedOutIdle}
+		<AlertBanner variant="info" class="mb-4">{m.login_notice_signed_out_idle()}</AlertBanner>
+	{/if}
 	{#if data.notice === 'registration_closed'}
 		<AlertBanner variant="info" class="mb-4">{m.register_notice_closed()}</AlertBanner>
 	{/if}

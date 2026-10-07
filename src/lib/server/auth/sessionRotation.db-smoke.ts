@@ -7,6 +7,7 @@ import {
 	createSession,
 	hashPassword,
 	hashSessionToken,
+	lifetimeEndsAt,
 	readSessionUser,
 	SESSION_COOKIE,
 	verifyPassword
@@ -432,19 +433,21 @@ describe('every re-authenticating action ends the token it arrived with (v5.0.0-
 	}
 
 	// The other half of « rotated »: the browser that re-authenticated is still signed in, on the
-	// SAME session row, until the SAME moment. Separates « rotated » from « revoked » (the owner
+	// SAME session row, with the SAME lifetime. Separates « rotated » from « revoked » (the owner
 	// would be signed out by their own password change), « rotated » from « a new session »
-	// (which would reset the per-session counter of #879 and drop the row from the session list),
-	// and « rotated » from « extended » (the absolute lifetime, `v5.0.0-7.3.2`, is 1.4's ruling).
+	// (which would reset the per-session counter of #879, drop the row from the session list and
+	// restart the lifetime), and « rotated » from « extended » (the absolute lifetime of
+	// `v5.0.0-7.3.2` counts from `createdAt`). The change is a use, so `expiresAt` may slide forward
+	// within that lifetime (#221), never back.
 	for (const [action, testCase] of Object.entries(CASES)) {
 		if (testCase.session !== 'rotated') continue;
-		it(`${action}: the response signs the browser into the same session, same expiry`, async () => {
-			expect.assertions(4);
+		it(`${action}: the response signs the browser into the same session, same lifetime`, async () => {
+			expect.assertions(5);
 			const { callerId, form } = await testCase.arrange();
 			const caller = await mintSession(callerId);
 			const before = await prisma.session.findUniqueOrThrow({
 				where: { id: caller.id },
-				select: { expiresAt: true }
+				select: { createdAt: true, expiresAt: true }
 			});
 
 			const { written } = await post(testCase.route, action, caller.token, form);
@@ -454,10 +457,11 @@ describe('every re-authenticating action ends the token it arrived with (v5.0.0-
 			expect((await readSessionUser(cookie?.value))?.sessionId).toBe(caller.id);
 			const after = await prisma.session.findUniqueOrThrow({
 				where: { id: caller.id },
-				select: { expiresAt: true }
+				select: { createdAt: true, expiresAt: true }
 			});
-			expect(after.expiresAt.getTime()).toBe(before.expiresAt.getTime());
-			expect(cookie?.expires?.getTime()).toBe(before.expiresAt.getTime());
+			expect(after.createdAt.getTime()).toBe(before.createdAt.getTime());
+			expect(after.expiresAt.getTime()).toBeGreaterThanOrEqual(before.expiresAt.getTime());
+			expect(cookie?.expires?.getTime()).toBe(lifetimeEndsAt(before.createdAt).getTime());
 		});
 	}
 

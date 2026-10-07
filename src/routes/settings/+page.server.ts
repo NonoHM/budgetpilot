@@ -7,6 +7,7 @@ import {
 	commitEndingSession,
 	commitWithRotatedToken,
 	hashPassword,
+	liveSessionWhere,
 	requireUser,
 	revokeSessionsOtherThan
 } from '$lib/server/auth';
@@ -60,9 +61,11 @@ const BACKUP_MAX_BYTES = 20_000_000;
 export const load: PageServerLoad = async ({ locals }) => {
 	const user = requireUser(locals.user);
 
+	const now = new Date();
 	const [
 		account,
 		sessions,
+		liveSessions,
 		tags,
 		columnMappings,
 		rememberedAccounts,
@@ -84,10 +87,15 @@ export const load: PageServerLoad = async ({ locals }) => {
 			select: {
 				id: true,
 				createdAt: true,
-				expiresAt: true,
-				revokedAt: true
+				expiresAt: true
 			},
 			orderBy: { createdAt: 'desc' }
+		}),
+		// Which of them are live, answered by the engine with the one definition (#221), so a session
+		// ended by inactivity is not shown as active.
+		prisma.session.findMany({
+			where: { userId: user.id, ...liveSessionWhere(now) },
+			select: { id: true }
 		}),
 		listTagsWithCounts(user.id),
 		listColumnMappings(user.id),
@@ -121,6 +129,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 		readLinkableNetWorthAccounts(user.id)
 	]);
 
+	const live = new Set(liveSessions.map((session) => session.id));
 	const mappedSessions = sessions.map((session) => ({
 		id: session.id,
 		createdAt: session.createdAt,
@@ -128,10 +137,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 		// By the row the hook resolved, never by the cookie: a re-authentication earlier in this same
 		// request has rotated the token, and the hash the browser presented matches no row any more.
 		isCurrent: session.id === user.sessionId,
-		status:
-			session.revokedAt || session.expiresAt <= new Date()
-				? ('revoked' as const)
-				: ('active' as const)
+		status: live.has(session.id) ? ('active' as const) : ('revoked' as const)
 	}));
 	const latestSession = mappedSessions[0] ?? null;
 

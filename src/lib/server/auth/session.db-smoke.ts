@@ -4,6 +4,7 @@ import {
 	createSession,
 	createSessionToken,
 	hashSessionToken,
+	lifetimeEndsAt,
 	readSessionUser,
 	revokeSessionToken,
 	SESSION_COOKIE
@@ -17,9 +18,9 @@ import { prisma } from '$lib/server/db';
  * server, not merely by a cookie attribute).
  *
  * WHY NOT A UNIT TEST, which is where the automation inventory first put it. `readSessionUser` is
- * one Prisma query and four guards over its result. A unit test injects that result, so it replaces
- * exactly the thing under test: the `where: { tokenHash }` lookup, the `expiresAt <= new Date()`
- * comparison the DATABASE stores and the engine compares, and the `revokedAt` column. `CLAUDE.md`
+ * one Prisma query whose `where` clause carries the token lookup and the liveness check
+ * (`liveSessionWhere`: `revokedAt` null and `expiresAt` in the future), evaluated by the engine. A
+ * unit test injects the result, so it replaces exactly the thing under test. `CLAUDE.md`
  * records this as "Unit tests cannot see a wrong SQL predicate", from a `pg_has_role` mistake that
  * every branch-covered unit test missed. The whole point of the row is that the server decides, so
  * the test asks a server.
@@ -169,19 +170,24 @@ describe('v5.0.0-7.3.2: the lifetime ceiling is enforced by the server', () => {
 		expect(await readSessionUser(token)).toBeNull();
 	});
 
-	it('a new session carries the documented 30-day ceiling in the row itself', async () => {
+	it('a new session carries the documented 30-day ceiling, counted from the start stored in the row', async () => {
 		expect.assertions(1);
 
 		const token = await mintSession();
-		const row = await prisma.session.findUnique({
+		const row = await prisma.session.findUniqueOrThrow({
 			where: { tokenHash: hashSessionToken(token) },
-			select: { expiresAt: true }
+			select: { createdAt: true, expiresAt: true }
 		});
 
 		// Read back out of the database rather than off the returned object, because the claim in
-		// the assessment is that the ceiling is a stored row and not a cookie hint. A round trip is
-		// also what catches an engine storing the column at the wrong precision or in the wrong zone.
-		const days = Math.round(((row?.expiresAt.getTime() ?? 0) - Date.now()) / DAY_MS);
-		expect(days).toBe(30);
+		// the assessment is that the ceiling rests on a stored row and not a cookie hint. A round trip
+		// is also what catches an engine storing the column at the wrong precision or in the wrong
+		// zone. The lifetime counts from `createdAt`; `expiresAt` is where the inactivity timeout of
+		// #221 stops it first, inside that lifetime.
+		const lifetimeDays = Math.round(
+			(lifetimeEndsAt(row.createdAt).getTime() - row.createdAt.getTime()) / DAY_MS
+		);
+		const stopsAfterDays = Math.round((row.expiresAt.getTime() - row.createdAt.getTime()) / DAY_MS);
+		expect({ lifetimeDays, stopsAfterDays }).toEqual({ lifetimeDays: 30, stopsAfterDays: 7 });
 	});
 });

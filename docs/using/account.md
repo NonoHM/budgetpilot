@@ -53,15 +53,17 @@ their access.
 
 ![The Sessions card: a count of active sessions, the current one with its creation and expiry dates, a "Log out other sessions" button, and a "View session details" disclosure](../screenshots/account/sessions-desktop.png)
 
-Each sign-in creates a session that lasts **30 days**. The list shows how
-many are active, marks the one you are using, and expands to show the rest.
+Each sign-in creates a session that lasts **30 days**, and ends sooner if
+you do not use it for **7 days**. When that happens, the sign-in page tells you
+why. The list shows how many are active, marks the one you are using, and
+expands to show the rest.
 
 - **Log out this session** signs you out here.
 - **Log out other sessions** signs out everywhere else and leaves you
   signed in.
 
 A phone you no longer own, or a browser on a shared machine, is a session
-here until it expires. That button is how you end it.
+here until it expires or goes unused for 7 days. That button ends it now.
 
 ## Your accounts
 

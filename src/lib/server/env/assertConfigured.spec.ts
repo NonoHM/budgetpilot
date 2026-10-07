@@ -336,9 +336,10 @@ describe('operator bounds', () => {
 				readings[name][spelling] = await readingOf(name, run, spelling);
 			}
 		}
-		// Eleven since #754 added the six settings that used to read `Number()` or `parseInt()`.
+		// Eleven since #754 added the six settings that used to read `Number()` or `parseInt()`;
+		// twelve since #221 added `BP_SESSION_IDLE_TIMEOUT_HOURS`.
 		expect({ boundsProbed: OPERATOR_BOUNDS.length, readings }).toStrictEqual({
-			boundsProbed: 11,
+			boundsProbed: 12,
 			readings: Object.fromEntries(OPERATOR_BOUNDS.map(([name]) => [name, expectedReadings(name)]))
 		});
 	});

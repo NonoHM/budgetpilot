@@ -171,7 +171,7 @@ describe('/settings', () => {
 	});
 
 	it('charge uniquement les sessions du user connecté sans exposer token hash ni passwordHash', async () => {
-		expect.assertions(7);
+		expect.assertions(8);
 
 		const token = 'session-courante';
 		// expiresAt is compared against the real system clock (new Date()) by the source under
@@ -187,20 +187,15 @@ describe('/settings', () => {
 		// Two rows, so « current » is decided rather than defaulted: the row the hook resolved
 		// (`locals.user.sessionId`) is current and the other is not, whatever the cookie holds. The
 		// cookie may already carry a token rotated earlier in this request (#249).
-		db.prisma.session.findMany.mockResolvedValue([
-			{
-				id: 'session-a',
-				createdAt: sessionCreatedAt,
-				expiresAt: sessionExpiresAt,
-				revokedAt: null
-			},
-			{
-				id: 'session-b',
-				createdAt: sessionCreatedAt,
-				expiresAt: sessionExpiresAt,
-				revokedAt: null
-			}
-		]);
+		// First the account's sessions, then which of them the engine judges live (#221). Which rows
+		// the predicate keeps is asserted against a real engine in `auth/sessionIdle.db-smoke.ts`;
+		// here the fake answers it, so this test reads only the mapping and the query's scope.
+		db.prisma.session.findMany
+			.mockResolvedValueOnce([
+				{ id: 'session-a', createdAt: sessionCreatedAt, expiresAt: sessionExpiresAt },
+				{ id: 'session-b', createdAt: sessionCreatedAt, expiresAt: sessionExpiresAt }
+			])
+			.mockResolvedValueOnce([{ id: 'session-a' }, { id: 'session-b' }]);
 
 		const result = (await load(buildLoadEvent({ token }) as never)) as {
 			account: { email: string; role: string };
@@ -219,11 +214,13 @@ describe('/settings', () => {
 			select: {
 				id: true,
 				createdAt: true,
-				expiresAt: true,
-				revokedAt: true
+				expiresAt: true
 			},
 			orderBy: { createdAt: 'desc' }
 		});
+		// The live query is scoped to the same account: another account's live session id cannot
+		// mark a row here active.
+		expect(db.prisma.session.findMany.mock.calls[1][0].where.userId).toBe('user-a');
 		expect(result.account).toEqual({
 			email: 'user-a@example.test',
 			role: 'USER'
@@ -273,7 +270,7 @@ describe('/settings', () => {
 		});
 	});
 
-	it('expose les indicateurs de sécurité et marque les sessions expirées ou révoquées pour l UI', async () => {
+	it('expose les indicateurs de sécurité et marque les sessions qui ne sont plus actives pour l UI', async () => {
 		expect.assertions(3);
 
 		vi.stubEnv('LLM_ENABLED', 'true');
@@ -282,20 +279,22 @@ describe('/settings', () => {
 			email: 'user-a@example.test',
 			role: 'USER'
 		});
-		db.prisma.session.findMany.mockResolvedValue([
-			{
-				tokenHash: 'session-revoquee',
-				createdAt: new Date('2026-06-21T10:00:00.000Z'),
-				expiresAt: new Date('2026-07-21T10:00:00.000Z'),
-				revokedAt: new Date('2026-06-22T10:00:00.000Z')
-			},
-			{
-				tokenHash: 'session-expiree',
-				createdAt: new Date('2026-06-20T10:00:00.000Z'),
-				expiresAt: new Date('2026-06-21T10:00:00.000Z'),
-				revokedAt: null
-			}
-		]);
+		// Two sessions the engine no longer counts live (revoked, expired or idle: its predicate
+		// decides, `auth/sessionIdle.db-smoke.ts`), so the live query returns neither.
+		db.prisma.session.findMany
+			.mockResolvedValueOnce([
+				{
+					id: 'session-revoquee',
+					createdAt: new Date('2026-06-21T10:00:00.000Z'),
+					expiresAt: new Date('2026-07-21T10:00:00.000Z')
+				},
+				{
+					id: 'session-expiree',
+					createdAt: new Date('2026-06-20T10:00:00.000Z'),
+					expiresAt: new Date('2026-06-21T10:00:00.000Z')
+				}
+			])
+			.mockResolvedValueOnce([]);
 
 		const result = (await load(buildLoadEvent({ token: 'session-courante' }) as never)) as {
 			security: {
@@ -325,12 +324,14 @@ describe('/settings', () => {
 		});
 		expect(result.sessions).toEqual([
 			{
+				id: 'session-revoquee',
 				createdAt: new Date('2026-06-21T10:00:00.000Z'),
 				expiresAt: new Date('2026-07-21T10:00:00.000Z'),
 				isCurrent: false,
 				status: 'revoked'
 			},
 			{
+				id: 'session-expiree',
 				createdAt: new Date('2026-06-20T10:00:00.000Z'),
 				expiresAt: new Date('2026-06-21T10:00:00.000Z'),
 				isCurrent: false,
