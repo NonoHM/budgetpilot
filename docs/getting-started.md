@@ -217,7 +217,8 @@ Copy the value after the `=` (the whole thing, including a trailing `=` if
 there is one) and paste it into the form. The first account created this way
 becomes the admin automatically.
 
-Registration attempts are limited to **5 per 15 minutes per IP address**, so
+Registration attempts are limited to **5 per 15 minutes per address** (an
+IPv6 address counts by its /56, see [configuration](configuration.md#how-attempts-are-counted-per-address)), so
 that a short or hand-picked token can't be guessed by brute force. If you
 mistype the token five times the form stops accepting attempts and tells you
 to try again later, and you'll need to wait out the 15 minutes. Check the

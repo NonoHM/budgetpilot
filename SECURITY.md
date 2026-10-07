@@ -32,7 +32,8 @@ highest priority.
 ## Security posture (high level)
 
 - **Authentication**: opaque, hashed session tokens; bcrypt password hashing
-  (cost 12 minimum); active login rate limiting (per email and per IP);
+  (cost 12 minimum); active login rate limiting (per email and per address,
+  an IPv6 address counted by its /56, configurable);
   optional TOTP/MFA with encrypted secrets and recovery codes.
 - **Data isolation**: every sensitive query is scoped to the authenticated
   user; the client never controls which user's data it can read or write.

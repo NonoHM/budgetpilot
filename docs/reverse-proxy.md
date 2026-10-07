@@ -227,7 +227,10 @@ Three things to carry over yourself:
   against `TRUSTED_PROXIES` itself and refuses to boot if `ADDRESS_HEADER` is
   set. Only trust the header once the app is unreachable except through your
   proxy: a client that can reach the app from inside the trusted range can
-  still forge the header.
+  still forge the header. Trust an IPv6 proxy by its /64 (`2001:db8:1:2::/64`)
+  rather than by its single address: written without a port, some IPv6
+  addresses can also be read as a shorter address followed by one, and the
+  app then stops at that hop unless both readings are trusted.
 - Make your proxy add the visitor's address to `X-Forwarded-For`. Caddy and
   Traefik do this without any setting. In nginx, add
   `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;`, and in

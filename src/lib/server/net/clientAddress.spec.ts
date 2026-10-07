@@ -222,10 +222,69 @@ describe('resolveForwardedClientAddress', () => {
 				'6.6.6.6, 2001:db8:1:2:3:4:5:6:51234',
 				'6.6.6.6, 2001:db8:1:2:3:4:5:6:0',
 				'6.6.6.6, 2001:db8:1:2:3:4:5:6:7:8',
-				// Nine parts with `::` is an address (`::` stands for one zero group), not one with a port.
+				// Nine parts with `::` is not this form: read whole it is 0:3:4:5:6:7:8:9, and it may also
+				// be ::3:4:5:6:7:8 with port 9. The two readings disagree on the first 64 bits, so it is
+				// unreadable (the next test but one).
 				'6.6.6.6, ::3:4:5:6:7:8:9'
 			].map((header) => resolveForwardedClientAddress('10.0.0.1', header, trusted))
-		).toEqual(['2001:db8:1:2:3:4:5:6', '10.0.0.1', '10.0.0.1', '::3:4:5:6:7:8:9']);
+		).toEqual(['2001:db8:1:2:3:4:5:6', '10.0.0.1', '10.0.0.1', '10.0.0.1']);
+	});
+
+	// Separates « an ambiguous hop is read as written » from « it is read only where its two
+	// readings agree on the first 64 bits ». Written by a proxy that appends a port without
+	// brackets, `2001:db8::100:b:c:d:4431` is 2001:db8:0:0:100:b:c:d with port 4431, but reads as
+	// 2001:db8:0:100:b:c:d:4431, which moves the client's interface identifier into its prefix.
+	it('an unbracketed hop that may end in a port is unreadable where its readings disagree on the prefix', () => {
+		expect(
+			[
+				'6.6.6.6, 2001:db8::100:b:c:d:4431',
+				'6.6.6.6, 2001:db8::100:b:c:d:0',
+				'6.6.6.6, 2001::5600:100:b:c:d:4431',
+				// The readings differ only in bits 56 to 63 (0:ff against 0:0), inside the /64 the
+				// setting may be raised to and outside the default /56: separates comparing the first 64
+				// bits from comparing the first 56.
+				'6.6.6.6, 2001:db8::ff:b:c:d:4431'
+			].map((header) => resolveForwardedClientAddress('10.0.0.1', header, trusted))
+		).toEqual(Array(4).fill('10.0.0.1'));
+	});
+
+	// The calibration of the refusal above: where the two readings share their first 64 bits, the
+	// hop is read as written, so a proxy writing bare addresses (nginx, Caddy, HAProxy, Traefik)
+	// loses no client to the peer. The last spelling ends in a hex letter, which no port does.
+	it('an unbracketed hop whose readings agree on the prefix is read as written', () => {
+		expect(
+			[
+				'6.6.6.6, 2001:db8:0:5600::1:2',
+				'6.6.6.6, 2001:db8::5:1',
+				'6.6.6.6, 64:ff9b::c633:6407',
+				'6.6.6.6, 2001:db8::100:b:c:d:abcd',
+				// Readings 2001:db8:0:5600:0:b:1:2 and 2001:db8:0:5600:0:0:b:1 agree on 64 bits and
+				// differ at bit 80: separates comparing 64 bits from comparing more.
+				'6.6.6.6, 2001:db8:0:5600::b:1:2'
+			].map((header) => resolveForwardedClientAddress('10.0.0.1', header, trusted))
+		).toEqual([
+			'2001:db8:0:5600::1:2',
+			'2001:db8::5:1',
+			'64:ff9b::c633:6407',
+			'2001:db8::100:b:c:d:abcd',
+			'2001:db8:0:5600::b:1:2'
+		]);
+	});
+
+	// Separates « trust an ambiguous hop when both readings are trusted » from « trust it on the
+	// reading taken whole ». Client 2001:db8:1:2::5 with port 10, written without brackets, reads
+	// whole as 2001:db8:1:2::5:10; when that one address is a trusted proxy, a walk trusting the
+	// whole reading skips the hop and hands the client the entry it wrote to the left.
+	it('an ambiguous hop is skipped as a proxy only when both of its readings are trusted', () => {
+		const narrow = parseTrustedProxies('10.0.0.1,2001:db8:1:2::5:10');
+		expect(
+			resolveForwardedClientAddress('10.0.0.1', '203.0.113.99, 2001:db8:1:2::5:10', narrow)
+		).toBe('10.0.0.1');
+		// The calibration: when both readings are trusted, the hop is a proxy and the walk goes on.
+		const wide = parseTrustedProxies('10.0.0.1,2001:db8:1:2::/64');
+		expect(
+			resolveForwardedClientAddress('10.0.0.1', '203.0.113.99, 2001:db8:1:2::5:10', wide)
+		).toBe('203.0.113.99');
 	});
 
 	it('the entry point every route calls applies the same reading', () => {
