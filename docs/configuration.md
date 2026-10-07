@@ -36,6 +36,14 @@ after the rotation can no longer be matched ([logs](./logging.md#the-client-addr
 `npm run setup` regenerates all three, so don't rerun it on an instance you
 already use. Edit `.env` directly to flip a single setting.
 
+Keep `.env` readable by your account only: `chmod 600 .env`. `npm run setup`
+and the block in [getting started](./getting-started.md#2-create-your-env)
+already do. When the `.env` in the directory the app starts from can be read
+or written by other accounts on the machine, the app logs a
+`budgetpilot.config.env_file_exposed` warning at startup with the mode it
+found ([logs](./logging.md#what-to-do)). Under Docker it cannot check: Compose
+reads `.env` on the host and the container never sees the file.
+
 ## Exposing it beyond localhost
 
 This is where most people get stuck, so read it before you try.

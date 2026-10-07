@@ -83,6 +83,7 @@ export type LogEvent =
 			};
 	  }
 	| { event: typeof E.configLogLevelChanged; attributes: { [A.configLogLevel]: string } }
+	| { event: typeof E.configEnvFileExposed; attributes: { [A.configFileMode]: string } }
 	| {
 			event: typeof E.requestFailed;
 			attributes: ErrorFields & {
@@ -317,6 +318,13 @@ export const REGISTRY: { [N in EventName]: EventSpec<AttributesOf<N>> } = {
 		flood: false,
 		security: false,
 		attributes: { [A.configLogLevel]: 'Operational' }
+	},
+	[E.configEnvFileExposed]: {
+		severity: 'WARN',
+		body: 'The .env file in the working directory can be read or written by other accounts on this machine. It holds the secrets, and whoever can write it can change DATABASE_URL or ORIGIN. Run chmod 600 .env.',
+		flood: false,
+		security: false,
+		attributes: { [A.configFileMode]: 'Operational' }
 	},
 	[E.requestFailed]: {
 		severity: 'ERROR',
