@@ -266,7 +266,8 @@ export const SETTINGS = {
 		unit: 'bits',
 		ceiling:
 			'An end site is given a /64 at the least, so above 64 one subscriber holds more than one counter, and choosing a new address resets the per-address limit.',
-		summary: 'How many leading bits of an IPv6 address the sign-in limits count as one client.',
+		summary:
+			'How many leading bits of an IPv6 address the per-address rate limits count as one client.',
 		page: 'configuration.md#how-attempts-are-counted-per-address'
 	},
 

@@ -172,14 +172,16 @@ function isPort(text: string): boolean {
  * PORT, and nothing in the text says which. Read whole, a port shifts the groups after `::` one place
  * to the left, which moves the client's interface identifier, chosen by the client, into the
  * prefix the rate limiter keys on (`rateLimitAddressKey`): `2001:db8::100:b:c:d:4431` is
- * 2001:db8:0:0:100:b:c:d with port 4431, and reads as 2001:db8:0:100:b:c:d:4431. So the hop is read
- * whole only where that reading and the reading without its last group share their first 64 bits,
- * the longest prefix the limiter accepts; there either reading gives the same key. Elsewhere it is
- * unreadable, and the walk stops at the peer as for any unreadable hop. A bare address with no
- * port, as nginx, Caddy, HAProxy and Traefik write it, is refused only when its zero run lies
- * inside its first 64 bits and its last group happens to be all digits.
+ * 2001:db8:0:0:100:b:c:d with port 4431, and reads as 2001:db8:0:100:b:c:d:4431. Where the text
+ * without its last group is also an address, the two readings must share their first 64 bits, the
+ * longest prefix the limiter accepts, so either gives the same key; otherwise the hop is
+ * unreadable, and the walk stops at the peer as for any unreadable hop. Both readings are returned,
+ * because the walk must also ask whether each is a trusted proxy. A bare address with no port, as
+ * nginx, Caddy, HAProxy and Traefik write it, is refused only when its zero run ends before its
+ * fourth group, at least two groups follow it, and its last group happens to be all digits:
+ * `X:0:0:S:…`, the first /48 of a /16.
  */
-function readForwardedHop(hop: string): string | null {
+function readForwardedHop(hop: string): { address: string; otherReading?: string } | null {
 	const text = hop.trim();
 	const bracketed = /^\[([^\]]*)\](?::(.*))?$/.exec(text);
 	let address = text;
@@ -196,11 +198,15 @@ function readForwardedHop(hop: string): string | null {
 		if (!isPort(text.slice(cut + 1))) return null;
 		address = text.slice(0, cut);
 	} else if (text.includes('::') && /:\d{1,4}$/.test(text)) {
+		const shorter = text.slice(0, text.lastIndexOf(':'));
 		const whole = parseIpv6(text);
-		const withoutLast = parseIpv6(text.slice(0, text.lastIndexOf(':')));
-		if (whole !== null && withoutLast !== null && whole >> 64n !== withoutLast >> 64n) return null;
+		const withoutLast = parseIpv6(shorter);
+		if (whole !== null && withoutLast !== null) {
+			if (whole >> 64n !== withoutLast >> 64n) return null;
+			return { address, otherReading: shorter };
+		}
 	}
-	return parseIp(address) ? address : null;
+	return parseIp(address) ? { address } : null;
 }
 
 /** RFC 6052's well-known NAT64 prefix, 64:ff9b::/96: a translated IPv4 client sits in its last 32 bits. */
@@ -216,8 +222,9 @@ const ALL_128_BITS = (1n << 128n) - 1n;
  * An IPv4 address keys as itself: it is one subscriber at most. Three spellings fold to IPv4 first:
  * the mapped form (`::ffff:a.b.c.d`, folded by `parseIp`), the well-known NAT64 prefix (every IPv4
  * client behind a translator arrives inside that one /96, which a mask would make one counter), and
- * a zone (`fe80::1%eth0`, as Node reports a link-local peer) is dropped before parsing, so a
- * link-local segment is one prefix rather than one counter per identifier.
+ * a zone (`fe80::1%eth0`, as Node reports a link-local peer) is dropped before parsing, so every
+ * link-local peer, on every interface, shares the fe80:: prefix rather than holding one counter
+ * per identifier.
  *
  * Numeric rather than textual, so every spelling of one address is one key. Text that is no address
  * keys as written, trimmed and lowercased: no production caller passes one (the peer comes from
@@ -264,9 +271,15 @@ export function resolveForwardedClientAddress(
 
 	const hops = forwardedFor.split(',');
 	for (let i = hops.length - 1; i >= 0; i -= 1) {
-		const address = readForwardedHop(hops[i]);
-		if (address === null) return peer;
-		if (!ipIsTrusted(address, trusted)) return address;
+		const hop = readForwardedHop(hops[i]);
+		if (hop === null) return peer;
+		const isProxy = ipIsTrusted(hop.address, trusted);
+		// An ambiguous hop (see readForwardedHop) is a proxy only when both readings are: trusting
+		// one reading would let a client whose address and port spell a trusted address skip it.
+		if (hop.otherReading !== undefined && ipIsTrusted(hop.otherReading, trusted) !== isProxy) {
+			return peer;
+		}
+		if (!isProxy) return hop.address;
 	}
 	return peer;
 }

@@ -305,8 +305,9 @@ BP_RATE_LIMIT_IPV6_PREFIX=56   # default: one IPv6 /56 is one client, 32 to 64
 ```
 
 Failed sign-ins, two-factor codes, registrations, invitation links, bank
-connections and imports are each limited per account and per address in a
-sliding 15-minute window. An IPv4 address counts as one client. An IPv6
+connections and imports are each limited per address in a sliding 15-minute
+window, and all but registrations and invitation links also per account or
+per sign-in. An IPv4 address counts as one client. An IPv6
 address counts by its first 56 bits, because an internet provider gives each
 customer a whole block of IPv6 addresses rather than one: RIPE-690, the
 European operators' recommendation, advises a /56 for a home and a /48 for a
