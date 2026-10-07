@@ -68,6 +68,10 @@ The pending challenge between the two sign-in steps lasts **five minutes**.
 After that, the verification page sends you back to sign in with your
 password again.
 
+A password change, an admin password reset, or **Log out other sessions**
+ends a pending challenge at once: a code entered afterwards sends you back to
+sign in with your password.
+
 ## When the recovery codes run out
 
 Nothing in the app says so.

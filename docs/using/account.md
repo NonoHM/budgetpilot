@@ -47,7 +47,8 @@ password must be at least **12 characters**.
 Saving it **signs every other session out** and keeps the one you are using.
 That is the point rather than a side effect: if you are changing your
 password because you think somebody else has it, the change is what removes
-their access.
+their access. That includes a sign-in that got past your password and is still
+waiting for its two-factor code.
 
 ## See where you are signed in
 
