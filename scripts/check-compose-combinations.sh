@@ -475,6 +475,7 @@ caddy_lines_read=$(wc -l <Caddyfile.example)
 caddy_trimmed=$(sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' Caddyfile.example)
 for filter_line in \
 	'request>uri regexp \?.* ""' \
+	'resp_headers>Location regexp \?.* ""' \
 	'request>headers>Referer delete'; do
 	hits=$(grep -c -F -x -- "$filter_line" <<<"$caddy_trimmed" || true)
 	if [ "$hits" != 1 ]; then
@@ -484,15 +485,17 @@ for filter_line in \
 	fi
 	echo "ok:   Caddyfile.example filters \"$filter_line\""
 done
-# Caddy keeps one filter per field. With a second `request>uri` line, Caddy either refuses to start
-# or silently discards the earlier line, depending on the order (measured on 2.11, #838).
-uri_filters=$(grep -c -E '^request>uri[[:space:]]' <<<"$caddy_trimmed" || true)
-if [ "$uri_filters" != 1 ]; then
-	echo "FAIL: Caddyfile.example has $uri_filters uncommented request>uri filter line(s), expected exactly 1: Caddy keeps one filter per field (read $caddy_lines_read lines)" >&2
-	failed=1
-else
-	echo "ok:   Caddyfile.example has one request>uri filter"
-fi
+# Caddy keeps one filter per field. With a second line for the same field, Caddy either refuses to
+# start or silently discards the earlier line, depending on the order (measured on 2.11, #838).
+for field in 'request>uri' 'resp_headers>Location'; do
+	field_filters=$(grep -c -E "^${field}[[:space:]]" <<<"$caddy_trimmed" || true)
+	if [ "$field_filters" != 1 ]; then
+		echo "FAIL: Caddyfile.example has $field_filters uncommented $field filter line(s), expected exactly 1: Caddy keeps one filter per field (read $caddy_lines_read lines)" >&2
+		failed=1
+		continue
+	fi
+	echo "ok:   Caddyfile.example has one $field filter"
+done
 
 # Log rotation on every service any documented stack starts (ruling R2 on #841). Docker's default
 # json-file driver keeps a container's output with no size limit, so a service without `logging:`
