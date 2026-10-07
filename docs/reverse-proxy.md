@@ -163,7 +163,9 @@ you typed to find your own transactions, such as a search term, a category
 name, a date range or a tag. Access logs tend to be world-readable, shipped
 to a log collector, or kept far longer than any of that stays valid or
 private. So the example removes everything after the `?` in each logged
-address and keeps the path.
+address and keeps the path. Caddy's error log is not covered yet: when the
+app does not answer, it writes the full address, query string included, and
+the `Referer` (#900).
 
 It removes the whole query string rather than a list of named parameters,
 because a list goes stale: an earlier list missed six parameters the app was

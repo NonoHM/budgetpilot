@@ -52,8 +52,8 @@ budget.example.com {
 	# `to`, `tag`, `importBatch` and `qMode` the app writes into its own list,
 	# paging and export links. An access log tends to be world-readable, shipped
 	# to a log collector, or kept far longer than any of that stays valid or
-	# private, and it is the one place in this stack that would keep it in
-	# plaintext outside the database.
+	# private. Caddy's error log is not covered yet: when the app does not
+	# answer, it writes the full address and the `Referer` (#900).
 	#
 	# The filter removes everything from the `?` on, so the log keeps the path.
 	# It used to delete parameters by name, and that list had missed the six
