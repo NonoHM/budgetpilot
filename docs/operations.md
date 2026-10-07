@@ -37,6 +37,12 @@ an afternoon and costing you your data.
 
 **Published image:**
 
+If `.env` pins an exact version, such as `BUDGETPILOT_VERSION=1.2.3`, which is
+what the `.env` block in the README and getting started writes, change it to
+the new number from the
+[releases page](https://github.com/NonoHM/budgetpilot/releases/latest) first.
+Otherwise the pull fetches the same version again. Then:
+
 ```bash
 docker compose pull
 docker compose up -d
