@@ -131,6 +131,11 @@ jobs:
             > "$RUNNER_TEMP/trufflehog-results.jsonl" 2> "$RUNNER_TEMP/trufflehog-scan.log"
           status=$?
           set -e
+          # What the scan logged, by message name and count, before anything is decided on it (#849):
+          # a refusal below must be able to say whether TruffleHog skipped a pass or worded it
+          # differently. Message names are constants in TruffleHog's code; no field value is printed.
+          echo "TruffleHog exit $status; log $(wc -l < "$RUNNER_TEMP/trufflehog-scan.log") lines, $(jq -nR '[inputs | fromjson? | .msg] | length' "$RUNNER_TEMP/trufflehog-scan.log") JSON"
+          jq -rR 'fromjson? | "\(.level // "?") \(.msg // "?")"' "$RUNNER_TEMP/trufflehog-scan.log" | sort | uniq -c | sort -rn | head -40
           # What it read, from its own log: the issue and pull request passes, and the totals.
           for pass in 'Scanning issues' 'Scanning pull requests'; do
             if ! grep -q "\"msg\":\"${pass}\"" "$RUNNER_TEMP/trufflehog-scan.log"; then
