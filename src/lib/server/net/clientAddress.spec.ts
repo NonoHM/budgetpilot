@@ -1,3 +1,4 @@
+import fc from 'fast-check';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
 	assertForwardingConfigSafe,
@@ -5,6 +6,7 @@ import {
 	parseCidr,
 	parseIp,
 	parseTrustedProxies,
+	resolveClientAddress,
 	resolveForwardedClientAddress
 } from './clientAddress';
 
@@ -146,8 +148,86 @@ describe('resolveForwardedClientAddress', () => {
 		);
 	});
 
-	it('skips a malformed segment but still returns a valid client to its left', () => {
-		expect(resolveForwardedClientAddress('10.0.0.1', '203.0.113.5, junk', trusted)).toBe(
+	it('reads a hop the proxy wrote with its port as the address before the port', () => {
+		// Azure Application Gateway writes « a comma-separated list of IP:port », IIS ARR likewise.
+		expect(
+			[
+				'6.6.6.6, 203.0.113.5:51234',
+				'6.6.6.6, [2001:db8::5]:51234',
+				'6.6.6.6, [2001:db8::5]',
+				'6.6.6.6, 203.0.113.5:1, 10.0.0.2:2'
+			].map((header) => resolveForwardedClientAddress('10.0.0.1', header, trusted))
+		).toEqual(['203.0.113.5', '2001:db8::5', '2001:db8::5', '203.0.113.5']);
+	});
+
+	it('FAIL CLOSED: a hop that does not parse stops the walk at the peer, never at a hop to its left', () => {
+		// Everything left of the hop the proxy wrote is the client's own text, so skipping an
+		// unreadable hop would hand the choice of address to the client.
+		expect(
+			[
+				'203.0.113.5, junk',
+				'6.6.6.6, 203.0.113.5:99999',
+				'6.6.6.6, 203.0.113.5:',
+				'6.6.6.6, [2001:db8::5',
+				'6.6.6.6, 2001:db8::5:51234',
+				'6.6.6.6, 203.0.113.5:51234:1',
+				// Port 0 is no source port; nginx's ngx_parse_addr_port refuses it too.
+				'6.6.6.6, 203.0.113.5:0'
+			].map((header) => resolveForwardedClientAddress('10.0.0.1', header, trusted))
+		).toEqual(Array(7).fill('10.0.0.1'));
+	});
+
+	it('an unreadable value the client wrote to the left is never reached', () => {
+		expect(resolveForwardedClientAddress('10.0.0.1', 'junk, 203.0.113.5', trusted)).toBe(
+			'203.0.113.5'
+		);
+	});
+
+	it('nothing the client writes before the hop the proxy appended changes the result (property)', () => {
+		// Addresses from the documentation ranges, none inside the 10.0.0.0/8 allowlist, so the
+		// generator does not ask the code under test which addresses are trusted.
+		const host = fc.integer({ min: 1, max: 254 });
+		const outside = fc.oneof(
+			host.map((h) => `203.0.113.${h}`),
+			host.map((h) => `198.51.100.${h}`)
+		);
+		const port = fc.integer({ min: 1, max: 65535 });
+		// What the proxy appends: the address it saw, with or without its port; or, when it is
+		// misconfigured, something unreadable, in which case the peer is the answer.
+		const appended = fc.oneof(
+			outside.map((ip) => ({ hop: ip, expected: ip })),
+			fc.tuple(outside, port).map(([ip, p]) => ({ hop: `${ip}:${p}`, expected: ip })),
+			fc.constantFrom('junk', 'unknown', '').map((hop) => ({ hop, expected: '10.0.0.1' }))
+		);
+		// 6.6.6.6 sits between the client's text and the proxy's hop: a walk that skipped an
+		// unreadable hop would land on it, which a random prefix almost never offers.
+		fc.assert(
+			fc.property(fc.string({ maxLength: 40 }), appended, (prefix, { hop, expected }) => {
+				const header = `${prefix}, 6.6.6.6, ${hop}`;
+				return resolveForwardedClientAddress('10.0.0.1', header, trusted) === expected;
+			}),
+			{ seed: 7239, numRuns: 2000 }
+		);
+	});
+
+	it('reads a nine-group hop as an IPv6 address with its port, the one unbracketed form that is not ambiguous', () => {
+		// Eight groups or fewer with a trailing port read as an address (RFC 3986 asks the proxy to
+		// bracket); nine cannot be an address, so the last group is the port when it is one.
+		expect(
+			[
+				'6.6.6.6, 2001:db8:1:2:3:4:5:6:51234',
+				'6.6.6.6, 2001:db8:1:2:3:4:5:6:0',
+				'6.6.6.6, 2001:db8:1:2:3:4:5:6:7:8'
+			].map((header) => resolveForwardedClientAddress('10.0.0.1', header, trusted))
+		).toEqual(['2001:db8:1:2:3:4:5:6', '10.0.0.1', '10.0.0.1']);
+	});
+
+	it('the entry point every route calls applies the same reading', () => {
+		const request = new Request('http://app.example.test/login', {
+			headers: { 'x-forwarded-for': '6.6.6.6, 203.0.113.5:51234' }
+		});
+		const env = { TRUSTED_PROXIES: '10.0.0.0/8' } as NodeJS.ProcessEnv;
+		expect(resolveClientAddress({ getClientAddress: () => '10.0.0.1', request }, env)).toBe(
 			'203.0.113.5'
 		);
 	});
