@@ -12,7 +12,10 @@ describe('exposedEnvFileMode', () => {
 	it.each([
 		{ mode: 0o600, octal: '600', why: 'owner read and write, the mode setup writes' },
 		{ mode: 0o400, octal: '400', why: 'owner read only' },
-		{ mode: 0o700, octal: '700', why: 'owner execute, which no other account gains anything from' }
+		{ mode: 0o700, octal: '700', why: 'owner execute, which no other account gains anything from' },
+		// Execute on a dotenv file grants nothing: nobody runs it, and without read it cannot be.
+		{ mode: 0o610, octal: '610', why: 'group execute alone' },
+		{ mode: 0o601, octal: '601', why: 'world execute alone' }
 	])('stays silent on $octal ($why)', ({ mode }) => {
 		expect(exposedEnvFileMode(mode, 'linux')).toBeNull();
 	});
@@ -25,8 +28,7 @@ describe('exposedEnvFileMode', () => {
 		{ mode: 0o604, octal: '604', why: 'world read' },
 		{ mode: 0o620, octal: '620', why: 'group write' },
 		{ mode: 0o602, octal: '602', why: 'world write' },
-		{ mode: 0o644, octal: '644', why: 'the mode setup used to write' },
-		{ mode: 0o610, octal: '610', why: 'group execute alone' }
+		{ mode: 0o644, octal: '644', why: 'the mode setup used to write' }
 	])('warns on $octal and reports it in octal ($why)', ({ mode, octal }) => {
 		expect(exposedEnvFileMode(mode, 'linux')).toBe(octal);
 	});

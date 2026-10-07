@@ -2,13 +2,14 @@ import { statSync } from 'node:fs';
 import { join } from 'node:path';
 
 /**
- * Every permission bit of group and others: read, write and execute (#826). Not the read bits
- * alone. Read is the confidentiality half, since `.env` holds TOTP_ENCRYPTION_KEY,
- * RATE_LIMIT_HASH_SECRET, BOOTSTRAP_TOKEN and sometimes a database password. Write is the integrity
- * half: another local account that can write `.env` can point DATABASE_URL at its own database or
- * ORIGIN at its own host, and the app reads that at its next start.
+ * The read and write bits of group and others (#826). Not the read bits alone. Read is the
+ * confidentiality half, since `.env` holds TOTP_ENCRYPTION_KEY, RATE_LIMIT_HASH_SECRET,
+ * BOOTSTRAP_TOKEN and sometimes a database password. Write is the integrity half: another local
+ * account that can write `.env` can point DATABASE_URL at its own database or ORIGIN at its own
+ * host, and the app reads that at its next start. Not execute: on a dotenv file it grants nothing,
+ * and the warning says « read or written », which an execute bit alone would make false.
  */
-const GROUP_OR_OTHER = 0o077;
+const GROUP_OR_OTHER_READ_WRITE = 0o066;
 
 /**
  * The mode to report, in octal, when another account can use `.env`; null when there is nothing to
@@ -20,7 +21,7 @@ const GROUP_OR_OTHER = 0o077;
  */
 export function exposedEnvFileMode(mode: number | null, platform: NodeJS.Platform): string | null {
 	if (mode === null || platform === 'win32') return null;
-	if ((mode & GROUP_OR_OTHER) === 0) return null;
+	if ((mode & GROUP_OR_OTHER_READ_WRITE) === 0) return null;
 	return (mode & 0o777).toString(8).padStart(3, '0');
 }
 
