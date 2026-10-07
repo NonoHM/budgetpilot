@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { fileURLToPath } from 'node:url';
 import prettier from 'prettier';
-import { renderSettingsReference } from './settingsReference';
+import { escapeTableCell, renderSettingsReference } from './settingsReference';
 import { SETTINGS } from './settings';
 
 const PAGE = '../../../../docs/configuration-reference.md';
@@ -37,6 +37,20 @@ describe('docs/configuration-reference.md', () => {
 		expect({ settings: Object.keys(SETTINGS).length, missing }).toStrictEqual({
 			settings: 44,
 			missing: []
+		});
+	});
+
+	// A backslash before a pipe would otherwise escape the escape: `a\|b` written as `a\\|b`
+	// splits the cell. Raised by CodeQL (js/incomplete-sanitization) on the first version.
+	it('escapes backslashes before pipes, so no cell can split', () => {
+		expect({
+			pipe: escapeTableCell('a|b'),
+			backslashPipe: escapeTableCell('a\\|b'),
+			newlineSpelling: escapeTableCell('PEM, newlines written as \\n')
+		}).toStrictEqual({
+			pipe: 'a\\|b',
+			backslashPipe: 'a\\\\\\|b',
+			newlineSpelling: 'PEM, newlines written as \\\\n'
 		});
 	});
 });

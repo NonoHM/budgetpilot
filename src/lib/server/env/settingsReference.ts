@@ -22,7 +22,9 @@ const READER_NOTE = {
 	compose: ' Read by Docker Compose, not by the app.'
 } as const;
 
-const cell = (text: string) => text.replace(/\|/g, '\\|');
+/** Backslashes first, then pipes: a pipe escaped after an unescaped backslash would split the cell. */
+export const escapeTableCell = (text: string) => text.replace(/\\/g, '\\\\').replace(/\|/g, '\\|');
+const cell = escapeTableCell;
 const code = (text: string) => `\`${text}\``;
 const number = (value: number) => value.toLocaleString('en-US');
 
