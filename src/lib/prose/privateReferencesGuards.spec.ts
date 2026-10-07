@@ -13,6 +13,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+	dumpItems,
 	parseBaseline,
 	runScan,
 	scanItems,
@@ -630,6 +631,39 @@ describe('pull request check: what a squash merge copies onto main', () => {
 });
 
 describe('scheduled scan of published text', () => {
+	// TruffleHog's GitHub mode cannot run with the Actions token (#849: it asks GET /user first, which
+	// an integration token is refused), so the scan hands TruffleHog the same text this scan already
+	// read, as one file per item, and TruffleHog reads the folder with no token at all.
+	describe('dumpItems, the text TruffleHog reads', () => {
+		it('writes every item as its own file, with its text, inside the folder', () => {
+			const directory = mkdtempSync(join(tmpdir(), 'bp-dump-'));
+			try {
+				const written = dumpItems(
+					[
+						{ kind: 'item', number: 843, where: 'body', text: 'first' },
+						{ kind: 'comment', number: 843, where: 'body', text: 'same location, kept' },
+						{ kind: 'commit', where: 'commit abc/../../etc', text: 'a message' }
+					],
+					directory
+				);
+				expect({
+					written: written.length,
+					texts: written.map((path) => readFileSync(path, 'utf8')),
+					insideTheFolder: written.every(
+						(path) =>
+							path.startsWith(directory + '/') && !path.slice(directory.length + 1).includes('/')
+					)
+				}).toStrictEqual({
+					written: 3,
+					texts: ['first', 'same location, kept', 'a message'],
+					insideTheFolder: true
+				});
+			} finally {
+				rmSync(directory, { recursive: true, force: true });
+			}
+		});
+	});
+
 	const cleanSource = (overrides: Partial<ScanSource> = {}): ScanSource => ({
 		totals: () => ({ issues: 2, pulls: 1, commits: 1 }),
 		items: () => [

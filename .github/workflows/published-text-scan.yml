@@ -83,6 +83,11 @@ jobs:
       - name: gitleaks over the full history of every ref
         run: node scripts/private-references-git.mjs history
 
+  # TruffleHog's GitHub mode cannot run here (#849): it asks `GET /user` before reading anything, and
+  # the Actions token is an integration token, refused with « 403 Resource not accessible by
+  # integration ». Every run from #757 to 2026-10-07 died there, before its first issue. So the text
+  # is fetched by the same script and completeness check as the private-references job, written one
+  # file per item, and TruffleHog reads the folder and the git history with no token at all.
   trufflehog:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -94,74 +99,74 @@ jobs:
       # 3.97.9, pinned by index digest so a moved tag cannot change what runs.
       IMAGE: ghcr.io/trufflesecurity/trufflehog@sha256:52e67fef4d054ecff5c2ce4b4ae376626d1ef54aa0898b53cac19c25e92e14db
     steps:
-      # A planted credential, assembled at run time so no file carries one, must be reported by
-      # this exact image before a clean scan from it is believed. Verification is off here: the
-      # plant points at an .invalid host and would only time out.
-      - name: Calibrate on a planted credential
-        run: |
-          mkdir -p "$RUNNER_TEMP/planted"
-          printf 'DATABASE_URL=postgres://%s:%s@%s:5432/app\n' planted "pw$(openssl rand -hex 8)" db.planted.invalid \
-            > "$RUNNER_TEMP/planted/app.env"
-          set +e
-          docker run --rm -v "$RUNNER_TEMP/planted:/scan:ro" "$IMAGE" filesystem /scan \
-            --results=unverified,unknown --no-verification --no-update --fail --json \
-            > "$RUNNER_TEMP/trufflehog-calibration.jsonl" 2> /dev/null
-          status=$?
-          set -e
-          found=$(jq -s 'length' "$RUNNER_TEMP/trufflehog-calibration.jsonl")
-          echo "calibration: exit $status, $found result(s), expected 183 and 1"
-          [ "$status" -eq 183 ] && [ "$found" -eq 1 ]
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
 
-      # `--results=verified`: a result TruffleHog confirmed live against its provider. Unverified
-      # results are dominated by the test fixtures' throwaway database URLs, whose verification
-      # times out rather than failing, which would redden this job every day for nothing.
-      # `--no-ignore-tag` so an inline ignore comment cannot hide a finding, and
-      # `--fail-on-scan-errors` so a scan that broke part-way does not pass for a clean one.
-      # `--issue-comments` covers issue bodies and comments, `--pr-comments` pull request bodies and
-      # comments (the flags' own help text); the private-references job above counts what it read.
-      - name: TruffleHog over the repository, its issues and its pull requests
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version-file: .nvmrc
+
+      # Refuses, like the private-references job, when it read fewer issues, pull requests or commit
+      # messages than the repository reports.
+      - name: Write every issue, pull request, comment, release and commit message to files
         env:
-          GITHUB_TOKEN: ${{ github.token }}
-          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/published-text-scan.mjs "$GITHUB_REPOSITORY" --dump "$RUNNER_TEMP/published"
+
+      # One pass over the text and one over the git history. A planted credential, assembled at run
+      # time so no file carries one, sits in the text folder and must be reported by THIS pass, so a
+      # scan that read nothing cannot pass. Gated: a result TruffleHog verified live against its
+      # provider. Unverified results are counted, not gated: they are dominated by the test fixtures'
+      # throwaway database URLs. `--no-ignore-tag` so an inline comment cannot hide a finding, and
+      # `--fail-on-scan-errors` so a scan that broke part-way does not pass for a clean one.
+      - name: TruffleHog over the published text and the git history, calibrated in the same pass
         run: |
+          published="$RUNNER_TEMP/published"
+          printf 'DATABASE_URL=postgres://%s:%s@%s:5432/app\n' planted "pw$(openssl rand -hex 8)" db.planted.invalid \
+            > "$published/zz-planted-calibration.env"
+          files=$(find "$published" -type f | wc -l)
           set +e
-          docker run --rm -e GITHUB_TOKEN "$IMAGE" github --repo="$REPO_URL" \
-            --issue-comments --pr-comments --results=verified --no-ignore-tag \
-            --fail --fail-on-scan-errors --no-update --json --log-level=2 \
-            > "$RUNNER_TEMP/trufflehog-results.jsonl" 2> "$RUNNER_TEMP/trufflehog-scan.log"
-          status=$?
+          docker run --rm -v "$published:/scan:ro" "$IMAGE" filesystem /scan \
+            --results=verified,unverified,unknown --no-ignore-tag --fail-on-scan-errors --no-update --json --log-level=2 \
+            > "$RUNNER_TEMP/text.jsonl" 2> "$RUNNER_TEMP/text.log"
+          text_status=$?
+          docker run --rm -v "$GITHUB_WORKSPACE:/repo:ro" "$IMAGE" git file:///repo \
+            --results=verified --no-ignore-tag --fail-on-scan-errors --no-update --json --log-level=2 \
+            > "$RUNNER_TEMP/git.jsonl" 2> "$RUNNER_TEMP/git.log"
+          git_status=$?
           set -e
-          # What the scan logged, by message name and count, before anything is decided on it (#849):
-          # a refusal below must be able to say whether TruffleHog skipped a pass or worded it
-          # differently. Message names are constants in TruffleHog's code; no field value is printed.
-          echo "TruffleHog exit $status; log $(wc -l < "$RUNNER_TEMP/trufflehog-scan.log") lines, $(jq -nR '[inputs | fromjson? | .msg] | length' "$RUNNER_TEMP/trufflehog-scan.log") JSON"
-          jq -rR 'fromjson? | "\(.level // "?") \(.msg // "?")"' "$RUNNER_TEMP/trufflehog-scan.log" | sort | uniq -c | sort -rn | head -40
-          # An error line's own text, cut short: it names what stopped the scan (a refused clone, a
-          # permission). The Actions token is masked by the runner in anything printed. Control
-          # characters become spaces, so the text cannot start a new line that the runner would read as
-          # a workflow command (`::...`).
-          jq -rR 'fromjson? | select(.level == "error") | "error: \(.msg): \(.error // "" | tostring | gsub("[[:cntrl:]]"; " ") | .[0:300])"' "$RUNNER_TEMP/trufflehog-scan.log"
-          # What it read, from its own log: the issue and pull request passes, and the totals.
-          for pass in 'Scanning issues' 'Scanning pull requests'; do
-            if ! grep -q "\"msg\":\"${pass}\"" "$RUNNER_TEMP/trufflehog-scan.log"; then
-              echo "TruffleHog never logged « ${pass} », so it did not read them; refusing a clean result" >&2
-              exit 1
-            fi
+
+          # What each pass logged, by message name and count, and an error's own text on one line
+          # (control characters replaced, so it cannot start a line the runner reads as a command).
+          # Message names are constants in TruffleHog's code; no field value is printed.
+          for pass in text git; do
+            echo "== $pass pass"
+            jq -rR 'fromjson? | "\(.level // "?") \(.msg // "?")"' "$RUNNER_TEMP/$pass.log" | sort | uniq -c | sort -rn | head -25
+            jq -rR 'fromjson? | select(.level == "error") | "error: \(.msg): \(.error // "" | tostring | gsub("[[:cntrl:]]"; " ") | .[0:300])"' "$RUNNER_TEMP/$pass.log"
+            jq -rR 'fromjson? | select(.msg == "finished scanning") | "read \(.chunks) chunks, \(.bytes) bytes"' "$RUNNER_TEMP/$pass.log"
           done
-          # The log mixes JSON lines with plain ones, so each line is parsed on its own.
-          jq -rR 'fromjson? | select(.msg == "finished scanning") | "read \(.chunks) chunks, \(.bytes) bytes; \(.verified_secrets) verified, \(.unverified_secrets) unverified (not gated)"' \
-            "$RUNNER_TEMP/trufflehog-scan.log"
-          chunks=$(jq -nR '[inputs | fromjson? | select(.msg == "finished scanning") | .chunks] | first // 0' "$RUNNER_TEMP/trufflehog-scan.log")
-          if [ "$chunks" -eq 0 ]; then
-            echo "TruffleHog read 0 chunks; refusing a clean result" >&2
-            exit 1
-          fi
-          # Detector and location only. The JSON also carries the raw secret and the committer's
-          # address, and neither may reach this public log; a file name in a link is inside a
-          # stop-commands block so it cannot act as a workflow command.
+
+          refuse() { echo "REFUSED: $1" >&2; exit 1; }
+          [ "$text_status" -eq 0 ] || refuse "the text pass exited $text_status"
+          [ "$git_status" -eq 0 ] || refuse "the git pass exited $git_status"
+          planted=$(jq -s '[.[] | select(.SourceMetadata.Data.Filesystem.file | tostring | endswith("zz-planted-calibration.env"))] | length' "$RUNNER_TEMP/text.jsonl")
+          echo "calibration: the planted credential reported $planted time(s), expected 1; $files files written"
+          [ "$planted" -eq 1 ] || refuse "the text pass did not report the planted credential, so a clean result would mean nothing"
+          chunks=$(jq -nR '[inputs | fromjson? | select(.msg == "finished scanning") | .chunks] | first // 0' "$RUNNER_TEMP/text.log")
+          [ "$chunks" -ge "$files" ] || refuse "the text pass read $chunks chunks for $files files"
+          git_chunks=$(jq -nR '[inputs | fromjson? | select(.msg == "finished scanning") | .chunks] | first // 0' "$RUNNER_TEMP/git.log")
+          [ "$git_chunks" -gt 0 ] || refuse "the git pass read 0 chunks"
+
+          # Detector and location only, for verified results. The JSON also carries the raw secret,
+          # which may not reach this public log; locations sit inside a stop-commands block.
+          unverified=$(jq -s '[.[] | select(.Verified | not)] | length' "$RUNNER_TEMP/text.jsonl" "$RUNNER_TEMP/git.jsonl")
+          verified=$(jq -s '[.[] | select(.Verified)] | length' "$RUNNER_TEMP/text.jsonl" "$RUNNER_TEMP/git.jsonl")
+          echo "results: $verified verified (gated), $unverified unverified (counted, not gated)"
           token=$(openssl rand -hex 16)
           echo "::stop-commands::${token}"
-          jq -r '"\(.DetectorName) verified=\(.Verified) at \(.SourceMetadata.Data.Github.link // "unknown location")"' \
-            "$RUNNER_TEMP/trufflehog-results.jsonl"
+          jq -r 'select(.Verified) | "\(.DetectorName) at \(.SourceMetadata.Data.Filesystem.file // .SourceMetadata.Data.Git.commit // "unknown location") \(.SourceMetadata.Data.Git.file // "")"' \
+            "$RUNNER_TEMP/text.jsonl" "$RUNNER_TEMP/git.jsonl"
           echo "::${token}::"
-          exit "$status"
+          [ "$verified" -eq 0 ] || refuse "$verified verified secret(s) in published text or history"
