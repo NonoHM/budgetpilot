@@ -148,14 +148,90 @@ export function createSessionToken(): string {
 	return randomBytes(32).toString('base64url');
 }
 
+const HOUR_MS = 60 * 60 * 1000;
+const DAY_MS = 24 * HOUR_MS;
+
 /**
- * Read per call, so the lifetime stays configurable without a stateful redeploy. An unreadable or
- * out-of-range value throws rather than falling back (#754); `assertSessionLifetimeConfigured`
- * refuses it at boot, so in practice no request reaches the throw.
+ * The end of the absolute lifetime of a session created at `createdAt` (`SESSION_TTL_DAYS`,
+ * `v5.0.0-7.3.2`). Derived from `createdAt`, never stored: the ceiling is the setting in force, so
+ * lowering it reaches existing sessions through `applySessionSettings`, and raising it only lets a
+ * session still live last longer. Read per call; an unreadable or out-of-range value throws rather
+ * than falling back (#754), and `assertSessionLifetimeConfigured` refuses it at boot first.
  */
-export function getSessionExpiresAt(): Date {
-	const ttlDays = readIntegerSetting('SESSION_TTL_DAYS');
-	return new Date(Date.now() + ttlDays * 24 * 60 * 60 * 1000);
+export function lifetimeEndsAt(createdAt: Date): Date {
+	return new Date(createdAt.getTime() + readIntegerSetting('SESSION_TTL_DAYS') * DAY_MS);
+}
+
+/** The inactivity timeout (#221, ruled on #919), read per call as the lifetime is. */
+function readIdleTimeoutMs(): number {
+	return readIntegerSetting('BP_SESSION_IDLE_TIMEOUT_HOURS') * HOUR_MS;
+}
+
+/**
+ * How stale `lastSeenAt` may be before a request records a use: an hour, or a twelfth of the
+ * timeout when that is shorter (ruled on #221). Recording every request would make every page load
+ * a database write; recording hourly under a 1-hour timeout would sign out someone active at
+ * minutes 59 and 61. A session therefore ends up to one interval EARLY after its last use, never late.
+ */
+export function lastSeenRefreshMs(idleTimeoutMs: number): number {
+	return Math.min(HOUR_MS, idleTimeoutMs / 12);
+}
+
+/**
+ * WHEN A SESSION STOPS WORKING, which is what `expiresAt` holds (#221): the inactivity timeout after
+ * its last recorded use, never past its lifetime. Written at sign-in and at each recorded use, the
+ * industry's sliding expiration.
+ *
+ * WHY THE MOMENT IS STORED rather than recomputed from `lastSeenAt` and the setting: a verdict
+ * recomputed from a setting that can change comes back when the setting is raised, and 1.2.0, which
+ * reads only `revokedAt` and `expiresAt`, would accept the session after a rollback. Stored, a
+ * session that has stopped working stays stopped: the only writer that moves `expiresAt` forward is a
+ * use, and a use requires the session live in the same statement.
+ */
+export function slidingExpiresAt(createdAt: Date, lastUse: Date): Date {
+	return new Date(
+		Math.min(lastUse.getTime() + readIdleTimeoutMs(), lifetimeEndsAt(createdAt).getTime())
+	);
+}
+
+/**
+ * THE ONE DEFINITION OF A LIVE SESSION, as a `where` clause the engine evaluates: not revoked, and
+ * not past `expiresAt`, which carries both the inactivity timeout (`v5.0.0-7.3.1`) and the absolute
+ * lifetime (`v5.0.0-7.3.2`). The same two columns 1.2.0 reads, so a rollback cannot disagree. Every
+ * reader that judges a session live spreads this: the sign-in check, the recorded use, the
+ * rotation's compare-and-set and the « Active » badge in Settings. Never restate it in JavaScript
+ * over a fetched row.
+ */
+export function liveSessionWhere(now: Date) {
+	return { revokedAt: null, expiresAt: { gt: now } };
+}
+
+/**
+ * The startup step (#221): brings every live session within the timeout and lifetime in force, so
+ * lowering either takes effect at once rather than at each session's next use. Never extends one:
+ * the new value is the smaller of the stored one and what the settings now allow. Runs before the
+ * server listens (`auth/sessionBoot.ts`), and a setting can only change with a restart, so between
+ * two starts every stored `expiresAt` already obeys the settings in force.
+ *
+ * Each row is written with a compare-and-set on the `expiresAt` it was read with, so a use recorded
+ * meanwhile by another instance on the same database is not undone. Returns how many it shortened.
+ */
+export async function applySessionSettings(now: Date): Promise<number> {
+	const live = await prisma.session.findMany({
+		where: liveSessionWhere(now),
+		select: { id: true, createdAt: true, lastSeenAt: true, expiresAt: true }
+	});
+	let shortened = 0;
+	for (const session of live) {
+		const allowed = slidingExpiresAt(session.createdAt, session.lastSeenAt);
+		if (allowed >= session.expiresAt) continue;
+		const { count } = await prisma.session.updateMany({
+			where: { id: session.id, expiresAt: session.expiresAt },
+			data: { expiresAt: allowed }
+		});
+		shortened += count;
+	}
+	return shortened;
 }
 
 // PUBLIC_INSTANCE is the ONE switch governing the Secure cookie flag, and it is
@@ -197,17 +273,22 @@ export async function createSession(userId: string, cookies: Cookies): Promise<v
 	await revokeSessionToken(cookies.get(SESSION_COOKIE));
 
 	const token = createSessionToken();
-	const expiresAt = getSessionExpiresAt();
+	const now = new Date();
 
 	await prisma.session.create({
 		data: {
 			userId,
 			tokenHash: hashSessionToken(token),
-			expiresAt
+			createdAt: now,
+			lastSeenAt: now,
+			expiresAt: slidingExpiresAt(now, now)
 		}
 	});
 
-	cookies.set(SESSION_COOKIE, token, getSessionCookieOptions(expiresAt));
+	// The cookie lives to the end of the lifetime, not to `expiresAt`: after inactivity the browser
+	// still presents it, so the sign-in page can say why (`sessionEndedByInactivity`). It grants
+	// nothing once the session has stopped working.
+	cookies.set(SESSION_COOKIE, token, getSessionCookieOptions(lifetimeEndsAt(now)));
 }
 
 /**
@@ -315,13 +396,14 @@ export async function readSessionUser(token: string | undefined): Promise<AuthUs
 	if (!token) return null;
 
 	const tokenHash = hashSessionToken(token);
+	const now = new Date();
 	const session = await prisma.session.findUnique({
-		where: { tokenHash },
+		where: { tokenHash, ...liveSessionWhere(now) },
 		select: {
 			id: true,
 			tokenHash: true,
-			expiresAt: true,
-			revokedAt: true,
+			createdAt: true,
+			lastSeenAt: true,
 			user: {
 				select: {
 					id: true,
@@ -332,10 +414,50 @@ export async function readSessionUser(token: string | undefined): Promise<AuthUs
 			}
 		}
 	});
-	if (!session || session.revokedAt || session.expiresAt <= new Date()) return null;
+	if (!session) return null;
 	if (!safeEqual(tokenHash, session.tokenHash)) return null;
 
+	await recordUse(session, now);
 	return { ...session.user, sessionId: session.id };
+}
+
+/**
+ * Whether the browser's session ended BECAUSE it went unused, so the sign-in page can say so (#221):
+ * not revoked, past its `expiresAt`, and that moment came before its lifetime's end, so the timeout
+ * ended it. The liveness half is the complement of `liveSessionWhere`, evaluated by the engine.
+ * False for a session a person revoked or that reached its lifetime; a cookie past its lifetime is
+ * dropped by the browser anyway.
+ *
+ * WHAT IT DISCLOSES, beyond a refusal, to whoever holds the cookie: that no person revoked the
+ * session and that its account still exists. `/login` runs no limiter, so a holder of a copied cookie
+ * can poll it; the answer turns false when the owner signs in again from that browser or changes
+ * the password, which tells them the owner acted. The session itself stays ended, and the reason is
+ * what the page exists to give.
+ */
+export async function sessionEndedByInactivity(token: string | undefined): Promise<boolean> {
+	if (!token) return false;
+	const ended = await prisma.session.findUnique({
+		where: { tokenHash: hashSessionToken(token), revokedAt: null, expiresAt: { lte: new Date() } },
+		select: { createdAt: true, expiresAt: true }
+	});
+	return ended !== null && ended.expiresAt < lifetimeEndsAt(ended.createdAt);
+}
+
+/**
+ * Records a use of a live session, once its `lastSeenAt` is older than `lastSeenRefreshMs`: the use,
+ * and the moment it now stops working (`slidingExpiresAt`). Written only while the session is live,
+ * in the same statement (`liveSessionWhere`), so a session that stopped working, or was revoked,
+ * since the read above is never moved forward. `updateMany`, so a row deleted in between (an account
+ * deleted from another tab) is no error. Two requests landing together both write, milliseconds
+ * apart, and both only move `expiresAt` forward.
+ */
+async function recordUse(session: { id: string; createdAt: Date; lastSeenAt: Date }, now: Date) {
+	const elapsed = now.getTime() - session.lastSeenAt.getTime();
+	if (elapsed < lastSeenRefreshMs(readIdleTimeoutMs())) return;
+	await prisma.session.updateMany({
+		where: { id: session.id, ...liveSessionWhere(now) },
+		data: { lastSeenAt: now, expiresAt: slidingExpiresAt(session.createdAt, now) }
+	});
 }
 
 export async function revokeSessionToken(token: string | undefined): Promise<void> {
@@ -357,13 +479,8 @@ type TransactionClient = Parameters<Parameters<(typeof prisma)['$transaction']>[
 type TransactionOptions = { maxWait?: number; timeout?: number };
 
 /** The session this request arrived on, as the hook resolved it and as the browser presented it. */
-function liveSession(sessionId: string, presented: string) {
-	return {
-		id: sessionId,
-		tokenHash: hashSessionToken(presented),
-		revokedAt: null,
-		expiresAt: { gt: new Date() }
-	};
+function liveSession(sessionId: string, presented: string, now: Date) {
+	return { id: sessionId, tokenHash: hashSessionToken(presented), ...liveSessionWhere(now) };
 }
 
 /** A session that ended before its change could commit: the request is sent to sign in. */
@@ -376,8 +493,9 @@ const sessionEnded = () => redirect(303, '/login');
  * stops working when it commits, and the browser that made the request is handed the new token.
  *
  * THE ROW IS KEPT, ONLY ITS TOKEN CHANGES. Same id, so the per-session re-authentication counter
- * (#879), the session list and `/logout` keep their subject; same `expiresAt`, so rotating never
- * extends the absolute lifetime (`v5.0.0-7.3.2`), which the session-lifetime chantier rules on.
+ * (#879), the session list and `/logout` keep their subject; same `createdAt`, so rotating never
+ * extends the absolute lifetime (`v5.0.0-7.3.2`). A re-authenticated change is a use, so it slides
+ * `expiresAt` as any recorded use does (#221).
  *
  * THE ROTATION IS THE LAST STATEMENT OF THE CHANGE'S OWN TRANSACTION, a compare-and-set on the token
  * presented that refuses a row revoked or expired since the hook resolved it. So the change and the
@@ -411,12 +529,12 @@ export async function commitWithRotatedToken<T>(
 	// once lock the two rows in opposite orders, and PostgreSQL or MariaDB answers one side with a
 	// deadlock. Run again, that side's compare-and-set sees the other's revocation and is sent to
 	// sign in, which is the answer it should have had; without the retry it was a 500.
-	const { result, expiresAt } = await withConcurrentWriteRetry(
+	const { result, cookieExpires } = await withConcurrentWriteRetry(
 		() => rotateWithin(user.sessionId, presented, token, change, options),
 		isTransientWriteConflict
 	);
 
-	cookies.set(SESSION_COOKIE, token, getSessionCookieOptions(expiresAt));
+	cookies.set(SESSION_COOKIE, token, getSessionCookieOptions(cookieExpires));
 	return result;
 }
 
@@ -427,23 +545,29 @@ function rotateWithin<T>(
 	token: string,
 	change: (tx: TransactionClient) => Promise<T>,
 	options?: TransactionOptions
-): Promise<{ result: T; expiresAt: Date }> {
+): Promise<{ result: T; cookieExpires: Date }> {
 	return prisma.$transaction(async (tx) => {
 		const result = await change(tx);
-		// The update is the ONLY place the session is judged live: a read ahead of it with the same
-		// predicate would answer first in every test and leave this one unexercised (break B11).
+		// `createdAt` never changes, so reading it first judges nothing: the update below stays the
+		// ONLY place the session is judged live. A read ahead of it with the same predicate would
+		// answer first in every test and leave this one unexercised (break B11).
+		const row = await tx.session.findUnique({
+			where: { id: sessionId },
+			select: { createdAt: true }
+		});
+		if (!row) throw sessionEnded();
+		const now = new Date();
 		const { count } = await tx.session.updateMany({
-			where: liveSession(sessionId, presented),
-			data: { tokenHash: hashSessionToken(token) }
+			where: liveSession(sessionId, presented, now),
+			data: {
+				tokenHash: hashSessionToken(token),
+				lastSeenAt: now,
+				expiresAt: slidingExpiresAt(row.createdAt, now)
+			}
 		});
 		// Thrown inside the transaction, so the change above is rolled back with it.
 		if (count !== 1) throw sessionEnded();
-		// `expiresAt` has no writer after `createSession`: the value read here is the row's own.
-		const { expiresAt } = await tx.session.findUniqueOrThrow({
-			where: { id: sessionId },
-			select: { expiresAt: true }
-		});
-		return { result, expiresAt };
+		return { result, cookieExpires: lifetimeEndsAt(row.createdAt) };
 	}, options);
 }
 
@@ -465,9 +589,10 @@ export async function commitEndingSession<T>(
 	return withConcurrentWriteRetry(
 		() =>
 			prisma.$transaction(async (tx) => {
+				const now = new Date();
 				const { count } = await tx.session.updateMany({
-					where: liveSession(user.sessionId, presented),
-					data: { revokedAt: new Date() }
+					where: liveSession(user.sessionId, presented, now),
+					data: { revokedAt: now }
 				});
 				if (count !== 1) throw sessionEnded();
 				return change(tx);
@@ -490,7 +615,8 @@ export async function revokeSession(sessionId: string): Promise<void> {
 }
 
 /**
- * Revokes every live session of the account except the one this request arrived on: « log out
+ * Revokes every unrevoked session of the account except the one this request arrived on, idle or
+ * past its lifetime included (none can come back afterwards, whatever the timeout): « log out
  * other sessions », and every password change. Identified by the session's ID, never by comparing
  * token hashes: the request's own token is replaced in the same transaction, and a predicate written
  * against a token hash revokes the caller's own session the moment the two orders meet (measured on

@@ -95,6 +95,7 @@ const COLUMNS: Record<string, Column> = {
 	'PendingMfaChallenge.createdAt': CLOCK,
 	'Session.expiresAt': CLOCK,
 	'Session.createdAt': CLOCK,
+	'Session.lastSeenAt': CLOCK,
 	'Session.revokedAt': CLOCK,
 	'Invitation.expiresAt': CLOCK,
 	'Invitation.usedAt': CLOCK,

@@ -141,13 +141,17 @@ model PendingMfaChallenge {
 }
 
 model Session {
-  id        String    @id @default(cuid())
-  userId    String
-  tokenHash String    @unique
-  expiresAt DateTime
-  createdAt DateTime  @default(now())
-  revokedAt DateTime?
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id         String    @id @default(cuid())
+  userId     String
+  tokenHash  String    @unique
+  /// When the session stops working: `BP_SESSION_IDLE_TIMEOUT_HOURS` after its last recorded use,
+  /// never past `createdAt` + `SESSION_TTL_DAYS` (#221, `slidingExpiresAt`). Every version reads it.
+  expiresAt  DateTime
+  createdAt  DateTime  @default(now())
+  /// The last recorded use, written at most once per `lastSeenRefreshMs` (#221).
+  lastSeenAt DateTime  @default(now())
+  revokedAt  DateTime?
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([expiresAt])

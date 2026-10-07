@@ -20,6 +20,7 @@ import {
 import { ensureStatementAccountsBackfilled } from '$lib/server/import/accountBoot';
 import { ensureNoContestedNetWorthLinks } from '$lib/server/net-worth/contestedBoot';
 import { reportDatesOutsideStorableRange } from '$lib/server/database/storableDatesBoot';
+import { applySessionSettingsAtStart } from '$lib/server/auth/sessionBoot';
 import { parseTrustedProxies } from '$lib/server/net/clientAddress';
 import { installLastResortErrorHandlers } from '$lib/server/lastResortErrors';
 import { APP_VERSION } from '$lib/server/appVersion';
@@ -71,6 +72,9 @@ export const init: ServerInit = async () => {
 	// Reports, never gates and never writes: counts rows dated before the storable range, written
 	// before #758 made every writer refuse them. Last because it reads what the passes above settle.
 	await reportDatesOutsideStorableRange();
+	// Writes only `Session.expiresAt`, which no step above reads, so its place among them is not load
+	// bearing. Before the server listens, so no request is served under a setting not yet applied.
+	await applySessionSettingsAtStart();
 };
 
 // /setup/origin-mismatch is public because the operator it exists for has no account yet: an auth

@@ -22,7 +22,9 @@ const {
 	hashPassword,
 	hashSessionToken,
 	isNonAsciiEmail,
+	lastSeenRefreshMs,
 	readSessionUser,
+	slidingExpiresAt,
 	redirectAfterSignIn,
 	requireAdmin,
 	requireUser,
@@ -172,8 +174,7 @@ describe('auth locale', () => {
 		db.prisma.session.findUnique.mockResolvedValue({
 			id: 'session-row-1',
 			tokenHash: hashSessionToken(token),
-			expiresAt: new Date(Date.now() + 60_000),
-			revokedAt: null,
+			lastSeenAt: new Date(),
 			user: {
 				id: 'user-a',
 				email: 'a@example.test',
@@ -192,34 +193,39 @@ describe('auth locale', () => {
 		expect(JSON.stringify(user)).not.toContain('passwordHash');
 	});
 
-	it('rejette une session révoquée ou expirée', async () => {
-		expect.assertions(2);
+	// A revoked, expired or idle session is refused by the `where` clause the ENGINE evaluates
+	// (#221), so a fake `findUnique` here would decide the answer itself. Those refusals are
+	// asserted against a real engine: `auth/session.db-smoke.ts` (revoked, expired) and
+	// `auth/sessionIdle.db-smoke.ts` (idle).
 
-		const token = 'opaque-session-token';
-		db.prisma.session.findUnique
-			.mockResolvedValueOnce({
-				tokenHash: hashSessionToken(token),
-				expiresAt: new Date(Date.now() + 60_000),
-				revokedAt: new Date(),
-				user: {
-					id: 'user-a',
-					email: 'a@example.test',
-					role: 'USER'
-				}
-			})
-			.mockResolvedValueOnce({
-				tokenHash: hashSessionToken(token),
-				expiresAt: new Date(Date.now() - 60_000),
-				revokedAt: null,
-				user: {
-					id: 'user-a',
-					email: 'a@example.test',
-					role: 'USER'
-				}
-			});
+	it.each([
+		{ timeout: 168, interval: 60 },
+		{ timeout: 12, interval: 60 },
+		{ timeout: 11, interval: 55 },
+		{ timeout: 1, interval: 5 }
+	])(
+		'refreshes lastSeenAt every $interval minutes under a $timeout-hour timeout',
+		({ timeout, interval }) => {
+			// 12 hours is where the two rules meet; 11 is the first value the twelfth decides.
+			expect(lastSeenRefreshMs(timeout * 3_600_000)).toBe(interval * 60_000);
+		}
+	);
 
-		await expect(readSessionUser(token)).resolves.toBeNull();
-		await expect(readSessionUser(token)).resolves.toBeNull();
+	it('a session stops one timeout after its last use, never past the end of its lifetime', () => {
+		// Worked by hand from the two settings, one case per bound: 168 hours after a use on day 0 is
+		// inside a 30-day lifetime; the same 168 hours after a use on day 28 would pass it.
+		const createdAt = new Date('2026-10-01T00:00:00.000Z');
+		const onDay0 = slidingExpiresAt(createdAt, createdAt).toISOString();
+		const onDay28 = slidingExpiresAt(createdAt, new Date('2026-10-29T00:00:00.000Z')).toISOString();
+		vi.stubEnv('BP_SESSION_IDLE_TIMEOUT_HOURS', '1');
+		const atOneHour = slidingExpiresAt(createdAt, createdAt).toISOString();
+		vi.unstubAllEnvs();
+
+		expect({ onDay0, onDay28, atOneHour }).toEqual({
+			onDay0: '2026-10-08T00:00:00.000Z',
+			onDay28: '2026-10-31T00:00:00.000Z',
+			atOneHour: '2026-10-01T01:00:00.000Z'
+		});
 	});
 
 	it('révoque une session par hash de token', async () => {

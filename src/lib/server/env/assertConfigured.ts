@@ -19,6 +19,7 @@ import {
 	assertLlmConnectTimeoutConfigured,
 	assertLlmTimeoutConfigured,
 	assertPasswordHashCostConfigured,
+	assertSessionIdleTimeoutConfigured,
 	assertSessionLifetimeConfigured
 } from '$lib/server/env/readSetting';
 import { assertSecretFilesSafe } from '$lib/server/env/secretFiles';
@@ -114,6 +115,7 @@ export const ENVIRONMENT_CHECKS: Check[] = [
 	['BP_LOG_LEVEL / BP_SECURITY_LOG', assertLoggingConfigured],
 	['PASSWORD_HASH_COST', assertPasswordHashCostConfigured],
 	['SESSION_TTL_DAYS', assertSessionLifetimeConfigured],
+	['BP_SESSION_IDLE_TIMEOUT_HOURS', assertSessionIdleTimeoutConfigured],
 	['INVITATION_TTL_HOURS', assertInvitationLifetimeConfigured],
 	['BANK_SYNC_FIRST_LOOKBACK_DAYS', assertBankSyncLookbackConfigured],
 	['LLM_TIMEOUT_MS', assertLlmTimeoutConfigured],
