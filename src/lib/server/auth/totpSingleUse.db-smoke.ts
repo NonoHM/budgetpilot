@@ -121,7 +121,11 @@ async function signInWithCode(userId: string, code: string): Promise<Answer> {
 /** The browser `/login` leaves after the password: a pending challenge cookie and no session. */
 async function openChallenge(userId: string) {
 	const browser = jar();
-	await createMfaChallenge(userId, browser.cookies);
+	const { passwordHash } = await prisma.user.findUniqueOrThrow({
+		where: { id: userId },
+		select: { passwordHash: true }
+	});
+	await createMfaChallenge(userId, passwordHash, browser.cookies);
 	return browser;
 }
 

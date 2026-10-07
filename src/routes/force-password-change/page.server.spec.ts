@@ -6,6 +6,9 @@ const tx = vi.hoisted(() => ({
 	},
 	session: {
 		updateMany: vi.fn()
+	},
+	pendingMfaChallenge: {
+		deleteMany: vi.fn(async () => ({ count: 0 }))
 	}
 }));
 

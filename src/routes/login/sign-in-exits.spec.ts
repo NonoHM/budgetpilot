@@ -17,15 +17,18 @@ vi.hoisted(() => {
 		'0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'.slice(0, 64);
 });
 
-const db = vi.hoisted(() => ({
-	prisma: {
+const db = vi.hoisted(() => {
+	const prisma = {
 		user: { count: vi.fn(async () => 1), findUnique: vi.fn(), updateMany: vi.fn() },
 		session: { create: vi.fn() },
 		category: { findMany: vi.fn(), createMany: vi.fn() },
 		categoryNatureMapping: { findMany: vi.fn(), createMany: vi.fn() },
-		recoveryCode: { findMany: vi.fn(), updateMany: vi.fn() }
-	}
-}));
+		recoveryCode: { findMany: vi.fn(), updateMany: vi.fn() },
+		// `createSession` writes inside a transaction (#923); the fake runs it against itself.
+		$transaction: vi.fn(async (callback: (client: unknown) => Promise<unknown>) => callback(prisma))
+	};
+	return { prisma };
+});
 
 const rateLimit = vi.hoisted(() => ({
 	isLoginRateLimited: vi.fn(async () => false),
@@ -37,6 +40,8 @@ const rateLimit = vi.hoisted(() => ({
 const mfaChallenge = vi.hoisted(() => ({
 	createMfaChallenge: vi.fn(async () => undefined),
 	readMfaChallenge: vi.fn(),
+	claimMfaChallenge: vi.fn(async () => undefined),
+	clearMfaChallengeCookie: vi.fn(),
 	consumeMfaChallenge: vi.fn(async () => undefined)
 }));
 
@@ -162,7 +167,10 @@ const SIGN_IN_EXITS: readonly SignInExit[] = [
 ];
 
 beforeEach(() => {
-	db.prisma.user.updateMany.mockResolvedValue({ count: 0 });
+	// The seeding claims find nothing to seed; the password step's compare-and-set (#923) holds.
+	db.prisma.user.updateMany.mockImplementation(async (args: { data: Record<string, unknown> }) => ({
+		count: 'passwordHash' in args.data ? 1 : 0
+	}));
 	db.prisma.session.create.mockResolvedValue({ id: 'session-a' });
 });
 

@@ -1,7 +1,12 @@
 import { fail, redirect, type Actions } from '@sveltejs/kit';
 import * as m from '$lib/paraglide/messages';
-import { createSession, redirectAfterSignIn } from '$lib/server/auth';
-import { consumeMfaChallenge, readMfaChallenge } from '$lib/server/auth/mfaChallenge';
+import { createSession, redirectAfterSignIn, SignInSuperseded } from '$lib/server/auth';
+import {
+	claimMfaChallenge,
+	clearMfaChallengeCookie,
+	consumeMfaChallenge,
+	readMfaChallenge
+} from '$lib/server/auth/mfaChallenge';
 import { isMfaRateLimited, recordMfaAttempt } from '$lib/server/auth/rateLimit';
 import { resolveClientAddress } from '$lib/server/net/clientAddress';
 import { verifyRecoveryCode } from '$lib/server/auth/totp';
@@ -64,8 +69,16 @@ export const actions: Actions = {
 
 		await ensureDefaultCategoriesSeeded(user.id);
 		await ensureDefaultRulesSeeded(user.id);
-		await createSession(user.id, cookies);
-		await consumeMfaChallenge(challenge.id, cookies);
+		// The challenge is claimed in the session's own transaction (#923): one ended since the read
+		// above, by a password change or « log out other sessions », is sent back to the password step.
+		try {
+			await createSession(user.id, cookies, (tx) => claimMfaChallenge(tx, challenge.id));
+		} catch (caught) {
+			if (!(caught instanceof SignInSuperseded)) throw caught;
+			clearMfaChallengeCookie(cookies);
+			throw redirect(303, '/login');
+		}
+		clearMfaChallengeCookie(cookies);
 
 		redirectAfterSignIn(url);
 	}

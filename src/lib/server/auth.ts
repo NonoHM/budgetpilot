@@ -264,7 +264,17 @@ export function getSessionCookieOptions(expires: Date) {
 	};
 }
 
-export async function createSession(userId: string, cookies: Cookies): Promise<void> {
+/**
+ * Writes a new session. `stillProven` runs first in the same transaction and throws
+ * `SignInSuperseded` when what the sign-in proved no longer holds (#923): `passwordStillCurrent` at
+ * the password step, `claimMfaChallenge` at the code step. Retried whole when the engine aborts it,
+ * so a deadlock against a concurrent password change ends as that change's answer, not as a 500.
+ */
+export async function createSession(
+	userId: string,
+	cookies: Cookies,
+	stillProven?: (tx: TransactionClient) => Promise<void>
+): Promise<void> {
 	// `v5.0.0-7.2.4`, « terminates the current session token », at sign-in (#249). `/login`'s load
 	// sends a signed-in visitor away, but its action never looks, so a POST from a browser that
 	// still holds a live cookie would otherwise leave that session live for every copy of it.
@@ -275,15 +285,22 @@ export async function createSession(userId: string, cookies: Cookies): Promise<v
 	const token = createSessionToken();
 	const now = new Date();
 
-	await prisma.session.create({
-		data: {
-			userId,
-			tokenHash: hashSessionToken(token),
-			createdAt: now,
-			lastSeenAt: now,
-			expiresAt: slidingExpiresAt(now, now)
-		}
-	});
+	await withConcurrentWriteRetry(
+		() =>
+			prisma.$transaction(async (tx) => {
+				await stillProven?.(tx);
+				await tx.session.create({
+					data: {
+						userId,
+						tokenHash: hashSessionToken(token),
+						createdAt: now,
+						lastSeenAt: now,
+						expiresAt: slidingExpiresAt(now, now)
+					}
+				});
+			}),
+		isTransientWriteConflict
+	);
 
 	// The cookie lives to the end of the lifetime, not to `expiresAt`: after inactivity the browser
 	// still presents it, so the sign-in page can say why (`sessionEndedByInactivity`). It grants
@@ -473,7 +490,7 @@ export async function revokeSessionToken(token: string | undefined): Promise<voi
 	});
 }
 
-type TransactionClient = Parameters<Parameters<(typeof prisma)['$transaction']>[0]>[0];
+export type TransactionClient = Parameters<Parameters<(typeof prisma)['$transaction']>[0]>[0];
 
 /** Prisma's interactive-transaction budget, for a change that runs long (a restore). */
 type TransactionOptions = { maxWait?: number; timeout?: number };
@@ -615,17 +632,65 @@ export async function revokeSession(sessionId: string): Promise<void> {
 }
 
 /**
+ * A sign-in step whose proof no longer holds: the password it verified was changed, or the
+ * challenge it opened was ended, before it could write (#923). Answered as the step's ordinary
+ * refusal, never as an error page.
+ */
+export class SignInSuperseded extends Error {
+	constructor() {
+		super('The sign-in was superseded before it could complete');
+	}
+}
+
+/**
+ * Asserts, inside the transaction that writes what a password step proved, that `verifiedHash` is
+ * still the account's password (#923). A compare-and-set on the User row rather than a read: it
+ * locks the row against a concurrent password write, so whichever commits second sees the first.
+ * A password change committed while the comparison ran makes it throw `SignInSuperseded`; one
+ * committing after it waits, then ends what this step wrote (`endPendingSignIns`,
+ * `revokeSessionsOtherThan`). The write stores the value already there.
+ */
+export async function passwordStillCurrent(
+	tx: TransactionClient,
+	userId: string,
+	verifiedHash: string
+): Promise<void> {
+	const { count } = await tx.user.updateMany({
+		where: { id: userId, passwordHash: verifiedHash },
+		data: { passwordHash: verifiedHash }
+	});
+	if (count !== 1) throw new SignInSuperseded();
+}
+
+/**
+ * Ends every sign-in of the account waiting at its code step (#923): the challenge rows go, so a
+ * code submitted afterwards is sent back to the password step. Run with every revocation of the
+ * account's other sessions, BEFORE the sessions are revoked: a code step that claimed its challenge
+ * first holds that row until it commits, and the revocation that follows then sees its session.
+ *
+ * A password step still comparing when this runs is ended only by a PASSWORD change, through
+ * `passwordStillCurrent` and the User row both write. « Log out other sessions » changes nothing that
+ * step reads, so on PostgreSQL a challenge written while it commits outlives it (the contradiction
+ * pass on #923): whoever holds it holds the current password, and could sign in again anyway.
+ */
+export function endPendingSignIns(client: TransactionClient, userId: string) {
+	return client.pendingMfaChallenge.deleteMany({ where: { userId } });
+}
+
+/**
  * Revokes every unrevoked session of the account except the one this request arrived on, idle or
  * past its lifetime included (none can come back afterwards, whatever the timeout): « log out
- * other sessions », and every password change. Identified by the session's ID, never by comparing
+ * other sessions », and every password change. Sign-ins waiting at their code step end first
+ * (`endPendingSignIns`, #923). Identified by the session's ID, never by comparing
  * token hashes: the request's own token is replaced in the same transaction, and a predicate written
  * against a token hash revokes the caller's own session the moment the two orders meet (measured on
  * #249, CONTEXT.md « Session, and its token »).
  */
-export function revokeSessionsOtherThan(
+export async function revokeSessionsOtherThan(
 	client: TransactionClient,
 	user: Pick<AuthUser, 'id' | 'sessionId'>
 ) {
+	await endPendingSignIns(client, user.id);
 	return client.session.updateMany({
 		where: { userId: user.id, revokedAt: null, id: { not: user.sessionId } },
 		data: { revokedAt: new Date() }

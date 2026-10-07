@@ -2,10 +2,12 @@ import { fail, redirect, type Actions } from '@sveltejs/kit';
 import * as m from '$lib/paraglide/messages';
 import {
 	createSession,
+	passwordStillCurrent,
 	redirectAfterSignIn,
 	secondFactorUrl,
 	SESSION_COOKIE,
 	sessionEndedByInactivity,
+	SignInSuperseded,
 	validateEmail,
 	verifyPasswordTimingSafe
 } from '$lib/server/auth';
@@ -70,14 +72,25 @@ export const actions: Actions = {
 			return invalid();
 		}
 
-		if (user.totpEnabled) {
-			await createMfaChallenge(user.id, cookies);
-			throw redirect(303, secondFactorUrl(url));
-		}
+		// What the comparison proved is written only while it still holds (#923): a password changed
+		// while bcrypt ran is the old password, refused as any wrong one is.
+		const verifiedHash = user.passwordHash;
+		try {
+			if (user.totpEnabled) {
+				await createMfaChallenge(user.id, verifiedHash, cookies);
+				throw redirect(303, secondFactorUrl(url));
+			}
 
-		await ensureDefaultCategoriesSeeded(user.id);
-		await ensureDefaultRulesSeeded(user.id);
-		await createSession(user.id, cookies);
+			await ensureDefaultCategoriesSeeded(user.id);
+			await ensureDefaultRulesSeeded(user.id);
+			await createSession(user.id, cookies, (tx) =>
+				passwordStillCurrent(tx, user.id, verifiedHash)
+			);
+		} catch (caught) {
+			if (!(caught instanceof SignInSuperseded)) throw caught;
+			await recordFailedLoginAttempt(email, ip);
+			return invalid();
+		}
 		redirectAfterSignIn(url);
 	}
 };

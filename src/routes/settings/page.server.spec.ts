@@ -19,6 +19,9 @@ const tx = vi.hoisted(() => ({
 		updateMany: vi.fn(),
 		deleteMany: vi.fn()
 	},
+	pendingMfaChallenge: {
+		deleteMany: vi.fn(async () => ({ count: 0 }))
+	},
 	transaction: {
 		deleteMany: vi.fn()
 	},

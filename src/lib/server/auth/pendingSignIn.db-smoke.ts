@@ -89,6 +89,28 @@ vi.mock('$lib/server/auth', async (importOriginal) => {
 	};
 });
 
+/**
+ * The third gate, INSIDE the code step's transaction: it runs once the challenge is claimed and
+ * before the session is written. The hook starts a change and lets it run for a while without
+ * waiting for it, so the change meets a sign-in that has claimed and not yet written.
+ */
+let afterClaim: (() => Promise<void>) | null = null;
+vi.mock('$lib/server/auth/mfaChallenge', async (importOriginal) => {
+	const actual = await importOriginal<typeof import('$lib/server/auth/mfaChallenge')>();
+	return {
+		...actual,
+		claimMfaChallenge: async (...args: Parameters<typeof actual.claimMfaChallenge>) => {
+			await actual.claimMfaChallenge(...args);
+			const hook = afterClaim;
+			afterClaim = null;
+			if (hook) await hook();
+		}
+	};
+});
+
+/** How long the change runs while the sign-in holds its claim: several times a change's duration. */
+const CHANGE_HEADSTART_MS = 1500;
+
 const PASSWORD = 'pending-sign-in-smoke-password';
 const NEW_PASSWORD = 'pending-sign-in-smoke-new-password';
 const PERIOD_MS = 30_000;
@@ -241,6 +263,15 @@ async function mintSession(userId: string): Promise<string> {
 /** The refusal this issue asks for: sent back to the password step, holding no session. */
 const SENT_BACK = { location: '/login', signedIn: false } satisfies CodeAnswer;
 
+/**
+ * The races start each reset one reset-duration late, so the earliest offsets finish before it on
+ * every engine and both orders occur: measured on MariaDB, a reset started with the code step
+ * committed first in all 8 accounts, and that run said nothing about the other order.
+ */
+function sleep(ms: number): Promise<void> {
+	return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 /** Live sessions of these accounts, now. */
 function liveSessionsOf(accounts: Account[]): Promise<number> {
 	return prisma.session.count({
@@ -355,12 +386,14 @@ beforeEach(() => {
 	vi.setSystemTime(step * PERIOD_MS + PERIOD_MS / 2);
 	betweenCodeAndSession = null;
 	afterPasswordCheck = null;
+	afterClaim = null;
 });
 
 afterEach(() => {
 	vi.useRealTimers();
 	betweenCodeAndSession = null;
 	afterPasswordCheck = null;
+	afterClaim = null;
 });
 
 afterAll(async () => {
@@ -409,6 +442,30 @@ describe('a sign-in waiting at the code step (#923)', () => {
 		expect(answer).toEqual(SENT_BACK);
 	});
 
+	// FORCED, inside the code step's transaction: the change starts after the challenge is claimed
+	// and before the session is written. Separates « the claim and the session commit together, and
+	// the change ends challenges before it ends sessions » (the change waits for the sign-in, then
+	// ends its session) from either half missing: a claim committed on its own (break B7), or the
+	// sessions ended before the challenges (break B8, PostgreSQL), where the change finishes first
+	// and the session written afterwards is live.
+	it('is ended by a change starting after the challenge is claimed', async () => {
+		const target = await seedAccount('after-claim', { forcePasswordChange: true });
+		const pending = await passwordStep(target);
+		let change: Promise<void> | undefined;
+		afterClaim = async () => {
+			change = ENDINGS.forcePasswordChange.end(target);
+			await sleep(CHANGE_HEADSTART_MS);
+		};
+
+		const answer = await codeStep(pending, codeAt(target.secret, 0));
+		await change;
+
+		expect(afterClaim, 'the gate ran').toBeNull();
+		// The order this test is about: the sign-in wrote its session, so the change had to end it.
+		expect(answer.location, 'the sign-in completed').toBe('/');
+		expect(await readSessionUser(pending.value(SESSION_COOKIE))).toBeNull();
+	});
+
 	// UNFORCED: the code and an administrator's reset race, with no gate. Each account's code step
 	// starts at its own offset across the reset's own measured duration, so some land before it,
 	// some during and some after. Whatever the order, no session minted by the code may be live
@@ -430,10 +487,10 @@ describe('a sign-in waiting at the code step (#923)', () => {
 		const answers = await Promise.all(
 			targets.map(async (target, index) => {
 				const [answer] = await Promise.all([
-					new Promise((resolve) => setTimeout(resolve, offset(index))).then(() =>
+					sleep(offset(index)).then(() =>
 						codeStep(pendings[index] as Browser, codeAt(target.secret, 0))
 					),
-					adminReset(target, tokens[index])
+					sleep(resetMs).then(() => adminReset(target, tokens[index]))
 				]);
 				return answer;
 			})
@@ -500,13 +557,13 @@ describe('a sign-in waiting at the code step (#923)', () => {
 			const outcomes = await Promise.all(
 				targets.map(async (target, index) => {
 					const [signIn] = await Promise.all([
-						new Promise((resolve) => setTimeout(resolve, offset(index))).then(async () => {
+						sleep(offset(index)).then(async () => {
 							const { browser } = await submitPassword(target);
 							if (browser.value(MFA_PENDING_COOKIE) === undefined) return browser;
 							await codeStep(browser, codeAt(target.secret, 0));
 							return browser;
 						}),
-						adminReset(target, tokens[index])
+						sleep(resetMs).then(() => adminReset(target, tokens[index]))
 					]);
 					return signIn.value(SESSION_COOKIE) !== undefined;
 				})
