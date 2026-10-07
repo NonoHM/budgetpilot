@@ -3,6 +3,11 @@ node_modules
 build
 .git
 .env
+# Every .env.*, as .gitignore has it. The temporary file scripts/env-file.mjs leaves if it is killed
+# between open and rename holds the secrets, and so can a .env.local or .env.production; the
+# builder's `COPY . .` would put any of them in a layer. Nothing in the image build reads
+# .env.example or .env.test, so neither is kept.
+.env.*
 *.db
 dev.db
 prisma/dev.db
