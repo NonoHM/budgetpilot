@@ -7,17 +7,16 @@
 //
 // The copies are tracked under docs/reference/standards/ (#601), each with its CC BY-SA 4.0 licence and
 // provenance, so a clone has them. Missing means the tree was damaged: the message says where to look.
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+// Reading them is `scripts/standards-citations.mjs`, shared with the gate that checks every citation
+// already in the tree (#650), so the two cannot disagree about what exists.
 import { execFileSync } from 'node:child_process';
-import { join } from 'node:path';
+import {
+	calibrationFailure,
+	loadStandards,
+	lookup
+} from '../../../../scripts/standards-citations.mjs';
 
 const root = execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim();
-const find = (rel) => [join(root, rel)].find((p) => existsSync(p));
-
-const asvsPath = find(
-	'docs/reference/standards/asvs-5.0.0/OWASP_Application_Security_Verification_Standard_5.0.0_en.flat.json'
-);
-const aisvsDir = find('docs/reference/standards/aisvs-1.0/en');
 
 const ids = process.argv.slice(2);
 if (ids.length === 0) {
@@ -25,33 +24,24 @@ if (ids.length === 0) {
 	process.exit(2);
 }
 
-let asvs = null;
-if (asvsPath) asvs = JSON.parse(readFileSync(asvsPath, 'utf8')).requirements;
-let aisvsRows = null;
-if (aisvsDir) {
-	aisvsRows = new Map();
-	for (const f of readdirSync(aisvsDir).filter((n) => n.endsWith('.md'))) {
-		for (const line of readFileSync(join(aisvsDir, f), 'utf8').split('\n')) {
-			const m = line.match(/^\|\s*\*\*(\d+\.\d+\.\d+)\*\*\s*\|\s*(.+?)\s*\|\s*(\d)\s*\|\s*$/);
-			if (m) aisvsRows.set(m[1], { text: m[2].replace(/\*\*/g, ''), level: m[3], file: f });
-		}
-	}
-}
+const standards = loadStandards(root);
+const asvs = standards.asvs;
+const aisvsRows = standards.aisvs;
 
 // Calibrate in the same run: a known identifier must resolve, or every answer below is about the
 // parser, not the standard.
-if (asvs && !asvs.some((r) => r.req_id === 'V8.2.2')) {
-	console.error('calibration failed: V8.2.2 not found in the ASVS copy');
-	process.exit(2);
-}
-if (aisvsRows && !aisvsRows.has('9.2.1')) {
-	console.error('calibration failed: 9.2.1 not found in the AISVS copy');
+const calibration = calibrationFailure(standards);
+if (calibration) {
+	console.error(`calibration failed: ${calibration}`);
 	process.exit(2);
 }
 
+// `lookup` is the gate's own definition of « exists », so a section such as `V5.1` or `aisvs:C9.2`
+// resolves here exactly when the gate accepts it.
 let missing = 0;
 for (const raw of ids) {
 	if (/^aisvs:/i.test(raw)) {
+		// `9.2.1` or `C9.2.1` for a chapter; `AC.3.1` for Appendix C keeps its prefix.
 		const id = raw.replace(/^aisvs:/i, '').replace(/^C/i, '');
 		if (!aisvsRows) {
 			console.log(
@@ -60,16 +50,18 @@ for (const raw of ids) {
 			missing++;
 			continue;
 		}
-		const r = aisvsRows.get(id);
+		const r = lookup(standards, { standard: 'AISVS', id });
 		if (!r) {
 			console.log(`${raw}: NOT FOUND in AISVS 1.0`);
 			missing++;
 			continue;
 		}
-		console.log(`AISVS 1.0 C${id} (Level ${r.level}): "${r.text}"`);
+		const shown = id.startsWith('AC.') ? id : `C${id}`;
+		if (r.kind === 'section') console.log(`AISVS 1.0 ${shown} (section): "${r.text}"`);
+		else console.log(`AISVS 1.0 ${shown} (Level ${r.level}): "${r.text}"`);
 		continue;
 	}
-	const id = 'V' + raw.replace(/^v5\.0\.0-/i, '').replace(/^V/i, '');
+	const id = raw.replace(/^v5\.0\.0-/i, '').replace(/^V/i, '');
 	if (!asvs) {
 		console.log(
 			`${raw}: tracked ASVS copy missing: expected docs/reference/standards/asvs-5.0.0/ (#601)`
@@ -77,14 +69,18 @@ for (const raw of ids) {
 		missing++;
 		continue;
 	}
-	const r = asvs.find((x) => x.req_id === id);
+	const r = lookup(standards, { standard: 'ASVS', id });
 	if (!r) {
 		console.log(`${raw}: NOT FOUND in ASVS 5.0.0`);
 		missing++;
 		continue;
 	}
-	const above = Number(r.L) > 2 ? ', above our Level 2 target' : '';
-	console.log(`ASVS v5.0.0-${id.slice(1)} (Level ${r.L}${above}): "${r.req_description}"`);
+	if (r.kind === 'section') {
+		console.log(`ASVS v5.0.0-${id} (section): "${r.text}"`);
+		continue;
+	}
+	const above = Number(r.level) > 2 ? ', above our Level 2 target' : '';
+	console.log(`ASVS v5.0.0-${id} (Level ${r.level}${above}): "${r.text}"`);
 }
 console.log(
 	`resolved ${ids.length - missing} of ${ids.length}; read ${asvs ? asvs.length : 0} ASVS and ${aisvsRows ? aisvsRows.size : 0} AISVS requirements`
