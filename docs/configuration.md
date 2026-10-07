@@ -215,9 +215,10 @@ Any unrecognized value falls back to `admin_only`.
 ## Passwords and sessions
 
 ```dotenv
-PASSWORD_HASH_COST=12    # bcrypt cost: 12 to 15
-SESSION_TTL_DAYS=30      # how long a sign-in lasts: 1 to 400 days
-INVITATION_TTL_HOURS=72  # how long an invitation link stays valid: 1 to 720 hours
+PASSWORD_HASH_COST=12              # bcrypt cost: 12 to 15
+SESSION_TTL_DAYS=30                # how long a sign-in lasts: 1 to 400 days
+BP_SESSION_IDLE_TIMEOUT_HOURS=168  # how long a sign-in can go unused: 1 to 720 hours
+INVITATION_TTL_HOURS=72            # how long an invitation link stays valid: 1 to 720 hours
 ```
 
 A value outside its range stops the app at startup with a message naming the
@@ -238,17 +239,55 @@ user signs in again, however active they were. The ceiling is 400 days because
 Chrome and Firefox keep a cookie for at most 400 days whatever the server asks,
 the limit the IETF cookie specification draft asks every browser to apply
 (`draft-ietf-httpbis-rfc6265bis-22`, section 5.5). A longer lifetime would
-mostly keep a copied cookie usable.
+mostly keep a copied cookie usable. The lifetime counts from each sign-in with
+the value in force: lowering it ends, at the next start, every sign-in older
+than the new value. Raising it applies in full to sign-ins made afterwards; a
+browser keeps the cookie of an earlier one only as long as the value in force
+when it was issued, so its user signs in again then.
+
+**`BP_SESSION_IDLE_TIMEOUT_HOURS`** ends a sign-in that goes unused for that
+many hours, even when its lifetime has time left. At the default of 168 hours
+(7 days), someone who uses the app every week signs in about once a month, and
+a sign-in left open on another device ends a week after its last use. The
+sign-in page then tells the user they were signed out after a period of
+inactivity.
+
+The app records a use at most once an hour, or once every twelfth of the
+timeout when that is shorter (every 5 minutes at 1 hour), so a page load is not
+a database write. A sign-in can therefore end up to that interval early, never
+late. The ceiling is 720 hours (30 days), the default lifetime: a longer
+timeout would never end a sign-in before `SESSION_TTL_DAYS` does at its
+default.
+
+Each sign-in stores the moment it stops working, and only a use moves that
+moment later, so a sign-in that has stopped stays stopped: raising the timeout
+or the lifetime afterwards, or going back to an earlier version, does not bring
+it back. Lowering either takes effect at the next start, for every sign-in.
+Changing the password ends every other sign-in of the account for good, used or
+not.
+
+These rules read the server's clock, so keep it synchronized (NTP): a clock set
+back, as on a device without a clock battery before it syncs, can let a request
+in that window extend a sign-in that had already ended. Several instances on one
+database need clocks that agree, for the same reason.
 
 **What NIST SP 800-63B-4 asks.** A sign-in should last « no more than 30
 days » for a password alone, and « no more than 24 hours », with an inactivity
-timeout of « no more than 1 hour », once a second factor is in use. The default
-of 30 days applies to every account, with or without two-factor
-authentication, and the app has no inactivity timeout yet
-([#221](https://github.com/NonoHM/budgetpilot/issues/221)). `SESSION_TTL_DAYS=1`
-gives every account a lifetime within NIST's 24 hours. Whether the default
-should differ for two-factor accounts is open in
-[#919](https://github.com/NonoHM/budgetpilot/issues/919).
+timeout of « no more than 1 hour », once a second factor is in use. Both
+defaults apply to every account, with or without two-factor authentication,
+as ruled in [#919](https://github.com/NonoHM/budgetpilot/issues/919): the app
+initiates no payment; changing the password from Settings, turning two-factor
+authentication on or off, deleting the account, restoring a backup, and an
+administrator deleting a user or resetting a password each ask again for the
+password, and for the code when two-factor authentication is on, every time;
+ending other sessions from Settings asks again for the password; the lifetime
+stays bounded; and the inactivity timeout ends a forgotten sign-in. Four other
+actions that change security state do not ask again yet, the forced password
+change among them ([#880](https://github.com/NonoHM/budgetpilot/issues/880)). That is the
+justification `ASVS v5.0.0-7.1.1` asks for,
+« justification for any deviations from NIST SP 800-63B re-authentication
+requirements ». To apply NIST's two-factor figures to every account, set
+`SESSION_TTL_DAYS=1` and `BP_SESSION_IDLE_TIMEOUT_HOURS=1`.
 
 **`INVITATION_TTL_HOURS`** bounds how long an invitation link works. Anyone
 holding the link can create an account with it, so it stays short. The ceiling,

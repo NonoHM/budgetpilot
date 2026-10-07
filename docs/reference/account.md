@@ -39,22 +39,26 @@ first and unhelpful for the other two, but no figure it displays is wrong.
 
 ## Sessions
 
-|             |                                                       |
-| ----------- | ----------------------------------------------------- |
-| Lifetime    | **30 days**, `SESSION_TTL_DAYS`                       |
-| Created     | one per sign-in                                       |
-| Shown       | count of active, plus every session with its dates    |
-| Current one | marked, and never revoked by "log out other sessions" |
-| Its cookie  | replaced each time you confirm your password          |
+|             |                                                                     |
+| ----------- | ------------------------------------------------------------------- |
+| Lifetime    | **30 days** from sign-in, `SESSION_TTL_DAYS`                        |
+| Unused      | ends **7 days** after the last use, `BP_SESSION_IDLE_TIMEOUT_HOURS` |
+| Created     | one per sign-in                                                     |
+| Shown       | count of active, plus every session with its dates                  |
+| Current one | marked, and never revoked by "log out other sessions"               |
+| Its cookie  | replaced each time you confirm your password                        |
 
-A session ends when it expires, when it is revoked from this page, or when
-the password changes.
+A session ends when it expires, when it goes unused for 7 days, when it is
+revoked from this page, or when the password changes. The list shows every
+ended session as revoked, whatever ended it. A visitor whose session ended
+from going unused is told so on the sign-in page.
 
 **Confirming your password replaces the cookie of the session you are using.**
 Every action that asks for your current password does this when the change it
 confirms is saved: changing it, logging out sessions, turning two-factor on or
 off, restoring a backup, and the admin actions. The session stays the same one,
-with the same expiry date; only the cookie that proves it changes. A copy of the
+with the same 30 days counted from its sign-in; the change counts as a use, and
+the cookie that proves the session is replaced. A copy of the
 old cookie, taken from this browser before that moment, stops working. An action
 that is refused after you confirmed changes nothing, the cookie included.
 
