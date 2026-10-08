@@ -8,6 +8,7 @@ import { DatabaseSync } from 'node:sqlite';
 import type { Readable } from 'node:stream';
 import { request as apiRequest, type APIRequestContext } from '@playwright/test';
 import * as OTPAuth from 'otpauth';
+import { ATTRIBUTE, EVENT, FIELD } from '../src/lib/server/logging/names';
 import { expect, test } from './fixtures';
 
 /**
@@ -84,6 +85,12 @@ import { expect, test } from './fixtures';
  * constraint message with a fixed one, and the email would be absent whatever the printer did
  * (`error-printer.spec.ts` records the same limit). With the message carrying a planted value, a
  * printer that writes messages turns the sweep red, which is the break that proves this path.
+ *
+ * THE AUTHENTICATION EVENTS (L3, part of #250, with #936). Before L3 this file passed partly
+ * because no authentication line existed: an absent line holds no secret. So the auth lines are now
+ * asserted PRESENT, in the numbers the battery determines, before their content is believed clean.
+ * Every client of this run claims `CLIENT_ADDRESS` through a trusted proxy, so the raw address text
+ * is a planted value the log must pseudonymise, and the raw user ids are searched for the same way.
  */
 
 // No retries, whatever the suite sets (playwright.config.ts retries twice for a hydration race this
@@ -140,8 +147,21 @@ const SECRETS = {
 	bankAuthorizationCode: 'logscan-canary-bank-code-61c0e7'
 };
 
+/**
+ * The address every client of this run claims through the trusted proxy (RFC 5737 documentation
+ * range, so it cannot be anyone's), and a second one for the single sign-in the first address's
+ * limiter would refuse (step 11). The log may carry only their pseudonyms (#869), so their raw text
+ * is swept for below, and the two must pseudonymise DIFFERENTLY, which is what proves the forwarded
+ * hop was the address read rather than the loopback peer both requests really came from.
+ */
+const CLIENT_ADDRESS = '198.51.100.77';
+const OTHER_CLIENT_ADDRESS = '203.0.113.41';
+
 /** Values minted during the run, filled by `exerciseAuthPaths`. Each is asserted non-empty. */
 const minted = {
+	/** The raw ids of the two accounts, read from this run's database. Never in a log line. */
+	adminUserId: '',
+	memberUserId: '',
 	sessionToken: '',
 	recoverySessionToken: '',
 	/** The tokens a re-authenticated change rotates the admin's session to (#249), one per change. */
@@ -165,6 +185,9 @@ const SERVER_ENV = {
 	// to do anything. The suite's own server never meets this because `vite preview` resolves the
 	// origin from the request.
 	ORIGIN: BASE_URL,
+	// Both loopback forms, so whichever family the client connects over is a trusted hop and the
+	// `X-Forwarded-For` every client sends (see `newClient`) is the address the application reads.
+	TRUSTED_PROXIES: '127.0.0.1/32,::1/128',
 	PUBLIC_INSTANCE: 'false',
 	REGISTRATION_MODE: 'admin_only',
 	// bcrypt's floor. This instance exists for ten seconds and hashes a few passwords; the cost
@@ -333,7 +356,13 @@ test.beforeAll(async () => {
 	// The error line is written before the response completes, but give the pipe a moment.
 	await new Promise((resolve) => setTimeout(resolve, 300));
 	console.log(
-		`[log-secret-scan] read ${captured.split('\n').length - 1} lines, ${Buffer.byteLength(captured)} bytes; searched ${Object.keys(SECRETS).length} configured and ${mintedValues().length} minted values`
+		`[log-secret-scan] read ${captured.split('\n').length - 1} lines, ${Buffer.byteLength(captured)} bytes; searched ${Object.keys(SECRETS).length} configured, ${mintedValues().length} minted and ${identifierValues().length} identifier values`
+	);
+	// Every event kind found, beside the lines read, so a run that wrote no auth line says so in its
+	// output rather than only in a red count.
+	const log = parseLog(captured);
+	console.log(
+		`[log-secret-scan] ${log.lines.length} JSON lines of ${log.total} read (${log.unparsed} not JSON); events: ${JSON.stringify(log.byName)}`
 	);
 });
 
@@ -346,15 +375,21 @@ test.afterAll(async () => {
 	rmSync(DB_DIR, { recursive: true, force: true });
 });
 
-async function newClient(): Promise<APIRequestContext> {
+async function newClient(forwardedFor: string = CLIENT_ADDRESS): Promise<APIRequestContext> {
 	const context = await apiRequest.newContext({
 		baseURL: BASE_URL,
 		// This server is not the suite's, so the shared storageState would be a session it has
 		// never issued. Pinned empty for the same reason as in idor-two-account.spec.ts.
 		storageState: { cookies: [], origins: [] },
 		// JSON so each action's outcome is readable: SvelteKit answers a form action with an
-		// ActionResult whose `type` says what happened, which an HTML 200 does not.
-		extraHTTPHeaders: { Origin: BASE_URL, Accept: 'application/json' }
+		// ActionResult whose `type` says what happened, which an HTML 200 does not. The forwarded
+		// address is the planted client address (see `CLIENT_ADDRESS`), honoured because the peer is
+		// a `TRUSTED_PROXIES` hop.
+		extraHTTPHeaders: {
+			Origin: BASE_URL,
+			Accept: 'application/json',
+			'X-Forwarded-For': forwardedFor
+		}
 	});
 	contexts.push(context);
 	return context;
@@ -487,6 +522,10 @@ async function exerciseAuthPaths(): Promise<void> {
 		sqlite((db) => db.prepare('SELECT id FROM "User" WHERE email = ?').get(SECRETS.memberEmail))
 			?.id ?? ''
 	);
+	minted.memberUserId = memberId;
+	minted.adminUserId = String(
+		sqlite((db) => db.prepare('SELECT id FROM "User" WHERE email = ?').get(SECRETS.email))?.id ?? ''
+	);
 	// The admin re-authenticates (#229): their own password, and a code because step 4 enrolled TOTP.
 	// The NEXT step's code, still inside the window: the enrolment spent the current one (#818).
 	const reset = await action(admin, 'admin-reset', '/admin?/resetPassword', {
@@ -564,7 +603,13 @@ async function exerciseAuthPaths(): Promise<void> {
 	}
 
 	// 11. A login for an account that does not exist, which is the other half of the failure path.
-	await action(stranger, 'login-unknown-user', '/login', {
+	//     From the OTHER address: the login limiter counts the address as well as the email
+	//     (`isLoginRateLimited` in auth/rateLimit.ts), and step 10 left `CLIENT_ADDRESS` at
+	//     MAX_ATTEMPTS, so from the same address this attempt is refused by the limiter before the
+	//     account lookup and never reaches the unknown-account branch. It did exactly that before L3,
+	//     when every request shared the loopback address: the outcome read `failure` either way.
+	const elsewhere = await newClient(OTHER_CLIENT_ADDRESS);
+	await action(elsewhere, 'login-unknown-user', '/login', {
 		email: 'nobody-canary@budgetpilot.test',
 		password: SECRETS.wrongPassword
 	});
@@ -663,8 +708,14 @@ test.describe('v5.0.0-16.2.5: no secret reaches the log', () => {
 			bankCodeReceived: bankStub.codes.includes(SECRETS.bankAuthorizationCode),
 			bankBearerTokens:
 				minted.bankBearerTokens.length > 0 &&
-				minted.bankBearerTokens.every((value) => value.split('.').length === 3)
+				minted.bankBearerTokens.every((value) => value.split('.').length === 3),
+			// Prisma's `cuid()`, the `User.id` default in prisma/schema.prisma; two distinct accounts.
+			userIds:
+				/^c[0-9a-z]{20,}$/.test(minted.adminUserId) &&
+				/^c[0-9a-z]{20,}$/.test(minted.memberUserId) &&
+				minted.adminUserId !== minted.memberUserId
 		}).toEqual({
+			userIds: true,
 			sessionToken: true,
 			recoverySessionToken: true,
 			rotatedSessionTokens: true,
@@ -683,17 +734,18 @@ test.describe('v5.0.0-16.2.5: no secret reaches the log', () => {
 		expect(captured).toContain(forcedErrorId);
 	});
 
-	// The planted positive, permanent rather than a one-off: the two sweeps below are run over a copy
-	// of this capture with one configured and one minted value appended, and must name both. A
-	// sweep that searched nothing, or searched for the wrong values, reports clean on the real
-	// capture and fails here. Inclusion rather than a difference against the real capture, so that
-	// a capture which already leaks the planted value does not turn this red as well.
-	test('calibration: both sweeps report a secret planted in a copy of this capture', () => {
-		const planted = `${captured}\n{"leak":"${minted.recoveryCodes[1]}"} ${SECRETS.bankPrivateKeyMiddleLine}\n`;
+	// The planted positive, permanent rather than a one-off: the three sweeps below are run over a
+	// copy of this capture with one configured, one minted and one identifier value appended, and
+	// must name all three. A sweep that searched nothing, or searched for the wrong values, reports
+	// clean on the real capture and fails here. Inclusion rather than a difference against the real
+	// capture, so that a capture which already leaks the planted value does not turn this red as well.
+	test('calibration: every sweep reports a value planted in a copy of this capture', () => {
+		const planted = `${captured}\n{"leak":"${minted.recoveryCodes[1]}"} ${SECRETS.bankPrivateKeyMiddleLine} {"user":"${minted.memberUserId}"}\n`;
 		expect({
 			configured: configuredFoundIn(planted).includes('bankPrivateKeyMiddleLine'),
-			minted: mintedFoundIn(planted).includes('recoveryCode[1]')
-		}).toEqual({ configured: true, minted: true });
+			minted: mintedFoundIn(planted).includes('recoveryCode[1]'),
+			identifiers: identifiersFoundIn(planted).includes('memberUserId')
+		}).toEqual({ configured: true, minted: true, identifiers: true });
 	});
 
 	test('no configured credential, token or key appears anywhere in the captured log', () => {
@@ -709,6 +761,211 @@ test.describe('v5.0.0-16.2.5: no secret reaches the log', () => {
 		const found = mintedFoundIn(captured);
 		expect(found, `minted secrets found in the log: ${found.join(', ')}`).toEqual([]);
 	});
+
+	// Separate from the two sweeps above because these are not secrets: they are the identifiers the
+	// L3 lines pseudonymise (contract invariant 3, and #869 for the address). A line that wrote the
+	// raw id or the raw forwarded address beside, or instead of, its pseudonym is caught here, and the
+	// presence tests below are what make this sweep read lines that could have carried them.
+	test('no raw client address and no raw user id appears anywhere in the captured log', () => {
+		const found = identifiersFoundIn(captured);
+		expect(found, `identifiers found in the log: ${found.join(', ')}`).toEqual([]);
+	});
+});
+
+/**
+ * The authentication lines, asserted PRESENT before anything about their content is believed. The
+ * figures come from the battery and the code, each named where it is asserted:
+ *
+ *  - step 10 sends six wrong passwords for the admin from `CLIENT_ADDRESS`. `MAX_ATTEMPTS` is 5 and
+ *    `isRateLimited` refuses at `count >= 5` (auth/rateLimit.ts), and /login checks the limiter
+ *    BEFORE the lookup and records only after a wrong password (routes/login/+page.server.ts). So
+ *    attempts 1 to 5 are `wrong_password` failures and the sixth is the one limiter refusal, kind
+ *    LOGIN. No earlier step records a LOGIN attempt: every earlier sign-in succeeds.
+ *  - step 11 is the one `unknown_account` failure, from `OTHER_CLIENT_ADDRESS` (see the step).
+ *  - three sign-ins succeed: step 3 and step 6 by password (admin, then member), step 9 by a
+ *    recovery code (admin). Step 9's password step is a second-factor requirement, not a success.
+ *
+ * The reason, step, factor and kind values are the closed sets of the L3 contract, written as
+ * literals because they are wire values with no constant in names.ts.
+ */
+test.describe('L3: the authentication events exist, and carry pseudonyms only', () => {
+	const HEX64 = /^[0-9a-f]{64}$/;
+	const named = (name: string) =>
+		parseLog(captured).lines.filter((l) => l[FIELD.eventName] === name);
+	const has = (line: LogLine, key: string) => Object.hasOwn(line, key);
+	const failures = () => named(EVENT.authnLoginFail);
+	const wrongPasswords = () =>
+		failures().filter((l) => l[ATTRIBUTE.authnReason] === 'wrong_password');
+	const unknownAccounts = () =>
+		failures().filter((l) => l[ATTRIBUTE.authnReason] === 'unknown_account');
+	const successes = () => named(EVENT.authnLoginSuccess);
+	const limiterRefusals = () => named(EVENT.rateLimitExceeded);
+
+	test('calibration: every name this probe reads exists in names.ts', () => {
+		// A missing constant reads as `undefined`, which matches no line, and every count below would
+		// then be red for a reason that is about this file rather than the log. Named here instead.
+		const names: Record<string, unknown> = {
+			'EVENT.authnLoginFail': EVENT.authnLoginFail,
+			'EVENT.authnLoginSuccess': EVENT.authnLoginSuccess,
+			'EVENT.rateLimitExceeded': EVENT.rateLimitExceeded,
+			'EVENT.authnSecondFactorRequired': EVENT.authnSecondFactorRequired,
+			'EVENT.userCreated': EVENT.userCreated,
+			'EVENT.authnReauthSuccess': EVENT.authnReauthSuccess,
+			'ATTRIBUTE.userPseudonym': ATTRIBUTE.userPseudonym,
+			'ATTRIBUTE.clientPseudonym': ATTRIBUTE.clientPseudonym,
+			'ATTRIBUTE.clientSubnetPseudonym': ATTRIBUTE.clientSubnetPseudonym,
+			'ATTRIBUTE.clientSubnetPrefixLength': ATTRIBUTE.clientSubnetPrefixLength,
+			'ATTRIBUTE.authnReason': ATTRIBUTE.authnReason,
+			'ATTRIBUTE.authnStep': ATTRIBUTE.authnStep,
+			'ATTRIBUTE.authnFactor': ATTRIBUTE.authnFactor,
+			'ATTRIBUTE.authnMethod': ATTRIBUTE.authnMethod,
+			'ATTRIBUTE.rateLimitKind': ATTRIBUTE.rateLimitKind
+		};
+		const missing = Object.entries(names)
+			.filter(([, value]) => typeof value !== 'string' || value === '')
+			.map(([name]) => name);
+		expect({ read: Object.keys(names).length, missing }).toEqual({ read: 15, missing: [] });
+	});
+
+	test('the sign-in failures, successes and the limiter trip are there, in the battery numbers', () => {
+		expect({
+			loginFailWrongPassword: wrongPasswords().filter((l) => l[ATTRIBUTE.authnStep] === 'password')
+				.length,
+			loginFailUnknownAccount: unknownAccounts().filter(
+				(l) => l[ATTRIBUTE.authnStep] === 'password'
+			).length,
+			loginFailTotal: failures().length,
+			loginSuccessPassword: successes().filter((l) => l[ATTRIBUTE.authnFactor] === 'password')
+				.length,
+			loginSuccessRecoveryCode: successes().filter(
+				(l) => l[ATTRIBUTE.authnFactor] === 'recovery_code'
+			).length,
+			loginSuccessTotal: successes().length,
+			rateLimitLogin: limiterRefusals().filter((l) => l[ATTRIBUTE.rateLimitKind] === 'LOGIN')
+				.length,
+			rateLimitTotal: limiterRefusals().length
+		}).toEqual({
+			loginFailWrongPassword: 5,
+			loginFailUnknownAccount: 1,
+			loginFailTotal: 6,
+			loginSuccessPassword: 2,
+			loginSuccessRecoveryCode: 1,
+			loginSuccessTotal: 3,
+			rateLimitLogin: 1,
+			rateLimitTotal: 1
+		});
+	});
+
+	test('the other events the battery determines are there: two accounts, one second factor, two re-authentications', () => {
+		// Separate from the sign-in figures so a disagreement here cannot hide one there. Step 2
+		// creates the first account with the bootstrap token and step 5 the second by invitation;
+		// step 9's correct password asks for the second factor; steps 4 and 6 each re-authenticate
+		// (`confirmTotpSetup` and `resetPassword` are both `REAUTH_FACTORS` actions in auth/reauth.ts).
+		expect({
+			userCreatedMethods: named(EVENT.userCreated)
+				.map((l) => l[ATTRIBUTE.authnMethod])
+				.sort(),
+			secondFactorRequired: named(EVENT.authnSecondFactorRequired).length,
+			reauthSuccess: named(EVENT.authnReauthSuccess).length
+		}).toEqual({
+			userCreatedMethods: ['bootstrap', 'invitation'],
+			secondFactorRequired: 1,
+			reauthSuccess: 2
+		});
+	});
+
+	test('every attack line carries the client pseudonym, the subnet label and a width of 32 for this IPv4 client', () => {
+		// The six failures and the limiter refusal: seven lines, each asserted, never one sampled.
+		const attack = [...failures(), ...limiterRefusals()];
+		expect(
+			attack.map((l) => ({
+				event: l[FIELD.eventName],
+				client: HEX64.test(String(l[ATTRIBUTE.clientPseudonym])),
+				subnet: HEX64.test(String(l[ATTRIBUTE.clientSubnetPseudonym])),
+				width: l[ATTRIBUTE.clientSubnetPrefixLength]
+			}))
+		).toEqual([
+			...Array.from({ length: 6 }, () => ({
+				event: EVENT.authnLoginFail,
+				client: true,
+				subnet: true,
+				width: 32
+			})),
+			{ event: EVENT.rateLimitExceeded, client: true, subnet: true, width: 32 }
+		]);
+	});
+
+	test('the address read was the forwarded one: one pseudonym for CLIENT_ADDRESS, another for OTHER_CLIENT_ADDRESS', () => {
+		// Separates « the trusted hop was read » from « the loopback peer was read »: both requests
+		// came over loopback, so a server ignoring `X-Forwarded-For` writes ONE pseudonym for all
+		// seven lines, and this turns red (as does step 11, which the limiter would then refuse).
+		const fromClient = [...wrongPasswords(), ...limiterRefusals()];
+		const clientSet = new Set(fromClient.map((l) => l[ATTRIBUTE.clientPseudonym]));
+		const subnetSet = new Set(fromClient.map((l) => l[ATTRIBUTE.clientSubnetPseudonym]));
+		const other = unknownAccounts()[0] ?? {};
+		expect({
+			linesFromClient: fromClient.length,
+			clientPseudonyms: clientSet.size,
+			subnetPseudonyms: subnetSet.size,
+			otherHasItsOwnPseudonym:
+				HEX64.test(String(other[ATTRIBUTE.clientPseudonym])) &&
+				!clientSet.has(other[ATTRIBUTE.clientPseudonym]),
+			otherHasItsOwnSubnet:
+				HEX64.test(String(other[ATTRIBUTE.clientSubnetPseudonym])) &&
+				!subnetSet.has(other[ATTRIBUTE.clientSubnetPseudonym])
+		}).toEqual({
+			linesFromClient: 6,
+			clientPseudonyms: 1,
+			subnetPseudonyms: 1,
+			otherHasItsOwnPseudonym: true,
+			otherHasItsOwnSubnet: true
+		});
+	});
+
+	test('a failure for the existing account names its user by pseudonym; the unknown-account failure names none', () => {
+		const adminPseudonyms = new Set(wrongPasswords().map((l) => l[ATTRIBUTE.userPseudonym]));
+		const [adminPseudonym] = [...adminPseudonyms];
+		expect({
+			wrongPasswordLines: wrongPasswords().length,
+			oneUserPseudonym: adminPseudonyms.size === 1 && HEX64.test(String(adminPseudonym)),
+			// Not the address pseudonym under another name: the user key is its own (contract inv. 3).
+			notTheClientPseudonym: adminPseudonym !== wrongPasswords()[0]?.[ATTRIBUTE.clientPseudonym],
+			unknownAccountLines: unknownAccounts().length,
+			unknownAccountHasUser: unknownAccounts().map((l) => has(l, ATTRIBUTE.userPseudonym))
+		}).toEqual({
+			wrongPasswordLines: 5,
+			oneUserPseudonym: true,
+			notTheClientPseudonym: true,
+			unknownAccountLines: 1,
+			unknownAccountHasUser: [false]
+		});
+	});
+
+	test('every sign-in success names its user and client by pseudonym, and carries no subnet field (#936)', () => {
+		// The admin's pseudonym is read off the failures, so the two successes that are the admin's
+		// (steps 3 and 9) must carry it and the member's (step 6) must carry another one.
+		const adminPseudonym = wrongPasswords()[0]?.[ATTRIBUTE.userPseudonym];
+		const clientPseudonym = wrongPasswords()[0]?.[ATTRIBUTE.clientPseudonym];
+		expect(
+			successes().map((l) => ({
+				factor: l[ATTRIBUTE.authnFactor],
+				user: HEX64.test(String(l[ATTRIBUTE.userPseudonym]))
+					? l[ATTRIBUTE.userPseudonym] === adminPseudonym
+						? 'admin'
+						: 'other'
+					: 'absent',
+				client:
+					HEX64.test(String(l[ATTRIBUTE.clientPseudonym])) &&
+					l[ATTRIBUTE.clientPseudonym] === clientPseudonym,
+				subnet: has(l, ATTRIBUTE.clientSubnetPseudonym),
+				width: has(l, ATTRIBUTE.clientSubnetPrefixLength)
+			}))
+		).toEqual([
+			{ factor: 'password', user: 'admin', client: true, subnet: false, width: false },
+			{ factor: 'password', user: 'other', client: true, subnet: false, width: false },
+			{ factor: 'recovery_code', user: 'admin', client: true, subnet: false, width: false }
+		]);
+	});
 });
 
 function configuredFoundIn(text: string): string[] {
@@ -721,4 +978,53 @@ function mintedFoundIn(text: string): string[] {
 	return mintedValues()
 		.filter(([, value]) => value !== '' && text.includes(value))
 		.map(([name]) => name);
+}
+
+/** The identifiers the auth lines must pseudonymise, never print: raw addresses and raw user ids. */
+function identifierValues(): [string, string][] {
+	return [
+		['clientAddress', CLIENT_ADDRESS],
+		['otherClientAddress', OTHER_CLIENT_ADDRESS],
+		['adminUserId', minted.adminUserId],
+		['memberUserId', minted.memberUserId]
+	];
+}
+
+function identifiersFoundIn(text: string): string[] {
+	return identifierValues()
+		.filter(([, value]) => value !== '' && text.includes(value))
+		.map(([name]) => name);
+}
+
+type LogLine = Record<string, unknown>;
+
+/**
+ * Every line of the capture that parses as one JSON object, with how many were read and how many
+ * did not parse, and a count per `event_name`. The figures are printed in `beforeAll`, so a run whose
+ * capture held no auth line says so beside the number of lines it read.
+ */
+function parseLog(text: string): {
+	total: number;
+	unparsed: number;
+	lines: LogLine[];
+	byName: Record<string, number>;
+} {
+	const raw = text.split('\n').filter((line) => line !== '');
+	const lines: LogLine[] = [];
+	for (const line of raw) {
+		try {
+			const value: unknown = JSON.parse(line);
+			if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+				lines.push(value as LogLine);
+			}
+		} catch {
+			// Counted below as unparsed.
+		}
+	}
+	const byName: Record<string, number> = {};
+	for (const line of lines) {
+		const name = String(line[FIELD.eventName]);
+		byName[name] = (byName[name] ?? 0) + 1;
+	}
+	return { total: raw.length, unparsed: raw.length - lines.length, lines, byName };
 }
