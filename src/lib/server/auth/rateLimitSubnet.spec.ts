@@ -34,7 +34,8 @@ const { parseTrustedProxies, resolveClientAddress, resolveForwardedClientAddress
  * reach the key through different call sites and a loop asserting one value would not say which.
  */
 type AddressKeyed = {
-	check: (ip: string) => Promise<boolean>;
+	/** Only called for the key it reads: a trip answer for the five authentication kinds, a boolean for the rest. */
+	check: (ip: string) => Promise<unknown>;
 	record: (ip: string) => Promise<void>;
 };
 

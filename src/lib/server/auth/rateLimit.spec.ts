@@ -71,7 +71,7 @@ describe('isLoginRateLimited', () => {
 			.mockResolvedValueOnce(5) // par email
 			.mockResolvedValueOnce(0); // par ip
 
-		await expect(isLoginRateLimited('user@example.test', '127.0.0.1')).resolves.toBe(true);
+		await expect(isLoginRateLimited('user@example.test', '127.0.0.1')).resolves.not.toBeNull();
 	});
 
 	it('retourne true si >= 5 tentatives par IP dans les 15 dernières minutes', async () => {
@@ -81,7 +81,7 @@ describe('isLoginRateLimited', () => {
 			.mockResolvedValueOnce(0) // par email
 			.mockResolvedValueOnce(5); // par ip
 
-		await expect(isLoginRateLimited('user@example.test', '127.0.0.1')).resolves.toBe(true);
+		await expect(isLoginRateLimited('user@example.test', '127.0.0.1')).resolves.not.toBeNull();
 	});
 
 	it('retourne false sous le seuil pour email et IP', async () => {
@@ -89,7 +89,7 @@ describe('isLoginRateLimited', () => {
 
 		db.prisma.loginAttempt.count.mockResolvedValueOnce(4).mockResolvedValueOnce(4);
 
-		await expect(isLoginRateLimited('user@example.test', '127.0.0.1')).resolves.toBe(false);
+		await expect(isLoginRateLimited('user@example.test', '127.0.0.1')).resolves.toBeNull();
 	});
 
 	it('filtre les comptages sur la fenêtre glissante de 15 minutes en utilisant emailHash/ipHash', async () => {
@@ -229,7 +229,7 @@ describe('isRegisterRateLimited', () => {
 
 		db.prisma.loginAttempt.count.mockResolvedValueOnce(5);
 
-		await expect(isRegisterRateLimited('127.0.0.1')).resolves.toBe(true);
+		await expect(isRegisterRateLimited('127.0.0.1')).resolves.not.toBeNull();
 	});
 
 	it('retourne false sous le seuil', async () => {
@@ -237,7 +237,7 @@ describe('isRegisterRateLimited', () => {
 
 		db.prisma.loginAttempt.count.mockResolvedValueOnce(4);
 
-		await expect(isRegisterRateLimited('127.0.0.1')).resolves.toBe(false);
+		await expect(isRegisterRateLimited('127.0.0.1')).resolves.toBeNull();
 	});
 
 	it("n'effectue qu'un seul comptage (par IP, pas par email) contrairement au login", async () => {
@@ -330,7 +330,7 @@ describe('isInviteRateLimited / recordInviteAttempt', () => {
 
 		db.prisma.loginAttempt.count.mockResolvedValueOnce(5);
 
-		await expect(isInviteRateLimited('127.0.0.1')).resolves.toBe(true);
+		await expect(isInviteRateLimited('127.0.0.1')).resolves.not.toBeNull();
 	});
 
 	it("filtre par kind: 'INVITE', isolé de LOGIN/REGISTER", async () => {
@@ -364,7 +364,7 @@ describe('isolation login/register par kind', () => {
 
 		// isLoginRateLimited : compte email puis IP, toutes deux sous le seuil.
 		db.prisma.loginAttempt.count.mockResolvedValueOnce(0).mockResolvedValueOnce(0);
-		await expect(isLoginRateLimited('user@example.test', '127.0.0.1')).resolves.toBe(false);
+		await expect(isLoginRateLimited('user@example.test', '127.0.0.1')).resolves.toBeNull();
 
 		const loginIpCall = db.prisma.loginAttempt.count.mock.calls[1][0];
 		expect(loginIpCall.where.kind).toBe('LOGIN');
@@ -401,7 +401,7 @@ describe('isMfaRateLimited', () => {
 			.mockResolvedValueOnce(5) // par challenge id
 			.mockResolvedValueOnce(0); // par ip
 
-		await expect(isMfaRateLimited('challenge-1', '127.0.0.1')).resolves.toBe(true);
+		await expect(isMfaRateLimited('challenge-1', '127.0.0.1')).resolves.not.toBeNull();
 	});
 
 	it('retourne true si >= 5 tentatives par IP, même sur des challenges différents', async () => {
@@ -411,7 +411,7 @@ describe('isMfaRateLimited', () => {
 			.mockResolvedValueOnce(0) // par challenge id
 			.mockResolvedValueOnce(5); // par ip
 
-		await expect(isMfaRateLimited('challenge-1', '127.0.0.1')).resolves.toBe(true);
+		await expect(isMfaRateLimited('challenge-1', '127.0.0.1')).resolves.not.toBeNull();
 	});
 
 	it("retourne false sous le seuil pour le challenge et pour l'IP", async () => {
@@ -419,7 +419,7 @@ describe('isMfaRateLimited', () => {
 
 		db.prisma.loginAttempt.count.mockResolvedValueOnce(4).mockResolvedValueOnce(4);
 
-		await expect(isMfaRateLimited('challenge-1', '127.0.0.1')).resolves.toBe(false);
+		await expect(isMfaRateLimited('challenge-1', '127.0.0.1')).resolves.toBeNull();
 	});
 
 	it("filtre par kind: 'MFA', isolé de LOGIN/REGISTER/INVITE", async () => {
@@ -443,8 +443,8 @@ describe('isMfaRateLimited', () => {
 			.mockResolvedValueOnce(0) // challenge-2
 			.mockResolvedValueOnce(5); // ip
 
-		await expect(isMfaRateLimited('challenge-1', '127.0.0.1')).resolves.toBe(true);
-		await expect(isMfaRateLimited('challenge-2', '127.0.0.1')).resolves.toBe(true);
+		await expect(isMfaRateLimited('challenge-1', '127.0.0.1')).resolves.not.toBeNull();
+		await expect(isMfaRateLimited('challenge-2', '127.0.0.1')).resolves.not.toBeNull();
 	});
 });
 
@@ -552,7 +552,7 @@ describe('isReauthRateLimited / recordReauthAttempt (shared settings re-auth lim
 
 		db.prisma.loginAttempt.count.mockResolvedValueOnce(5);
 
-		await expect(isReauthRateLimited('session-1')).resolves.toBe(true);
+		await expect(isReauthRateLimited('session-1')).resolves.not.toBeNull();
 	});
 
 	it('retourne false sous le seuil pour la session', async () => {
@@ -560,7 +560,7 @@ describe('isReauthRateLimited / recordReauthAttempt (shared settings re-auth lim
 
 		db.prisma.loginAttempt.count.mockResolvedValueOnce(4);
 
-		await expect(isReauthRateLimited('session-1')).resolves.toBe(false);
+		await expect(isReauthRateLimited('session-1')).resolves.toBeNull();
 	});
 
 	// Separates « REAUTH counts by session only » from « REAUTH also counts by address »: the address
@@ -804,7 +804,7 @@ describe('the import limit is configurable, and the configuration cannot remove 
 		process.env[IMPORT_MAX_ATTEMPTS_ENV] = '100';
 		try {
 			db.prisma.loginAttempt.count.mockResolvedValue(5);
-			await expect(isLoginRateLimited('user@example.test', '127.0.0.1')).resolves.toBe(true);
+			await expect(isLoginRateLimited('user@example.test', '127.0.0.1')).resolves.not.toBeNull();
 		} finally {
 			delete process.env[IMPORT_MAX_ATTEMPTS_ENV];
 		}

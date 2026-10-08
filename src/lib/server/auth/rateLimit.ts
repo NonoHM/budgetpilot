@@ -5,7 +5,13 @@ import { prisma } from '$lib/server/db';
 import { readOperatorBound, reportBoundDeparture } from '$lib/server/env/operatorBound';
 import { OperatorFacingError } from '$lib/server/operatorFacingError';
 import { rateLimitAddressKey } from '$lib/server/net/clientAddress';
-import { readIntegerSetting } from '$lib/server/env/readSetting';
+// Order kept on purpose: with the secret assertion first and a name after it on the next line,
+// gitleaks' generic-api-key rule reads that name as a secret value (as in logging/pseudonym.ts).
+import {
+	rateLimitIpv6PrefixBits,
+	assertRateLimitSecretConfigured
+} from '$lib/server/auth/rateLimitConfig';
+import type { RateLimitCounter } from '$lib/server/logging/events';
 
 const WINDOW_MS = 15 * 60 * 1000;
 // REAUTH is deliberately shorter than the 15-minute LOGIN/etc window. Every REAUTH action sits
@@ -121,6 +127,10 @@ export function assertImportRateLimitConfigured(): void {
 // the boot collector instead, which reports every problem at once. The lazy read keeps the failure
 // loud for a direct import that never ran boot: the first hashed key throws with the same message
 // rather than silently keying on undefined.
+// Both live in `rateLimitConfig.ts`, which a spec mocking this module does not replace: the log's
+// pseudonyms read them too, and a stubbed limiter must not take the log's key with it.
+export { rateLimitIpv6PrefixBits, assertRateLimitSecretConfigured };
+
 let cachedHashSecret: string | undefined;
 
 function hashSecret(): string {
@@ -129,30 +139,6 @@ function hashSecret(): string {
 		cachedHashSecret = env.RATE_LIMIT_HASH_SECRET!.trim();
 	}
 	return cachedHashSecret;
-}
-
-// 64 hex characters is not a style preference: this value is used directly as an HMAC-SHA256 key
-// in hashRateLimitKey below, so its length IS the key strength (ASVS 5.0 V11.2.3, key size, and
-// V11.5.1, entropy). docs/getting-started.md:388 has promised the format since the variable
-// existed, `openssl rand -hex 32` at :66 produces it, and nothing enforced it — so
-// `RATE_LIMIT_HASH_SECRET=changeme` was accepted and produced a 64-bit key, a security control the
-// documentation claimed and the code did not have. Exported for the boot collector and its spec.
-export function assertRateLimitSecretConfigured(source: NodeJS.ProcessEnv = env): void {
-	const raw = source.RATE_LIMIT_HASH_SECRET?.trim();
-	if (!raw) {
-		throw new OperatorFacingError(
-			'RATE_LIMIT_HASH_SECRET is required: it is the HMAC key that hashes the emails and IP ' +
-				'addresses recorded for login rate limiting, so without it the limiter has nothing to ' +
-				'key on. Set it to 64 hex characters (generate one with `openssl rand -hex 32`).'
-		);
-	}
-	if (!/^[0-9a-fA-F]{64}$/.test(raw)) {
-		throw new OperatorFacingError(
-			`RATE_LIMIT_HASH_SECRET must be exactly 64 hex characters (received ${raw.length}). It is ` +
-				'used directly as an HMAC-SHA256 key, so a shorter value is a weaker key rather than a ' +
-				'shorter name. Generate one with `openssl rand -hex 32`.'
-		);
-	}
 }
 
 type AttemptKind =
@@ -180,43 +166,49 @@ function hashAddress(ip: string): string {
 }
 
 /**
- * The prefix an IPv6 client is counted by, read per call. Exported so the log's subnet label
- * (`logging/pseudonym.ts`) reads the same setting the counter does, never a copy of it.
- */
-export function rateLimitIpv6PrefixBits(): number {
-	return readIntegerSetting('BP_RATE_LIMIT_IPV6_PREFIX');
-}
-
-/**
  * At least one key, by type: no key would be no counter, and a limiter that never refuses.
  * `subject` is stored in the `emailHash` column whatever it is.
  */
 type RateLimitKeys = { ip: string; subject?: string } | { ip?: undefined; subject: string };
 
 /**
- * Each key passed is one counter, and the attempt is refused when ANY reaches the maximum. Which
- * keys a kind passes is decided by its exported wrapper below, never here.
+ * A refused attempt, and which of its counters was full. `subject` is the email for LOGIN, the
+ * challenge for MFA and the session for REAUTH: a refusal on it alone is not the client's doing, so
+ * the authentication event says so (L3; an attacker filling a victim's email counter refuses the
+ * victim too). REGISTER and INVITE count only the address, REAUTH only the session.
  */
-async function isRateLimited(kind: AttemptKind, keys: RateLimitKeys): Promise<boolean> {
-	const windowStart = new Date(Date.now() - windowMsForKind(kind));
-	const checks = [];
-	if (keys.subject !== undefined) {
-		const emailHash = hashRateLimitKey(keys.subject);
-		checks.push(
-			prisma.loginAttempt.count({ where: { emailHash, kind, createdAt: { gte: windowStart } } })
-		);
-	}
-	if (keys.ip !== undefined) {
-		const ipHash = hashAddress(keys.ip);
-		checks.push(
-			prisma.loginAttempt.count({ where: { ipHash, kind, createdAt: { gte: windowStart } } })
-		);
-	}
+export interface RateLimitTrip {
+	counter: RateLimitCounter;
+}
+
+/**
+ * Each key passed is one counter, and the attempt is refused when ANY reaches the maximum; the
+ * answer names which. Which keys a kind passes is decided by its exported wrapper below, never here.
+ */
+async function tripOf(kind: AttemptKind, keys: RateLimitKeys): Promise<RateLimitTrip | null> {
 	// The type above cannot see a cast: a key that is `undefined` at run time would leave no counter,
-	// and an empty list of counts reads as « under the limit ». Refused, never let through.
-	if (checks.length === 0) throw new Error(`rate limiter called with no key for ${kind}`);
-	const counts = await Promise.all(checks);
-	return counts.some((count) => count >= maxAttemptsForKind(kind));
+	// and no counter reads as « under the limit ». Refused, never let through.
+	if (keys.subject === undefined && keys.ip === undefined) {
+		throw new Error(`rate limiter called with no key for ${kind}`);
+	}
+	const windowStart = new Date(Date.now() - windowMsForKind(kind));
+	const max = maxAttemptsForKind(kind);
+	const full = async (where: { emailHash: string } | { ipHash: string }) =>
+		(await prisma.loginAttempt.count({
+			where: { ...where, kind, createdAt: { gte: windowStart } }
+		})) >= max;
+	const [subjectFull, addressFull] = await Promise.all([
+		keys.subject === undefined ? false : full({ emailHash: hashRateLimitKey(keys.subject) }),
+		keys.ip === undefined ? false : full({ ipHash: hashAddress(keys.ip) })
+	]);
+	if (subjectFull && addressFull) return { counter: 'both' };
+	if (subjectFull) return { counter: 'subject' };
+	if (addressFull) return { counter: 'address' };
+	return null;
+}
+
+async function isRateLimited(kind: AttemptKind, keys: RateLimitKeys): Promise<boolean> {
+	return (await tripOf(kind, keys)) !== null;
 }
 
 async function recordAttempt(kind: AttemptKind, ip: string, email?: string): Promise<void> {
@@ -229,24 +221,24 @@ async function recordAttempt(kind: AttemptKind, ip: string, email?: string): Pro
 	]);
 }
 
-export async function isLoginRateLimited(email: string, ip: string): Promise<boolean> {
-	return isRateLimited('LOGIN', { ip, subject: email });
+export async function isLoginRateLimited(email: string, ip: string): Promise<RateLimitTrip | null> {
+	return tripOf('LOGIN', { ip, subject: email });
 }
 
 export async function recordFailedLoginAttempt(email: string, ip: string): Promise<void> {
 	await recordAttempt('LOGIN', ip, email);
 }
 
-export async function isRegisterRateLimited(ip: string): Promise<boolean> {
-	return isRateLimited('REGISTER', { ip });
+export async function isRegisterRateLimited(ip: string): Promise<RateLimitTrip | null> {
+	return tripOf('REGISTER', { ip });
 }
 
 export async function recordRegisterAttempt(ip: string): Promise<void> {
 	await recordAttempt('REGISTER', ip);
 }
 
-export async function isInviteRateLimited(ip: string): Promise<boolean> {
-	return isRateLimited('INVITE', { ip });
+export async function isInviteRateLimited(ip: string): Promise<RateLimitTrip | null> {
+	return tripOf('INVITE', { ip });
 }
 
 export async function recordInviteAttempt(ip: string): Promise<void> {
@@ -257,8 +249,11 @@ export async function recordInviteAttempt(ip: string): Promise<void> {
 // an attacker can't bypass the limit by generating a new challenge on every
 // attempt (e.g. several valid passwords tried on different accounts from the
 // same IP, or challenge spam).
-export async function isMfaRateLimited(challengeId: string, ip: string): Promise<boolean> {
-	return isRateLimited('MFA', { ip, subject: challengeId });
+export async function isMfaRateLimited(
+	challengeId: string,
+	ip: string
+): Promise<RateLimitTrip | null> {
+	return tripOf('MFA', { ip, subject: challengeId });
 }
 
 export async function recordMfaAttempt(challengeId: string, ip: string): Promise<void> {
@@ -309,8 +304,8 @@ export async function recordBankSyncStartAttempt(userId: string, ip: string): Pr
  * check BEFORE the expensive verify so a tripped counter short-circuits. `recordReauthAttempt` still
  * writes the address, because the column requires one; nothing counts it.
  */
-export async function isReauthRateLimited(sessionId: string): Promise<boolean> {
-	return isRateLimited('REAUTH', { subject: sessionId });
+export async function isReauthRateLimited(sessionId: string): Promise<RateLimitTrip | null> {
+	return tripOf('REAUTH', { subject: sessionId });
 }
 
 export async function recordReauthAttempt(sessionId: string, ip: string): Promise<void> {
