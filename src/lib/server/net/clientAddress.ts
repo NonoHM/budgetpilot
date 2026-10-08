@@ -96,12 +96,29 @@ function formatIpv6(value: bigint): string {
  * A zone index (RFC 4007 section 11, `<address>%<zone_id>`) as Node writes one after a link-local
  * peer: the name of the interface it arrived on, or a number. Exactly the names Linux accepts
  * (`dev_valid_name`, net/core/dev.c): 1 to 15 bytes (IFNAMSIZ is 16 with the NUL), not `.` or `..`,
- * and no `/`, `:` or whitespace. `%` cannot occur: the caller splits on it.
+ * and no `/`, `:` or whitespace in C's sense. `%` cannot occur: the caller splits on it.
+ *
+ * NODE WRITES ONE CHARACTER PER BYTE (Latin-1), so a byte is a character here, never a UTF-8 unit.
+ * Measured on Node 24.18 with dummy interfaces in a network namespace: `réseau-maison1` (15 UTF-8
+ * bytes) arrives as 15 characters, `rÃ©seau-maison1`. Counted in UTF-8 it would be 17 and refuse a
+ * real client. Whitespace is the kernel's `isspace` (`_ctype`, lib/ctype.c): bytes 9 to 13, 32 and
+ * 160, so the kernel refused to create `wlan-à` (c3 a0), measured the same way.
  */
 function isZoneId(zone: string): boolean {
-	const bytes = Buffer.byteLength(zone, 'utf8');
-	return bytes >= 1 && bytes <= 15 && zone !== '.' && zone !== '..' && !/[/:\s]/.test(zone);
+	return (
+		/^[\u0001-\u00ff]{1,15}$/.test(zone) &&
+		zone !== '.' &&
+		zone !== '..' &&
+		!/[/:\t\n\v\f\r \u00a0]/.test(zone)
+	);
 }
+
+/** C's isspace in the C locale: the whitespace a peer's text or a header can carry around it. */
+const ASCII_SPACE = '\t\n\v\f\r ';
+const SURROUNDING_ASCII_SPACE = new RegExp(`^[${ASCII_SPACE}]+|[${ASCII_SPACE}]+$`, 'g');
+
+/** What an address may be written with: hex digits, `:` and `.`. Anything else is not one. */
+const ADDRESS_CHARACTERS = /^[0-9A-Fa-f:.]+$/;
 
 /**
  * The one text of an address, so that every spelling of one address is one string; null for
@@ -109,21 +126,23 @@ function isZoneId(zone: string): boolean {
  *
  * IPv4 as a dotted quad, the IPv4-mapped form folded to it as `parseIp` does; IPv6 as RFC 5952
  * section 4 writes it. RFC 5952 section 5 recommends KEEPING the mapped form as `::ffff:a.b.c.d`;
- * folding it is this module's choice (a dual-stack listener reports an IPv4 peer that way), as Go's
- * `netip.Addr.Unmap` and Python's `ipaddress` `ipv4_mapped` do. Neither the IPv4-compatible form
- * (`::a.b.c.d`, deprecated by RFC 4291 section 2.5.5.1) nor a NAT64 address (RFC 6052) is folded:
- * each names a different address, whatever `rateLimitAddressKey` counts it as.
+ * folding it is this module's choice (a dual-stack listener reports an IPv4 peer that way), the
+ * fold Go's `netip.Addr.Unmap` and Python's `ipaddress` `ipv4_mapped` offer on request. Neither
+ * the IPv4-compatible form (`::a.b.c.d`, deprecated by RFC 4291 section 2.5.5.1) nor a NAT64
+ * address (RFC 6052) is folded: each names a different address, whatever `rateLimitAddressKey`
+ * counts it as.
  *
- * Surrounding whitespace is trimmed; whitespace anywhere else refuses. A zone is kept verbatim
- * (interface names are case-sensitive; it is hashed, never logged as text) after the canonical IPv6 text, and refused on IPv4 or a
- * mapped address, where it means nothing.
+ * Surrounding ASCII whitespace is trimmed; any other character outside an address refuses. A zone
+ * is kept verbatim (interface names are case-sensitive; it is hashed, never logged as text) after
+ * the canonical IPv6 text, and refused on IPv4 or a mapped address, where it means nothing.
  */
 export function canonicalIpText(raw: unknown): string | null {
 	if (typeof raw !== 'string') return null;
-	const text = raw.trim();
-	if (/\s/.test(text)) return null;
+	const text = raw.replace(SURROUNDING_ASCII_SPACE, '');
 	const [address, zone, ...rest] = text.split('%');
 	if (rest.length > 0) return null;
+	// Positive: `parseIp` trims Unicode whitespace, so the characters are checked before it reads.
+	if (!ADDRESS_CHARACTERS.test(address)) return null;
 	const parsed = parseIp(address);
 	if (!parsed) return null;
 	if (parsed.version === 4) return zone === undefined ? formatIpv4(parsed.value) : null;
@@ -324,7 +343,11 @@ export function rateLimitAddressKey(address: string, v6PrefixBits: number): stri
  * `2001:db8:aa:bb00::` masks to the same value at /56 and /64. Null for anything not an address.
  */
 export function addressSubnet(address: string, v6PrefixBits: number): string | null {
-	const subscriber = subscriberOf(address, v6PrefixBits);
+	// The canonical reading first, so this export refuses what the log labels refuse (a zone on an
+	// IPv4 address, a zone that is no interface name) rather than trusting its caller to.
+	const canonical = canonicalIpText(address);
+	if (canonical === null) return null;
+	const subscriber = subscriberOf(canonical, v6PrefixBits);
 	if (!subscriber) return null;
 	const network =
 		subscriber.version === 4 ? formatIpv4(subscriber.network) : formatIpv6(subscriber.network);
