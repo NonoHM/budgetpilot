@@ -70,10 +70,13 @@ export const actions: Actions = {
 		const isOpenRegistration = registrationMode === 'open';
 		const inviteToken = url.searchParams.get('invite') ?? '';
 		const ip = resolveClientAddress({ getClientAddress, request });
-		// Registration is an authentication event only when someone signs UP: a signed-in admin
-		// creating an account is an admin action, L4's to log (contradiction pass on L3's note).
+		// Registration is an authentication event unless an ADMIN is creating the account, which is
+		// an admin action, L4's to log (contradiction pass on L3's note). Decided by the role, not by
+		// a session: a signed-in member can register another account in open mode or with an
+		// invitation, and that is still a registration (second contradiction pass).
+		const byAdmin = locals.user?.role === 'ADMIN';
 		const refuse = <T>(reason: RegistrationFailure, answer: T): T => {
-			if (!locals.user) logRegistrationFailed(ip, reason);
+			if (!byAdmin) logRegistrationFailed(ip, reason);
 			return answer;
 		};
 
@@ -210,8 +213,7 @@ export const actions: Actions = {
 		await ensureDefaultCategoriesSeeded(user.id);
 		await ensureDefaultRulesSeeded(user.id);
 
-		if (!locals.user) {
-			await createSession(user.id, cookies);
+		if (!byAdmin) {
 			logAccountCreated(
 				ip,
 				user.id,
@@ -223,6 +225,10 @@ export const actions: Actions = {
 							? 'open'
 							: 'bootstrap'
 			);
+		}
+
+		if (!locals.user) {
+			await createSession(user.id, cookies);
 			throw redirect(303, '/');
 		}
 

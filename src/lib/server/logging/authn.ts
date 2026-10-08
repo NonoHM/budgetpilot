@@ -29,8 +29,11 @@ import type {
  *
  * WHEN. A failure is logged after its limiter record, never before (#869): the pseudonyms throw on a
  * value that is not an address, as the limiter's own key does, and a throw here must not be able to
- * skip the record. Nothing is caught: on every path that logs a client, the limiter has already hashed
- * the same value, or the event is written before the action it precedes.
+ * skip the record. Nothing is caught. At sign-in, the second factor and registration the limiter has
+ * already hashed the same value, so the throw cannot happen there. Re-authentication counts the
+ * session, not the address, so its event is the first reader of the address: on a peer that has
+ * vanished (adapter-node answers `undefined` after a disconnect), the throw lands before the action
+ * the re-authentication was for, which then does not run. Failing closed is the intent.
  *
  * THE ANSWER DOES NOT MOVE. Each function is one or more HMACs and one synchronous write, and none
  * returns anything a caller could branch on.

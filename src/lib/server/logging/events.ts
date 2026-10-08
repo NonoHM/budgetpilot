@@ -257,6 +257,7 @@ export type LogEvent =
 				[A.suppressedErrorType]?: string;
 				// The summarised event's own `floodBy` values, so a summary still says which kind it counted.
 				[A.rateLimitKind]?: AuthAttemptKind;
+				[A.rateLimitCounter]?: RateLimitCounter;
 				[A.authnReason]?: RegistrationFailure;
 				[A.sessionReason]?: DeadSessionReason;
 				[A.userPseudonym]?: LogUserPseudonym;
@@ -492,7 +493,7 @@ export const REGISTRY: { [N in EventName]: EventSpec<AttributesOf<N>> } = {
 		body: 'The rate limiter refused an authentication attempt. The counter says whether the client, or the account, challenge or session it aimed at, was full.',
 		flood: true,
 		security: true,
-		floodBy: [A.rateLimitKind],
+		floodBy: [A.rateLimitKind, A.rateLimitCounter],
 		attributes: {
 			[A.clientPseudonym]: 'Pseudonymous',
 			[A.clientSubnetPseudonym]: 'Pseudonymous',
@@ -511,7 +512,7 @@ export const REGISTRY: { [N in EventName]: EventSpec<AttributesOf<N>> } = {
 	},
 	[E.userCreated]: {
 		severity: 'WARN',
-		body: 'An account was created by registration and signed in.',
+		body: 'An account was created by registration. A visitor who was not signed in is signed in to it.',
 		flood: false,
 		security: true,
 		attributes: {
@@ -752,6 +753,7 @@ export const REGISTRY: { [N in EventName]: EventSpec<AttributesOf<N>> } = {
 			[A.suppressedRoute]: 'Operational',
 			[A.suppressedErrorType]: 'Operational',
 			[A.rateLimitKind]: 'Operational',
+			[A.rateLimitCounter]: 'Operational',
 			[A.authnReason]: 'Operational',
 			[A.sessionReason]: 'Operational',
 			[A.userPseudonym]: 'Pseudonymous'

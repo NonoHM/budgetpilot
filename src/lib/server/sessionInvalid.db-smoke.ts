@@ -212,7 +212,9 @@ const ENDED_BY_INACTIVITY = [
 	['live', false]
 ] as const;
 
-describe('sessionEndedByInactivity agrees with deadSessionReason on every fixture', () => {
+// One rule since L3: `sessionEndedByInactivity` reads `deadSessionReason`. Each reader is still held
+// to the table, so a change to the wrapper's comparison fails here on its own.
+describe('the idle rule, through both readers, on every fixture', () => {
 	it.each(ENDED_BY_INACTIVITY)('%s: deadSessionReason says idle is %s', async (kind, idle) => {
 		const token = await fixture(kind);
 		expect((await deadSessionReason(token))?.reason === 'idle').toBe(idle);

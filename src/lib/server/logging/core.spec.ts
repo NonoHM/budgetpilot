@@ -505,3 +505,31 @@ describe('the subnet fields exist on attack events only (#936 point 1), by type'
 		expect([success.event, spread.event]).toEqual([E.authnLoginSuccess, E.authnLoginSuccess]);
 	});
 });
+
+describe("floodBy: a victim's refusal survives a window one address filled (second contradiction pass)", () => {
+	// A LOGIN refusal costs no password hash, so one address can fill the window. The refusal of an
+	// owner whose EMAIL counter someone else filled (`counter: subject`) is the line an operator needs,
+	// and it has a window of its own.
+	const refusal = (counter: 'address' | 'subject'): LogEvent => ({
+		event: E.rateLimitExceeded,
+		attributes: {
+			[A.clientPseudonym]: 'a'.repeat(64) as LogPseudonym,
+			[A.clientSubnetPseudonym]: 'b'.repeat(64) as LogSubnetPseudonym,
+			[A.clientSubnetPrefixLength]: 32,
+			[A.rateLimitKind]: 'LOGIN',
+			[A.rateLimitCounter]: counter
+		}
+	});
+
+	it('writes a subject refusal after twenty-one address refusals in the same minute', () => {
+		const { write, parsed } = harness({
+			context: () => ({ traceId: 'a'.repeat(32), method: 'POST', route: '/login' })
+		});
+		for (let index = 0; index < FLOOD_ALLOWANCE + 1; index += 1) write(refusal('address'));
+		write(refusal('subject'));
+		expect([parsed().length, parsed().at(-1)?.[A.rateLimitCounter]]).toEqual([
+			FLOOD_ALLOWANCE + 1,
+			'subject'
+		]);
+	});
+});

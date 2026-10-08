@@ -377,12 +377,14 @@ the first 20 lines with the same event, status, route template and error class a
 are counted, and when the minute ends one `budgetpilot.log.suppressed` line gives the count with
 that event, status, route and class. That line belongs to no request, so it carries no `trace_id`.
 Three authentication events also count separately by their own field: `excess_rate_limit_exceeded`
-by `budgetpilot.ratelimit.kind`, `budgetpilot.authn.register_fail` by `budgetpilot.authn.reason`, and
+by `budgetpilot.ratelimit.kind` and `budgetpilot.ratelimit.counter`, `budgetpilot.authn.register_fail` by `budgetpilot.authn.reason`, and
 `budgetpilot.session.invalid` by its reason and `budgetpilot.user.pseudonym`. Their summary line
 carries those fields too, so a burst of one kind cannot hide a line of another.
 
-A failed sign-in is not summarised, although anyone can cause one: each costs the server a password
-hash, which limits how fast they arrive far more than a window would, and each line names its source.
+A failed sign-in is not summarised, although anyone can cause one: at the password step each costs
+the server a password hash, and at the second factor each comes after a password proven for that
+sign-in and is counted by its own limit. Both bound how fast they arrive more tightly than a window
+would, and each line names its source.
 
 **Under a flood, an error reference can be missing.** If a visitor reports a reference you cannot
 find, look for a `budgetpilot.log.suppressed` line in the minute they name: its route and error class
@@ -616,7 +618,7 @@ Severity INFO.
 
 Severity WARN.
 
-> An account was created by registration and signed in.
+> An account was created by registration. A visitor who was not signed in is signed in to it.
 
 | Attribute                      | Level        |
 | ------------------------------ | ------------ |
@@ -926,6 +928,7 @@ Severity WARN.
 | `budgetpilot.log.suppressed_route`      | Operational  |
 | `budgetpilot.log.suppressed_error_type` | Operational  |
 | `budgetpilot.ratelimit.kind`            | Operational  |
+| `budgetpilot.ratelimit.counter`         | Operational  |
 | `budgetpilot.authn.reason`              | Operational  |
 | `budgetpilot.session.reason`            | Operational  |
 | `budgetpilot.user.pseudonym`            | Pseudonymous |

@@ -1097,6 +1097,28 @@ describe('/register action: security events (L3, #250)', () => {
 
 		// Separates « refused registration » (anonymous, an authentication event) from « refused
 		// account creation » (an admin's, L4's): break B14 logged both and every test stayed green.
+		// Separates « excluded because an admin made it » from « excluded because someone was signed
+		// in »: the exclusion keyed on the session left a member registering a second account in open
+		// mode unlogged (second contradiction pass on L3).
+		it('a signed-in MEMBER registering another account in open mode writes user_created', async () => {
+			privateEnv.env.REGISTRATION_MODE = 'open';
+			db.prisma.user.count.mockResolvedValue(2);
+			db.prisma.user.findUnique.mockResolvedValue(null);
+			db.prisma.user.create.mockResolvedValue({ id: 'user-made-by-member' });
+			db.prisma.user.updateMany.mockResolvedValue({ count: 0 });
+
+			const result = await runRegister(
+				{ get: vi.fn(), set: vi.fn() },
+				{ email: 'second@example.test', password: 'mot-de-passe-long' },
+				{ user: { role: 'USER' } }
+			);
+
+			expect({ success: result.success, logged }).toEqual({
+				success: 'Utilisateur créé.',
+				logged: [userCreated('user-made-by-member', 'open')]
+			});
+		});
+
 		it("a signed-in admin's refused creation writes nothing either, while the answer is the refusal", async () => {
 			db.prisma.user.count.mockResolvedValue(2);
 			db.prisma.user.findUnique.mockResolvedValue(null);

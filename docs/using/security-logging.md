@@ -64,8 +64,10 @@ scrambled forms instead, made with a secret key that only the instance holds:
 
 - a scrambled form of your account, so the lines about one account can be found together;
 - a scrambled form of your IP address, except on a sign-out and on a session that no longer works;
-- on a failed sign-in only, a scrambled form of your home network, so that someone trying passwords
-  from many addresses of one network can be recognised. A successful sign-in never carries it.
+- on a failed sign-in, a failed password confirmation, or a refusal for too many attempts only, a
+  scrambled form of your home network, so that someone trying passwords from many addresses of one
+  network can be recognised. A successful sign-in never carries it. A refusal for too many attempts
+  can be about you even when someone else made them, and the line says so.
 
 Anyone without the key cannot turn these back into your address or your account. The person who
 runs the instance holds the key, so they can.
