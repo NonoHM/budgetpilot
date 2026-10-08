@@ -1203,7 +1203,8 @@ describe('#904: a stored secret that does not decrypt', () => {
 		]);
 	});
 
-	it('logs: wrong-recovery-code is wrong_recovery_code', async () => {
+	// A recovery code is never checked against the stored secret, so no crypt_decrypt_fail beside it.
+	it('logs: wrong-recovery-code is wrong_recovery_code, alone', async () => {
 		db.prisma.user.findUnique.mockResolvedValue(unreadableAccount());
 
 		await reauthenticate('disableTotp', {
@@ -1212,13 +1213,10 @@ describe('#904: a stored secret that does not decrypt', () => {
 			form: form({ password: PASSWORD, code: 'FFFFF-00000' })
 		});
 
-		expect(events()).toEqual([
-			cryptDecryptFail(),
-			reauthFail('disableTotp', 'wrong_recovery_code')
-		]);
+		expect(events()).toEqual([reauthFail('disableTotp', 'wrong_recovery_code')]);
 	});
 
-	it('logs: the recovery-code success is reauth_success, after crypt_decrypt_fail', async () => {
+	it('logs: the recovery-code success is reauth_success, alone', async () => {
 		db.prisma.user.findUnique.mockResolvedValue(unreadableAccount());
 
 		await reauthenticate('disableTotp', {
@@ -1227,7 +1225,7 @@ describe('#904: a stored secret that does not decrypt', () => {
 			form: form({ password: PASSWORD, code: RECOVERY })
 		});
 
-		expect(events()).toEqual([cryptDecryptFail(), reauthSuccess('disableTotp')]);
+		expect(events()).toEqual([reauthSuccess('disableTotp')]);
 	});
 
 	it('logs: a readable secret writes no crypt_decrypt_fail', async () => {

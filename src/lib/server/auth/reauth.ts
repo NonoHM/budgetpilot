@@ -249,8 +249,10 @@ async function decide(
 	const recoveryCode = takesRecoveryCode && RECOVERY_CODE_PATTERN.test(code);
 	if (asksCode && !recoveryCode && !TOTP_CODE_PATTERN.test(code)) return refuse('missing-totp');
 
-	// Past the shape step a code is judged, so a secret that cannot be is reported here, once.
-	if (asksCode && state === 'unreadable') logSecretUnreadable(user.id);
+	// Past the shape step a six-digit code is judged against the stored secret, so a secret that
+	// cannot be is reported here, once. A recovery code is checked against its own rows, never the
+	// secret, so it writes nothing here, as at sign-in (the contradiction pass on the code).
+	if (asksCode && state === 'unreadable' && !recoveryCode) logSecretUnreadable(user.id);
 
 	// Both evaluated before either is acted on: see step 4 in the header.
 	const passwordOk = await verifyPassword(password, account.passwordHash);
