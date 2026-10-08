@@ -24,7 +24,7 @@ const ROW = {
 function data(rememberedAccounts: unknown[]): PageData {
 	return {
 		account: { email: 'demo@example.com', role: 'ADMIN' },
-		mfa: { enabled: false },
+		mfa: { status: 'disabled' },
 		security: {
 			authMode: 'locale',
 			llmEnabled: false,

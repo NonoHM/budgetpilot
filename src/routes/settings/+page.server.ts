@@ -20,6 +20,7 @@ import {
 	hashRecoveryCode
 } from '$lib/server/auth/totp';
 import { reauthenticate, reauthRefusalMessage } from '$lib/server/auth/reauth';
+import { storedFactorState } from '$lib/server/auth/totpAcceptance';
 import { resolveClientAddress } from '$lib/server/net/clientAddress';
 import { prisma } from '$lib/server/db';
 import { BackupImportError, restoreBackup } from '$lib/server/backup/import';
@@ -79,7 +80,8 @@ export const load: PageServerLoad = async ({ locals }) => {
 				role: true,
 				aiInsightsEnabled: true,
 				aiIncludeLabels: true,
-				totpEnabled: true
+				totpEnabled: true,
+				totpSecretEncrypted: true
 			}
 		}),
 		prisma.session.findMany({
@@ -146,8 +148,10 @@ export const load: PageServerLoad = async ({ locals }) => {
 			email: account.email,
 			role: account.role
 		},
+		// Recomputed per view, never stored (#904): `storedFactorState` says why. Shown, not judged, so
+		// an unreadable secret writes no log line here.
 		mfa: {
-			enabled: account.totpEnabled
+			status: storedFactorState(account)
 		},
 		security: {
 			authMode: 'locale',

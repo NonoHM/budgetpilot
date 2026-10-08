@@ -238,6 +238,15 @@
 
 	// TOTP modal (disabling)
 	let mfaDisableModalOpen = $state(false);
+	// The account has a second factor, readable or not (#904): an unreadable one is still asked for,
+	// and still turned off rather than enrolled over.
+	const hasSecondFactor = $derived(data.mfa.status !== 'disabled');
+	const factorUnreadable = $derived(data.mfa.status === 'unreadable');
+	const disableModalDescription = $derived(
+		factorUnreadable
+			? m.settings_mfa_disable_modal_description_unreadable()
+			: m.settings_mfa_disable_modal_description()
+	);
 
 	function closeMfaDisableModal() {
 		mfaDisableModalOpen = false;
@@ -662,16 +671,22 @@
 					</span>
 					<div>
 						<div class="text-sm font-medium text-zinc-900">{m.settings_mfa_title()}</div>
-						<div class="mt-0.5 text-sm text-zinc-500">
-							{data.mfa.enabled
-								? m.settings_mfa_description_enabled()
-								: m.settings_mfa_description_disabled()}
-						</div>
+						<!-- #904: a secret the server can no longer decrypt is still a factor (the switch stays
+						     on), and no code can pass it; the line says the one way back. -->
+						{#if data.mfa.status === 'unreadable'}
+							<div class="mt-0.5 text-sm text-amber-700">{m.settings_mfa_status_unreadable()}</div>
+						{:else}
+							<div class="mt-0.5 text-sm text-zinc-500">
+								{data.mfa.status === 'enabled'
+									? m.settings_mfa_description_enabled()
+									: m.settings_mfa_description_disabled()}
+							</div>
+						{/if}
 					</div>
 				</div>
 				<form method="POST" action="?/startTotpSetup" class="shrink-0" bind:this={mfaSetupForm}>
 					<Switch
-						checked={data.mfa.enabled}
+						checked={hasSecondFactor}
 						ariaLabel={m.settings_mfa_switch_aria()}
 						onchange={(next) => {
 							if (next) mfaSetupForm?.requestSubmit();
@@ -1112,7 +1127,7 @@
 									{m.settings_restore_confirm_body()}
 								</p>
 								<div class="mt-4">
-									<ReauthFields asksCode={data.mfa.enabled} idPrefix="restore" />
+									<ReauthFields asksCode={hasSecondFactor} idPrefix="restore" />
 								</div>
 							</ConfirmDialog>
 						</form>
@@ -1691,7 +1706,7 @@
 								/>
 							</label>
 
-							{#if data.mfa.enabled}
+							{#if hasSecondFactor}
 								<label
 									for="danger-code"
 									class="block space-y-1.5 text-xs font-medium text-rose-700"
@@ -1792,7 +1807,7 @@
 	<form class="space-y-4" method="POST" action="?/changePassword" autocomplete="off">
 		<div class="space-y-4">
 			<ReauthFields
-				asksCode={data.mfa.enabled}
+				asksCode={hasSecondFactor}
 				idPrefix="password"
 				passwordLabel={m.settings_current_password_label()}
 			/>
@@ -1950,13 +1965,13 @@
 <Modal
 	open={mfaDisableModalOpen}
 	title={m.settings_mfa_disable_modal_title()}
-	description={m.settings_mfa_disable_modal_description()}
+	description={disableModalDescription}
 	variant="compact"
 	onClose={closeMfaDisableModal}
 >
 	<div class="mb-4 lg:hidden" aria-hidden="true">
 		<p class="text-lg font-bold text-zinc-950">{m.settings_mfa_disable_modal_title()}</p>
-		<p class="mt-1 text-sm text-zinc-500">{m.settings_mfa_disable_modal_description()}</p>
+		<p class="mt-1 text-sm text-zinc-500">{disableModalDescription}</p>
 	</div>
 	<form class="space-y-4" method="POST" action="?/disableTotp" autocomplete="off">
 		<label class="block space-y-1.5 text-sm">
@@ -1968,15 +1983,19 @@
 
 		<label class="block space-y-1.5 text-sm">
 			<span class="text-[11px] font-medium tracking-wide text-zinc-500 uppercase">
-				{m.settings_mfa_setup_code_label()}
+				{factorUnreadable
+					? m.settings_mfa_recovery_code_label()
+					: m.settings_mfa_setup_code_label()}
 			</span>
+			<!-- #904: over an unreadable secret the server takes a recovery code here, so the keyboard
+			     is a text one and the browser offers no one-time code. -->
 			<input
 				class="w-full {inputBase}"
 				type="text"
-				inputmode="numeric"
+				inputmode={factorUnreadable ? 'text' : 'numeric'}
 				name={REAUTH_FIELDS.code}
 				required
-				autocomplete="one-time-code"
+				autocomplete={factorUnreadable ? 'off' : 'one-time-code'}
 			/>
 		</label>
 

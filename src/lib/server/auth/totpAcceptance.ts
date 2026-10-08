@@ -18,7 +18,44 @@ import { prisma } from '$lib/server/db';
  * 5.2 that « The verifier MUST NOT accept the second attempt of the OTP after the successful
  * validation has been issued for the first OTP ».
  */
-export type TotpAcceptance = 'accepted' | 'wrong' | 'reused';
+export type TotpAcceptance = 'accepted' | 'wrong' | 'reused' | 'unreadable';
+
+/**
+ * The stored secret in clear, or null when it does not decrypt (#904): the configured
+ * `TOTP_ENCRYPTION_KEY` is not the key it was stored with, or the stored value is malformed. Pure:
+ * the caller that JUDGES a code against it logs the failure, a page that only shows the state does
+ * not.
+ */
+export function readStoredTotpSecret(storedSecretEncrypted: string): string | null {
+	try {
+		return decryptTotpSecret(storedSecretEncrypted);
+	} catch {
+		return null;
+	}
+}
+
+/** What an account's second factor is, read from its row. */
+export type StoredFactorState = 'disabled' | 'enabled' | 'unreadable';
+
+/**
+ * The one answer to « what is this account's second factor », for Settings and re-authentication.
+ * Recomputed on every read and never stored: whether a secret decrypts is a verdict on the present,
+ * and an operator who puts the old key back must see every factor return without a migration.
+ *
+ * `unreadable` is a FACTOR. It refuses every code, and it is never read as « none »: read as none,
+ * re-authentication would lower each action to the password, and enrolment would replace it with a
+ * secret the caller chose (the contradiction pass on #904's design note).
+ *
+ * A flag with no ciphertext is `disabled`, as re-authentication has always read it. The two writers
+ * (enable and disable in Settings) set both columns together, so only a hand edit makes one.
+ */
+export function storedFactorState(row: {
+	totpEnabled: boolean;
+	totpSecretEncrypted: string | null;
+}): StoredFactorState {
+	if (!row.totpEnabled || row.totpSecretEncrypted === null) return 'disabled';
+	return readStoredTotpSecret(row.totpSecretEncrypted) === null ? 'unreadable' : 'enabled';
+}
 
 /**
  * Judges a code against the account's stored secret and spends its step: one conditional update
@@ -41,7 +78,10 @@ export async function acceptTotpCode(
 	storedSecretEncrypted: string,
 	code: string
 ): Promise<TotpAcceptance> {
-	const step = stepOf(() => decryptTotpSecret(storedSecretEncrypted), code);
+	const secret = readStoredTotpSecret(storedSecretEncrypted);
+	// Nothing can be judged, so nothing is spent: no step is written for a code nobody checked.
+	if (secret === null) return 'unreadable';
+	const step = stepOf(() => secret, code);
 	if (step === null) return 'wrong';
 
 	const sameFactor = { id: userId, totpEnabled: true, totpSecretEncrypted: storedSecretEncrypted };
@@ -67,9 +107,9 @@ export function judgeEnrolmentCode(secretBase32: string, code: string): number |
 }
 
 /**
- * A stored secret that will not decrypt (a rotated key) or a posted secret that is not base32 makes
- * decryption or the TOTP library throw. Either is a code that cannot be right, so it is answered as
- * one rather than as a 500 that would tell the caller something the refusal does not.
+ * A posted secret that is not base32 makes the TOTP library throw. That is a code that cannot be
+ * right, so it is answered as one rather than as a 500 that would tell the caller something the
+ * refusal does not. A stored secret that will not decrypt never reaches here: it is `unreadable`.
  */
 function stepOf(readSecret: () => string, code: string): number | null {
 	try {
