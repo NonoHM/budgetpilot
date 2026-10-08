@@ -927,3 +927,118 @@ describe('the import limit is configurable, and the configuration cannot remove 
 		expect(attempts).toBeGreaterThan(IMPORT_DEFAULT_MAX_ATTEMPTS);
 	});
 });
+
+/**
+ * WHICH COUNTER TRIPPED (L3 contract, amended). The five authentication wrappers answer
+ * `RateLimitTrip | null` so that the ROUTE can write the refusal's event with the user and the
+ * counter; the limiter itself logs nothing. Counts are answered by the column queried, never by
+ * call order, so a reordering of the two counts cannot swap which counter a test fills.
+ */
+describe('the authentication wrappers say which counter tripped, and log nothing (L3)', () => {
+	const IP = '192.0.2.1';
+
+	/** Fills the address counter, the subject counter, both or neither. */
+	function fill({ address, subject }: { address: boolean; subject: boolean }) {
+		db.prisma.loginAttempt.count.mockImplementation(async (args: { where: object }) => {
+			const full = 'ipHash' in args.where ? address : subject;
+			return full ? 1000 : 0;
+		});
+	}
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		logged.length = 0;
+	});
+	afterEach(() => {
+		db.prisma.loginAttempt.count.mockReset();
+	});
+
+	// The two kinds that count an address AND a subject, each through its own wrapper.
+	const TWO_COUNTERS: [string, () => Promise<unknown>][] = [
+		['LOGIN', () => isLoginRateLimited('user@example.test', IP)],
+		['MFA', () => isMfaRateLimited('challenge-1', IP)]
+	];
+
+	it.each(TWO_COUNTERS)(
+		'%s with only the address counter full answers address',
+		async (_k, check) => {
+			fill({ address: true, subject: false });
+			await expect(check()).resolves.toEqual({ counter: 'address' });
+		}
+	);
+
+	it.each(TWO_COUNTERS)(
+		'%s with only the subject counter full answers subject',
+		async (_k, check) => {
+			fill({ address: false, subject: true });
+			await expect(check()).resolves.toEqual({ counter: 'subject' });
+		}
+	);
+
+	it.each(TWO_COUNTERS)('%s with both counters full answers both', async (_k, check) => {
+		fill({ address: true, subject: true });
+		await expect(check()).resolves.toEqual({ counter: 'both' });
+	});
+
+	it.each(TWO_COUNTERS)('%s under both limits answers null', async (_k, check) => {
+		fill({ address: false, subject: false });
+		await expect(check()).resolves.toBeNull();
+	});
+
+	// REGISTER and INVITE count only the address; REAUTH only the session (#879).
+	it.each([
+		['REGISTER', 'address', () => isRegisterRateLimited(IP)],
+		['INVITE', 'address', () => isInviteRateLimited(IP)],
+		['REAUTH', 'subject', () => isReauthRateLimited('session-1')]
+	] as const)('%s refused answers its one counter, %s', async (_kind, counter, check) => {
+		fill({ address: true, subject: true });
+		await expect(check()).resolves.toEqual({ counter });
+	});
+
+	it.each([
+		['REGISTER', () => isRegisterRateLimited(IP)],
+		['INVITE', () => isInviteRateLimited(IP)],
+		['REAUTH', () => isReauthRateLimited('session-1')]
+	])('%s under its limit answers null', async (_kind, check) => {
+		fill({ address: false, subject: false });
+		await expect(check()).resolves.toBeNull();
+	});
+
+	it('BANK_SYNC_START and IMPORT stay boolean', async () => {
+		fill({ address: true, subject: true });
+		const refused = [
+			await isBankSyncStartRateLimited('user-1', IP),
+			await isImportRateLimited('user-1', IP)
+		];
+		fill({ address: false, subject: false });
+		const allowed = [
+			await isBankSyncStartRateLimited('user-1', IP),
+			await isImportRateLimited('user-1', IP)
+		];
+		expect({ refused, allowed }).toEqual({ refused: [true, true], allowed: [false, false] });
+	});
+
+	// The route writes the refusal's line; a second one here would be two events for one outcome.
+	// `writes` proves the calls ran: seven records and nine checks, every check refused.
+	it('the limiter module writes no log line on any check or record', async () => {
+		fill({ address: true, subject: true });
+		await isLoginRateLimited('user@example.test', IP);
+		await isMfaRateLimited('challenge-1', IP);
+		await isRegisterRateLimited(IP);
+		await isInviteRateLimited(IP);
+		await isReauthRateLimited('session-1');
+		await isBankSyncStartRateLimited('user-1', IP);
+		await isImportRateLimited('user-1', IP);
+		await recordFailedLoginAttempt('user@example.test', IP);
+		await recordMfaAttempt('challenge-1', IP);
+		await recordRegisterAttempt(IP);
+		await recordInviteAttempt(IP);
+		await recordReauthAttempt('session-1', IP);
+		await recordBankSyncStartAttempt('user-1', IP);
+		await recordImportAttempt('user-1', IP);
+		expect({ writes: db.prisma.loginAttempt.create.mock.calls.length, logged }).toEqual({
+			writes: 7,
+			logged: []
+		});
+	});
+});
