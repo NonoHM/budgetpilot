@@ -709,9 +709,12 @@ test.describe('v5.0.0-16.2.5: no secret reaches the log', () => {
 			bankBearerTokens:
 				minted.bankBearerTokens.length > 0 &&
 				minted.bankBearerTokens.every((value) => value.split('.').length === 3),
-			// Prisma's `cuid()`, the `User.id` default in prisma/schema.prisma; two distinct accounts.
+			// The member is Prisma's `cuid()`, the `User.id` default in prisma/schema.prisma. The admin is
+			// the first account, which claims the row the migrations create for data from before
+			// accounts existed, so its id is `BACKFILL_USER_ID` (src/lib/server/auth.ts), not a cuid;
+			// read from the database either way, and swept for raw in the log all the same.
 			userIds:
-				/^c[0-9a-z]{20,}$/.test(minted.adminUserId) &&
+				minted.adminUserId.length > 0 &&
 				/^c[0-9a-z]{20,}$/.test(minted.memberUserId) &&
 				minted.adminUserId !== minted.memberUserId
 		}).toEqual({
@@ -868,7 +871,8 @@ test.describe('L3: the authentication events exist, and carry pseudonyms only', 
 			secondFactorRequired: named(EVENT.authnSecondFactorRequired).length,
 			reauthSuccess: named(EVENT.authnReauthSuccess).length
 		}).toEqual({
-			userCreatedMethods: ['bootstrap', 'invitation'],
+			// The first account claims the backfill row on a fresh database (see the user id calibration).
+			userCreatedMethods: ['backfill', 'invitation'],
 			secondFactorRequired: 1,
 			reauthSuccess: 2
 		});
