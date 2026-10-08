@@ -1,4 +1,5 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createCipheriv, randomBytes } from 'node:crypto';
 import * as OTPAuth from 'otpauth';
 import * as m from '$lib/paraglide/messages';
 import { REAUTH_FIELDS } from '$lib/domain/reauthFields';
@@ -24,7 +25,10 @@ vi.hoisted(() => {
  */
 
 const db = vi.hoisted(() => ({
-	prisma: { user: { findUnique: vi.fn(), updateMany: vi.fn(), count: vi.fn() } }
+	prisma: {
+		user: { findUnique: vi.fn(), updateMany: vi.fn(), count: vi.fn() },
+		recoveryCode: { findMany: vi.fn(), updateMany: vi.fn() }
+	}
 }));
 const rateLimit = vi.hoisted(() => ({
 	isReauthRateLimited: vi.fn(async () => false),
@@ -52,7 +56,7 @@ vi.mock('$lib/server/auth/totp', async (importOriginal) => {
 });
 
 const { hashPassword } = await import('$lib/server/auth');
-const { encryptTotpSecret, generateTotpSecretBase32, verifyTotpCode } =
+const { encryptTotpSecret, generateTotpSecretBase32, hashRecoveryCode, verifyTotpCode } =
 	await import('$lib/server/auth/totp');
 const { REAUTH_FACTORS, reauthenticate, reauthRefusalMessage } = await import('./reauth');
 const { logPseudonym, logSubnet, logUserPseudonym } = await import('$lib/server/logging/pseudonym');
@@ -912,5 +916,282 @@ describe('L3 events: no reauth event when no secret was checked', () => {
 				}
 			}
 		]);
+	});
+});
+
+/**
+ * #904, as ruled by the owner on 2026-10-08: a stored secret that no longer decrypts (the key
+ * changed) can be checked by nothing, so a six-digit code says so rather than « incorrect », and
+ * `disableTotp` alone accepts the password plus a RECOVERY CODE in its place, so the owner can set
+ * the factor up again. Every other action that asks for a code stays refused: the unreadable state
+ * must never lower a 7.5.1 action to the password alone.
+ *
+ * The unreadable secret is a real AES-256-GCM ciphertext under ANOTHER key, in the storage format,
+ * so the production decryption fails for the reason it fails in the field, not because a fake
+ * threw.
+ */
+describe('#904: a stored secret that does not decrypt', () => {
+	const RECOVERY = 'A1B2C-3D4E5';
+	let recoveryHash = '';
+
+	beforeAll(async () => {
+		recoveryHash = await hashRecoveryCode(RECOVERY);
+	});
+
+	beforeEach(() => {
+		db.prisma.recoveryCode.findMany.mockReset();
+		db.prisma.recoveryCode.findMany.mockResolvedValue([{ id: 'rc-1', codeHash: recoveryHash }]);
+		db.prisma.recoveryCode.updateMany.mockReset();
+		db.prisma.recoveryCode.updateMany.mockResolvedValue({ count: 1 });
+	});
+
+	function ciphertextUnderAnotherKey(plaintext: string): string {
+		const iv = randomBytes(12);
+		const cipher = createCipheriv('aes-256-gcm', Buffer.from('e5'.repeat(32), 'hex'), iv);
+		const body = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
+		return [iv, cipher.getAuthTag(), body].map((part) => part.toString('base64url')).join(':');
+	}
+
+	const unreadable = ciphertextUnderAnotherKey(secret);
+
+	function unreadableAccount() {
+		return { passwordHash, totpEnabled: true, totpSecretEncrypted: unreadable };
+	}
+
+	/** Every action that asks the stored factor for a code, from the ruling's own table. */
+	const asksStoredCode = (Object.keys(REAUTH_FACTORS) as (keyof typeof REAUTH_FACTORS)[]).filter(
+		(action) => action !== 'confirmTotpSetup' && REAUTH_FACTORS[action] !== 'password'
+	);
+
+	function cryptDecryptFail(): LoggedEvent {
+		return {
+			event: 'crypt_decrypt_fail',
+			attributes: {
+				[ATTRIBUTE.userPseudonym]: logUserPseudonym(USER),
+				'budgetpilot.crypt.purpose': 'totp_secret'
+			}
+		};
+	}
+
+	it('the table names six actions that ask the stored factor for a code', () => {
+		expect(asksStoredCode).toEqual([
+			'changePassword',
+			'deleteAccount',
+			'disableTotp',
+			'restoreData',
+			'deleteUser',
+			'resetPassword'
+		]);
+	});
+
+	it.each(asksStoredCode)(
+		'%s: the right password and a six-digit code is unreadable-totp',
+		async (action) => {
+			db.prisma.user.findUnique.mockResolvedValue(unreadableAccount());
+
+			// `disableTotp` is in the list, so the overload taking the enrolment secret is not the one.
+			const outcome = await reauthenticate(action as Exclude<typeof action, 'confirmTotpSetup'>, {
+				user: caller,
+				ip: IP,
+				form: form({ password: PASSWORD, code: codeFor(secret) })
+			});
+
+			expect(outcome).toEqual({ ok: false, reason: 'unreadable-totp', asked: 'password-and-code' });
+		}
+	);
+
+	// Decided by the stored state, never by the password: reported only beside a right password, it
+	// would tell a session holder whether the password they typed was right (as reused-totp).
+	it('a wrong password and a six-digit code is unreadable-totp too', async () => {
+		db.prisma.user.findUnique.mockResolvedValue(unreadableAccount());
+
+		const outcome = await reauthenticate('deleteAccount', {
+			user: caller,
+			ip: IP,
+			form: form({ password: 'not-it', code: codeFor(secret) })
+		});
+
+		expect(outcome).toEqual({ ok: false, reason: 'unreadable-totp', asked: 'password-and-code' });
+	});
+
+	it('unreadable-totp records an attempt and spends no step', async () => {
+		db.prisma.user.findUnique.mockResolvedValue(unreadableAccount());
+
+		await reauthenticate('changePassword', {
+			user: caller,
+			ip: IP,
+			form: form({ password: PASSWORD, code: codeFor(secret) })
+		});
+
+		expect(rateLimit.recordReauthAttempt).toHaveBeenCalledTimes(1);
+		expect(db.prisma.user.updateMany).not.toHaveBeenCalled();
+	});
+
+	it('the password alone is still missing-totp: the state never lowers an action to one factor', async () => {
+		db.prisma.user.findUnique.mockResolvedValue(unreadableAccount());
+
+		const outcome = await reauthenticate('changePassword', {
+			user: caller,
+			ip: IP,
+			form: form({ password: PASSWORD })
+		});
+
+		expect(outcome).toEqual({ ok: false, reason: 'missing-totp', asked: 'password-and-code' });
+	});
+
+	it('disableTotp: the right password and an unused recovery code pass, and the code is spent', async () => {
+		db.prisma.user.findUnique.mockResolvedValue(unreadableAccount());
+
+		const outcome = await reauthenticate('disableTotp', {
+			user: caller,
+			ip: IP,
+			form: form({ password: PASSWORD, code: RECOVERY })
+		});
+
+		expect(outcome).toEqual({ ok: true });
+		expect(db.prisma.recoveryCode.updateMany).toHaveBeenCalledWith({
+			where: { id: 'rc-1', usedAt: null },
+			data: { usedAt: expect.any(Date) }
+		});
+	});
+
+	it('disableTotp: a recovery code is read for the caller only', async () => {
+		db.prisma.user.findUnique.mockResolvedValue(unreadableAccount());
+
+		await reauthenticate('disableTotp', {
+			user: caller,
+			ip: IP,
+			form: form({ password: PASSWORD, code: RECOVERY })
+		});
+
+		expect(db.prisma.recoveryCode.findMany).toHaveBeenCalledTimes(1);
+		expect(db.prisma.recoveryCode.findMany.mock.calls[0][0]).toMatchObject({
+			where: { userId: USER, usedAt: null }
+		});
+	});
+
+	it('disableTotp: the right password and a wrong recovery code is wrong-recovery-code, recorded', async () => {
+		db.prisma.user.findUnique.mockResolvedValue(unreadableAccount());
+
+		const outcome = await reauthenticate('disableTotp', {
+			user: caller,
+			ip: IP,
+			form: form({ password: PASSWORD, code: 'FFFFF-00000' })
+		});
+
+		expect(outcome).toEqual({
+			ok: false,
+			reason: 'wrong-recovery-code',
+			asked: 'password-and-code'
+		});
+		expect(rateLimit.recordReauthAttempt).toHaveBeenCalledTimes(1);
+	});
+
+	// The #818 safe direction for a code that has been seen: spent, never reusable. Spending only
+	// beside a right password would also make the write a timing signal for the password.
+	it('disableTotp: a wrong password and a valid recovery code is wrong-password, and the code is spent', async () => {
+		db.prisma.user.findUnique.mockResolvedValue(unreadableAccount());
+
+		const outcome = await reauthenticate('disableTotp', {
+			user: caller,
+			ip: IP,
+			form: form({ password: 'not-it', code: RECOVERY })
+		});
+
+		expect(outcome).toEqual({ ok: false, reason: 'wrong-password', asked: 'password-and-code' });
+		expect(rateLimit.recordReauthAttempt).toHaveBeenCalledTimes(1);
+		expect(db.prisma.recoveryCode.updateMany).toHaveBeenCalledTimes(1);
+	});
+
+	it('a readable secret: disableTotp with a recovery code is missing-totp, and no code is read', async () => {
+		db.prisma.user.findUnique.mockResolvedValue(account({ totp: true }));
+
+		const outcome = await reauthenticate('disableTotp', {
+			user: caller,
+			ip: IP,
+			form: form({ password: PASSWORD, code: RECOVERY })
+		});
+
+		expect(outcome).toEqual({ ok: false, reason: 'missing-totp', asked: 'password-and-code' });
+		expect(db.prisma.recoveryCode.findMany).not.toHaveBeenCalled();
+	});
+
+	it('unreadable, any action but disableTotp: a recovery code is missing-totp, and no code is read', async () => {
+		db.prisma.user.findUnique.mockResolvedValue(unreadableAccount());
+
+		const outcome = await reauthenticate('changePassword', {
+			user: caller,
+			ip: IP,
+			form: form({ password: PASSWORD, code: RECOVERY })
+		});
+
+		expect(outcome).toEqual({ ok: false, reason: 'missing-totp', asked: 'password-and-code' });
+		expect(db.prisma.recoveryCode.findMany).not.toHaveBeenCalled();
+	});
+
+	it('unreadable-totp has its own sentence', () => {
+		expect(
+			reauthRefusalMessage({ ok: false, reason: 'unreadable-totp', asked: 'password-and-code' })
+		).toBe(m.reauth_error_totp_unreadable());
+	});
+
+	it('wrong-recovery-code reads like every other credential refusal (#854 class 2)', () => {
+		expect(
+			reauthRefusalMessage({ ok: false, reason: 'wrong-recovery-code', asked: 'password-and-code' })
+		).toBe(m.reauth_error_password_or_code());
+	});
+
+	it('logs: unreadable-totp writes crypt_decrypt_fail, then reauth_fail unreadable_secret', async () => {
+		db.prisma.user.findUnique.mockResolvedValue(unreadableAccount());
+
+		await reauthenticate('changePassword', {
+			user: caller,
+			ip: IP,
+			form: form({ password: PASSWORD, code: codeFor(secret) })
+		});
+
+		expect(events()).toEqual([
+			cryptDecryptFail(),
+			reauthFail('changePassword', 'unreadable_secret')
+		]);
+	});
+
+	it('logs: wrong-recovery-code is wrong_recovery_code', async () => {
+		db.prisma.user.findUnique.mockResolvedValue(unreadableAccount());
+
+		await reauthenticate('disableTotp', {
+			user: caller,
+			ip: IP,
+			form: form({ password: PASSWORD, code: 'FFFFF-00000' })
+		});
+
+		expect(events()).toEqual([
+			cryptDecryptFail(),
+			reauthFail('disableTotp', 'wrong_recovery_code')
+		]);
+	});
+
+	it('logs: the recovery-code success is reauth_success, after crypt_decrypt_fail', async () => {
+		db.prisma.user.findUnique.mockResolvedValue(unreadableAccount());
+
+		await reauthenticate('disableTotp', {
+			user: caller,
+			ip: IP,
+			form: form({ password: PASSWORD, code: RECOVERY })
+		});
+
+		expect(events()).toEqual([cryptDecryptFail(), reauthSuccess('disableTotp')]);
+	});
+
+	it('logs: a readable secret writes no crypt_decrypt_fail', async () => {
+		db.prisma.user.findUnique.mockResolvedValue(account({ totp: true }));
+
+		await reauthenticate('changePassword', {
+			user: caller,
+			ip: IP,
+			form: form({ password: PASSWORD, code: codeFor(secret) })
+		});
+
+		expect(events()).toEqual([reauthSuccess('changePassword')]);
 	});
 });
