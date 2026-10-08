@@ -310,16 +310,42 @@ const ALL_128_BITS = (1n << 128n) - 1n;
  * Node, a hop through `readForwardedHop`), and test fixtures do.
  */
 export function rateLimitAddressKey(address: string, v6PrefixBits: number): string {
+	const subscriber = subscriberOf(address, v6PrefixBits);
+	if (!subscriber) return address.trim().toLowerCase();
+	if (subscriber.version === 4) return formatIpv4(subscriber.network);
+	return `v6:${subscriber.network.toString(16)}`;
+}
+
+/**
+ * The same subscriber as `rateLimitAddressKey` keys, written as CIDR text with its width:
+ * `192.0.2.1/32`, `2001:db8:aa:bb00::/56` (RFC 4291 section 2.3's prefix notation, the address
+ * part as RFC 5952 writes it). The log's subnet label hashes this text (#869), so it names the
+ * bucket the limiter counts while carrying the width, which the limiter's own key does not:
+ * `2001:db8:aa:bb00::` masks to the same value at /56 and /64. Null for anything not an address.
+ */
+export function addressSubnet(address: string, v6PrefixBits: number): string | null {
+	const subscriber = subscriberOf(address, v6PrefixBits);
+	if (!subscriber) return null;
+	const network =
+		subscriber.version === 4 ? formatIpv4(subscriber.network) : formatIpv6(subscriber.network);
+	return `${network}/${subscriber.prefixBits}`;
+}
+
+/** The one reading of "which subscriber is this", for the limiter key and the subnet text alike. */
+function subscriberOf(
+	address: string,
+	v6PrefixBits: number
+): { version: 4 | 6; network: bigint; prefixBits: number } | null {
 	const parsed = parseIp(address.replace(/%[^%]*$/, ''));
-	if (!parsed) return address.trim().toLowerCase();
+	if (!parsed) return null;
 	let { version, value } = parsed;
 	if (version === 6 && value >> 32n === NAT64_WELL_KNOWN >> 32n) {
 		version = 4;
 		value &= 0xffffffffn;
 	}
-	if (version === 4) return formatIpv4(value);
+	if (version === 4) return { version, network: value, prefixBits: V4_MAX_PREFIX };
 	const mask = ALL_128_BITS ^ ((1n << BigInt(V6_MAX_PREFIX - v6PrefixBits)) - 1n);
-	return `v6:${(value & mask).toString(16)}`;
+	return { version, network: value & mask, prefixBits: v6PrefixBits };
 }
 
 /**
