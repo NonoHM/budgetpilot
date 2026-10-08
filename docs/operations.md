@@ -676,8 +676,10 @@ Restoring a database next to the wrong key plays out like this:
   out needs two unused codes: one to sign in, one to turn it off.
 - A user with two-factor on and no recovery code left, or only one while
   signed out, is locked out for good. An admin password reset does not clear two-factor, and no admin
-  action can disable someone else's. Deleting and recreating the account is
-  the only way back, and it loses that account's data.
+  action can disable someone else's. The way back is clearing the factor in
+  the database, as
+  [recovering a locked-out account](./reference/two-factor.md#recovering-a-locked-out-account)
+  describes. The account and its data stay.
 - Bank connections recover on their own: reconnect the bank from
   **Imports > Bank connections**.
 
