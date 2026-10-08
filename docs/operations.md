@@ -675,7 +675,7 @@ Restoring a database next to the wrong key plays out like this:
   code**, and sets it up again. Their Settings page says so. A user signed
   out needs two unused codes: one to sign in, one to turn it off.
 - A user with two-factor on and no recovery code left, or only one while
-  signed out, is locked out for good. An admin password reset does not clear two-factor, and no admin
+  signed out, cannot get back in from the app. An admin password reset does not clear two-factor, and no admin
   action can disable someone else's. The way back is clearing the factor in
   the database, as
   [recovering a locked-out account](./reference/two-factor.md#recovering-a-locked-out-account)

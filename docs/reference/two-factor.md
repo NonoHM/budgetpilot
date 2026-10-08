@@ -90,13 +90,13 @@ documented as behaviour.
 
 ## Recovering a locked-out account
 
-| Route                                | Works?                      |
-| ------------------------------------ | --------------------------- |
-| A recovery code                      | yes, while any remain       |
-| Turning it off with a recovery code  | only when the key changed   |
-| An admin resetting the password      | **no**                      |
-| An admin action to disable it        | **does not exist**          |
-| Clearing the columns in the database | yes, and it is the only way |
+| Route                                | Works?                                                                     |
+| ------------------------------------ | -------------------------------------------------------------------------- |
+| A recovery code                      | yes, while any remain                                                      |
+| Turning it off with a recovery code  | only when the stored secret can't be decrypted, usually after a key change |
+| An admin resetting the password      | **no**                                                                     |
+| An admin action to disable it        | **does not exist**                                                         |
+| Clearing the columns in the database | yes, and the only way with no recovery code left                           |
 
 The password reset was measured rather than assumed: it issues a temporary
 password and revokes the account's sessions, and signing in with that
