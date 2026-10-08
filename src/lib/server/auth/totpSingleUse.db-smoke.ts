@@ -1,10 +1,15 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 import * as OTPAuth from 'otpauth';
 import { isRedirect, type Cookies } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
 import { createSession, hashPassword, readSessionUser, SESSION_COOKIE } from '$lib/server/auth';
 import { createMfaChallenge } from '$lib/server/auth/mfaChallenge';
-import { encryptTotpSecret, generateTotpSecretBase32 } from '$lib/server/auth/totp';
+import {
+	decryptTotpSecret,
+	encryptTotpSecret,
+	generateTotpSecretBase32
+} from '$lib/server/auth/totp';
 import { acceptTotpCode } from '$lib/server/auth/totpAcceptance';
 import { REAUTH_FIELDS } from '$lib/domain/reauthFields';
 import * as m from '$lib/paraglide/messages';
@@ -525,5 +530,113 @@ describe('a code judged against a factor that has since changed is not accepted'
 		const verdict = await acceptTotpCode(user.id, stale, codeAt(secret, 1));
 
 		expect({ verdict, step: await lastStep(user.id) }).toEqual({ verdict: 'wrong', step: null });
+	});
+});
+
+/**
+ * #904: a stored secret the app's key cannot decrypt (the key was rotated, or the row came from
+ * another instance) is UNREADABLE, a state of the account, and not a wrong code. Before #904
+ * `acceptTotpCode` folded the decryption failure into `wrong`, so the owner was told their code was
+ * wrong forever and nothing distinguished the state from a typo.
+ *
+ * The unreadable row is produced the way a rotated key produces it: AES-256-GCM in the production
+ * storage format, under a 32-byte key that is not `TOTP_ENCRYPTION_KEY`. Decryption is never mocked.
+ */
+describe('a stored secret that does not decrypt is unreadable, not a wrong code (#904)', () => {
+	const ANOTHER_KEY = Buffer.from('e5'.repeat(32), 'hex');
+
+	/** `iv:authTag:ciphertext` in base64url, as `encryptSecret` writes it, under `ANOTHER_KEY`. */
+	function encryptedUnderAnotherKey(plaintext: string): string {
+		const iv = randomBytes(12);
+		const cipher = createCipheriv('aes-256-gcm', ANOTHER_KEY, iv);
+		const ciphertext = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
+		return [iv, cipher.getAuthTag(), ciphertext]
+			.map((part) => part.toString('base64url'))
+			.join(':');
+	}
+
+	function decryptedUnderAnotherKey(stored: string): string {
+		const [iv, authTag, ciphertext] = stored
+			.split(':')
+			.map((part) => Buffer.from(part, 'base64url'));
+		const decipher = createDecipheriv('aes-256-gcm', ANOTHER_KEY, iv);
+		decipher.setAuthTag(authTag);
+		return Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString('utf8');
+	}
+
+	/** An enabled factor stored as `ciphertext`, with a last accepted step already written. */
+	async function seedWithCiphertext(tag: string, ciphertext: string, lastUsedStep: number) {
+		const user = await prisma.user.create({
+			data: {
+				email: `totp-single-use-${tag}-${crypto.randomUUID()}@budgetpilot.invalid`,
+				passwordHash: await hashPassword(PASSWORD),
+				totpEnabled: true,
+				totpSecretEncrypted: ciphertext,
+				totpLastUsedStep: lastUsedStep
+			},
+			select: { id: true }
+		});
+		created.push(user.id);
+		return user;
+	}
+
+	async function lastStep(userId: string): Promise<number | null> {
+		const row = await prisma.user.findUniqueOrThrow({
+			where: { id: userId },
+			select: { totpLastUsedStep: true }
+		});
+		return row.totpLastUsedStep;
+	}
+
+	// The instrument's calibration. Separates « a ciphertext the app's key cannot authenticate » (the
+	// rotated-key case #904 is about) from « a malformed string » (which `decryptSecret` refuses with
+	// its own format error before any key is used): the stored value decrypts under its own key, and
+	// the app's key fails at the authentication tag.
+	it('the fixture is a real ciphertext of the secret that only the app key cannot read', () => {
+		expect.assertions(1);
+		const secret = generateTotpSecretBase32();
+		const stored = encryptedUnderAnotherKey(secret);
+
+		let appKeyAnswer: string;
+		try {
+			appKeyAnswer = `decrypted: ${decryptTotpSecret(stored)}`;
+		} catch (caught) {
+			appKeyAnswer = `threw: ${(caught as Error).message}`;
+		}
+
+		expect({ ownKey: decryptedUnderAnotherKey(stored), appKey: appKeyAnswer }).toEqual({
+			ownKey: secret,
+			appKey: 'threw: Unsupported state or unable to authenticate data'
+		});
+	});
+
+	// Separates « unreadable is its own verdict and writes nothing » from « folded into wrong » (main
+	// before #904: the verdict reads `wrong`). The step starts at a NUMBER, so « unchanged » cannot be
+	// confused with « never written ». The sibling holds the SAME secret and is posted the SAME valid
+	// code: the only difference between the two rows is the key, so the sibling's `accepted` is the
+	// calibration that the code, the clock and the starting step would all have been accepted.
+	// Both verdicts are asserted as one value, so neither goes unobserved when the other is red.
+	it('acceptTotpCode answers unreadable and leaves the last step where it was', async () => {
+		expect.assertions(3);
+		const secret = generateTotpSecretBase32();
+		const startingStep = step - 5;
+		const unreadableCiphertext = encryptedUnderAnotherKey(secret);
+		const readableCiphertext = encryptTotpSecret(secret);
+		const unreadable = await seedWithCiphertext('unreadable', unreadableCiphertext, startingStep);
+		const readable = await seedWithCiphertext('readable-sibling', readableCiphertext, startingStep);
+		expect(await lastStep(unreadable.id)).toBe(startingStep);
+		expect(await lastStep(readable.id)).toBe(startingStep);
+		const code = codeAt(secret, 0);
+
+		const readableVerdict = await acceptTotpCode(readable.id, readableCiphertext, code);
+		const unreadableVerdict = await acceptTotpCode(unreadable.id, unreadableCiphertext, code);
+
+		expect({
+			readable: { verdict: readableVerdict, step: await lastStep(readable.id) },
+			unreadable: { verdict: unreadableVerdict, step: await lastStep(unreadable.id) }
+		}).toEqual({
+			readable: { verdict: 'accepted', step },
+			unreadable: { verdict: 'unreadable', step: startingStep }
+		});
 	});
 });
