@@ -362,27 +362,37 @@ describe('the log subnet label agrees with the counter at every width', () => {
 		['64:ff9b::c000:201', '192.0.2.1'], // NAT64 and its IPv4 client
 		['::ffff:192.0.2.1', '192.0.2.1'], // mapped and its IPv4 client
 		['64:ff9b::c000:201', '64:ff9b::c000:202'], // two NAT64 clients
-		['64:ff9b::1:0:1', '64:ff9b::1:0:2'] // outside the /96, one /56
+		['64:ff9b::1:0:1', '64:ff9b::1:0:2'], // outside the /96, one /56
+		// The two paths read different text: the label the canonical reading, the counter the raw
+		// value. These pairs differ only in what that reading changes.
+		['fe80::1%eth0', 'fe80::2%eth1'], // zones on two links, one /56
+		[' 2001:db8:aa:bb00::1\t', '2001:db8:aa:bb00::1'], // surrounding whitespace
+		['::ffff:192.0.2.1', ' 192.0.2.1'], // mapped against padded IPv4
+		// A zone as Node writes a non-ASCII interface name (Latin-1 of its bytes, measured).
+		[`fe80::1%${Buffer.from('réseau-maison1', 'utf8').toString('latin1')}`, 'fe80::1']
 	];
 
 	afterEach(() => {
 		vi.unstubAllEnvs();
 	});
 
-	it.each(['48', '56', '64'])('at %s bits, one counter exactly when one label', async (bits) => {
-		vi.stubEnv('BP_RATE_LIMIT_IPV6_PREFIX', bits);
-		const { logSubnetPseudonym } = await import('$lib/server/logging/pseudonym');
-		const relations = [];
-		for (const [a, b] of PAIRS) {
-			const counter = (await queriedIpHash('LOGIN', a)) === (await queriedIpHash('LOGIN', b));
-			const label = logSubnetPseudonym(a) === logSubnetPseudonym(b);
-			relations.push(`${a} ~ ${b}: counter ${counter}, label ${label}`);
+	it.each(['32', '48', '56', '64'])(
+		'at %s bits, one counter exactly when one label',
+		async (bits) => {
+			vi.stubEnv('BP_RATE_LIMIT_IPV6_PREFIX', bits);
+			const { logSubnetPseudonym } = await import('$lib/server/logging/pseudonym');
+			const relations = [];
+			for (const [a, b] of PAIRS) {
+				const counter = (await queriedIpHash('LOGIN', a)) === (await queriedIpHash('LOGIN', b));
+				const label = logSubnetPseudonym(a) === logSubnetPseudonym(b);
+				relations.push(`${a} ~ ${b}: counter ${counter}, label ${label}`);
+			}
+			// Each pair printed whole, so a red names the pair that disagreed.
+			expect(relations).toEqual(
+				relations.map((line) =>
+					line.replace(/label (true|false)$/, `label ${/counter true/.test(line)}`)
+				)
+			);
 		}
-		// Each pair printed whole, so a red names the pair that disagreed.
-		expect(relations).toEqual(
-			relations.map((line) =>
-				line.replace(/label (true|false)$/, `label ${/counter true/.test(line)}`)
-			)
-		);
-	});
+	);
 });

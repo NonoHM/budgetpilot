@@ -208,11 +208,20 @@ describe('logPseudonym normalises the address before keying it (#869)', () => {
 		).toBe(4);
 	});
 
-	it('accepts every interface name Linux accepts as a zone, kept verbatim', () => {
+	/**
+	 * A zone as Node writes it: one character per byte of the kernel's name, Latin-1 decoded. Measured
+	 * on Node 24.18 with dummy interfaces in a throwaway network namespace: `réseau-maison1` (15
+	 * UTF-8 bytes) arrives as 15 characters, `rÃ©seau-maison1`; a 16-byte name is refused by the
+	 * kernel before Node sees it.
+	 */
+	const asNodeWritesIt = (name: string) => Buffer.from(name, 'utf8').toString('latin1');
+
+	it('accepts every interface name Linux accepts as a zone, as Node writes it, kept verbatim', () => {
 		// dev_valid_name (net/core/dev.c): 1 to 15 bytes, not `.` or `..`, no `/`, `:` or whitespace.
 		// Node writes the name of the interface a link-local peer arrived on, so a refusal here would
 		// throw on a real client.
-		for (const zone of ['tun+', 'veth@1', 'br-0a1b2c3d4e5f', 'é'.repeat(7), '7']) {
+		const names = ['tun+', 'veth@1', 'br-0a1b2c3d4e5f', '7', 'réseau-maison1', 'é'.repeat(7)];
+		for (const zone of names.map(asNodeWritesIt)) {
 			expect(logPseudonym(`fe80::1%${zone}`)).toBe(keyed(`fe80::1%${zone}`));
 		}
 	});
@@ -243,7 +252,15 @@ describe('logPseudonym normalises the address before keying it (#869)', () => {
 		['a zone named `.`', 'fe80::1%.'],
 		['a zone named `..`', 'fe80::1%..'],
 		['a zone of sixteen characters', `fe80::1%${'a'.repeat(16)}`],
-		['a zone of sixteen bytes in eight characters', `fe80::1%${'é'.repeat(8)}`],
+		[
+			'a zone of sixteen bytes as Node would write them',
+			`fe80::1%${asNodeWritesIt('é'.repeat(8))}`
+		],
+		['a zone with a character no byte decodes to', 'fe80::1%eth\u0100'],
+		// The kernel's isspace (lib/ctype.c) counts byte 0xA0 as a space, so it refused to create an
+		// interface named `wlan-à` (c3 a0), measured; a zone holding U+00A0 names no interface.
+		['a zone holding byte 0xA0', `fe80::1%${asNodeWritesIt('wlan-à')}`],
+		['a no-break space around an address', '\u00a0203.0.113.7'],
 		['a zone with a second `%`', 'fe80::1%eth0%eth1'],
 		['whitespace before the zone', 'fe80::1 %eth0'],
 		['a zone on an IPv4 address', '203.0.113.7%eth0'],
