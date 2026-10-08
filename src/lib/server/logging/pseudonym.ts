@@ -5,7 +5,7 @@ import { env } from '$env/dynamic/private';
 import {
 	rateLimitIpv6PrefixBits,
 	assertRateLimitSecretConfigured
-} from '$lib/server/auth/rateLimit';
+} from '$lib/server/auth/rateLimitConfig';
 import { addressSubnet, canonicalIpText } from '$lib/server/net/clientAddress';
 
 /**
@@ -57,11 +57,24 @@ export const LOG_PSEUDONYM_KEY_LABEL = 'budgetpilot:log-pseudonym:v1';
  */
 export const LOG_SUBNET_KEY_LABEL = 'budgetpilot:log-subnet:v1';
 
+/**
+ * THE USER (L3). An authentication event names its account by a keyed hash of the user id under a
+ * third label, never by the id itself: a raw id is the join key between a log line and every row
+ * the account owns, and a copy of the log outlives the database it was written beside. Whoever
+ * holds `RATE_LIMIT_HASH_SECRET` can still recompute it for an id they know, so it remains personal
+ * data, pseudonymised rather than anonymised (GDPR Article 4(5), as R9 records).
+ */
+export const LOG_USER_KEY_LABEL = 'budgetpilot:log-user:v1';
+
 const NOT_AN_ADDRESS = 'log pseudonym: the value is not an IP address';
 
 declare const logPseudonymBrand: unique symbol;
 /** A keyed hash under the log key. Not constructible from a plain string outside this module. */
 export type LogPseudonym = string & { readonly [logPseudonymBrand]: true };
+
+declare const logUserPseudonymBrand: unique symbol;
+/** A keyed hash of a user id. A type of its own, so it cannot fill a client field or the reverse. */
+export type LogUserPseudonym = string & { readonly [logUserPseudonymBrand]: true };
 
 declare const logSubnetPseudonymBrand: unique symbol;
 /** A keyed hash of a subscriber's prefix. A type of its own, so it cannot fill an address field. */
@@ -81,6 +94,16 @@ export function deriveLogSubnetKey(secretHex: string): Buffer {
 	return deriveKey(secretHex, LOG_SUBNET_KEY_LABEL);
 }
 
+/** The user key, under its own label. Pure, for the spec. */
+export function deriveLogUserKey(secretHex: string): Buffer {
+	return deriveKey(secretHex, LOG_USER_KEY_LABEL);
+}
+
+/** The pseudonym of one user id under a given derived key. Lowercase hex. */
+export function logUserPseudonymWith(key: Buffer, userId: string): LogUserPseudonym {
+	return createHmac('sha256', key).update(userId, 'utf8').digest('hex') as LogUserPseudonym;
+}
+
 /** The pseudonym of one address under a given derived key. Lowercase hex. Throws on a non-address. */
 export function logPseudonymWith(key: Buffer, value: string): LogPseudonym {
 	const canonical = canonicalIpText(value);
@@ -97,20 +120,47 @@ export function logSubnetPseudonymWith(
 	value: string,
 	v6PrefixBits: number
 ): LogSubnetPseudonym {
+	return logSubnetWith(key, value, v6PrefixBits).pseudonym;
+}
+
+/** The subnet label and the width of the network it hashed, from one reading of the prefix. */
+export interface LogSubnet {
+	pseudonym: LogSubnetPseudonym;
+	/** The `/n` of the CIDR text that was hashed: 32 for a client counted as IPv4. */
+	prefixLength: number;
+}
+
+function logSubnetWith(key: Buffer, value: string, v6PrefixBits: number): LogSubnet {
 	const canonical = canonicalIpText(value);
 	const subnet = canonical === null ? null : addressSubnet(canonical, v6PrefixBits);
 	if (subnet === null) throw new Error(NOT_AN_ADDRESS);
-	return createHmac('sha256', key).update(subnet, 'utf8').digest('hex') as LogSubnetPseudonym;
+	return {
+		pseudonym: createHmac('sha256', key).update(subnet, 'utf8').digest('hex') as LogSubnetPseudonym,
+		// Read from the text that was hashed, never from the setting a second time: the width beside
+		// the label is the one the label was computed at (#936 point 2).
+		prefixLength: Number(subnet.slice(subnet.lastIndexOf('/') + 1))
+	};
 }
 
-let cached: { secret: string; address: Buffer; subnet: Buffer } | undefined;
+interface InstanceKeys {
+	address: Buffer;
+	subnet: Buffer;
+	user: Buffer;
+}
 
-/** Both keys under THIS instance's secret, read lazily like the limiter's own. */
-function instanceKeys(): { address: Buffer; subnet: Buffer } {
+let cached: (InstanceKeys & { secret: string }) | undefined;
+
+/** The three keys under THIS instance's secret, read lazily like the limiter's own. */
+function instanceKeys(): InstanceKeys {
 	assertRateLimitSecretConfigured(env);
 	const secret = env.RATE_LIMIT_HASH_SECRET!.trim();
 	if (cached?.secret !== secret) {
-		cached = { secret, address: deriveLogPseudonymKey(secret), subnet: deriveLogSubnetKey(secret) };
+		cached = {
+			secret,
+			address: deriveLogPseudonymKey(secret),
+			subnet: deriveLogSubnetKey(secret),
+			user: deriveLogUserKey(secret)
+		};
 	}
 	return cached;
 }
@@ -123,4 +173,14 @@ export function logPseudonym(value: string): LogPseudonym {
 /** The subnet label under THIS instance's secret, at the prefix the limiter reads now. */
 export function logSubnetPseudonym(value: string): LogSubnetPseudonym {
 	return logSubnetPseudonymWith(instanceKeys().subnet, value, rateLimitIpv6PrefixBits());
+}
+
+/** The subnet label and its width under THIS instance's secret, at the prefix the limiter reads now. */
+export function logSubnet(value: string): LogSubnet {
+	return logSubnetWith(instanceKeys().subnet, value, rateLimitIpv6PrefixBits());
+}
+
+/** The user pseudonym under THIS instance's secret. */
+export function logUserPseudonym(userId: string): LogUserPseudonym {
+	return logUserPseudonymWith(instanceKeys().user, userId);
 }

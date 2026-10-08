@@ -122,6 +122,8 @@ interface FloodLabel {
 	status?: number;
 	route?: string;
 	errorType?: string;
+	/** The event's own `floodBy` attributes, copied onto the summary under their own names. */
+	by: Record<string, string | number | boolean>;
 }
 
 /**
@@ -135,16 +137,24 @@ function floodLabel(event: LogEvent, request: RequestFields | undefined): FloodL
 	const attributes = event.attributes as Record<string, unknown>;
 	const status = attributes[A.httpStatus];
 	const errorType = attributes[A.errorType];
+	const by: FloodLabel['by'] = {};
+	for (const key of REGISTRY[event.event].floodBy ?? []) {
+		const value = attributes[key];
+		if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+			by[key] = value;
+		}
+	}
 	return {
 		event: event.event,
 		...(typeof status === 'number' ? { status } : {}),
 		...(request?.route ? { route: request.route } : {}),
-		...(typeof errorType === 'string' ? { errorType } : {})
+		...(typeof errorType === 'string' ? { errorType } : {}),
+		by
 	};
 }
 
 const floodKey = (label: FloodLabel): string =>
-	JSON.stringify([label.event, label.status, label.route, label.errorType]);
+	JSON.stringify([label.event, label.status, label.route, label.errorType, label.by]);
 
 export function createLogWriter(options: WriterOptions): LogWriter {
 	const chain = options.chain ?? processChain();
@@ -230,6 +240,7 @@ export function createLogWriter(options: WriterOptions): LogWriter {
 					...(label.status === undefined ? {} : { [A.suppressedStatus]: label.status }),
 					...(label.route === undefined ? {} : { [A.suppressedRoute]: label.route }),
 					...(label.errorType === undefined ? {} : { [A.suppressedErrorType]: label.errorType }),
+					...label.by,
 					[A.suppressedCount]: suppressed,
 					[A.suppressedWindowSeconds]: windowSeconds
 				},

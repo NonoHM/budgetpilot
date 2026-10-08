@@ -100,7 +100,20 @@ describe('the levels a log field may hold (docs/explanation/data-classification.
 		const levels = new Set(
 			Object.values(REGISTRY).flatMap((spec) => Object.values(spec.attributes) as string[])
 		);
-		expect([...levels].sort()).toEqual(['Not classified', 'Operational']);
+		expect([...levels].sort()).toEqual(['Not classified', 'Operational', 'Pseudonymous']);
+	});
+
+	it('gives Pseudonymous to the three keyed hashes of pseudonym.ts, and to nothing else', () => {
+		const pseudonymous = new Set(
+			Object.values(REGISTRY).flatMap((spec) =>
+				Object.entries(spec.attributes)
+					.filter(([, level]) => level === 'Pseudonymous')
+					.map(([attribute]) => attribute)
+			)
+		);
+		expect([...pseudonymous].sort()).toEqual(
+			[A.clientPseudonym, A.clientSubnetPseudonym, A.userPseudonym].sort()
+		);
 	});
 });
 

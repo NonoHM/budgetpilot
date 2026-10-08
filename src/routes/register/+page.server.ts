@@ -19,6 +19,12 @@ import {
 	recordRegisterAttempt
 } from '$lib/server/auth/rateLimit';
 import { resolveClientAddress } from '$lib/server/net/clientAddress';
+import {
+	logAccountCreated,
+	logRateLimited,
+	logRegistrationFailed
+} from '$lib/server/logging/authn';
+import type { RegistrationFailure } from '$lib/server/logging/events';
 import { ensureDefaultCategoriesSeeded } from '$lib/server/categories/defaults';
 import { ensureDefaultRulesSeeded } from '$lib/server/categorization/defaultRules';
 import { prisma } from '$lib/server/db';
@@ -64,9 +70,20 @@ export const actions: Actions = {
 		const isOpenRegistration = registrationMode === 'open';
 		const inviteToken = url.searchParams.get('invite') ?? '';
 		const ip = resolveClientAddress({ getClientAddress, request });
+		// Registration is an authentication event unless an ADMIN is creating the account, which is
+		// an admin action, L4's to log (contradiction pass on L3's note). Decided by the role, not by
+		// a session: a signed-in member can register another account in open mode or with an
+		// invitation, and that is still a registration (second contradiction pass).
+		const byAdmin = locals.user?.role === 'ADMIN';
+		const refuse = <T>(reason: RegistrationFailure, answer: T): T => {
+			if (!byAdmin) logRegistrationFailed(ip, reason);
+			return answer;
+		};
 
 		if (inviteToken) {
-			if (await isInviteRateLimited(ip)) {
+			const trip = await isInviteRateLimited(ip);
+			if (trip) {
+				logRateLimited('INVITE', trip, ip);
 				return fail(429, { error: m.register_error_too_many_attempts() });
 			}
 			await recordInviteAttempt(ip);
@@ -74,7 +91,10 @@ export const actions: Actions = {
 
 		const invitation = inviteToken ? await findValidInvitationByToken(inviteToken) : null;
 		if (inviteToken && !invitation) {
-			return fail(410, { error: m.register_error_invitation_invalid() });
+			return refuse(
+				'invitation_invalid',
+				fail(410, { error: m.register_error_invitation_invalid() })
+			);
 		}
 
 		// Two different attacks share one counter, which is why the condition is not simply
@@ -96,8 +116,9 @@ export const actions: Actions = {
 		// operator out of their own instance for 15 minutes. An invitation is exempt too — it
 		// carries its own INVITE limiter above.
 		if (!invitation && (isOpenRegistration || !locals.user)) {
-			const ipRateLimited = await isRegisterRateLimited(ip);
-			if (ipRateLimited) {
+			const trip = await isRegisterRateLimited(ip);
+			if (trip) {
+				logRateLimited('REGISTER', trip, ip);
 				return fail(429, { error: m.register_error_too_many_attempts() });
 			}
 			await recordRegisterAttempt(ip);
@@ -107,7 +128,9 @@ export const actions: Actions = {
 		const userCount = canClaimBackfillUser ? 0 : await prisma.user.count();
 		const canRegister =
 			isOpenRegistration || Boolean(invitation) || userCount === 0 || locals.user?.role === 'ADMIN';
-		if (!canRegister) return fail(403, { error: m.register_error_unavailable() });
+		if (!canRegister) {
+			return refuse('unavailable', fail(403, { error: m.register_error_unavailable() }));
+		}
 
 		const formData = await request.formData();
 		const email = validateNewEmail(getFormValue(formData, 'email'));
@@ -126,7 +149,10 @@ export const actions: Actions = {
 			});
 		}
 		if (invitation?.email && invitation.email !== email) {
-			return fail(400, { error: m.register_error_invitation_email_mismatch() });
+			return refuse(
+				'email_mismatch',
+				fail(400, { error: m.register_error_invitation_email_mismatch() })
+			);
 		}
 		if (!validatePassword(password)) {
 			return fail(400, { error: m.register_error_invalid_password() });
@@ -155,7 +181,10 @@ export const actions: Actions = {
 			// definition neither, so token attempts were entirely unthrottled. The secrecy of the
 			// message was never the protection and is not being asked to become it — the limiter
 			// is what makes naming the token in the failure a sound trade.
-			return fail(403, { error: m.register_error_invalid_token() });
+			return refuse(
+				'bootstrap_token_invalid',
+				fail(403, { error: m.register_error_invalid_token() })
+			);
 		}
 
 		const passwordHash = await hashPassword(password);
@@ -169,15 +198,34 @@ export const actions: Actions = {
 				invitationId: invitation?.id
 			});
 		} catch (caught) {
-			if (isUniqueConstraintError(caught)) return fail(400, { error: m.register_error_failed() });
+			if (isUniqueConstraintError(caught)) {
+				return refuse('email_taken', fail(400, { error: m.register_error_failed() }));
+			}
 			if (caught instanceof Error && caught.message === 'INVITATION_CONSUME_FAILED') {
-				return fail(410, { error: m.register_error_invitation_invalid() });
+				return refuse(
+					'invitation_consumed',
+					fail(410, { error: m.register_error_invitation_invalid() })
+				);
 			}
 			throw caught;
 		}
 
 		await ensureDefaultCategoriesSeeded(user.id);
 		await ensureDefaultRulesSeeded(user.id);
+
+		if (!byAdmin) {
+			logAccountCreated(
+				ip,
+				user.id,
+				invitation
+					? 'invitation'
+					: canClaimBackfillUser
+						? 'backfill'
+						: isOpenRegistration
+							? 'open'
+							: 'bootstrap'
+			);
+		}
 
 		if (!locals.user) {
 			await createSession(user.id, cookies);

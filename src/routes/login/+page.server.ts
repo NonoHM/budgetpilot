@@ -15,6 +15,12 @@ import { createMfaChallenge } from '$lib/server/auth/mfaChallenge';
 import { isSelfRegistrationOpen } from '$lib/server/auth/registration';
 import { isLoginRateLimited, recordFailedLoginAttempt } from '$lib/server/auth/rateLimit';
 import { resolveClientAddress } from '$lib/server/net/clientAddress';
+import {
+	logRateLimited,
+	logSecondFactorRequired,
+	logSignInFailed,
+	logSignInSucceeded
+} from '$lib/server/logging/authn';
 import { ensureDefaultCategoriesSeeded } from '$lib/server/categories/defaults';
 import { ensureDefaultRulesSeeded } from '$lib/server/categorization/defaultRules';
 import { prisma } from '$lib/server/db';
@@ -55,7 +61,11 @@ export const actions: Actions = {
 		if (!email || !password) return invalid();
 
 		const ip = resolveClientAddress({ getClientAddress, request });
-		if (await isLoginRateLimited(email, ip)) return tooManyAttempts();
+		const trip = await isLoginRateLimited(email, ip);
+		if (trip) {
+			logRateLimited('LOGIN', trip, ip);
+			return tooManyAttempts();
+		}
 
 		const user = await prisma.user.findUnique({
 			where: { email },
@@ -69,6 +79,12 @@ export const actions: Actions = {
 		const passwordOk = await verifyPasswordTimingSafe(password, user?.passwordHash);
 		if (!user || !passwordOk) {
 			await recordFailedLoginAttempt(email, ip);
+			logSignInFailed(
+				ip,
+				user
+					? { step: 'password', reason: 'wrong_password', userId: user.id }
+					: { step: 'password', reason: 'unknown_account' }
+			);
 			return invalid();
 		}
 
@@ -78,6 +94,7 @@ export const actions: Actions = {
 		try {
 			if (user.totpEnabled) {
 				await createMfaChallenge(user.id, verifiedHash, cookies);
+				logSecondFactorRequired(ip, user.id);
 				throw redirect(303, secondFactorUrl(url));
 			}
 
@@ -89,8 +106,10 @@ export const actions: Actions = {
 		} catch (caught) {
 			if (!(caught instanceof SignInSuperseded)) throw caught;
 			await recordFailedLoginAttempt(email, ip);
+			logSignInFailed(ip, { step: 'password', reason: 'superseded', userId: user.id });
 			return invalid();
 		}
+		logSignInSucceeded(ip, user.id, 'password');
 		redirectAfterSignIn(url);
 	}
 };

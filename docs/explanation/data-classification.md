@@ -81,12 +81,16 @@ network the rate limiter counts the client in, written with its width (`2001:db8
 block it was given then reads as one source, which the full-address hash alone cannot show. The
 cost is that it also links a household's changing temporary IPv6 addresses to one another, as an
 IPv4 address already links everything one household does. RFC 8981 section 2.1 says the same of
-the prefix itself: « all hosts within a home could be grouped together ». Which events may carry
-the subnet label, so that an honest household is not grouped, is
-[#936](https://github.com/NonoHM/budgetpilot/issues/936). Whoever holds `.env`
-can still reverse a logged IPv4 address by enumeration. The protection is against every other
-reader of the log. The derivation exists (`src/lib/server/logging/pseudonym.ts`); no event
-carries an address yet, because no authentication event is written yet (#250). No stored security event exists (see the
+the prefix itself: « all hosts within a home could be grouped together ». So that an honest household is
+grouped only when it trips something, the subnet label is written on three events and no other, as
+the owner ruled on [#936](https://github.com/NonoHM/budgetpilot/issues/936): a failed sign-in
+(`authn_login_fail`), a failed re-authentication (`budgetpilot.authn.reauth_fail`) and the limiter's
+refusal of an authentication kind (`excess_rate_limit_exceeded`), each with the prefix width it was
+computed at. Never on a successful sign-in, a sign-out or a session event; the event types in
+`src/lib/server/logging/events.ts` declare the field on those three only. The account an event
+concerns is a third keyed hash, of the user id, under `budgetpilot:log-user:v1`. Whoever holds
+`.env` can still reverse a logged IPv4 address by enumeration and recompute the hash of a user id
+they know. The protection is against every other reader of the log. No stored security event exists (see the
 gaps).
 
 ### Stated exceptions to the transport rule

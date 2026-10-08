@@ -13,8 +13,29 @@ import {
 	LOG_SUBNET_KEY_LABEL,
 	logSubnetPseudonym,
 	logSubnetPseudonymWith,
+	LOG_USER_KEY_LABEL,
+	deriveLogUserKey,
+	logUserPseudonym,
+	logUserPseudonymWith,
+	logSubnet,
 	type LogPseudonym
 } from './pseudonym';
+
+/**
+ * The prefix setting as `logSubnet` reads it. Passes through to the real reading unless a test
+ * queues widths, which are then answered one per read of `BP_RATE_LIMIT_IPV6_PREFIX`.
+ */
+const prefixReads = vi.hoisted(() => ({ widths: [] as number[] }));
+vi.mock('$lib/server/env/readSetting', async (importOriginal) => {
+	const actual = await importOriginal<typeof import('$lib/server/env/readSetting')>();
+	return {
+		...actual,
+		readIntegerSetting: (...args: Parameters<typeof actual.readIntegerSetting>) =>
+			args[0] === 'BP_RATE_LIMIT_IPV6_PREFIX' && prefixReads.widths.length > 0
+				? prefixReads.widths.shift()!
+				: actual.readIntegerSetting(...args)
+	};
+});
 
 /**
  * The log pseudonym (rulings R1 and R9 on #841). Every expectation is built by calling a
@@ -434,5 +455,154 @@ describe('logSubnetPseudonym: one subscriber, one label (#869)', () => {
 		// @ts-expect-error a subnet label is not the address pseudonym (svelte-check reads this line)
 		const wrong: LogPseudonym = logSubnetPseudonym(INSIDE);
 		expect(wrong).toHaveLength(64);
+	});
+});
+
+/**
+ * The user field of an authentication event (L3 contract, invariant 3). A keyed hash of the user
+ * id under a key of its own, so a log line does not join to the database without the secret, and
+ * never equals what the address key gives the same text.
+ */
+describe('logUserPseudonym: the user field (L3)', () => {
+	const USER_ID = 'cmuser00000000000000000001';
+	const HEX_64 = /^[0-9a-f]{64}$/;
+
+	beforeEach(() => {
+		env.RATE_LIMIT_HASH_SECRET = SECRET;
+	});
+
+	it('derives its key under the ruled label', () => {
+		expect(LOG_USER_KEY_LABEL).toBe('budgetpilot:log-user:v1');
+	});
+
+	it('is the pure entry point under the key derived from this instance secret', () => {
+		expect(logUserPseudonym(USER_ID)).toBe(logUserPseudonymWith(deriveLogUserKey(SECRET), USER_ID));
+	});
+
+	it('is 64 lowercase hex characters and never carries the raw id', () => {
+		const pseudonym = logUserPseudonym(USER_ID);
+		expect([HEX_64.test(pseudonym), pseudonym.includes(USER_ID)]).toEqual([true, false]);
+	});
+
+	// A constant function passes the first element; only the second separates it from a hash.
+	it('is stable for one id and differs between two ids', () => {
+		expect([
+			logUserPseudonym(USER_ID) === logUserPseudonym(USER_ID),
+			logUserPseudonym(USER_ID) === logUserPseudonym('cmuser00000000000000000002')
+		]).toEqual([true, false]);
+	});
+
+	it('never equals what the address key or the raw secret gives the same text (key separation)', () => {
+		// The first element calibrates the comparison: the address key's own HMAC does equal its pseudonym.
+		const text = '203.0.113.7';
+		const underAddressKey = createHmac('sha256', deriveLogPseudonymKey(SECRET))
+			.update(text)
+			.digest('hex');
+		expect([
+			logPseudonym(text) === underAddressKey,
+			logUserPseudonym(text) === underAddressKey,
+			logUserPseudonym(text) === createHmac('sha256', SECRET).update(text).digest('hex'),
+			(logUserPseudonym(text) as string) === logSubnetPseudonym(text)
+		]).toEqual([true, false, false, false]);
+	});
+
+	it('uses a 32-byte key of its own: not the address, subnet or account-memory key', () => {
+		const key = deriveLogUserKey(SECRET);
+		expect([
+			key.length,
+			key.equals(deriveLogPseudonymKey(SECRET)),
+			key.equals(deriveLogSubnetKey(SECRET)),
+			key.equals(deriveAccountMemoryKey(SECRET))
+		]).toEqual([32, false, false, false]);
+	});
+
+	it('rotates with the secret: the same id under a rotated secret is another pseudonym', () => {
+		const before = logUserPseudonym(USER_ID);
+		env.RATE_LIMIT_HASH_SECRET = ROTATED;
+		const after = logUserPseudonym(USER_ID);
+		expect([
+			before === after,
+			after === logUserPseudonymWith(deriveLogUserKey(ROTATED), USER_ID)
+		]).toEqual([false, true]);
+	});
+
+	it('refuses to key on an absent secret rather than hashing under undefined', () => {
+		env.RATE_LIMIT_HASH_SECRET = '';
+		expect(() => logUserPseudonym(USER_ID)).toThrow(/RATE_LIMIT_HASH_SECRET/);
+	});
+
+	it('has a type of its own, so a user pseudonym cannot be written where the address goes', () => {
+		// @ts-expect-error a user pseudonym is not the address pseudonym (svelte-check reads this line)
+		const wrong: LogPseudonym = logUserPseudonym(USER_ID);
+		expect(wrong).toHaveLength(64);
+	});
+});
+
+/**
+ * The subnet label with the width it was computed at (L3 contract, invariant 2; design note
+ * point 4). The width is the `/n` of the CIDR the label hashed, so it comes from the SAME reading
+ * of `BP_RATE_LIMIT_IPV6_PREFIX`, never from a second one. The expected label comes from
+ * `logSubnetPseudonym`, the width from the ruling: 32 for a client the limiter counts as IPv4.
+ */
+describe('logSubnet: the label and the width it hashed, from one reading (L3)', () => {
+	const V6 = '2001:db8:aa:bb00::1';
+
+	beforeEach(() => {
+		env.RATE_LIMIT_HASH_SECRET = SECRET;
+		vi.stubEnv('BP_RATE_LIMIT_IPV6_PREFIX', '');
+	});
+	afterEach(() => {
+		vi.unstubAllEnvs();
+		prefixReads.widths.length = 0;
+	});
+
+	it('gives an IPv4 client its subnet label and a width of 32', () => {
+		expect(logSubnet('192.0.2.1')).toEqual({
+			pseudonym: logSubnetPseudonym('192.0.2.1'),
+			prefixLength: 32
+		});
+	});
+
+	// 48 is not the default, so a width hard-coded at 56 or read from the registry default fails here.
+	it('gives an IPv6 client the configured width and the label at that width', () => {
+		vi.stubEnv('BP_RATE_LIMIT_IPV6_PREFIX', '48');
+		expect(logSubnet(V6)).toEqual({ pseudonym: logSubnetPseudonym(V6), prefixLength: 48 });
+	});
+
+	it.each([
+		['the IPv4-mapped form', '::ffff:192.0.2.1'],
+		['the NAT64 well-known prefix', '64:ff9b::c000:201']
+	])('gives %s its IPv4 client label and a width of 32', (_label, value) => {
+		expect(logSubnet(value)).toEqual({
+			pseudonym: logSubnetPseudonym('192.0.2.1'),
+			prefixLength: 32
+		});
+	});
+
+	// Separates « one reading » from « the label and the width each read the setting »: the reads are
+	// answered 48 then 64, so two readings give a label at one width beside the other width.
+	it('reads the prefix setting once, so the width logged is the width the label hashed', () => {
+		prefixReads.widths.push(48, 64);
+		const result = logSubnet(V6);
+		expect({ result, unread: [...prefixReads.widths] }).toEqual({
+			result: {
+				pseudonym: logSubnetPseudonymWith(deriveLogSubnetKey(SECRET), V6, 48),
+				prefixLength: 48
+			},
+			unread: [64]
+		});
+	});
+
+	it('refuses a value that is not an address rather than keying it, and does not echo it', () => {
+		let message = '';
+		try {
+			logSubnet('paul.mercier@example.test');
+		} catch (error) {
+			message = (error as Error).message;
+		}
+		expect([/not an IP address/.test(message), message.includes('paul.mercier')]).toEqual([
+			true,
+			false
+		]);
 	});
 });

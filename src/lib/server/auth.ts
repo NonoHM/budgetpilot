@@ -5,6 +5,7 @@ import * as m from '$lib/paraglide/messages';
 import { prisma } from '$lib/server/db';
 import { isTransientWriteConflict, withConcurrentWriteRetry } from '$lib/server/database/upsert';
 import type { Role } from './database/types.ts';
+import type { DeadSessionReason } from '$lib/server/logging/events';
 import { readIntegerSetting } from '$lib/server/env/readSetting';
 import { SETTINGS } from '$lib/server/env/settings';
 
@@ -439,11 +440,37 @@ export async function readSessionUser(token: string | undefined): Promise<AuthUs
 }
 
 /**
- * Whether the browser's session ended BECAUSE it went unused, so the sign-in page can say so (#221):
- * not revoked, past its `expiresAt`, and that moment came before its lifetime's end, so the timeout
- * ended it. The liveness half is the complement of `liveSessionWhere`, evaluated by the engine.
- * False for a session a person revoked or that reached its lifetime; a cookie past its lifetime is
- * dropped by the browser anyway.
+ * Why a cookie that resolved to no live session stopped working (L3's `budgetpilot.session.invalid`):
+ * `unknown` when no row holds its hash (never issued, rotated away, or its account deleted),
+ * `revoked`, `idle` when the inactivity timeout ended it before its lifetime's end, `expired` when
+ * the lifetime did. Null for no token and for a session that is live. Dead is the complement of
+ * `liveSessionWhere`, evaluated by the engine; idle against expired is read from the row and the
+ * lifetime in force, so after a RAISED lifetime a session that reached the old one reads as idle
+ * (#940). A cookie copied before a rotation reads as unknown, because rotation overwrites the hash
+ * (#939).
+ */
+export async function deadSessionReason(
+	token: string | undefined
+): Promise<{ reason: DeadSessionReason; userId?: string } | null> {
+	if (!token) return null;
+	const tokenHash = hashSessionToken(token);
+	const now = new Date();
+	const [dead, exists] = await Promise.all([
+		prisma.session.findFirst({
+			where: { tokenHash, NOT: liveSessionWhere(now) },
+			select: { userId: true, revokedAt: true, createdAt: true, expiresAt: true }
+		}),
+		prisma.session.count({ where: { tokenHash } })
+	]);
+	if (!dead) return exists === 0 ? { reason: 'unknown' } : null;
+	if (dead.revokedAt !== null) return { reason: 'revoked', userId: dead.userId };
+	const reason = dead.expiresAt < lifetimeEndsAt(dead.createdAt) ? 'idle' : 'expired';
+	return { reason, userId: dead.userId };
+}
+
+/**
+ * Whether the browser's session ended BECAUSE it went unused, so the sign-in page can say so (#221).
+ * One rule with the log's reason: `deadSessionReason` decides, this reads its answer.
  *
  * WHAT IT DISCLOSES, beyond a refusal, to whoever holds the cookie: that no person revoked the
  * session and that its account still exists. `/login` runs no limiter, so a holder of a copied cookie
@@ -452,12 +479,7 @@ export async function readSessionUser(token: string | undefined): Promise<AuthUs
  * what the page exists to give.
  */
 export async function sessionEndedByInactivity(token: string | undefined): Promise<boolean> {
-	if (!token) return false;
-	const ended = await prisma.session.findUnique({
-		where: { tokenHash: hashSessionToken(token), revokedAt: null, expiresAt: { lte: new Date() } },
-		select: { createdAt: true, expiresAt: true }
-	});
-	return ended !== null && ended.expiresAt < lifetimeEndsAt(ended.createdAt);
+	return (await deadSessionReason(token))?.reason === 'idle';
 }
 
 /**

@@ -1,5 +1,7 @@
 import { ATTRIBUTE as A, EVENT as E, type EventName } from './names.ts';
 import type { IntegerSettingName } from '../env/settings.ts';
+import type { ReauthAction } from '../auth/reauth.ts';
+import type { LogPseudonym, LogSubnetPseudonym, LogUserPseudonym } from './pseudonym.ts';
 
 /**
  * Every event this application can write, as a type: the only way to put a line in the log is to
@@ -42,6 +44,66 @@ export type BackfillName =
 
 /** Every whole-number setting, from the settings registry (R14): each one can depart from its default. */
 export type BoundName = IntegerSettingName;
+
+/**
+ * THE AUTHENTICATION EVENTS (L3, #936). Who and where are fields of their own types, built only in
+ * `logging/authn.ts`: the client as `LogPseudonym`, its subscriber network as `LogSubnetPseudonym`
+ * with the width it was computed at, the account as `LogUserPseudonym`. The subnet fields are
+ * declared on the three events that signal an attack and on no other, so a success, a sign-out or a
+ * session event cannot be given one: data minimisation, GDPR Article 5(1)(c), as ruled on #936.
+ */
+interface ClientPseudonymField {
+	[A.clientPseudonym]: LogPseudonym;
+}
+
+/**
+ * The subnet fields, forbidden. Intersected into every authentication event that is not an attack
+ * event, so a SPREAD of `AttackClientFields` into one is a compile error too: TypeScript does not
+ * check a spread for excess properties, and a declared `?: never` is checked (measured on L3: with
+ * plain `ClientFields`, the helper building a success from `attackClient` compiled).
+ */
+export interface NoSubnetFields {
+	[A.clientSubnetPseudonym]?: never;
+	[A.clientSubnetPrefixLength]?: never;
+}
+
+export type ClientFields = ClientPseudonymField & NoSubnetFields;
+
+export interface AttackClientFields extends ClientPseudonymField {
+	[A.clientSubnetPseudonym]: LogSubnetPseudonym;
+	[A.clientSubnetPrefixLength]: number;
+}
+
+export interface UserFields {
+	[A.userPseudonym]: LogUserPseudonym;
+}
+
+/** The limiter kinds that are authentication (R1): the only ones whose refusal carries the client. */
+export type AuthAttemptKind = 'LOGIN' | 'MFA' | 'REGISTER' | 'INVITE' | 'REAUTH';
+
+/** Which of a refused attempt's counters was full: the client's, the subject's, or both. */
+export type RateLimitCounter = 'address' | 'subject' | 'both';
+
+export type LoginFailure =
+	| { [A.authnStep]: 'password'; [A.authnReason]: 'unknown_account' }
+	| ({ [A.authnStep]: 'password'; [A.authnReason]: 'wrong_password' | 'superseded' } & UserFields)
+	| ({
+			[A.authnStep]: 'second_factor';
+			[A.authnReason]:
+				'wrong_code' | 'reused_code' | 'wrong_recovery_code' | 'unrecognised_code' | 'superseded';
+	  } & UserFields);
+
+export type SignInFactor = 'password' | 'totp' | 'recovery_code';
+export type RegistrationMethod = 'bootstrap' | 'backfill' | 'open' | 'invitation';
+export type RegistrationFailure =
+	| 'invitation_invalid'
+	| 'unavailable'
+	| 'email_mismatch'
+	| 'bootstrap_token_invalid'
+	| 'email_taken'
+	| 'invitation_consumed';
+export type ReauthFailure = 'wrong_password' | 'wrong_code' | 'reused_code';
+export type DeadSessionReason = 'unknown' | 'revoked' | 'expired' | 'idle';
 
 export type LogEvent =
 	| {
@@ -193,11 +255,53 @@ export type LogEvent =
 				[A.suppressedStatus]?: number;
 				[A.suppressedRoute]?: string;
 				[A.suppressedErrorType]?: string;
+				// The summarised event's own `floodBy` values, so a summary still says which kind it counted.
+				[A.rateLimitKind]?: AuthAttemptKind;
+				[A.rateLimitCounter]?: RateLimitCounter;
+				[A.authnReason]?: RegistrationFailure;
+				[A.sessionReason]?: DeadSessionReason;
+				[A.userPseudonym]?: LogUserPseudonym;
 			};
 	  }
 	| {
 			event: typeof E.logLineTooLong;
 			attributes: { [A.suppressedEvent]: string; [A.droppedBytes]: number };
+	  }
+	| {
+			event: typeof E.authnLoginSuccess;
+			attributes: ClientFields & UserFields & { [A.authnFactor]: SignInFactor };
+	  }
+	| { event: typeof E.authnSecondFactorRequired; attributes: ClientFields & UserFields }
+	| { event: typeof E.authnLoginFail; attributes: AttackClientFields & LoginFailure }
+	| {
+			event: typeof E.rateLimitExceeded;
+			attributes: AttackClientFields &
+				Partial<UserFields> & {
+					[A.rateLimitKind]: AuthAttemptKind;
+					[A.rateLimitCounter]: RateLimitCounter;
+				};
+	  }
+	| { event: typeof E.authnLogout; attributes: UserFields & NoSubnetFields }
+	| {
+			event: typeof E.userCreated;
+			attributes: ClientFields & UserFields & { [A.authnMethod]: RegistrationMethod };
+	  }
+	| {
+			event: typeof E.authnRegisterFail;
+			attributes: ClientFields & { [A.authnReason]: RegistrationFailure };
+	  }
+	| {
+			event: typeof E.authnReauthSuccess;
+			attributes: ClientFields & UserFields & { [A.authnAction]: ReauthAction };
+	  }
+	| {
+			event: typeof E.authnReauthFail;
+			attributes: AttackClientFields &
+				UserFields & { [A.authnAction]: ReauthAction; [A.authnReason]: ReauthFailure };
+	  }
+	| {
+			event: typeof E.sessionInvalid;
+			attributes: Partial<UserFields> & NoSubnetFields & { [A.sessionReason]: DeadSessionReason };
 	  }
 	| {
 			event: typeof E.consoleOutput;
@@ -213,11 +317,26 @@ export interface EventSpec<Attributes> {
 	severity: Severity;
 	/** One fixed English sentence: what happened and, where an operator can act, what to do. */
 	body: string;
-	/** Reachable without a session at request time, so repeats inside a window are summarised. */
+	/**
+	 * Reachable without a session at request time, so repeats inside a window are summarised. An
+	 * authentication failure that costs the server a password hash is not: the hash bounds its rate
+	 * far below what the window would, and each line names a source (L3).
+	 */
 	flood: boolean;
+	/**
+	 * Attributes added to the flood window's key, each a closed set or a keyed hash of a bounded
+	 * population, so one cheap repeat cannot summarise away a line of another kind (L3 contradiction
+	 * pass: twenty unknown cookies hid the replay of a revoked one).
+	 */
+	floodBy?: readonly (keyof Attributes & string)[];
 	/** A security event in the sense of BP_SECURITY_LOG: dropped when the operator turns it off. */
 	security: boolean;
-	attributes: { [K in keyof Required<Attributes>]: LogLevel };
+	/** Every attribute the event can carry, with its level; a field declared `never` is not one. */
+	attributes: {
+		[
+			K in keyof Required<Attributes> as [Required<Attributes>[K]] extends [never] ? never : K
+		]: LogLevel;
+	};
 }
 
 const ERROR_LEVELS = {
@@ -336,6 +455,112 @@ export const REGISTRY: { [N in EventName]: EventSpec<AttributesOf<N>> } = {
 		flood: true,
 		security: false,
 		attributes: { [A.httpStatus]: 'Operational', [A.errorId]: 'Operational' }
+	},
+	[E.authnLoginSuccess]: {
+		severity: 'INFO',
+		body: 'A sign-in succeeded and a session was created.',
+		flood: false,
+		security: true,
+		attributes: {
+			[A.clientPseudonym]: 'Pseudonymous',
+			[A.userPseudonym]: 'Pseudonymous',
+			[A.authnFactor]: 'Operational'
+		}
+	},
+	[E.authnSecondFactorRequired]: {
+		severity: 'INFO',
+		body: 'A password was accepted and the account asks for its second factor.',
+		flood: false,
+		security: true,
+		attributes: { [A.clientPseudonym]: 'Pseudonymous', [A.userPseudonym]: 'Pseudonymous' }
+	},
+	[E.authnLoginFail]: {
+		severity: 'WARN',
+		body: 'A sign-in failed. The step and the reason say where.',
+		flood: false,
+		security: true,
+		attributes: {
+			[A.clientPseudonym]: 'Pseudonymous',
+			[A.clientSubnetPseudonym]: 'Pseudonymous',
+			[A.clientSubnetPrefixLength]: 'Operational',
+			[A.userPseudonym]: 'Pseudonymous',
+			[A.authnStep]: 'Operational',
+			[A.authnReason]: 'Operational'
+		}
+	},
+	[E.rateLimitExceeded]: {
+		severity: 'WARN',
+		body: 'The rate limiter refused an authentication attempt. The counter says whether the client, or the account, challenge or session it aimed at, was full.',
+		flood: true,
+		security: true,
+		floodBy: [A.rateLimitKind, A.rateLimitCounter],
+		attributes: {
+			[A.clientPseudonym]: 'Pseudonymous',
+			[A.clientSubnetPseudonym]: 'Pseudonymous',
+			[A.clientSubnetPrefixLength]: 'Operational',
+			[A.userPseudonym]: 'Pseudonymous',
+			[A.rateLimitKind]: 'Operational',
+			[A.rateLimitCounter]: 'Operational'
+		}
+	},
+	[E.authnLogout]: {
+		severity: 'INFO',
+		body: 'A person signed out and their session was ended.',
+		flood: false,
+		security: true,
+		attributes: { [A.userPseudonym]: 'Pseudonymous' }
+	},
+	[E.userCreated]: {
+		severity: 'WARN',
+		body: 'An account was created by registration. A visitor who was not signed in is signed in to it.',
+		flood: false,
+		security: true,
+		attributes: {
+			[A.clientPseudonym]: 'Pseudonymous',
+			[A.userPseudonym]: 'Pseudonymous',
+			[A.authnMethod]: 'Operational'
+		}
+	},
+	[E.authnRegisterFail]: {
+		severity: 'WARN',
+		body: 'A registration was refused.',
+		flood: true,
+		security: true,
+		floodBy: [A.authnReason],
+		attributes: { [A.clientPseudonym]: 'Pseudonymous', [A.authnReason]: 'Operational' }
+	},
+	[E.authnReauthSuccess]: {
+		severity: 'INFO',
+		body: 'A signed-in person confirmed their password, and their code where asked, before a sensitive action.',
+		flood: false,
+		security: true,
+		attributes: {
+			[A.clientPseudonym]: 'Pseudonymous',
+			[A.userPseudonym]: 'Pseudonymous',
+			[A.authnAction]: 'Operational'
+		}
+	},
+	[E.authnReauthFail]: {
+		severity: 'WARN',
+		body: 'A re-authentication before a sensitive action failed.',
+		flood: false,
+		security: true,
+		attributes: {
+			[A.clientPseudonym]: 'Pseudonymous',
+			[A.clientSubnetPseudonym]: 'Pseudonymous',
+			[A.clientSubnetPrefixLength]: 'Operational',
+			[A.userPseudonym]: 'Pseudonymous',
+			[A.authnAction]: 'Operational',
+			[A.authnReason]: 'Operational'
+		}
+	},
+	[E.sessionInvalid]: {
+		severity: 'INFO',
+		body: 'A request carried a session cookie that no longer works. The reason says why it stopped.',
+		flood: true,
+		security: true,
+		floodBy: [A.sessionReason, A.userPseudonym],
+		attributes: { [A.userPseudonym]: 'Pseudonymous', [A.sessionReason]: 'Operational' }
 	},
 	[E.backfillStarted]: {
 		severity: 'INFO',
@@ -526,7 +751,12 @@ export const REGISTRY: { [N in EventName]: EventSpec<AttributesOf<N>> } = {
 			[A.suppressedWindowSeconds]: 'Operational',
 			[A.suppressedStatus]: 'Operational',
 			[A.suppressedRoute]: 'Operational',
-			[A.suppressedErrorType]: 'Operational'
+			[A.suppressedErrorType]: 'Operational',
+			[A.rateLimitKind]: 'Operational',
+			[A.rateLimitCounter]: 'Operational',
+			[A.authnReason]: 'Operational',
+			[A.sessionReason]: 'Operational',
+			[A.userPseudonym]: 'Pseudonymous'
 		}
 	},
 	[E.logLineTooLong]: {

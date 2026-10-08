@@ -2,9 +2,12 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as OTPAuth from 'otpauth';
 import * as m from '$lib/paraglide/messages';
 import { REAUTH_FIELDS } from '$lib/domain/reauthFields';
+import { ATTRIBUTE, EVENT } from '$lib/server/logging/names';
 
 vi.hoisted(() => {
 	process.env.TOTP_ENCRYPTION_KEY ??= 'd4'.repeat(32);
+	// The log pseudonyms (L3, #250) derive their keys from it, and refuse anything but 64 hex.
+	process.env.RATE_LIMIT_HASH_SECRET ??= 'a1'.repeat(32);
 });
 
 /**
@@ -29,7 +32,18 @@ const rateLimit = vi.hoisted(() => ({
 }));
 
 vi.mock('$lib/server/db', () => db);
-vi.mock('$lib/server/auth/rateLimit', () => rateLimit);
+// The two limiter calls are faked; the rest of the module is real, because the log pseudonyms read
+// the secret check and the IPv6 prefix from it (`logging/pseudonym.ts`).
+vi.mock('$lib/server/auth/rateLimit', async (importOriginal) => ({
+	...(await importOriginal<typeof import('$lib/server/auth/rateLimit')>()),
+	...rateLimit
+}));
+// Every line the helper writes, through the one writer, captured instead of printed.
+const logWriter = vi.hoisted(() => ({ log: vi.fn() }));
+vi.mock('$lib/server/logging', async (importOriginal) => ({
+	...(await importOriginal<typeof import('$lib/server/logging')>()),
+	log: logWriter.log
+}));
 // The REAL code check, wrapped so a test can see whether the helper consulted it. Step 4 of the
 // helper's header (both factors, always) is a claim about work done, which no outcome shows.
 vi.mock('$lib/server/auth/totp', async (importOriginal) => {
@@ -41,6 +55,7 @@ const { hashPassword } = await import('$lib/server/auth');
 const { encryptTotpSecret, generateTotpSecretBase32, verifyTotpCode } =
 	await import('$lib/server/auth/totp');
 const { REAUTH_FACTORS, reauthenticate, reauthRefusalMessage } = await import('./reauth');
+const { logPseudonym, logSubnet, logUserPseudonym } = await import('$lib/server/logging/pseudonym');
 
 const PASSWORD = 'the-right-password-1';
 const IP = '203.0.113.7';
@@ -586,5 +601,316 @@ describe('what a refusal says (#854 class 2)', () => {
 		expect(reauthRefusalMessage({ ok: false, reason: 'rate-limited' })).toBe(
 			m.settings_error_reauth_too_many()
 		);
+	});
+});
+
+/**
+ * L3 (#250, contract of 2026-10-08): `reauthenticate` is the single exit, so it writes the one event
+ * of each outcome. A success carries the user, the action and the client; a credential refusal
+ * also carries the subnet label and its width, because the REAUTH limiter counts it (#936). A shape
+ * refusal, a missing account and a factor-state refusal checked no secret and write nothing; a
+ * limiter trip writes `excess_rate_limit_exceeded` here, from the trip the wrapper returns.
+ *
+ * Expected pseudonyms come from the production functions, never from a retyped HMAC. `IP` is IPv4,
+ * so the width is 32 (contract), asserted as that figure in its own test.
+ */
+type LoggedEvent = { event: string; attributes: Record<string, unknown> };
+
+const events = () => logWriter.log.mock.calls.map(([event]) => event as LoggedEvent);
+
+function reauthSuccess(action: string): LoggedEvent {
+	return {
+		event: EVENT.authnReauthSuccess,
+		attributes: {
+			[ATTRIBUTE.userPseudonym]: logUserPseudonym(USER),
+			[ATTRIBUTE.authnAction]: action,
+			[ATTRIBUTE.clientPseudonym]: logPseudonym(IP)
+		}
+	};
+}
+
+function reauthFail(action: string, reason: string): LoggedEvent {
+	const subnet = logSubnet(IP);
+	return {
+		event: EVENT.authnReauthFail,
+		attributes: {
+			[ATTRIBUTE.userPseudonym]: logUserPseudonym(USER),
+			[ATTRIBUTE.authnAction]: action,
+			[ATTRIBUTE.authnReason]: reason,
+			[ATTRIBUTE.clientPseudonym]: logPseudonym(IP),
+			[ATTRIBUTE.clientSubnetPseudonym]: subnet.pseudonym,
+			[ATTRIBUTE.clientSubnetPrefixLength]: subnet.prefixLength
+		}
+	};
+}
+
+/** A success never carries the subnet label (contract invariant 1), checked before the whole object. */
+function expectNoSubnetKeys(logged: LoggedEvent[]) {
+	expect(typeof ATTRIBUTE.clientSubnetPseudonym).toBe('string');
+	expect(typeof ATTRIBUTE.clientSubnetPrefixLength).toBe('string');
+	for (const event of logged) {
+		const keys = Object.keys(event.attributes ?? {});
+		expect(keys).not.toContain(ATTRIBUTE.clientSubnetPseudonym);
+		expect(keys).not.toContain(ATTRIBUTE.clientSubnetPrefixLength);
+	}
+}
+
+const caller = { id: USER, sessionId: SESSION };
+
+describe('L3 events: a success writes reauth_success, without the subnet label', () => {
+	it('password: revokeSession', async () => {
+		db.prisma.user.findUnique.mockResolvedValue(account({ totp: false }));
+
+		const outcome = await reauthenticate('revokeSession', {
+			user: caller,
+			ip: IP,
+			form: form({ password: PASSWORD })
+		});
+
+		expect(outcome).toEqual({ ok: true });
+		expectNoSubnetKeys(events());
+		expect(events()).toEqual([reauthSuccess('revokeSession')]);
+	});
+
+	it('password+totp-when-enabled, with TOTP: changePassword', async () => {
+		db.prisma.user.findUnique.mockResolvedValue(account({ totp: true }));
+
+		const outcome = await reauthenticate('changePassword', {
+			user: caller,
+			ip: IP,
+			form: form({ password: PASSWORD, code: codeFor(secret) })
+		});
+
+		expect(outcome).toEqual({ ok: true });
+		expectNoSubnetKeys(events());
+		expect(events()).toEqual([reauthSuccess('changePassword')]);
+	});
+
+	it('password+totp: disableTotp', async () => {
+		db.prisma.user.findUnique.mockResolvedValue(account({ totp: true }));
+
+		const outcome = await reauthenticate('disableTotp', {
+			user: caller,
+			ip: IP,
+			form: form({ password: PASSWORD, code: codeFor(secret) })
+		});
+
+		expect(outcome).toEqual({ ok: true });
+		expectNoSubnetKeys(events());
+		expect(events()).toEqual([reauthSuccess('disableTotp')]);
+	});
+
+	it('password+new-secret-code: confirmTotpSetup', async () => {
+		const fresh = generateTotpSecretBase32();
+		db.prisma.user.findUnique.mockResolvedValue(account({ totp: false }));
+
+		const outcome = await reauthenticate('confirmTotpSetup', {
+			user: caller,
+			ip: IP,
+			form: form({ password: PASSWORD, code: codeFor(fresh) }),
+			newTotpSecret: fresh
+		});
+
+		expect(outcome).toEqual({ ok: true, totpStep: expect.any(Number) });
+		expectNoSubnetKeys(events());
+		expect(events()).toEqual([reauthSuccess('confirmTotpSetup')]);
+	});
+});
+
+describe('L3 events: a credential refusal writes reauth_fail with its reason and the subnet label', () => {
+	it('wrong-password is wrong_password', async () => {
+		db.prisma.user.findUnique.mockResolvedValue(account({ totp: false }));
+
+		const outcome = await reauthenticate('revokeSession', {
+			user: caller,
+			ip: IP,
+			form: form({ password: 'not-it' })
+		});
+
+		expect(outcome).toEqual({ ok: false, reason: 'wrong-password', asked: 'password' });
+		expect(events()).toEqual([reauthFail('revokeSession', 'wrong_password')]);
+	});
+
+	// Contract invariant 2, as the contract's figure: an IPv4 client is hashed as its /32.
+	it('carries the subnet width 32 for an IPv4 client', async () => {
+		db.prisma.user.findUnique.mockResolvedValue(account({ totp: false }));
+
+		await reauthenticate('revokeSession', {
+			user: caller,
+			ip: IP,
+			form: form({ password: 'not-it' })
+		});
+
+		expect(events()).toHaveLength(1);
+		expect(events()[0].attributes[ATTRIBUTE.clientSubnetPrefixLength]).toBe(32);
+	});
+
+	// Contract invariant 5 and the #869 note: the pseudonym is taken after the record, so a throw
+	// while taking it cannot skip the record. Separates « recorded, then logged » from the reverse.
+	it('is written after the attempt is recorded', async () => {
+		db.prisma.user.findUnique.mockResolvedValue(account({ totp: false }));
+
+		await reauthenticate('revokeSession', {
+			user: caller,
+			ip: IP,
+			form: form({ password: 'not-it' })
+		});
+
+		expect(logWriter.log).toHaveBeenCalledTimes(1);
+		expect(rateLimit.recordReauthAttempt).toHaveBeenCalledTimes(1);
+		expect(logWriter.log.mock.invocationCallOrder[0]).toBeGreaterThan(
+			rateLimit.recordReauthAttempt.mock.invocationCallOrder[0]
+		);
+	});
+
+	it('wrong-totp is wrong_code', async () => {
+		db.prisma.user.findUnique.mockResolvedValue(account({ totp: true }));
+
+		const outcome = await reauthenticate('resetPassword', {
+			user: caller,
+			ip: IP,
+			form: form({ password: PASSWORD, code: wrongCodeFor(secret) })
+		});
+
+		expect(outcome).toEqual({ ok: false, reason: 'wrong-totp', asked: 'password-and-code' });
+		expect(events()).toEqual([reauthFail('resetPassword', 'wrong_code')]);
+	});
+
+	it('wrong-totp on enrolment is wrong_code, under confirmTotpSetup', async () => {
+		const fresh = generateTotpSecretBase32();
+		db.prisma.user.findUnique.mockResolvedValue(account({ totp: false }));
+
+		const outcome = await reauthenticate('confirmTotpSetup', {
+			user: caller,
+			ip: IP,
+			form: form({ password: PASSWORD, code: wrongCodeFor(fresh) }),
+			newTotpSecret: fresh
+		});
+
+		expect(outcome).toEqual({ ok: false, reason: 'wrong-totp', asked: 'password-and-code' });
+		expect(events()).toEqual([reauthFail('confirmTotpSetup', 'wrong_code')]);
+	});
+
+	it('reused-totp is reused_code', async () => {
+		db.prisma.user.findUnique.mockResolvedValue(account({ totp: true }));
+		db.prisma.user.updateMany.mockResolvedValue({ count: 0 });
+
+		const outcome = await reauthenticate('changePassword', {
+			user: caller,
+			ip: IP,
+			form: form({ password: PASSWORD, code: codeFor(secret) })
+		});
+
+		expect(outcome).toEqual({ ok: false, reason: 'reused-totp', asked: 'password-and-code' });
+		expect(events()).toEqual([reauthFail('changePassword', 'reused_code')]);
+	});
+});
+
+describe('L3 events: no reauth event when no secret was checked', () => {
+	// No secret was checked on these three (contract, « Not logged »): the account is gone, or its
+	// factor state refuses the action before any secret is read.
+	it('no-account writes nothing', async () => {
+		db.prisma.user.findUnique.mockResolvedValue(null);
+
+		const outcome = await reauthenticate('revokeSession', {
+			user: caller,
+			ip: IP,
+			form: form({ password: PASSWORD })
+		});
+
+		expect(outcome).toEqual({ ok: false, reason: 'no-account', asked: 'password' });
+		expect(events()).toEqual([]);
+	});
+
+	it('totp-not-enabled writes nothing', async () => {
+		db.prisma.user.findUnique.mockResolvedValue(account({ totp: false }));
+
+		const outcome = await reauthenticate('disableTotp', {
+			user: caller,
+			ip: IP,
+			form: form({ password: PASSWORD, code: '123456' })
+		});
+
+		expect(outcome).toEqual({ ok: false, reason: 'totp-not-enabled', asked: 'password-and-code' });
+		expect(events()).toEqual([]);
+	});
+
+	it('totp-already-enabled writes nothing', async () => {
+		const fresh = generateTotpSecretBase32();
+		db.prisma.user.findUnique.mockResolvedValue(account({ totp: true }));
+
+		const outcome = await reauthenticate('confirmTotpSetup', {
+			user: caller,
+			ip: IP,
+			form: form({ password: PASSWORD, code: codeFor(fresh) }),
+			newTotpSecret: fresh
+		});
+
+		expect(outcome).toEqual({ ok: false, reason: 'totp-already-enabled' });
+		expect(events()).toEqual([]);
+	});
+
+	// Calibration of the capture: a line written through the module the helper imports is seen.
+	it('captures a line written through the logging module the helper imports', async () => {
+		const { log } = await import('$lib/server/logging');
+		const line = { event: EVENT.configOriginUnset, attributes: {} };
+
+		log(line as never);
+
+		expect(events()).toEqual([line]);
+	});
+
+	it('missing-password writes nothing', async () => {
+		db.prisma.user.findUnique.mockResolvedValue(account({ totp: false }));
+
+		const outcome = await reauthenticate('revokeSession', {
+			user: caller,
+			ip: IP,
+			form: form({})
+		});
+
+		expect(outcome).toEqual({ ok: false, reason: 'missing-password', asked: 'password' });
+		expect(events()).toEqual([]);
+	});
+
+	it('missing-totp writes nothing', async () => {
+		db.prisma.user.findUnique.mockResolvedValue(account({ totp: true }));
+
+		const outcome = await reauthenticate('changePassword', {
+			user: caller,
+			ip: IP,
+			form: form({ password: PASSWORD })
+		});
+
+		expect(outcome).toEqual({ ok: false, reason: 'missing-totp', asked: 'password-and-code' });
+		expect(events()).toEqual([]);
+	});
+
+	// The trip is written by the CALLER (contract: rateLimit.ts logs nothing), from the trip the
+	// wrapper returns, with the user and which counter tripped; and no reauth event beside it.
+	it('rate-limited writes one excess_rate_limit_exceeded, with the counter, user and subnet', async () => {
+		rateLimit.isReauthRateLimited.mockResolvedValueOnce({ counter: 'subject' } as never);
+
+		const outcome = await reauthenticate('deleteAccount', {
+			user: caller,
+			ip: IP,
+			form: form({ password: PASSWORD })
+		});
+
+		expect(outcome).toEqual({ ok: false, reason: 'rate-limited' });
+		const subnet = logSubnet(IP);
+		expect(events()).toEqual([
+			{
+				event: EVENT.rateLimitExceeded,
+				attributes: {
+					[ATTRIBUTE.rateLimitKind]: 'REAUTH',
+					[ATTRIBUTE.rateLimitCounter]: 'subject',
+					[ATTRIBUTE.userPseudonym]: logUserPseudonym(USER),
+					[ATTRIBUTE.clientPseudonym]: logPseudonym(IP),
+					[ATTRIBUTE.clientSubnetPseudonym]: subnet.pseudonym,
+					[ATTRIBUTE.clientSubnetPrefixLength]: subnet.prefixLength
+				}
+			}
+		]);
 	});
 });

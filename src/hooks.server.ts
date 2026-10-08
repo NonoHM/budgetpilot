@@ -5,6 +5,7 @@ import { paraglideMiddleware } from '$lib/paraglide/server';
 import {
 	areSecureCookiesEnabled,
 	readSessionUser,
+	deadSessionReason,
 	SESSION_COOKIE,
 	signInUrl
 } from '$lib/server/auth';
@@ -32,6 +33,7 @@ import {
 	requestErrorId,
 	type LogEvent
 } from '$lib/server/logging';
+import { logDeadSession } from '$lib/server/logging/authn';
 import { ATTRIBUTE as A, EVENT as E } from '$lib/server/logging/names';
 import { describeLogSettings } from '$lib/server/logging/settings';
 
@@ -229,6 +231,11 @@ export const handleAuth: Handle = async ({ event, resolve }) => {
 	const token = event.cookies.get(SESSION_COOKIE);
 	const user = await readSessionUser(token);
 	event.locals.user = user;
+	// A cookie that no longer works is written with why (L3), by one more read on this path only.
+	if (token && !user) {
+		const dead = await deadSessionReason(token);
+		if (dead) logDeadSession(dead.reason, dead.userId);
+	}
 
 	// A cookie that resolves to no session is LEFT in place, never deleted here. It grants nothing,
 	// and the next sign-in overwrites it. Deleting it is what turned a harmless race into a sign-out:

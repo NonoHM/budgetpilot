@@ -5,6 +5,7 @@ import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import type { Readable } from 'node:stream';
 import { request as apiRequest, type APIRequestContext } from '@playwright/test';
+import { ATTRIBUTE, EVENT, FIELD } from '../src/lib/server/logging/names';
 import { expect, test } from './fixtures';
 
 /**
@@ -279,6 +280,21 @@ test.beforeAll(async () => {
 			password: OVERLONG,
 			bootstrapToken: PAYLOAD
 		});
+		// The two above stop at the email check (`validateEmail` refuses a control character), which
+		// L3 does not log: no credential was checked. So each auth door gets a second request whose
+		// shape is valid and whose SECRET carries the payload, which is what reaches the check and
+		// writes the auth line (L3: `unknown_account` and `bootstrap_token_invalid`). Without these the
+		// verdicts below would be read over a capture holding no auth line at all. The register
+		// limiter is not reached: three anonymous registrations here, `MAX_ATTEMPTS` is 5.
+		await action('login-unknown-account', '/login', {
+			email: 'loginjection-nobody@budgetpilot.test',
+			password: PAYLOAD + OVERLONG
+		});
+		await action('register-wrong-token', '/register', {
+			email: 'loginjection-token@budgetpilot.test',
+			password: PASSWORD,
+			bootstrapToken: PAYLOAD + OVERLONG
+		});
 
 		// An account, then the inputs only a signed-in user reaches.
 		await action('register', '/register', {
@@ -341,7 +357,42 @@ test.beforeAll(async () => {
 	console.log(
 		`[log-injection] request capture ${JSON.stringify(measure(requestCapture))}; refusal capture ${JSON.stringify(measure(refusalCapture))}`
 	);
+	console.log(`[log-injection] auth lines in the request capture ${JSON.stringify(authLines())}`);
 });
+
+/**
+ * The auth lines the two credential-carrying requests produce, counted twice: as raw lines holding
+ * the JSON-encoded event name, and as lines that parse to one object with that name. Equal counts
+ * mean every such line is one JSON object; a line split by a separator would leave a raw fragment
+ * the parse cannot match. The reason values are the L3 contract's closed sets, as literals because
+ * they are wire values with no constant in names.ts.
+ */
+function authLines(): Record<string, { raw: number; parsed: number }> {
+	const raw = requestCapture.split('\n').filter((line) => line !== '');
+	const count = (name: string, reason: string) => {
+		const marker = `"${FIELD.eventName}":${JSON.stringify(name)}`;
+		const rawLines = raw.filter((line) => line.includes(marker));
+		const parsed = rawLines.filter((line) => {
+			try {
+				const value = JSON.parse(line) as Record<string, unknown>;
+				return (
+					value !== null &&
+					typeof value === 'object' &&
+					!Array.isArray(value) &&
+					value[FIELD.eventName] === name &&
+					value[ATTRIBUTE.authnReason] === reason
+				);
+			} catch {
+				return false;
+			}
+		});
+		return { raw: rawLines.length, parsed: parsed.length };
+	};
+	return {
+		loginFailUnknownAccount: count(EVENT.authnLoginFail, 'unknown_account'),
+		registerFailBootstrapToken: count(EVENT.authnRegisterFail, 'bootstrap_token_invalid')
+	};
+}
 
 test.afterAll(() => {
 	rmSync(DB_DIR, { recursive: true, force: true });
@@ -361,6 +412,8 @@ test.describe('calibration', () => {
 			// SvelteKit answers a refused form action with HTTP 200 and `type: failure`.
 			'login-payload': '200 failure',
 			'register-payload': '200 failure',
+			'login-unknown-account': '200 failure',
+			'register-wrong-token': '200 failure',
 			register: '200 redirect',
 			login: '200 redirect',
 			'category-payload': '200 failure',
@@ -412,6 +465,17 @@ test.describe('v5.0.0-16.4.1: no input can split or repaint a log line', () => {
 				origin.includes(String.fromCodePoint(code))
 			)
 		).toEqual([true, true, true, true, true, true]);
+	});
+
+	test('the auth lines the credential-carrying requests produce exist, and each is one JSON object', () => {
+		// Presence first, so the two verdicts around it are read over auth lines that exist: before L3
+		// there were none, and « no raw separator » was then true of lines nobody wrote. One of each:
+		// the payload-in-email requests write nothing (validation, L3 contract « Not logged »), and
+		// the valid sign-in and registration later in the battery succeed.
+		expect(authLines()).toEqual({
+			loginFailUnknownAccount: { raw: 1, parsed: 1 },
+			registerFailBootstrapToken: { raw: 1, parsed: 1 }
+		});
 	});
 
 	test('every line of the request capture is one JSON object', () => {
