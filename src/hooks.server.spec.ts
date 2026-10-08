@@ -6,6 +6,11 @@ import { APP_VERSION } from '$lib/server/appVersion';
 import { REGISTRY } from '$lib/server/logging/events';
 import { ATTRIBUTE as A, EVENT as E } from '$lib/server/logging/names';
 
+vi.hoisted(() => {
+	// The user pseudonym (L3, #250) derives its key from it, and refuses anything but 64 hex.
+	process.env.RATE_LIMIT_HASH_SECRET ??= 'a1'.repeat(32);
+});
+
 const logged = vi.hoisted(() => [] as unknown[]);
 vi.mock('$lib/server/logging', async (importOriginal) => ({
 	...(await importOriginal<typeof import('$lib/server/logging')>()),
@@ -21,6 +26,8 @@ beforeEach(() => {
 
 const auth = vi.hoisted(() => ({
 	readSessionUser: vi.fn(),
+	// Faithful to its contract by default: no token, or a live session, has no reason.
+	deadSessionReason: vi.fn(async (_token: string | undefined) => null as DeadSession | null),
 	clearSessionCookie: vi.fn(),
 	areSecureCookiesEnabled: vi.fn(() => false),
 	SESSION_COOKIE: 'budgetpilot_session'
@@ -33,8 +40,11 @@ vi.mock('$lib/server/auth', async (importOriginal) => {
 	return { ...auth, signInUrl: actual.signInUrl };
 });
 
+type DeadSession = { reason: 'unknown' | 'revoked' | 'expired' | 'idle'; userId?: string };
+
 // handleAuth directement : le pipeline sequence() exige le request store interne de SvelteKit.
 const { handleAuth: handle } = await import('./hooks.server');
+const { logUserPseudonym } = await import('$lib/server/logging/pseudonym');
 
 describe('hooks auth', () => {
 	it('redirige une page protégée vers /login si non authentifié', async () => {
@@ -176,6 +186,130 @@ describe('hooks auth', () => {
 		});
 
 		expect(resolve).toHaveBeenCalled();
+	});
+});
+
+/**
+ * L3 (#250, contract of 2026-10-08): a cookie that resolves to no session writes one
+ * `session.invalid`, with why (`deadSessionReason`, whose engine behaviour is
+ * `server/sessionInvalid.db-smoke.ts`'s) and the account's pseudonym when the row names one. No
+ * client field: a dead cookie is no authentication attempt (contract, address column « NO »).
+ * `readSessionUser` and `deadSessionReason` are both faked here, so what is tested is the hook's
+ * use of the answer.
+ */
+describe('hooks auth: session.invalid (L3)', () => {
+	afterEach(() => {
+		auth.readSessionUser.mockReset();
+		auth.deadSessionReason.mockReset();
+		auth.deadSessionReason.mockImplementation(async () => null);
+	});
+
+	type LoggedEvent = { event: string; attributes: Record<string, unknown> };
+	const sessionEvents = () =>
+		(logged as LoggedEvent[]).filter((line) => line.event === E.sessionInvalid);
+
+	async function presentCookie(token: string | undefined) {
+		await handle({
+			event: buildEvent('/login', token) as never,
+			resolve: vi.fn(async () => new Response('ok'))
+		});
+	}
+
+	// The calibration of the filter above: it names a real event, or every « none » below is
+	// satisfied by a filter that matches nothing.
+	it('names a session.invalid event', () => {
+		expect(E.sessionInvalid).toBe('budgetpilot.session.invalid');
+	});
+
+	it.each(['revoked', 'expired', 'idle'] as const)(
+		'a session ended as %s writes one event with its reason and the account pseudonym',
+		async (reason) => {
+			auth.readSessionUser.mockResolvedValue(null);
+			auth.deadSessionReason.mockImplementation(async (token) =>
+				token === 'token-dead' ? { reason, userId: 'user-a' } : null
+			);
+
+			await presentCookie('token-dead');
+
+			expect(auth.deadSessionReason).toHaveBeenCalledWith('token-dead');
+			expect(sessionEvents()).toEqual([
+				{
+					event: E.sessionInvalid,
+					attributes: {
+						[A.sessionReason]: reason,
+						[A.userPseudonym]: logUserPseudonym('user-a')
+					}
+				}
+			]);
+		}
+	);
+
+	it('an unknown token writes one event with the reason and no user field', async () => {
+		auth.readSessionUser.mockResolvedValue(null);
+		auth.deadSessionReason.mockImplementation(async (token) =>
+			token === 'token-unknown' ? { reason: 'unknown' } : null
+		);
+
+		await presentCookie('token-unknown');
+
+		expect(sessionEvents()).toEqual([
+			{ event: E.sessionInvalid, attributes: { [A.sessionReason]: 'unknown' } }
+		]);
+	});
+
+	// Checked on the keys, apart from the whole-object comparison above, so the absence is observed
+	// even when that comparison is red; the key names are asserted to exist first.
+	it('carries no client pseudonym, subnet label or width', async () => {
+		auth.readSessionUser.mockResolvedValue(null);
+		auth.deadSessionReason.mockImplementation(async (token) =>
+			token === 'token-dead' ? { reason: 'revoked', userId: 'user-a' } : null
+		);
+
+		await presentCookie('token-dead');
+
+		const found = sessionEvents();
+		expect(found).toHaveLength(1);
+		for (const key of [A.clientPseudonym, A.clientSubnetPseudonym, A.clientSubnetPrefixLength]) {
+			expect(typeof key).toBe('string');
+			expect(Object.keys(found[0].attributes)).not.toContain(key);
+		}
+	});
+
+	it('the user field is the keyed hash, never the raw id', async () => {
+		auth.readSessionUser.mockResolvedValue(null);
+		auth.deadSessionReason.mockImplementation(async (token) =>
+			token === 'token-dead' ? { reason: 'idle', userId: 'user-a' } : null
+		);
+
+		await presentCookie('token-dead');
+
+		const found = sessionEvents();
+		expect(found).toHaveLength(1);
+		expect(JSON.stringify(found[0])).not.toContain('user-a');
+	});
+
+	it('no cookie writes nothing', async () => {
+		auth.readSessionUser.mockResolvedValue(null);
+
+		await presentCookie(undefined);
+
+		expect(logged).toEqual([]);
+	});
+
+	// A live session is an access, not an event (contract: « that would be an access log »).
+	it('a live session writes nothing and asks no reason', async () => {
+		auth.readSessionUser.mockResolvedValue({
+			id: 'user-a',
+			email: 'user-a@example.test',
+			role: 'USER',
+			forcePasswordChange: false,
+			sessionId: 'session-a'
+		});
+
+		await presentCookie('token-live');
+
+		expect(logged).toEqual([]);
+		expect(auth.deadSessionReason).not.toHaveBeenCalled();
 	});
 });
 
