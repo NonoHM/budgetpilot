@@ -263,9 +263,10 @@ describe('logPseudonym normalises the address before keying it (#869)', () => {
 			`fe80::1%${asNodeWritesIt('é'.repeat(8))}`
 		],
 		['a zone with a character no byte decodes to', 'fe80::1%eth\u0100'],
-		// The kernel's isspace (lib/ctype.c) counts byte 0xA0 as a space, so it refused to create an
-		// interface named `wlan-à` (c3 a0), measured; a zone holding U+00A0 names no interface.
-		['a zone holding byte 0xA0', `fe80::1%${asNodeWritesIt('wlan-à')}`],
+		// The kernel's isspace (lib/ctype.c) counts byte 0xA0 as a space, so it refused to create
+		// `wlàn` (77 6c c3 a0 6e), measured; a zone holding U+00A0 names no interface. Inside the name,
+		// where no trim of the surrounding whitespace reaches it.
+		['a zone holding byte 0xA0', `fe80::1%${asNodeWritesIt('wlàn')}`],
 		// Bytes no interface name holds, each class separately: C's other spaces, and NUL.
 		['a zone holding a tab', 'fe80::1%eth\t0'],
 		['a zone holding NUL', 'fe80::1%eth\u00000'],

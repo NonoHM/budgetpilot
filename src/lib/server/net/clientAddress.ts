@@ -113,10 +113,6 @@ function isZoneId(zone: string): boolean {
 	);
 }
 
-/** C's isspace in the C locale: the whitespace a peer's text or a header can carry around it. */
-const ASCII_SPACE = '\t\n\v\f\r ';
-const SURROUNDING_ASCII_SPACE = new RegExp(`^[${ASCII_SPACE}]+|[${ASCII_SPACE}]+$`, 'g');
-
 /** What an address may be written with: hex digits, `:` and `.`. Anything else is not one. */
 const ADDRESS_CHARACTERS = /^[0-9A-Fa-f:.]+$/;
 
@@ -132,16 +128,20 @@ const ADDRESS_CHARACTERS = /^[0-9A-Fa-f:.]+$/;
  * address (RFC 6052) is folded: each names a different address, whatever `rateLimitAddressKey`
  * counts it as.
  *
- * Surrounding ASCII whitespace is trimmed; any other character outside an address refuses. A zone
- * is kept verbatim (interface names are case-sensitive; it is hashed, never logged as text) after
- * the canonical IPv6 text, and refused on IPv4 or a mapped address, where it means nothing.
+ * Surrounding whitespace is trimmed exactly as `parseIp` trims it (`String.prototype.trim`), so every
+ * address the limiter counts is one the log labels key: a hop such as `192.0.2.1\u00a0:80` reaches
+ * both, because `readForwardedHop` trims only its outer edge. Any other character outside an
+ * address refuses. A zone is kept verbatim (interface names are case-sensitive; it is hashed, never
+ * logged as text) after the canonical IPv6 text, and refused on IPv4 or a mapped address, where it
+ * means nothing. Trimming cannot shorten a real zone: every character it removes below U+0100 is a
+ * space to the kernel too.
  */
 export function canonicalIpText(raw: unknown): string | null {
 	if (typeof raw !== 'string') return null;
-	const text = raw.replace(SURROUNDING_ASCII_SPACE, '');
+	const text = raw.trim();
 	const [address, zone, ...rest] = text.split('%');
 	if (rest.length > 0) return null;
-	// Positive: `parseIp` trims Unicode whitespace, so the characters are checked before it reads.
+	// Positive, and before `parseIp`, whose own trim would otherwise accept inner padding.
 	if (!ADDRESS_CHARACTERS.test(address)) return null;
 	const parsed = parseIp(address);
 	if (!parsed) return null;
@@ -340,7 +340,9 @@ export function rateLimitAddressKey(address: string, v6PrefixBits: number): stri
  * `192.0.2.1/32`, `2001:db8:aa:bb00::/56` (RFC 4291 section 2.3's prefix notation, the address
  * part as RFC 5952 writes it). The log's subnet label hashes this text (#869), so it names the
  * bucket the limiter counts while carrying the width, which the limiter's own key does not:
- * `2001:db8:aa:bb00::` masks to the same value at /56 and /64. Null for anything not an address.
+ * `2001:db8:aa:bb00::` masks to the same value at /56 and /64. Null for anything `canonicalIpText`
+ * refuses, which includes what the limiter keys by dropping a zone (`192.0.2.1%eth0`) and no
+ * producer writes: Node writes a zone only after an IPv6 link-local peer, and a hop cannot hold `%`.
  */
 export function addressSubnet(address: string, v6PrefixBits: number): string | null {
 	// The canonical reading first, so this export refuses what the log labels refuse (a zone on an
