@@ -122,6 +122,8 @@ The list is tracked; the copies are not. Which of these bind the project, and ho
   `logging/`: https://www.rfc-editor.org/rfc/rfc4291.txt
 - RFC 6052, IPv6 Addressing of IPv4/IPv6 Translators (October 2010, Standards Track), copy in
   `logging/`: https://www.rfc-editor.org/rfc/rfc6052.txt
+- RFC 8981, Temporary Address Extensions for Stateless Address Autoconfiguration in IPv6 (February
+  2021, Standards Track), copy in `logging/`: https://www.rfc-editor.org/rfc/rfc8981.txt
 
 ## Operating systems
 

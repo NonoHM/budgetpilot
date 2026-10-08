@@ -74,10 +74,19 @@ and only on authentication events and on the rate limiter's refusal of an authen
 `RATE_LIMIT_HASH_SECRET` under the label `budgetpilot:log-pseudonym:v1` (R9), so a logged hash
 never equals a stored `LoginAttempt.ipHash`. What is hashed is the address's one canonical text,
 an IPv4-mapped address as its IPv4 client and an IPv6 address as RFC 5952 writes it, so one client
-gives one hash whatever spelling reached the app (#869). Whoever holds `.env` can still reverse a logged
-IPv4 address by enumeration. The protection is against every other reader of the log. The
-derivation exists (`src/lib/server/logging/pseudonym.ts`); no event carries an address yet,
-because no authentication event is written yet (#250). No stored security event exists (see the
+gives one hash whatever spelling reached the app (#869). Beside it, a subnet label hashes the
+network the rate limiter counts the client in, written with its width (`2001:db8:aa:bb00::/56`,
+`192.0.2.1/32`), under a key of its own (`budgetpilot:log-subnet:v1`), as the owner ruled on
+[#869](https://github.com/NonoHM/budgetpilot/issues/869). An IPv6 subscriber rotating through the
+block it was given then reads as one source, which the full-address hash alone cannot show. The
+cost is that it also links a household's changing temporary IPv6 addresses to one another, as an
+IPv4 address already links everything one household does. RFC 8981 section 2.1 says the same of
+the prefix itself: « all hosts within a home could be grouped together ». Which events may carry
+the subnet label, so that an honest household is not grouped, is
+[#936](https://github.com/NonoHM/budgetpilot/issues/936). Whoever holds `.env`
+can still reverse a logged IPv4 address by enumeration. The protection is against every other
+reader of the log. The derivation exists (`src/lib/server/logging/pseudonym.ts`); no event
+carries an address yet, because no authentication event is written yet (#250). No stored security event exists (see the
 gaps).
 
 ### Stated exceptions to the transport rule
@@ -192,7 +201,7 @@ being unknown: each has an issue.
 
 | Gap                                                                                                                                                                                                       | Level                  | Issue                                                                                                                                                                        |
 | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| No authentication, authorization or control-bypass event is written: the writer, the field allowlist and the log pseudonym exist, the events do not.                                                      | Personal, Pseudonymous | [#250](https://github.com/NonoHM/budgetpilot/issues/250)                                                                                                                     |
+| No authentication, authorization or control-bypass event is written: the writer, the field allowlist, the log pseudonym and the subnet label exist, the events do not.                                    | Personal, Pseudonymous | [#250](https://github.com/NonoHM/budgetpilot/issues/250)                                                                                                                     |
 | The stored security event table (180 days default, 365 ceiling) does not exist (R2, R8).                                                                                                                  | Pseudonymous           | #841, the 1.4 event table                                                                                                                                                    |
 | Flagged-category labels reach the model without `anonymizeMerchant`.                                                                                                                                      | Financial              | [#819](https://github.com/NonoHM/budgetpilot/issues/819)                                                                                                                     |
 | Category names, which a user types, reach the model in the default mode, and the AI page says "no names".                                                                                                 | Financial              | #851                                                                                                                                                                         |
