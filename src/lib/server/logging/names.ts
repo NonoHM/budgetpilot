@@ -106,6 +106,21 @@ export const ATTRIBUTE = {
 	importLandedRows: 'budgetpilot.import.landed_rows',
 	countsKind: 'budgetpilot.transactions.counts_kind',
 
+	// Authentication events (L3). The client and the user only as keyed hashes (`pseudonym.ts`):
+	// never OpenTelemetry's `client.address` or `user.id`, which name the raw values.
+	userPseudonym: 'budgetpilot.user.pseudonym',
+	clientPseudonym: 'budgetpilot.client.pseudonym',
+	clientSubnetPseudonym: 'budgetpilot.client.subnet_pseudonym',
+	clientSubnetPrefixLength: 'budgetpilot.client.subnet_prefix_length',
+	authnStep: 'budgetpilot.authn.step',
+	authnReason: 'budgetpilot.authn.reason',
+	authnFactor: 'budgetpilot.authn.factor',
+	authnMethod: 'budgetpilot.authn.method',
+	authnAction: 'budgetpilot.authn.action',
+	rateLimitKind: 'budgetpilot.ratelimit.kind',
+	rateLimitCounter: 'budgetpilot.ratelimit.counter',
+	sessionReason: 'budgetpilot.session.reason',
+
 	// The container start, `boot.mjs`.
 	bootDirectory: 'budgetpilot.boot.directory',
 	bootUid: 'budgetpilot.boot.uid',
@@ -128,6 +143,19 @@ export const EVENT = {
 	sysStartup: 'sys_startup',
 	sysCrash: 'sys_crash',
 	sysMonitorDisabled: 'sys_monitor_disabled',
+
+	// OWASP Logging Vocabulary, authentication. The vocabulary has no name for a second factor, a
+	// re-authentication, a failed registration or a dead session cookie, so those are ours.
+	authnLoginSuccess: 'authn_login_success',
+	authnLoginFail: 'authn_login_fail',
+	rateLimitExceeded: 'excess_rate_limit_exceeded',
+	userCreated: 'user_created',
+	authnLogout: 'session_logout',
+	authnSecondFactorRequired: 'budgetpilot.authn.second_factor_required',
+	authnRegisterFail: 'budgetpilot.authn.register_fail',
+	authnReauthSuccess: 'budgetpilot.authn.reauth_success',
+	authnReauthFail: 'budgetpilot.authn.reauth_fail',
+	sessionInvalid: 'budgetpilot.session.invalid',
 
 	configOriginSet: 'budgetpilot.config.origin_set',
 	configOriginUnset: 'budgetpilot.config.origin_unset',

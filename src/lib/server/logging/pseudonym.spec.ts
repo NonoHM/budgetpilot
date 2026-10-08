@@ -502,7 +502,7 @@ describe('logUserPseudonym: the user field (L3)', () => {
 			logPseudonym(text) === underAddressKey,
 			logUserPseudonym(text) === underAddressKey,
 			logUserPseudonym(text) === createHmac('sha256', SECRET).update(text).digest('hex'),
-			logUserPseudonym(text) === logSubnetPseudonym(text)
+			(logUserPseudonym(text) as string) === logSubnetPseudonym(text)
 		]).toEqual([true, false, false, false]);
 	});
 
