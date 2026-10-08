@@ -500,6 +500,30 @@ describe('an unreadable second factor: disabled with a recovery code, nothing el
 		}).toEqual({ status: 400, ...before });
 	});
 
+	// THE OWNERSHIP CLAUSE for a recovery code (AGENTS.md: asserted in db-smoke, never only against a
+	// fake). Account B posts a code that is VALID, but A's. Separates « the lookup names the caller in
+	// its where clause » from a lookup over every account's unused codes, which would accept it and
+	// spend A's code. Calibrated by A's own journey above, where the same kind of code passes.
+	it("another account's valid recovery code is refused, and stays unspent", async () => {
+		expect.assertions(2);
+		const a = await seedFactor('owner-a', 'unreadable');
+		const b = await seedFactor('owner-b', 'unreadable');
+		const session = await mintSession(b.user.id);
+		const borrowed = a.recoveryCodes[0];
+		expect(await usedAt(borrowed.id)).toBeNull();
+
+		const answer = await post('disableTotp', session.token, {
+			[REAUTH_FIELDS.password]: PASSWORD_A,
+			[REAUTH_FIELDS.code]: borrowed.code
+		});
+
+		expect({
+			error: answer.result.data?.totpDisableError,
+			bFactorOn: (await factor(b.user.id)).totpEnabled,
+			aCodeUsedAt: await usedAt(borrowed.id)
+		}).toEqual({ error: m.reauth_error_password_or_code(), bFactorOn: true, aCodeUsedAt: null });
+	});
+
 	// The journey's calibration. Separates « the recovery code is CHECKED against the rows » from « a
 	// string shaped like one is enough »: an implementation accepting any XXXXX-XXXXX passes the
 	// journey and fails here. The sentence is class 2's one sentence for a form that asked for a

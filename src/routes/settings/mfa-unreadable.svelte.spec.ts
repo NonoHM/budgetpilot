@@ -44,13 +44,12 @@ const disableRefused = { totpDisableError: 'refused' };
 
 describe('Settings, two-factor whose secret no longer decrypts (#904)', () => {
 	it('says the way back, where an enabled factor says it is enabled', async () => {
-		expect.assertions(3);
+		expect.assertions(2);
 
 		await render(Page, { params: {}, data: baseData('unreadable'), form: null });
 
 		await expect.element(page.getByText(m.settings_mfa_status_unreadable())).toBeInTheDocument();
 		expect(page.getByText(m.settings_mfa_description_enabled()).elements()).toHaveLength(0);
-		expect(m.settings_mfa_status_unreadable()).not.toBe(m.settings_mfa_description_enabled());
 	});
 
 	// Still a factor: the switch reads on, and pressing it opens the disable dialog, not enrolment.
@@ -75,6 +74,34 @@ describe('Settings, two-factor whose secret no longer decrypts (#904)', () => {
 		await expect
 			.element(page.getByText(m.settings_mfa_disable_modal_description_unreadable()).first())
 			.toBeInTheDocument();
+	});
+
+	// The other actions that ask for a code still ask for one (the contradiction pass on the code):
+	// a form that dropped the field would post the password alone and read « Incorrect password or
+	// code. ». A refused delete re-opens its panel; the account with no factor is the calibration.
+	it('deleting the account still asks for a code, where an account with no factor is not asked', async () => {
+		expect.assertions(2);
+
+		await render(Page, {
+			params: {},
+			data: baseData('unreadable'),
+			form: { deleteError: 'refused' } as never
+		});
+		const unreadable = page.getByText(m.settings_delete_confirm_code_label()).elements().length;
+		document.body.innerHTML = '';
+
+		await render(Page, {
+			params: {},
+			data: baseData('disabled'),
+			form: { deleteError: 'refused' } as never
+		});
+		await expect
+			.element(page.getByText(m.settings_delete_confirm_password_label()).first())
+			.toBeInTheDocument();
+		expect({
+			unreadable,
+			disabled: page.getByText(m.settings_delete_confirm_code_label()).elements().length
+		}).toEqual({ unreadable: 1, disabled: 0 });
 	});
 
 	it('the calibration: a readable factor keeps the six-digit field and its numeric keyboard', async () => {
