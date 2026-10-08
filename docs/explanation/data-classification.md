@@ -72,7 +72,9 @@ the client IP is logged only as an HMAC under the log-only key, never raw and ne
 and only on authentication events and on the rate limiter's refusal of an authentication kind
 (`LOGIN`, `MFA`, `REAUTH`, `REGISTER`, `INVITE`). The log key is derived by HKDF-SHA256 from
 `RATE_LIMIT_HASH_SECRET` under the label `budgetpilot:log-pseudonym:v1` (R9), so a logged hash
-never equals a stored `LoginAttempt.ipHash`. Whoever holds `.env` can still reverse a logged
+never equals a stored `LoginAttempt.ipHash`. What is hashed is the address's one canonical text,
+an IPv4-mapped address as its IPv4 client and an IPv6 address as RFC 5952 writes it, so one client
+gives one hash whatever spelling reached the app (#869). Whoever holds `.env` can still reverse a logged
 IPv4 address by enumeration. The protection is against every other reader of the log. The
 derivation exists (`src/lib/server/logging/pseudonym.ts`); no event carries an address yet,
 because no authentication event is written yet (#250). No stored security event exists (see the
