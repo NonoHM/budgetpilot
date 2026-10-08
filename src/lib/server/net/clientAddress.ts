@@ -105,13 +105,21 @@ function formatIpv6(value: bigint): string {
  * 160, so the kernel refused to create `wlan-à` (c3 a0), measured the same way.
  */
 function isZoneId(zone: string): boolean {
-	return (
-		/^[\u0001-\u00ff]{1,15}$/.test(zone) &&
-		zone !== '.' &&
-		zone !== '..' &&
-		!/[/:\t\n\v\f\r \u00a0]/.test(zone)
-	);
+	if (zone.length < 1 || zone.length > IFNAME_MAX_BYTES || zone === '.' || zone === '..')
+		return false;
+	for (let i = 0; i < zone.length; i += 1) {
+		const byte = zone.charCodeAt(i);
+		// Above 0xFF no byte decodes to it; NUL ends a C string, so no name holds one.
+		if (byte === 0 || byte > 0xff || ZONE_REFUSED_BYTES.has(byte)) return false;
+	}
+	return true;
 }
+
+/** IFNAMSIZ (include/uapi/linux/if.h) is 16 with the terminating NUL. */
+const IFNAME_MAX_BYTES = 15;
+
+/** What dev_valid_name refuses inside a name: `/`, `:`, and every byte the kernel's isspace is true of. */
+const ZONE_REFUSED_BYTES = new Set([0x2f, 0x3a, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x20, 0xa0]);
 
 /** What an address may be written with: hex digits, `:` and `.`. Anything else is not one. */
 const ADDRESS_CHARACTERS = /^[0-9A-Fa-f:.]+$/;

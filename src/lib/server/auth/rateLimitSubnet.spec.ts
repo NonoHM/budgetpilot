@@ -371,7 +371,7 @@ describe('the log subnet label agrees with the counter at every width', () => {
 		['::ffff:192.0.2.1', ' 192.0.2.1'], // mapped against padded IPv4
 		// A zone as Node writes a non-ASCII interface name (Latin-1 of its bytes, measured).
 		[`fe80::1%${Buffer.from('réseau-maison1', 'utf8').toString('latin1')}`, 'fe80::1'],
-		// A no-break space, the one Unicode space a header can carry (Latin-1), which parseIp trims.
+		// A no-break space: a header arrives Latin-1, and U+00A0 is the space beyond ASCII parseIp trims.
 		['192.0.2.1\u00a0', '192.0.2.1'],
 		['\u00a02001:db8:aa:bb00::1', '2001:db8:aa:bb00::1']
 	];
@@ -413,14 +413,17 @@ describe('the log labels take what the hop reader hands the counter', () => {
 	it.each([
 		['before a port', '192.0.2.1\u00a0:80', '192.0.2.1'],
 		['inside brackets', '[\u00a02001:db8::1]', '2001:db8::1'],
-		['before the port of a bracketed address', '[2001:db8::1\u00a0]:443', '2001:db8::1']
+		['before the port of a bracketed address', '[2001:db8::1\u00a0]:443', '2001:db8::1'],
+		['before the port of nine groups', '2001:db8:1:2:3:4:5:6\u00a0:80', '2001:db8:1:2:3:4:5:6']
 	])('a no-break space %s', async (_label, hop, bare) => {
 		const resolved = resolveForwardedClientAddress('10.0.0.1', hop, trusted);
 		const { logPseudonym, logSubnetPseudonym } = await import('$lib/server/logging/pseudonym');
 		expect([
+			// The hop reader really handed over the padded text, so the labels' own trim is exercised.
+			resolved !== bare,
 			(await queriedIpHash('LOGIN', resolved)) === (await queriedIpHash('LOGIN', bare)),
 			logPseudonym(resolved) === logPseudonym(bare),
 			logSubnetPseudonym(resolved) === logSubnetPseudonym(bare)
-		]).toEqual([true, true, true]);
+		]).toEqual([true, true, true, true]);
 	});
 });
