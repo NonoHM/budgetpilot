@@ -2187,6 +2187,18 @@ describe('#904: settings with a stored secret that does not decrypt', () => {
 		});
 	});
 
+	// The factor is read for the signed-in caller, by the id the session resolved, never another
+	// (the narrow pass on #904: the state tests above take any row the fake returns).
+	it('load reads the factor of the signed-in user, by id', async () => {
+		db.prisma.user.findUnique.mockClear();
+		await mfaFor({ totpEnabled: true, totpSecretEncrypted: unreadableSecret() });
+
+		const factorReads = db.prisma.user.findUnique.mock.calls
+			.map(([args]) => args as { where?: unknown; select?: Record<string, unknown> })
+			.filter((args) => args.select?.totpSecretEncrypted === true);
+		expect(factorReads.map((args) => args.where)).toEqual([{ id: 'user-a' }]);
+	});
+
 	// A page view is not an attempt to authenticate, so it writes no `crypt_decrypt_fail` (the
 	// contradiction pass on the design note: a line per GET of /settings, per affected user, after a
 	// key change). The event is written where a code is JUDGED, which `reauth.spec.ts` and the
