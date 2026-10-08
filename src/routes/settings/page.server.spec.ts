@@ -1,9 +1,13 @@
+import { createCipheriv, randomBytes } from 'node:crypto';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as m from '$lib/paraglide/messages';
+import { ATTRIBUTE } from '$lib/server/logging/names';
 
 vi.hoisted(() => {
 	process.env.TOTP_ENCRYPTION_KEY ??=
 		'0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'.slice(0, 64);
+	// The log pseudonyms (L3, #250) derive their keys from it, and refuse anything but 64 hex.
+	process.env.RATE_LIMIT_HASH_SECRET ??= 'a1'.repeat(32);
 });
 
 const fs = vi.hoisted(() => ({
@@ -49,7 +53,11 @@ const db = vi.hoisted(() => ({
 		},
 		recoveryCode: {
 			deleteMany: vi.fn(),
-			createMany: vi.fn()
+			createMany: vi.fn(),
+			// Read and spent only by a re-authentication that accepts a recovery code (#904). The
+			// #904 describe gives them the sign-in route's semantics; elsewhere they answer nothing.
+			findMany: vi.fn(),
+			updateMany: vi.fn()
 		},
 		// The Comptes section's read. Defaulted to an empty list in every `beforeEach` rather than
 		// left undefined: an absent mock makes the whole `load` throw, and every test in this file
@@ -124,6 +132,13 @@ const accountMemory = vi.hoisted(() => ({
 }));
 vi.mock('$lib/server/import/accountMemory', () => accountMemory);
 vi.mock('$lib/server/net-worth/service', () => netWorthService);
+// Every line the route writes, through the one writer, captured instead of printed (#904 reads the
+// decryption-failure line; the other tests ignore it).
+const logWriter = vi.hoisted(() => ({ log: vi.fn() }));
+vi.mock('$lib/server/logging', async (importOriginal) => ({
+	...(await importOriginal<typeof import('$lib/server/logging')>()),
+	log: logWriter.log
+}));
 // The re-authentication helper runs for real; the spy only lets a test read the REASON it decided,
 // which no response carries (#854 class 2: the screen gets one sentence whatever failed).
 // The commit a re-authenticated change goes through rotates the session token in the same
@@ -151,6 +166,7 @@ vi.mock('$lib/server/auth/reauth', async (importOriginal) => {
 const { commitWithRotatedToken, hashPassword, SESSION_COOKIE } = await import('$lib/server/auth');
 const reauth = await import('$lib/server/auth/reauth');
 const { actions, load } = await import('./+page.server');
+const pseudonym = await import('$lib/server/logging/pseudonym');
 
 describe('/settings', () => {
 	beforeEach(() => {
@@ -2047,6 +2063,237 @@ describe('S1: each re-authenticating settings action, through the real action', 
 		for (const write of CASES.confirmTotpSetup.writes()) expect(write.mock.calls).toEqual([]);
 	});
 });
+
+/**
+ * #904: the account has two-factor on and its stored secret no longer decrypts (the encryption key
+ * was rotated). The settings page must say so rather than show a factor it can no longer check, and
+ * `disableTotp` accepts the password plus a RECOVERY CODE in that state and only in that state
+ * (owner ruling 2026-10-08). The re-authentication runs for real; the account row and the limiter
+ * are this file's fakes, and the recovery-code rows are `unusedRecoveryCodes` below.
+ */
+describe('#904: settings with a stored secret that does not decrypt', () => {
+	const PASSWORD = 'mot-de-passe-du-compte';
+	const RECOVERY_CODE = 'ABCDE-12345';
+	/** Literal until `EVENT.cryptDecryptFail` and `ATTRIBUTE.cryptPurpose` exist (the contract's names). */
+	const CRYPT_DECRYPT_FAIL = 'crypt_decrypt_fail';
+	const CRYPT_PURPOSE = 'budgetpilot.crypt.purpose';
+	let passwordHash = '';
+	let recoveryCodeHash = '';
+	let totp: typeof import('$lib/server/auth/totp');
+
+	beforeAll(async () => {
+		totp = await import('$lib/server/auth/totp');
+		passwordHash = await hashPassword(PASSWORD);
+		recoveryCodeHash = await totp.hashRecoveryCode(RECOVERY_CODE);
+	});
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		db.prisma.$transaction.mockImplementation(async (callback) => callback(tx));
+		rateLimit.isReauthRateLimited.mockReset();
+		rateLimit.isReauthRateLimited.mockResolvedValue(false);
+		rateLimit.recordReauthAttempt.mockReset();
+		rateLimit.recordReauthAttempt.mockResolvedValue(undefined);
+		db.prisma.user.updateMany.mockResolvedValue({ count: 1 });
+		db.prisma.session.findMany.mockResolvedValue([]);
+		tagsService.listTagsWithCounts.mockResolvedValue([]);
+		mappingStore.listColumnMappings.mockResolvedValue([]);
+		mappingStore.resolveColumnMappingsPerUser.mockReturnValue(50);
+		db.prisma.account.findMany.mockResolvedValue([]);
+		netWorthService.readLinkableNetWorthAccounts.mockResolvedValue([]);
+		unusedRecoveryCodes([{ id: 'code-1', codeHash: recoveryCodeHash }]);
+	});
+
+	/**
+	 * The account's unused recovery codes, with the semantics of the only spender in the tree
+	 * (`login/verify-totp`'s): a read of the caller's unused rows, then a conditional update by id.
+	 * A clause the fake cannot model throws; an absent one is no filter, as in Prisma, and every row
+	 * here is the caller's.
+	 */
+	function unusedRecoveryCodes(rows: Array<{ id: string; codeHash: string }>) {
+		db.prisma.recoveryCode.findMany.mockImplementation(
+			async (args: { where?: Record<string, unknown> }) => {
+				const unmodelled = Object.keys(args?.where ?? {}).filter(
+					(key) => key !== 'userId' && key !== 'usedAt'
+				);
+				if (unmodelled.length > 0) {
+					throw new Error(`recoveryCode fake: cannot model where.${unmodelled.join(', where.')}`);
+				}
+				return rows;
+			}
+		);
+		db.prisma.recoveryCode.updateMany.mockImplementation(
+			async (args: { where?: { id?: unknown } }) => {
+				if (typeof args?.where?.id !== 'string') {
+					throw new Error('recoveryCode fake: cannot model an update not keyed by one id');
+				}
+				return { count: rows.some((row) => row.id === args.where?.id) ? 1 : 0 };
+			}
+		);
+	}
+
+	function unreadableSecret(): string {
+		return ciphertextUnderAnotherKey(totp.generateTotpSecretBase32());
+	}
+
+	function readableSecret(): string {
+		return totp.encryptTotpSecret(totp.generateTotpSecretBase32());
+	}
+
+	async function mfaFor(factor: { totpEnabled: boolean; totpSecretEncrypted: string | null }) {
+		db.prisma.user.findUniqueOrThrow.mockResolvedValue({
+			email: 'user-a@example.test',
+			role: 'USER',
+			aiInsightsEnabled: false,
+			aiIncludeLabels: false,
+			...factor
+		});
+		const result = (await load(buildLoadEvent({ token: 'session-courante' }) as never)) as {
+			mfa: unknown;
+		};
+		return result.mfa;
+	}
+
+	function linesNamed(name: string): unknown[] {
+		return logWriter.log.mock.calls
+			.map(([event]) => event)
+			.filter((event) => (event as { event: string }).event === name);
+	}
+
+	// Calibration of the fixture: the tests below are only about an UNREADABLE secret if it fails at
+	// decryption under the application's key while the application's own ciphertext decrypts.
+	it('calibration: the fixture fails at decryption, where the application ciphertext decrypts', () => {
+		const secret = totp.generateTotpSecretBase32();
+		let unreadable: string;
+		try {
+			totp.decryptTotpSecret(ciphertextUnderAnotherKey(secret));
+			unreadable = 'decrypted';
+		} catch (caught) {
+			unreadable = (caught as Error).message;
+		}
+		expect({
+			unreadable,
+			readable: totp.decryptTotpSecret(totp.encryptTotpSecret(secret)) === secret
+		}).toEqual({ unreadable: 'Unsupported state or unable to authenticate data', readable: true });
+	});
+
+	// Separates « a factor the server can no longer check » from « a working factor »: today both
+	// read `{ enabled: true }`, and the page offers a disable that no code can pass.
+	it('load reports the factor as unreadable when its stored secret is under another key', async () => {
+		expect(await mfaFor({ totpEnabled: true, totpSecretEncrypted: unreadableSecret() })).toEqual({
+			status: 'unreadable'
+		});
+	});
+
+	it('load reports the factor as enabled when its stored secret decrypts', async () => {
+		expect(await mfaFor({ totpEnabled: true, totpSecretEncrypted: readableSecret() })).toEqual({
+			status: 'enabled'
+		});
+	});
+
+	it('load reports the factor as disabled when the account has none', async () => {
+		expect(await mfaFor({ totpEnabled: false, totpSecretEncrypted: null })).toEqual({
+			status: 'disabled'
+		});
+	});
+
+	// Separates « the failure reported once, naming whose secret and what for » from « swallowed »
+	// (today: no line) and from a line that carries more than the contract names.
+	it('load with an unreadable secret logs exactly one crypt_decrypt_fail naming the user and the purpose', async () => {
+		await mfaFor({ totpEnabled: true, totpSecretEncrypted: unreadableSecret() });
+
+		expect(linesNamed(CRYPT_DECRYPT_FAIL)).toEqual([
+			{
+				event: CRYPT_DECRYPT_FAIL,
+				attributes: {
+					[ATTRIBUTE.userPseudonym]: pseudonym.logUserPseudonym('user-a'),
+					[CRYPT_PURPOSE]: 'totp_secret'
+				}
+			}
+		]);
+	});
+
+	// The absence beside its calibration: the same count over an unreadable read must be 1, or a
+	// zero for the readable read says nothing about whether the line can be seen at all.
+	it('load with a readable secret logs no crypt_decrypt_fail, where an unreadable one logs one', async () => {
+		await mfaFor({ totpEnabled: true, totpSecretEncrypted: unreadableSecret() });
+		const unreadable = linesNamed(CRYPT_DECRYPT_FAIL).length;
+
+		logWriter.log.mockClear();
+		await mfaFor({ totpEnabled: true, totpSecretEncrypted: readableSecret() });
+
+		expect({ unreadable, readable: linesNamed(CRYPT_DECRYPT_FAIL).length }).toEqual({
+			unreadable: 1,
+			readable: 0
+		});
+	});
+
+	// The ruling's one way out. Separates « two-factor turned off with the password and a recovery
+	// code » from today's `missing-totp`, which leaves an owner whose key was rotated unable to
+	// disable a factor nothing can check.
+	it('disableTotp with an unreadable secret, the right password and a valid recovery code turns two-factor off', async () => {
+		db.prisma.user.findUnique.mockResolvedValue({
+			passwordHash,
+			totpEnabled: true,
+			totpSecretEncrypted: unreadableSecret()
+		});
+
+		await runAction('disableTotp', {
+			token: 'session-courante',
+			input: { currentPassword: PASSWORD, code: RECOVERY_CODE }
+		});
+
+		expect(
+			tx.user.update.mock.calls.map(([args]) => (args as { data: Record<string, unknown> }).data)
+		).toEqual([
+			{ totpEnabled: false, totpSecretEncrypted: null, totpEnabledAt: null, totpLastUsedStep: null }
+		]);
+	});
+
+	// A pin of the ruling's « only in that state »: against a READABLE secret a recovery code is not
+	// a re-authentication factor (#886 stays separate). Separates « refused as a missing code, no
+	// recovery code read or spent » from a recovery-code path that does not check the secret first.
+	it('disableTotp with a readable secret refuses the same recovery code, reading and spending none', async () => {
+		db.prisma.user.findUnique.mockResolvedValue({
+			passwordHash,
+			totpEnabled: true,
+			totpSecretEncrypted: readableSecret()
+		});
+
+		const result = await runAction('disableTotp', {
+			token: 'session-courante',
+			input: { currentPassword: PASSWORD, code: RECOVERY_CODE }
+		});
+
+		expect({
+			decided: await vi.mocked(reauth.reauthenticate).mock.results[0]?.value,
+			status: result.status,
+			codesRead: db.prisma.recoveryCode.findMany.mock.calls.length,
+			codesSpent: db.prisma.recoveryCode.updateMany.mock.calls.length,
+			factorWrites: tx.user.update.mock.calls.length
+		}).toEqual({
+			decided: { ok: false, reason: 'missing-totp', asked: 'password-and-code' },
+			status: 400,
+			codesRead: 0,
+			codesSpent: 0,
+			factorWrites: 0
+		});
+	});
+});
+
+/**
+ * A stored secret in the production format (`iv:authTag:ciphertext`, base64url) that does NOT
+ * decrypt under the application's key: AES-256-GCM under another 32-byte key, as a rotated
+ * `TOTP_ENCRYPTION_KEY` leaves every enrolled secret. Built here rather than by mocking
+ * `decryptSecret`, so it is the real decryption that fails, at the authentication tag.
+ */
+function ciphertextUnderAnotherKey(plaintext: string): string {
+	const anotherKey = Buffer.from('e7'.repeat(32), 'hex');
+	const iv = randomBytes(12);
+	const cipher = createCipheriv('aes-256-gcm', anotherKey, iv);
+	const ciphertext = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
+	return [iv, cipher.getAuthTag(), ciphertext].map((part) => part.toString('base64url')).join(':');
+}
 
 function buildCookies(token: string | undefined) {
 	return {
