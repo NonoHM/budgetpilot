@@ -1203,6 +1203,21 @@ describe('#904: a stored secret that does not decrypt', () => {
 		]);
 	});
 
+	// disableTotp is the one action where the recovery path exists, so it is the one where a six-digit
+	// code must still write the line (the narrow pass on the fixes: a test over changePassword alone
+	// cannot tell « no line on the recovery path » from « no line at disableTotp »).
+	it('logs: a six-digit code at disableTotp still writes crypt_decrypt_fail', async () => {
+		db.prisma.user.findUnique.mockResolvedValue(unreadableAccount());
+
+		await reauthenticate('disableTotp', {
+			user: caller,
+			ip: IP,
+			form: form({ password: PASSWORD, code: codeFor(secret) })
+		});
+
+		expect(events()).toEqual([cryptDecryptFail(), reauthFail('disableTotp', 'unreadable_secret')]);
+	});
+
 	// A recovery code is never checked against the stored secret, so no crypt_decrypt_fail beside it.
 	it('logs: wrong-recovery-code is wrong_recovery_code, alone', async () => {
 		db.prisma.user.findUnique.mockResolvedValue(unreadableAccount());

@@ -80,13 +80,17 @@ describe('Settings, two-factor whose secret no longer decrypts (#904)', () => {
 	// a form that dropped the field would post the password alone and read « Incorrect password or
 	// code. ». A refused delete re-opens its panel; the account with no factor is the calibration.
 	it('deleting the account still asks for a code, where an account with no factor is not asked', async () => {
-		expect.assertions(2);
+		expect.assertions(3);
 
 		await render(Page, {
 			params: {},
 			data: baseData('unreadable'),
 			form: { deleteError: 'refused' } as never
 		});
+		// Waited for, so the count below reads a rendered panel rather than the framework's batching.
+		await expect
+			.element(page.getByText(m.settings_delete_confirm_password_label()).first())
+			.toBeInTheDocument();
 		const unreadable = page.getByText(m.settings_delete_confirm_code_label()).elements().length;
 		document.body.innerHTML = '';
 
