@@ -2140,9 +2140,10 @@ describe('#904: settings with a stored secret that does not decrypt', () => {
 			email: 'user-a@example.test',
 			role: 'USER',
 			aiInsightsEnabled: false,
-			aiIncludeLabels: false,
-			...factor
+			aiIncludeLabels: false
 		});
+		// The factor columns are read by `readFactorState`, not by the load's own select.
+		db.prisma.user.findUnique.mockResolvedValue(factor);
 		const result = (await load(buildLoadEvent({ token: 'session-courante' }) as never)) as {
 			mfa: unknown;
 		};

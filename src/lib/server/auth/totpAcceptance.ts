@@ -58,6 +58,19 @@ export function storedFactorState(row: {
 }
 
 /**
+ * The caller's factor state, read here so that the secret never leaves this module for a page that
+ * only shows it (`credential-exposure.spec.ts`: a credential column is selected only where a secret
+ * is verified, and the state is a decryption). Settings gets the verdict, never the ciphertext.
+ */
+export async function readFactorState(userId: string): Promise<StoredFactorState> {
+	const row = await prisma.user.findUnique({
+		where: { id: userId },
+		select: { totpEnabled: true, totpSecretEncrypted: true }
+	});
+	return row ? storedFactorState(row) : 'disabled';
+}
+
+/**
  * Judges a code against the account's stored secret and spends its step: one conditional update
  * that records the step only if it is later than the last step accepted for this user, accepted iff
  * that update matched the row. The comparison and the write are one statement, so two concurrent

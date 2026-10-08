@@ -49,7 +49,11 @@ const CREDENTIAL_FIELDS = ['passwordHash', 'totpSecretEncrypted'] as const;
 const CREDENTIAL_PATHS = [
 	join('src', 'routes', 'login', '+page.server.ts'),
 	join('src', 'routes', 'login', 'verify-totp', '+page.server.ts'),
-	join('src', 'lib', 'server', 'auth', 'reauth.ts')
+	join('src', 'lib', 'server', 'auth', 'reauth.ts'),
+	// #904: whether the stored TOTP secret still decrypts is decided by decrypting it, here, and
+	// Settings receives only that verdict (`readFactorState`). Settings selecting the ciphertext
+	// itself is what this gate refused.
+	join('src', 'lib', 'server', 'auth', 'totpAcceptance.ts')
 ];
 
 /**
@@ -112,7 +116,7 @@ describe('credential exposure (v5.0.0-15.3.1, v5.0.0-8.2.3)', () => {
 		// measured 15 so it is a statement about the matcher working, not about the inventory.
 		expect(reads.length).toBeGreaterThanOrEqual(12);
 
-		// Sharper than the count: the three files where a credential is genuinely read must each be
+		// Sharper than the count: the files where a credential is genuinely read must each be
 		// visible to the scan. If they are, a new query added beside one of them is visible too.
 		const seen = new Set(queries.map((query) => query.path));
 		expect(CREDENTIAL_PATHS.filter((path) => !seen.has(path))).toEqual([]);
@@ -136,7 +140,7 @@ describe('credential exposure (v5.0.0-15.3.1, v5.0.0-8.2.3)', () => {
 		).toEqual([]);
 	});
 
-	it('no select outside the three credential paths returns passwordHash or totpSecretEncrypted', () => {
+	it('no select outside the credential paths returns passwordHash or totpSecretEncrypted', () => {
 		expect.assertions(1);
 
 		const offenders = findUserQueries()
