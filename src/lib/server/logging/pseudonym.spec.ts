@@ -226,6 +226,12 @@ describe('logPseudonym normalises the address before keying it (#869)', () => {
 		}
 	});
 
+	it('reads a no-break space around an address as one spelling, as the limiter reads it', () => {
+		// parseIp trims with String.prototype.trim, so the counter takes `192.0.2.1\u00a0`; a label that
+		// refused it would drop the event line of a request the limiter counted.
+		expect(logPseudonym('\u00a0203.0.113.7\u00a0')).toBe(keyed('203.0.113.7'));
+	});
+
 	it('trims the whole value before reading the zone, so surrounding whitespace is one spelling', () => {
 		expect(logPseudonym(' fe80::1%eth0\t')).toBe(keyed('fe80::1%eth0'));
 	});
@@ -260,7 +266,9 @@ describe('logPseudonym normalises the address before keying it (#869)', () => {
 		// The kernel's isspace (lib/ctype.c) counts byte 0xA0 as a space, so it refused to create an
 		// interface named `wlan-à` (c3 a0), measured; a zone holding U+00A0 names no interface.
 		['a zone holding byte 0xA0', `fe80::1%${asNodeWritesIt('wlan-à')}`],
-		['a no-break space around an address', '\u00a0203.0.113.7'],
+		// Bytes no interface name holds, each class separately: C's other spaces, and NUL.
+		['a zone holding a tab', 'fe80::1%eth\t0'],
+		['a zone holding NUL', 'fe80::1%eth\u00000'],
 		['a zone with a second `%`', 'fe80::1%eth0%eth1'],
 		['whitespace before the zone', 'fe80::1 %eth0'],
 		['a zone on an IPv4 address', '203.0.113.7%eth0'],

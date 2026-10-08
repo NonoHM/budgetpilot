@@ -17,7 +17,8 @@ const db = vi.hoisted(() => ({
 vi.mock('$lib/server/db', () => ({ prisma: db.prisma }));
 
 const limiter = await import('./rateLimit');
-const { resolveClientAddress } = await import('$lib/server/net/clientAddress');
+const { parseTrustedProxies, resolveClientAddress, resolveForwardedClientAddress } =
+	await import('$lib/server/net/clientAddress');
 
 /**
  * THE ADDRESS COUNTER KEYS AN IPv6 CLIENT BY ITS /56, NOT BY ITS FULL ADDRESS.
@@ -369,7 +370,10 @@ describe('the log subnet label agrees with the counter at every width', () => {
 		[' 2001:db8:aa:bb00::1\t', '2001:db8:aa:bb00::1'], // surrounding whitespace
 		['::ffff:192.0.2.1', ' 192.0.2.1'], // mapped against padded IPv4
 		// A zone as Node writes a non-ASCII interface name (Latin-1 of its bytes, measured).
-		[`fe80::1%${Buffer.from('réseau-maison1', 'utf8').toString('latin1')}`, 'fe80::1']
+		[`fe80::1%${Buffer.from('réseau-maison1', 'utf8').toString('latin1')}`, 'fe80::1'],
+		// A no-break space, the one Unicode space a header can carry (Latin-1), which parseIp trims.
+		['192.0.2.1\u00a0', '192.0.2.1'],
+		['\u00a02001:db8:aa:bb00::1', '2001:db8:aa:bb00::1']
 	];
 
 	afterEach(() => {
@@ -395,4 +399,28 @@ describe('the log subnet label agrees with the counter at every width', () => {
 			);
 		}
 	);
+});
+
+/**
+ * THE LABELS ACCEPT EVERY ADDRESS THE COUNTER COUNTS, as the hop reader hands it over (#869, the
+ * fresh pass on the zone fix). The agreement above compares values both sides accept; this asks the
+ * producer. `readForwardedHop` trims a hop's outer edge only, so a no-break space inside brackets
+ * or before a port reaches both sides. If the counter counts it and a label refuses it, the event
+ * line of a counted request goes missing.
+ */
+describe('the log labels take what the hop reader hands the counter', () => {
+	const trusted = parseTrustedProxies('10.0.0.1');
+	it.each([
+		['before a port', '192.0.2.1\u00a0:80', '192.0.2.1'],
+		['inside brackets', '[\u00a02001:db8::1]', '2001:db8::1'],
+		['before the port of a bracketed address', '[2001:db8::1\u00a0]:443', '2001:db8::1']
+	])('a no-break space %s', async (_label, hop, bare) => {
+		const resolved = resolveForwardedClientAddress('10.0.0.1', hop, trusted);
+		const { logPseudonym, logSubnetPseudonym } = await import('$lib/server/logging/pseudonym');
+		expect([
+			(await queriedIpHash('LOGIN', resolved)) === (await queriedIpHash('LOGIN', bare)),
+			logPseudonym(resolved) === logPseudonym(bare),
+			logSubnetPseudonym(resolved) === logSubnetPseudonym(bare)
+		]).toEqual([true, true, true]);
+	});
 });
