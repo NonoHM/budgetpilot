@@ -97,7 +97,11 @@ describe('logPseudonym normalises the address before keying it (#869)', () => {
 	}
 
 	const group = fc.oneof(fc.constant(0), fc.integer({ min: 0, max: 0xffff }));
-	const v6 = fc.array(group, { minLength: 8, maxLength: 8 });
+	// Not the unspecified address `::`: `parseIp` refuses it (#933), and no peer carries it (RFC 4291
+	// section 2.5.2: it « must never be assigned to any node »).
+	const v6 = fc
+		.array(group, { minLength: 8, maxLength: 8 })
+		.filter((groups) => groups.some((g) => g !== 0));
 	const v4 = fc
 		.array(fc.integer({ min: 0, max: 255 }), { minLength: 4, maxLength: 4 })
 		.map(([a, b, c, d]) => [0, 0, 0, 0, 0, 0xffff, (a << 8) | b, (c << 8) | d]);

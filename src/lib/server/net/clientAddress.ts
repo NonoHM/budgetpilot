@@ -57,6 +57,76 @@ export function parseIp(raw: string): { version: 4 | 6; value: bigint } | null {
 	return v4 === null ? null : { version: 4, value: v4 };
 }
 
+/** A dotted quad from a 32-bit value. */
+function formatIpv4(value: bigint): string {
+	return [24n, 16n, 8n, 0n].map((shift) => String((value >> shift) & 0xffn)).join('.');
+}
+
+/**
+ * RFC 5952 section 4 text from a 128-bit value: lowercase, no leading zeros, and `::` standing for
+ * the first longest run of two or more zero groups (« the first sequence of zero bits MUST be
+ * shortened » when two runs are equal, and « The symbol "::" MUST NOT be used to shorten just one
+ * 16-bit 0 field »).
+ */
+function formatIpv6(value: bigint): string {
+	const groups = Array.from({ length: 8 }, (_, i) =>
+		Number((value >> BigInt(112 - 16 * i)) & 0xffffn)
+	);
+	let runStart = -1;
+	let runLength = 1;
+	for (let i = 0; i < 8;) {
+		if (groups[i] !== 0) {
+			i += 1;
+			continue;
+		}
+		let end = i;
+		while (end < 8 && groups[end] === 0) end += 1;
+		if (end - i > runLength) {
+			runStart = i;
+			runLength = end - i;
+		}
+		i = end;
+	}
+	const hex = groups.map((group) => group.toString(16));
+	if (runStart < 0) return hex.join(':');
+	return `${hex.slice(0, runStart).join(':')}::${hex.slice(runStart + runLength).join(':')}`;
+}
+
+/**
+ * A zone index (RFC 4007 section 11, `<address>%<zone_id>`) as Node writes one after a link-local
+ * peer: an interface name or number. Linux's IFNAMSIZ is 16 bytes with the NUL, so 15 characters.
+ */
+const ZONE_ID = /^[A-Za-z0-9._-]{1,15}$/;
+
+/**
+ * The one text of an address, so that every spelling of one address is one string; null for
+ * anything that is not exactly one address.
+ *
+ * IPv4 as a dotted quad, the IPv4-mapped form folded to it as `parseIp` does; IPv6 as RFC 5952
+ * section 4 writes it. RFC 5952 section 5 recommends KEEPING the mapped form as `::ffff:a.b.c.d`;
+ * folding it is this module's choice (a dual-stack listener reports an IPv4 peer that way), as Go's
+ * `netip.Addr.Unmap` and Python's `ipaddress` `ipv4_mapped` do. Neither the IPv4-compatible form
+ * (`::a.b.c.d`, deprecated by RFC 4291 section 2.5.5.1) nor a NAT64 address (RFC 6052) is folded:
+ * each names a different address, whatever `rateLimitAddressKey` counts it as.
+ *
+ * Surrounding whitespace is trimmed; whitespace anywhere else refuses. A zone is kept verbatim
+ * (interface names are case-sensitive) after the canonical IPv6 text, and refused on IPv4 or a
+ * mapped address, where it means nothing.
+ */
+export function canonicalIpText(raw: unknown): string | null {
+	if (typeof raw !== 'string') return null;
+	const text = raw.trim();
+	if (/\s/.test(text)) return null;
+	const [address, zone, ...rest] = text.split('%');
+	if (rest.length > 0) return null;
+	const parsed = parseIp(address);
+	if (!parsed) return null;
+	if (parsed.version === 4) return zone === undefined ? formatIpv4(parsed.value) : null;
+	if (zone !== undefined && !ZONE_ID.test(zone)) return null;
+	const canonical = formatIpv6(parsed.value);
+	return zone === undefined ? canonical : `${canonical}%${zone}`;
+}
+
 function parseIpv4(value: string): bigint | null {
 	const parts = value.split('.');
 	if (parts.length !== 4) return null;
@@ -242,9 +312,7 @@ export function rateLimitAddressKey(address: string, v6PrefixBits: number): stri
 		version = 4;
 		value &= 0xffffffffn;
 	}
-	if (version === 4) {
-		return [24n, 16n, 8n, 0n].map((shift) => String((value >> shift) & 0xffn)).join('.');
-	}
+	if (version === 4) return formatIpv4(value);
 	const mask = ALL_128_BITS ^ ((1n << BigInt(V6_MAX_PREFIX - v6PrefixBits)) - 1n);
 	return `v6:${(value & mask).toString(16)}`;
 }

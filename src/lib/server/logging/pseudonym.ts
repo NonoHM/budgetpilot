@@ -1,6 +1,7 @@
 import { createHmac, hkdfSync } from 'node:crypto';
 import { env } from '$env/dynamic/private';
 import { assertRateLimitSecretConfigured } from '$lib/server/auth/rateLimit';
+import { canonicalIpText } from '$lib/server/net/clientAddress';
 
 /**
  * The log pseudonym: what a client address becomes before it may enter a log line (ruling R1 on
@@ -20,6 +21,14 @@ import { assertRateLimitSecretConfigured } from '$lib/server/auth/rateLimit';
  * logged address by enumeration; that is the operator. The protection is against every other
  * reader of the log: a collector, a SIEM, a leaked file. Rotating the secret breaks correlation
  * across the rotation date.
+ *
+ * ONE ADDRESS, ONE PSEUDONYM (#869). What is keyed is `canonicalIpText` of the value, never the
+ * value as given: hashing the spelling made one client read as several sources (`2001:db8::1` and
+ * `2001:DB8:0:0:0:0:0:1`, an IPv4 client and its `::ffff:` form). A value that is not an address
+ * throws rather than being hashed, without the value in the message, which could reach a log. The
+ * only producer is `resolveClientAddress`, so a throw is a caller defect, not a request condition;
+ * an authentication event therefore takes its pseudonym AFTER `recordFailedLoginAttempt`, never
+ * before, so that a throw cannot skip the record.
  */
 export const LOG_PSEUDONYM_KEY_LABEL = 'budgetpilot:log-pseudonym:v1';
 
@@ -34,9 +43,11 @@ export function deriveLogPseudonymKey(secretHex: string): Buffer {
 	);
 }
 
-/** The pseudonym of one value under a given derived key. Lowercase hex. */
+/** The pseudonym of one address under a given derived key. Lowercase hex. Throws on a non-address. */
 export function logPseudonymWith(key: Buffer, value: string): LogPseudonym {
-	return createHmac('sha256', key).update(value, 'utf8').digest('hex') as LogPseudonym;
+	const canonical = canonicalIpText(value);
+	if (canonical === null) throw new Error('log pseudonym: the value is not an IP address');
+	return createHmac('sha256', key).update(canonical, 'utf8').digest('hex') as LogPseudonym;
 }
 
 let cached: { secret: string; key: Buffer } | undefined;
