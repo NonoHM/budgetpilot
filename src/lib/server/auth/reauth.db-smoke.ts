@@ -472,6 +472,34 @@ describe('an unreadable second factor: disabled with a recovery code, nothing el
 		});
 	});
 
+	// The contradiction pass on the design note: enrolling over an UNREADABLE factor is still
+	// enrolling over a factor. Separates « refused, the stored secret and the codes untouched » from a
+	// gate that asks for a READABLE factor, which would store the caller's secret behind the password
+	// alone and issue ten new recovery codes.
+	it('confirmTotpSetup over an unreadable factor is refused, and the secret and codes stay', async () => {
+		expect.assertions(2);
+		const { user } = await seedFactor('enrol-over', 'unreadable');
+		const session = await mintSession(user.id);
+		const before = { factor: await factor(user.id), codes: await recoveryCodeCount(user.id) };
+		expect({ enabled: before.factor.totpEnabled, codes: before.codes }).toEqual({
+			enabled: true,
+			codes: RECOVERY_CODE_COUNT
+		});
+		const fresh = generateTotpSecretBase32();
+
+		const answer = await post('confirmTotpSetup', session.token, {
+			[REAUTH_FIELDS.password]: PASSWORD_A,
+			[REAUTH_FIELDS.code]: currentCode(fresh),
+			secretBase32: fresh
+		});
+
+		expect({
+			status: answer.result.status,
+			factor: await factor(user.id),
+			codes: await recoveryCodeCount(user.id)
+		}).toEqual({ status: 400, ...before });
+	});
+
 	// The journey's calibration. Separates « the recovery code is CHECKED against the rows » from « a
 	// string shaped like one is enough »: an implementation accepting any XXXXX-XXXXX passes the
 	// journey and fails here. The sentence is class 2's one sentence for a form that asked for a

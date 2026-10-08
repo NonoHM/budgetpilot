@@ -1129,6 +1129,53 @@ describe('#904: a stored secret that does not decrypt', () => {
 		expect(db.prisma.recoveryCode.findMany).not.toHaveBeenCalled();
 	});
 
+	// The contradiction pass on the design note: an unreadable secret is still a FACTOR for the
+	// enrolment gate. Read as none, enrolling would replace it with a secret the caller chose,
+	// behind the password alone, and hand the caller ten new recovery codes. Separates « the gate
+	// counts unreadable as a factor » from « the gate asks for a readable one ».
+	it('confirmTotpSetup over an unreadable factor is totp-already-enabled, and judges no code', async () => {
+		const fresh = generateTotpSecretBase32();
+		db.prisma.user.findUnique.mockResolvedValue(unreadableAccount());
+
+		const outcome = await reauthenticate('confirmTotpSetup', {
+			user: caller,
+			ip: IP,
+			form: form({ password: PASSWORD, code: codeFor(fresh) }),
+			newTotpSecret: fresh
+		});
+
+		expect(outcome).toEqual({ ok: false, reason: 'totp-already-enabled' });
+		expect(verifyTotpCode).not.toHaveBeenCalled();
+	});
+
+	// Sign-in uppercases a recovery code before comparing; the shared function must too, or a code
+	// typed in lower case signs in and then fails to turn the factor off.
+	it('disableTotp: a recovery code typed in lower case passes', async () => {
+		db.prisma.user.findUnique.mockResolvedValue(unreadableAccount());
+
+		const outcome = await reauthenticate('disableTotp', {
+			user: caller,
+			ip: IP,
+			form: form({ password: PASSWORD, code: RECOVERY.toLowerCase() })
+		});
+
+		expect(outcome).toEqual({ ok: true });
+	});
+
+	// A shape refusal judged nothing, so it writes nothing, unreadable secret or not (the L3 rule).
+	it('a shape refusal over an unreadable secret writes no line', async () => {
+		db.prisma.user.findUnique.mockResolvedValue(unreadableAccount());
+
+		const outcome = await reauthenticate('disableTotp', {
+			user: caller,
+			ip: IP,
+			form: form({ password: PASSWORD })
+		});
+
+		expect(outcome).toEqual({ ok: false, reason: 'missing-totp', asked: 'password-and-code' });
+		expect(events()).toEqual([]);
+	});
+
 	it('unreadable-totp has its own sentence', () => {
 		expect(
 			reauthRefusalMessage({ ok: false, reason: 'unreadable-totp', asked: 'password-and-code' })

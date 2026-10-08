@@ -1,7 +1,6 @@
 import { createCipheriv, randomBytes } from 'node:crypto';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as m from '$lib/paraglide/messages';
-import { ATTRIBUTE } from '$lib/server/logging/names';
 
 vi.hoisted(() => {
 	process.env.TOTP_ENCRYPTION_KEY ??=
@@ -166,7 +165,6 @@ vi.mock('$lib/server/auth/reauth', async (importOriginal) => {
 const { commitWithRotatedToken, hashPassword, SESSION_COOKIE } = await import('$lib/server/auth');
 const reauth = await import('$lib/server/auth/reauth');
 const { actions, load } = await import('./+page.server');
-const pseudonym = await import('$lib/server/logging/pseudonym');
 
 describe('/settings', () => {
 	beforeEach(() => {
@@ -2074,9 +2072,6 @@ describe('S1: each re-authenticating settings action, through the real action', 
 describe('#904: settings with a stored secret that does not decrypt', () => {
 	const PASSWORD = 'mot-de-passe-du-compte';
 	const RECOVERY_CODE = 'ABCDE-12345';
-	/** Literal until `EVENT.cryptDecryptFail` and `ATTRIBUTE.cryptPurpose` exist (the contract's names). */
-	const CRYPT_DECRYPT_FAIL = 'crypt_decrypt_fail';
-	const CRYPT_PURPOSE = 'budgetpilot.crypt.purpose';
 	let passwordHash = '';
 	let recoveryCodeHash = '';
 	let totp: typeof import('$lib/server/auth/totp');
@@ -2154,12 +2149,6 @@ describe('#904: settings with a stored secret that does not decrypt', () => {
 		return result.mfa;
 	}
 
-	function linesNamed(name: string): unknown[] {
-		return logWriter.log.mock.calls
-			.map(([event]) => event)
-			.filter((event) => (event as { event: string }).event === name);
-	}
-
 	// Calibration of the fixture: the tests below are only about an UNREADABLE secret if it fails at
 	// decryption under the application's key while the application's own ciphertext decrypts.
 	it('calibration: the fixture fails at decryption, where the application ciphertext decrypts', () => {
@@ -2197,33 +2186,25 @@ describe('#904: settings with a stored secret that does not decrypt', () => {
 		});
 	});
 
-	// Separates « the failure reported once, naming whose secret and what for » from « swallowed »
-	// (today: no line) and from a line that carries more than the contract names.
-	it('load with an unreadable secret logs exactly one crypt_decrypt_fail naming the user and the purpose', async () => {
-		await mfaFor({ totpEnabled: true, totpSecretEncrypted: unreadableSecret() });
-
-		expect(linesNamed(CRYPT_DECRYPT_FAIL)).toEqual([
-			{
-				event: CRYPT_DECRYPT_FAIL,
-				attributes: {
-					[ATTRIBUTE.userPseudonym]: pseudonym.logUserPseudonym('user-a'),
-					[CRYPT_PURPOSE]: 'totp_secret'
-				}
-			}
-		]);
-	});
-
-	// The absence beside its calibration: the same count over an unreadable read must be 1, or a
-	// zero for the readable read says nothing about whether the line can be seen at all.
-	it('load with a readable secret logs no crypt_decrypt_fail, where an unreadable one logs one', async () => {
-		await mfaFor({ totpEnabled: true, totpSecretEncrypted: unreadableSecret() });
-		const unreadable = linesNamed(CRYPT_DECRYPT_FAIL).length;
-
+	// A page view is not an attempt to authenticate, so it writes no `crypt_decrypt_fail` (the
+	// contradiction pass on the design note: a line per GET of /settings, per affected user, after a
+	// key change). The event is written where a code is JUDGED, which `reauth.spec.ts` and the
+	// sign-in spec assert. The calibration is a line written through the same module the route
+	// imports, so a zero here cannot come from a capture that sees nothing.
+	it('load writes no line in any state, where the capture sees a line written through the module', async () => {
+		const { log } = await import('$lib/server/logging');
+		log({ event: 'session_logout', attributes: {} } as never);
+		const calibration = logWriter.log.mock.calls.length;
 		logWriter.log.mockClear();
-		await mfaFor({ totpEnabled: true, totpSecretEncrypted: readableSecret() });
 
-		expect({ unreadable, readable: linesNamed(CRYPT_DECRYPT_FAIL).length }).toEqual({
-			unreadable: 1,
+		await mfaFor({ totpEnabled: true, totpSecretEncrypted: unreadableSecret() });
+		const unreadable = logWriter.log.mock.calls.length;
+		await mfaFor({ totpEnabled: true, totpSecretEncrypted: readableSecret() });
+		const readable = logWriter.log.mock.calls.length - unreadable;
+
+		expect({ calibration, unreadable, readable }).toEqual({
+			calibration: 1,
+			unreadable: 0,
 			readable: 0
 		});
 	});
