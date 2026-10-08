@@ -1,6 +1,6 @@
 import { createHmac } from 'node:crypto';
 import fc from 'fast-check';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { env } from '$env/dynamic/private';
 import { deriveAccountMemoryKey } from '$lib/server/import/accountMemoryKey';
 import { rateLimitAddressKey } from '$lib/server/net/clientAddress';
@@ -8,7 +8,10 @@ import {
 	deriveLogPseudonymKey,
 	LOG_PSEUDONYM_KEY_LABEL,
 	logPseudonym,
-	logPseudonymWith
+	logPseudonymWith,
+	logSubnetPseudonym,
+	logSubnetPseudonymWith,
+	type LogPseudonym
 } from './pseudonym';
 
 /**
@@ -257,5 +260,121 @@ describe('logPseudonym normalises the address before keying it (#869)', () => {
 	it('refuses a value that is not a string at run time with the same reason, not a TypeError', () => {
 		// A caller typed `string` can still pass undefined (an absent header read through `!`).
 		expect(() => logPseudonym(undefined as unknown as string)).toThrow(/not an IP address/);
+	});
+});
+
+/**
+ * The subnet label (owner ruling 2026-10-08 on #869). The address pseudonym follows the full
+ * address (R1), so one IPv6 subscriber rotating through the block it was given reads as many
+ * sources, while the limiter counts it once. The subnet label is the limiter's own bucket
+ * (`rateLimitAddressKey` at `BP_RATE_LIMIT_IPV6_PREFIX`) keyed under the log key, so a log line
+ * names the source the limiter counted. Both fields are logged; R1's full-address pseudonym stays.
+ */
+describe('logSubnetPseudonym: one subscriber, one label (#869)', () => {
+	const key = deriveLogPseudonymKey(SECRET);
+	const keyed = (text: string) => createHmac('sha256', key).update(text, 'utf8').digest('hex');
+	// One /56: the first 56 bits are 2001:0db8:00aa:bb.
+	const INSIDE = '2001:db8:aa:bb00::1';
+	const SAME_56 = '2001:db8:aa:bbff:ffff:ffff:ffff:fffe';
+
+	beforeEach(() => {
+		env.RATE_LIMIT_HASH_SECRET = SECRET;
+		vi.stubEnv('BP_RATE_LIMIT_IPV6_PREFIX', '');
+	});
+	afterEach(() => {
+		vi.unstubAllEnvs();
+	});
+
+	it('gives two addresses of one /56 one subnet label while each keeps its own pseudonym', () => {
+		expect([
+			logSubnetPseudonym(INSIDE) === logSubnetPseudonym(SAME_56),
+			logPseudonym(INSIDE) === logPseudonym(SAME_56)
+		]).toEqual([true, false]);
+	});
+
+	it('splits on the last bit of the prefix and merges on the first bit after it', () => {
+		// bb vs ba: bit 55, the last inside the /56. bb00 vs bb80: bit 56, the first outside it.
+		expect(logSubnetPseudonym('2001:db8:aa:ba00::1')).not.toBe(logSubnetPseudonym(INSIDE));
+		expect(logSubnetPseudonym('2001:db8:aa:bb80::1')).toBe(logSubnetPseudonym(INSIDE));
+	});
+
+	it('gives every address inside one prefix the same label (property)', () => {
+		const word = fc.integer({ min: 0, max: 0xffff });
+		const groups = fc.array(word, { minLength: 8, maxLength: 8 });
+		const text = (g: readonly number[]) => g.map((x) => x.toString(16)).join(':');
+		fc.assert(
+			fc.property(groups, groups, (a, b) => {
+				// Same first 56 bits (3.5 groups), any host part; not mapped or NAT64 by construction.
+				const prefix = [0x2001, a[1], a[2], a[3] & 0xff00];
+				const one = [...prefix.slice(0, 3), prefix[3] | (a[3] & 0xff), ...a.slice(4)];
+				const two = [...prefix.slice(0, 3), prefix[3] | (b[3] & 0xff), ...b.slice(4)];
+				expect(logSubnetPseudonym(text(one))).toBe(logSubnetPseudonym(text(two)));
+			}),
+			{ seed: 869, numRuns: 500 }
+		);
+	});
+
+	it('follows BP_RATE_LIMIT_IPV6_PREFIX, so the label is the bucket the limiter counts', () => {
+		vi.stubEnv('BP_RATE_LIMIT_IPV6_PREFIX', '64');
+		expect(logSubnetPseudonym('2001:db8:aa:bb80::1')).not.toBe(logSubnetPseudonym(INSIDE));
+		vi.stubEnv('BP_RATE_LIMIT_IPV6_PREFIX', '48');
+		expect(logSubnetPseudonym('2001:db8:aa:1200::1')).toBe(logSubnetPseudonym(INSIDE));
+	});
+
+	it("is the limiter's bucket text keyed under the log key", () => {
+		for (const address of [INSIDE, '203.0.113.7', '64:ff9b::203.0.113.7']) {
+			expect(logSubnetPseudonym(address)).toBe(keyed(rateLimitAddressKey(address, 56)));
+			expect(logSubnetPseudonymWith(key, address, 56)).toBe(
+				keyed(rateLimitAddressKey(address, 56))
+			);
+		}
+	});
+
+	it.each([
+		['an IPv4 address', '203.0.113.7'],
+		['an IPv6 address', INSIDE]
+	])(
+		"never equals the limiter's stored digest of %s, so a log line does not join to LoginAttempt",
+		(_label, address) => {
+			// The SAME bucket text is hashed on both sides, so only the key keeps them apart: this row
+			// is red if the subnet label is keyed with the raw secret (`hashAddress`, auth/rateLimit.ts).
+			const bucket = rateLimitAddressKey(address, 56);
+			const stored = createHmac('sha256', SECRET).update(bucket.trim().toLowerCase()).digest('hex');
+			expect(logSubnetPseudonym(address)).not.toBe(stored);
+		}
+	);
+
+	it('gives every spelling of one address one subnet label', () => {
+		expect(
+			new Set([
+				logSubnetPseudonym('2001:DB8:AA:BB00:0:0:0:1'),
+				logSubnetPseudonym(` ${INSIDE} `),
+				logSubnetPseudonym(`${INSIDE}%eth0`)
+			]).size
+		).toBe(1);
+		expect(logSubnetPseudonym('::ffff:203.0.113.7')).toBe(logSubnetPseudonym('203.0.113.7'));
+	});
+
+	it.each([
+		['an email address', 'paul.mercier@example.test'],
+		['an empty value', ''],
+		['a zone that is no interface name', 'fe80::1%eth/0'],
+		['a value that is not a string', undefined as unknown as string]
+	])('refuses %s rather than keying it, and does not echo it', (_label, value) => {
+		// rateLimitAddressKey keys a non-address as its own text; the label must refuse first.
+		let message = '';
+		try {
+			logSubnetPseudonym(value);
+		} catch (error) {
+			message = (error as Error).message;
+		}
+		expect(message).toMatch(/not an IP address/);
+		if (value) expect(message).not.toContain(value);
+	});
+
+	it('has a type of its own, so a subnet label cannot be written where the address goes', () => {
+		// @ts-expect-error a subnet label is not the address pseudonym (svelte-check reads this line)
+		const wrong: LogPseudonym = logSubnetPseudonym(INSIDE);
+		expect(wrong).toHaveLength(64);
 	});
 });
