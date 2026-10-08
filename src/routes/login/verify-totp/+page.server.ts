@@ -9,6 +9,12 @@ import {
 } from '$lib/server/auth/mfaChallenge';
 import { isMfaRateLimited, recordMfaAttempt } from '$lib/server/auth/rateLimit';
 import { resolveClientAddress } from '$lib/server/net/clientAddress';
+import {
+	logRateLimited,
+	logSignInFailed,
+	logSignInSucceeded,
+	type SignInFailure
+} from '$lib/server/logging/authn';
 import { verifyRecoveryCode } from '$lib/server/auth/totp';
 import { acceptTotpCode, type TotpAcceptance } from '$lib/server/auth/totpAcceptance';
 import { ensureDefaultCategoriesSeeded } from '$lib/server/categories/defaults';
@@ -34,7 +40,11 @@ export const actions: Actions = {
 		if (!challenge) throw redirect(303, '/login');
 
 		const ip = resolveClientAddress({ getClientAddress, request });
-		if (await isMfaRateLimited(challenge.id, ip)) return tooManyAttempts();
+		const trip = await isMfaRateLimited(challenge.id, ip);
+		if (trip) {
+			logRateLimited('MFA', trip, ip, challenge.userId);
+			return tooManyAttempts();
+		}
 
 		const formData = await request.formData();
 		const code = getFormValue(formData, 'code').trim();
@@ -53,14 +63,21 @@ export const actions: Actions = {
 
 		// A TOTP code is spent here, by `acceptTotpCode`, even if the sign-in then fails: see why there.
 		let verdict: TotpAcceptance = 'wrong';
+		// What the log says a refused code was. A string matching neither pattern still costs an
+		// attempt, because the limiter counts every guess at this step.
+		let refused: Extract<SignInFailure, { step: 'second_factor' }>['reason'] = 'unrecognised_code';
+		const factor = TOTP_CODE_PATTERN.test(code) ? 'totp' : 'recovery_code';
 		if (TOTP_CODE_PATTERN.test(code)) {
 			verdict = await acceptTotpCode(user.id, user.totpSecretEncrypted, code);
+			refused = verdict === 'reused' ? 'reused_code' : 'wrong_code';
 		} else if (RECOVERY_CODE_PATTERN.test(code)) {
 			verdict = (await tryConsumeRecoveryCode(user.id, code.toUpperCase())) ? 'accepted' : 'wrong';
+			refused = 'wrong_recovery_code';
 		}
 
 		if (verdict !== 'accepted') {
 			await recordMfaAttempt(challenge.id, ip);
+			logSignInFailed(ip, { step: 'second_factor', reason: refused, userId: user.id });
 			// A spent code says so (#818): whoever typed it twice needs the next one, not a clock
 			// check. Nothing in that is usable: the password is already proven at this step, and a
 			// spent step is never accepted again.
@@ -75,10 +92,12 @@ export const actions: Actions = {
 			await createSession(user.id, cookies, (tx) => claimMfaChallenge(tx, challenge.id));
 		} catch (caught) {
 			if (!(caught instanceof SignInSuperseded)) throw caught;
+			logSignInFailed(ip, { step: 'second_factor', reason: 'superseded', userId: user.id });
 			clearMfaChallengeCookie(cookies);
 			throw redirect(303, '/login');
 		}
 		clearMfaChallengeCookie(cookies);
+		logSignInSucceeded(ip, user.id, factor);
 
 		redirectAfterSignIn(url);
 	}

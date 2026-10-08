@@ -8,6 +8,8 @@ import {
 	type TotpAcceptance
 } from '$lib/server/auth/totpAcceptance';
 import { prisma } from '$lib/server/db';
+import { logRateLimited, logReauthFailed, logReauthSucceeded } from '$lib/server/logging/authn';
+import type { ReauthFailure } from '$lib/server/logging/events';
 
 /**
  * Re-authentication: the ONE place an action that changes security state proves the caller still
@@ -149,17 +151,49 @@ export async function reauthenticate(
 	action: ReauthAction,
 	input: ReauthInput & { newTotpSecret?: string }
 ): Promise<ReauthOutcome | EnrolmentOutcome> {
-	// THE single exit. L3 emits its `reauth` event here, with `action` and `outcome.reason`, and
-	// nowhere else: every path below returns into this line.
+	// THE single exit, and the one place a re-authentication is logged (L3): every path below
+	// returns into this line. Logged before the caller acts, so a throw here stops the action.
 	const outcome = await decide(REAUTH_FACTORS[action], input);
+	logOutcome(action, input, outcome);
 	return outcome;
+}
+
+/** What each refusal is in the log. Null: no secret was checked, so nothing is written. */
+const LOGGED_REFUSAL: Record<ReauthRefused['reason'], ReauthFailure | null> = {
+	'wrong-password': 'wrong_password',
+	'wrong-totp': 'wrong_code',
+	'reused-totp': 'reused_code',
+	'missing-password': null,
+	'missing-totp': null,
+	'totp-not-enabled': null,
+	'totp-already-enabled': null,
+	'no-account': null,
+	// The limiter's refusal is its own event, written in `decide` with the counter that tripped.
+	'rate-limited': null
+};
+
+function logOutcome(
+	action: ReauthAction,
+	{ user, ip }: ReauthInput,
+	outcome: ReauthOutcome | EnrolmentOutcome
+): void {
+	if (outcome.ok) {
+		logReauthSucceeded(ip, user.id, action);
+		return;
+	}
+	const reason = LOGGED_REFUSAL[outcome.reason];
+	if (reason !== null) logReauthFailed(ip, user.id, action, reason);
 }
 
 async function decide(
 	factors: ReauthFactors,
 	{ user, ip, form, newTotpSecret }: ReauthInput & { newTotpSecret?: string }
 ): Promise<ReauthOutcome | EnrolmentOutcome> {
-	if (await isReauthRateLimited(user.sessionId)) return { ok: false, reason: 'rate-limited' };
+	const trip = await isReauthRateLimited(user.sessionId);
+	if (trip) {
+		logRateLimited('REAUTH', trip, ip, user.id);
+		return { ok: false, reason: 'rate-limited' };
+	}
 
 	const account = await prisma.user.findUnique({
 		where: { id: user.id },
