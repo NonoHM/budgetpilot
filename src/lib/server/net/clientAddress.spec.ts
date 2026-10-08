@@ -1,6 +1,7 @@
 import fc from 'fast-check';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+	addressSubnet,
 	assertForwardingConfigSafe,
 	ipIsTrusted,
 	parseCidr,
@@ -317,5 +318,38 @@ describe('assertForwardingConfigSafe', () => {
 
 	it('refuses to start when XFF_DEPTH is set', () => {
 		expect(() => assertForwardingConfigSafe({ XFF_DEPTH: '1' })).toThrow(/XFF_DEPTH/);
+	});
+});
+
+/**
+ * `addressSubnet` is exported, so it refuses on its own what the log labels refuse: it runs the
+ * canonical reading first, rather than relying on every caller to have done so (#869, the code pass).
+ */
+describe('addressSubnet', () => {
+	it('writes the bucket as CIDR text with its width', () => {
+		expect([
+			addressSubnet('2001:db8:aa:bbff::1', 56),
+			addressSubnet('2001:db8:aa:bbff::1', 64),
+			addressSubnet('::ffff:192.0.2.1', 56),
+			addressSubnet('64:ff9b::c000:201', 56),
+			addressSubnet('fe80::1%eth0', 56)
+		]).toEqual([
+			'2001:db8:aa:bb00::/56',
+			'2001:db8:aa:bbff::/64',
+			'192.0.2.1/32',
+			'192.0.2.1/32',
+			'fe80::/56'
+		]);
+	});
+
+	it.each([
+		['a zone on an IPv4 address', '192.0.2.1%eth0'],
+		['a zone on a mapped address', '::ffff:192.0.2.1%eth0'],
+		['a zone that is no interface name', 'fe80::1%eth/0'],
+		['an empty zone', 'fe80::1%'],
+		['an email address', 'paul.mercier@example.test'],
+		['an empty value', '']
+	])('refuses %s', (_label, value) => {
+		expect(addressSubnet(value, 56)).toBeNull();
 	});
 });

@@ -57,6 +57,108 @@ export function parseIp(raw: string): { version: 4 | 6; value: bigint } | null {
 	return v4 === null ? null : { version: 4, value: v4 };
 }
 
+/** A dotted quad from a 32-bit value. */
+function formatIpv4(value: bigint): string {
+	return [24n, 16n, 8n, 0n].map((shift) => String((value >> shift) & 0xffn)).join('.');
+}
+
+/**
+ * RFC 5952 section 4 text from a 128-bit value: lowercase, no leading zeros, and `::` standing for
+ * the first longest run of two or more zero groups (« the first sequence of zero bits MUST be
+ * shortened » when two runs are equal, and « The symbol "::" MUST NOT be used to shorten just one
+ * 16-bit 0 field »).
+ */
+function formatIpv6(value: bigint): string {
+	const groups = Array.from({ length: 8 }, (_, i) =>
+		Number((value >> BigInt(112 - 16 * i)) & 0xffffn)
+	);
+	let runStart = -1;
+	let runLength = 1;
+	for (let i = 0; i < 8;) {
+		if (groups[i] !== 0) {
+			i += 1;
+			continue;
+		}
+		let end = i;
+		while (end < 8 && groups[end] === 0) end += 1;
+		if (end - i > runLength) {
+			runStart = i;
+			runLength = end - i;
+		}
+		i = end;
+	}
+	const hex = groups.map((group) => group.toString(16));
+	if (runStart < 0) return hex.join(':');
+	return `${hex.slice(0, runStart).join(':')}::${hex.slice(runStart + runLength).join(':')}`;
+}
+
+/**
+ * A zone index (RFC 4007 section 11, `<address>%<zone_id>`) as Node writes one after a link-local
+ * peer: the name of the interface it arrived on, or a number. Exactly the names Linux accepts
+ * (`dev_valid_name`, net/core/dev.c): 1 to 15 bytes (IFNAMSIZ is 16 with the NUL), not `.` or `..`,
+ * and no `/`, `:` or whitespace in C's sense. `%` cannot occur: the caller splits on it.
+ *
+ * NODE WRITES ONE CHARACTER PER BYTE (Latin-1), so a byte is a character here, never a UTF-8 unit.
+ * Measured on Node 24.18 with dummy interfaces in a network namespace: `réseau-maison1` (15 UTF-8
+ * bytes) arrives as 15 characters, `rÃ©seau-maison1`. Counted in UTF-8 it would be 17 and refuse a
+ * real client. Whitespace is the kernel's `isspace` (`_ctype`, lib/ctype.c): bytes 9 to 13, 32 and
+ * 160, so the kernel refused to create `wlan-à` (c3 a0), measured the same way.
+ */
+function isZoneId(zone: string): boolean {
+	if (zone.length < 1 || zone.length > IFNAME_MAX_BYTES || zone === '.' || zone === '..')
+		return false;
+	for (let i = 0; i < zone.length; i += 1) {
+		const byte = zone.charCodeAt(i);
+		// Above 0xFF no byte decodes to it; NUL ends a C string, so no name holds one.
+		if (byte === 0 || byte > 0xff || ZONE_REFUSED_BYTES.has(byte)) return false;
+	}
+	return true;
+}
+
+/** IFNAMSIZ (include/uapi/linux/if.h) is 16 with the terminating NUL. */
+const IFNAME_MAX_BYTES = 15;
+
+/** What dev_valid_name refuses inside a name: `/`, `:`, and every byte the kernel's isspace is true of. */
+const ZONE_REFUSED_BYTES = new Set([0x2f, 0x3a, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x20, 0xa0]);
+
+/** What an address may be written with: hex digits, `:` and `.`. Anything else is not one. */
+const ADDRESS_CHARACTERS = /^[0-9A-Fa-f:.]+$/;
+
+/**
+ * The one text of an address, so that every spelling of one address is one string; null for
+ * anything that is not exactly one address.
+ *
+ * IPv4 as a dotted quad, the IPv4-mapped form folded to it as `parseIp` does; IPv6 as RFC 5952
+ * section 4 writes it. RFC 5952 section 5 recommends KEEPING the mapped form as `::ffff:a.b.c.d`;
+ * folding it is this module's choice (a dual-stack listener reports an IPv4 peer that way), the
+ * fold Go's `netip.Addr.Unmap` and Python's `ipaddress` `ipv4_mapped` offer on request. Neither
+ * the IPv4-compatible form (`::a.b.c.d`, deprecated by RFC 4291 section 2.5.5.1) nor a NAT64
+ * address (RFC 6052) is folded: each names a different address, whatever `rateLimitAddressKey`
+ * counts it as.
+ *
+ * Surrounding whitespace is trimmed exactly as `parseIp` trims it (`String.prototype.trim`), so every
+ * address the limiter counts is one the log labels key: a hop such as `192.0.2.1\u00a0:80` reaches
+ * both, because `readForwardedHop` trims only its outer edge. Any other character outside an
+ * address refuses. A zone is kept verbatim (interface names are case-sensitive; it is hashed, never
+ * logged as text) after the canonical IPv6 text, and refused on IPv4 or a mapped address, where it
+ * means nothing. Trimming cannot shorten a real zone: every character it removes below U+0100 is a
+ * space to the kernel too.
+ */
+export function canonicalIpText(raw: unknown): string | null {
+	if (typeof raw !== 'string') return null;
+	const text = raw.trim();
+	const [address, zone, ...rest] = text.split('%');
+	if (rest.length > 0) return null;
+	// Positive, and before `parseIp`, whose own trim would otherwise accept inner padding.
+	if (!ADDRESS_CHARACTERS.test(address)) return null;
+	const parsed = parseIp(address);
+	if (!parsed) return null;
+	if (parsed.version === 4) return zone === undefined ? formatIpv4(parsed.value) : null;
+	if (zone !== undefined && !isZoneId(zone)) return null;
+	const canonical = formatIpv6(parsed.value);
+	return zone === undefined ? canonical : `${canonical}%${zone}`;
+}
+
 function parseIpv4(value: string): bigint | null {
 	const parts = value.split('.');
 	if (parts.length !== 4) return null;
@@ -235,18 +337,48 @@ const ALL_128_BITS = (1n << 128n) - 1n;
  * Node, a hop through `readForwardedHop`), and test fixtures do.
  */
 export function rateLimitAddressKey(address: string, v6PrefixBits: number): string {
+	const subscriber = subscriberOf(address, v6PrefixBits);
+	if (!subscriber) return address.trim().toLowerCase();
+	if (subscriber.version === 4) return formatIpv4(subscriber.network);
+	return `v6:${subscriber.network.toString(16)}`;
+}
+
+/**
+ * The same subscriber as `rateLimitAddressKey` keys, written as CIDR text with its width:
+ * `192.0.2.1/32`, `2001:db8:aa:bb00::/56` (RFC 4291 section 2.3's prefix notation, the address
+ * part as RFC 5952 writes it). The log's subnet label hashes this text (#869), so it names the
+ * bucket the limiter counts while carrying the width, which the limiter's own key does not:
+ * `2001:db8:aa:bb00::` masks to the same value at /56 and /64. Null for anything `canonicalIpText`
+ * refuses, which includes what the limiter keys by dropping a zone (`192.0.2.1%eth0`) and no
+ * producer writes: Node writes a zone only after an IPv6 link-local peer, and a hop cannot hold `%`.
+ */
+export function addressSubnet(address: string, v6PrefixBits: number): string | null {
+	// The canonical reading first, so this export refuses what the log labels refuse (a zone on an
+	// IPv4 address, a zone that is no interface name) rather than trusting its caller to.
+	const canonical = canonicalIpText(address);
+	if (canonical === null) return null;
+	const subscriber = subscriberOf(canonical, v6PrefixBits);
+	if (!subscriber) return null;
+	const network =
+		subscriber.version === 4 ? formatIpv4(subscriber.network) : formatIpv6(subscriber.network);
+	return `${network}/${subscriber.prefixBits}`;
+}
+
+/** The one reading of "which subscriber is this", for the limiter key and the subnet text alike. */
+function subscriberOf(
+	address: string,
+	v6PrefixBits: number
+): { version: 4 | 6; network: bigint; prefixBits: number } | null {
 	const parsed = parseIp(address.replace(/%[^%]*$/, ''));
-	if (!parsed) return address.trim().toLowerCase();
+	if (!parsed) return null;
 	let { version, value } = parsed;
 	if (version === 6 && value >> 32n === NAT64_WELL_KNOWN >> 32n) {
 		version = 4;
 		value &= 0xffffffffn;
 	}
-	if (version === 4) {
-		return [24n, 16n, 8n, 0n].map((shift) => String((value >> shift) & 0xffn)).join('.');
-	}
+	if (version === 4) return { version, network: value, prefixBits: V4_MAX_PREFIX };
 	const mask = ALL_128_BITS ^ ((1n << BigInt(V6_MAX_PREFIX - v6PrefixBits)) - 1n);
-	return `v6:${(value & mask).toString(16)}`;
+	return { version, network: value & mask, prefixBits: v6PrefixBits };
 }
 
 /**

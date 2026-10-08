@@ -68,6 +68,8 @@ The list is tracked; the copies are not. Which of these bind the project, and ho
 - SP 800-218, Secure Software Development Framework (SSDF): https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-218.pdf
 - SP 800-40 Rev. 4, enterprise patch management: URL to record at first use
 - SP 800-53 Rev. 5, security and privacy controls: URL to record at first use
+- SP 800-57 Part 1 Rev. 5, Recommendation for Key Management (May 2020; section 5.2 Key Usage), copy in
+  `logging/`: https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-57pt1r5.pdf
 
 ## CIS
 
@@ -112,6 +114,23 @@ The list is tracked; the copies are not. Which of these bind the project, and ho
 
 - RFC 6238, TOTP: Time-Based One-Time Password Algorithm (May 2011, Informational), copy in
   `auth/`: https://www.rfc-editor.org/rfc/rfc6238.txt
+- RFC 5952, A Recommendation for IPv6 Address Text Representation (August 2010, Standards Track), copy in
+  `logging/`: https://www.rfc-editor.org/rfc/rfc5952.txt
+- RFC 4007, IPv6 Scoped Address Architecture (March 2005, Standards Track), copy in
+  `logging/`: https://www.rfc-editor.org/rfc/rfc4007.txt
+- RFC 4291, IP Version 6 Addressing Architecture (February 2006, Standards Track), copy in
+  `logging/`: https://www.rfc-editor.org/rfc/rfc4291.txt
+- RFC 6052, IPv6 Addressing of IPv4/IPv6 Translators (October 2010, Standards Track), copy in
+  `logging/`: https://www.rfc-editor.org/rfc/rfc6052.txt
+- RFC 8981, Temporary Address Extensions for Stateless Address Autoconfiguration in IPv6 (February
+  2021, Standards Track), copy in `logging/`: https://www.rfc-editor.org/rfc/rfc8981.txt
+
+## Operating systems
+
+- Linux `include/uapi/linux/if.h`, `IFNAMSIZ` (interface name buffer, NUL included), tag v6.12, copy
+  in `logging/`: https://raw.githubusercontent.com/torvalds/linux/v6.12/include/uapi/linux/if.h
+- Linux `net/core/dev.c`, `dev_valid_name` (which interface names the kernel accepts), tag v6.12, copy in
+  `logging/`: https://raw.githubusercontent.com/torvalds/linux/v6.12/net/core/dev.c
 
 ## Accessibility and testing
 

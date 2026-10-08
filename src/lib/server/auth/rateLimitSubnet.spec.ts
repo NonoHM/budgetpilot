@@ -17,7 +17,8 @@ const db = vi.hoisted(() => ({
 vi.mock('$lib/server/db', () => ({ prisma: db.prisma }));
 
 const limiter = await import('./rateLimit');
-const { resolveClientAddress } = await import('$lib/server/net/clientAddress');
+const { parseTrustedProxies, resolveClientAddress, resolveForwardedClientAddress } =
+	await import('$lib/server/net/clientAddress');
 
 /**
  * THE ADDRESS COUNTER KEYS AN IPv6 CLIENT BY ITS /56, NOT BY ITS FULL ADDRESS.
@@ -338,5 +339,91 @@ describe('the prefix is the operator setting BP_RATE_LIMIT_IPV6_PREFIX', () => {
 	it('starts at 32 and at 64', async () => {
 		expect(await startupProblemFor('32')).toBeUndefined();
 		expect(await startupProblemFor('64')).toBeUndefined();
+	});
+});
+
+/**
+ * THE LOG'S SUBNET LABEL NAMES THE BUCKET THIS LIMITER COUNTS (#869, owner ruling 2026-10-08).
+ *
+ * Two code paths turn an address into "its subscriber": the counter's `ipHash` here and the log's
+ * `logSubnetPseudonym`. A duplicated predicate passes on its own and fails apart, so the two
+ * EQUALITY RELATIONS are compared over pairs that distinguish the candidate rules: the two boundary
+ * bits of each width, a pair in the same /48 but not the same /56, and the regions the limiter folds
+ * to IPv4 (mapped, NAT64) beside one just outside the NAT64 /96. Observed through what the check
+ * queries, never by recomputing the key.
+ */
+describe('the log subnet label agrees with the counter at every width', () => {
+	const PAIRS: [string, string][] = [
+		['2001:db8:aa:bb00::1', '2001:db8:aa:ba00::1'], // bit 55
+		['2001:db8:aa:bb00::1', '2001:db8:aa:bb80::1'], // bit 56
+		['2001:db8:aa:bb00::1', '2001:db8:aa:bb01::1'], // bit 63
+		['2001:db8:aa:bb00::1', '2001:db8:aa:bb00:8000::1'], // bit 64
+		['2001:db8:aa:bb00::1', '2001:db8:aa:1200::1'], // same /48, another /56
+		['2001:db8:aa:bb00::1', '2001:db8:ab:bb00::1'], // bit 47
+		['64:ff9b::c000:201', '192.0.2.1'], // NAT64 and its IPv4 client
+		['::ffff:192.0.2.1', '192.0.2.1'], // mapped and its IPv4 client
+		['64:ff9b::c000:201', '64:ff9b::c000:202'], // two NAT64 clients
+		['64:ff9b::1:0:1', '64:ff9b::1:0:2'], // outside the /96, one /56
+		// The two paths read different text: the label the canonical reading, the counter the raw
+		// value. These pairs differ only in what that reading changes.
+		['fe80::1%eth0', 'fe80::2%eth1'], // zones on two links, one /56
+		[' 2001:db8:aa:bb00::1\t', '2001:db8:aa:bb00::1'], // surrounding whitespace
+		['::ffff:192.0.2.1', ' 192.0.2.1'], // mapped against padded IPv4
+		// A zone as Node writes a non-ASCII interface name (Latin-1 of its bytes, measured).
+		[`fe80::1%${Buffer.from('réseau-maison1', 'utf8').toString('latin1')}`, 'fe80::1'],
+		// A no-break space: a header arrives Latin-1, and U+00A0 is the space beyond ASCII parseIp trims.
+		['192.0.2.1\u00a0', '192.0.2.1'],
+		['\u00a02001:db8:aa:bb00::1', '2001:db8:aa:bb00::1']
+	];
+
+	afterEach(() => {
+		vi.unstubAllEnvs();
+	});
+
+	it.each(['32', '48', '56', '64'])(
+		'at %s bits, one counter exactly when one label',
+		async (bits) => {
+			vi.stubEnv('BP_RATE_LIMIT_IPV6_PREFIX', bits);
+			const { logSubnetPseudonym } = await import('$lib/server/logging/pseudonym');
+			const relations = [];
+			for (const [a, b] of PAIRS) {
+				const counter = (await queriedIpHash('LOGIN', a)) === (await queriedIpHash('LOGIN', b));
+				const label = logSubnetPseudonym(a) === logSubnetPseudonym(b);
+				relations.push(`${a} ~ ${b}: counter ${counter}, label ${label}`);
+			}
+			// Each pair printed whole, so a red names the pair that disagreed.
+			expect(relations).toEqual(
+				relations.map((line) =>
+					line.replace(/label (true|false)$/, `label ${/counter true/.test(line)}`)
+				)
+			);
+		}
+	);
+});
+
+/**
+ * THE LABELS ACCEPT EVERY ADDRESS THE COUNTER COUNTS, as the hop reader hands it over (#869, the
+ * fresh pass on the zone fix). The agreement above compares values both sides accept; this asks the
+ * producer. `readForwardedHop` trims a hop's outer edge only, so a no-break space inside brackets
+ * or before a port reaches both sides. If the counter counts it and a label refuses it, the event
+ * line of a counted request goes missing.
+ */
+describe('the log labels take what the hop reader hands the counter', () => {
+	const trusted = parseTrustedProxies('10.0.0.1');
+	it.each([
+		['before a port', '192.0.2.1\u00a0:80', '192.0.2.1'],
+		['inside brackets', '[\u00a02001:db8::1]', '2001:db8::1'],
+		['before the port of a bracketed address', '[2001:db8::1\u00a0]:443', '2001:db8::1'],
+		['before the port of nine groups', '2001:db8:1:2:3:4:5:6\u00a0:80', '2001:db8:1:2:3:4:5:6']
+	])('a no-break space %s', async (_label, hop, bare) => {
+		const resolved = resolveForwardedClientAddress('10.0.0.1', hop, trusted);
+		const { logPseudonym, logSubnetPseudonym } = await import('$lib/server/logging/pseudonym');
+		expect([
+			// The hop reader really handed over the padded text, so the labels' own trim is exercised.
+			resolved !== bare,
+			(await queriedIpHash('LOGIN', resolved)) === (await queriedIpHash('LOGIN', bare)),
+			logPseudonym(resolved) === logPseudonym(bare),
+			logSubnetPseudonym(resolved) === logSubnetPseudonym(bare)
+		]).toEqual([true, true, true, true]);
 	});
 });

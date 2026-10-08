@@ -176,7 +176,15 @@ function hashRateLimitKey(value: string): string {
  * the prefix it was given is the same subscriber. See `rateLimitAddressKey`.
  */
 function hashAddress(ip: string): string {
-	return hashRateLimitKey(rateLimitAddressKey(ip, readIntegerSetting('BP_RATE_LIMIT_IPV6_PREFIX')));
+	return hashRateLimitKey(rateLimitAddressKey(ip, rateLimitIpv6PrefixBits()));
+}
+
+/**
+ * The prefix an IPv6 client is counted by, read per call. Exported so the log's subnet label
+ * (`logging/pseudonym.ts`) reads the same setting the counter does, never a copy of it.
+ */
+export function rateLimitIpv6PrefixBits(): number {
+	return readIntegerSetting('BP_RATE_LIMIT_IPV6_PREFIX');
 }
 
 /**
