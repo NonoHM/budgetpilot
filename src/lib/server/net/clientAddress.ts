@@ -94,9 +94,14 @@ function formatIpv6(value: bigint): string {
 
 /**
  * A zone index (RFC 4007 section 11, `<address>%<zone_id>`) as Node writes one after a link-local
- * peer: an interface name or number. Linux's IFNAMSIZ is 16 bytes with the NUL, so 15 characters.
+ * peer: the name of the interface it arrived on, or a number. Exactly the names Linux accepts
+ * (`dev_valid_name`, net/core/dev.c): 1 to 15 bytes (IFNAMSIZ is 16 with the NUL), not `.` or `..`,
+ * and no `/`, `:` or whitespace. `%` cannot occur: the caller splits on it.
  */
-const ZONE_ID = /^[A-Za-z0-9._-]{1,15}$/;
+function isZoneId(zone: string): boolean {
+	const bytes = Buffer.byteLength(zone, 'utf8');
+	return bytes >= 1 && bytes <= 15 && zone !== '.' && zone !== '..' && !/[/:\s]/.test(zone);
+}
 
 /**
  * The one text of an address, so that every spelling of one address is one string; null for
@@ -110,7 +115,7 @@ const ZONE_ID = /^[A-Za-z0-9._-]{1,15}$/;
  * each names a different address, whatever `rateLimitAddressKey` counts it as.
  *
  * Surrounding whitespace is trimmed; whitespace anywhere else refuses. A zone is kept verbatim
- * (interface names are case-sensitive) after the canonical IPv6 text, and refused on IPv4 or a
+ * (interface names are case-sensitive; it is hashed, never logged as text) after the canonical IPv6 text, and refused on IPv4 or a
  * mapped address, where it means nothing.
  */
 export function canonicalIpText(raw: unknown): string | null {
@@ -122,7 +127,7 @@ export function canonicalIpText(raw: unknown): string | null {
 	const parsed = parseIp(address);
 	if (!parsed) return null;
 	if (parsed.version === 4) return zone === undefined ? formatIpv4(parsed.value) : null;
-	if (zone !== undefined && !ZONE_ID.test(zone)) return null;
+	if (zone !== undefined && !isZoneId(zone)) return null;
 	const canonical = formatIpv6(parsed.value);
 	return zone === undefined ? canonical : `${canonical}%${zone}`;
 }

@@ -125,6 +125,8 @@ The list is tracked; the copies are not. Which of these bind the project, and ho
 
 - Linux `include/uapi/linux/if.h`, `IFNAMSIZ` (interface name buffer, NUL included), tag v6.12, copy
   in `logging/`: https://raw.githubusercontent.com/torvalds/linux/v6.12/include/uapi/linux/if.h
+- Linux `net/core/dev.c`, `dev_valid_name` (which interface names the kernel accepts), tag v6.12, copy in
+  `logging/`: https://raw.githubusercontent.com/torvalds/linux/v6.12/net/core/dev.c
 
 ## Accessibility and testing
 

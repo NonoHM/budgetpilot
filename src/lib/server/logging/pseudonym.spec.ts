@@ -34,21 +34,18 @@ describe('logPseudonym', () => {
 		);
 	});
 
-	it.each([
-		['an IPv4 address', ADDRESS],
-		['an IPv6 address', '2001:db8::1']
-	])(
-		'never equals the limiter digest of %s, so a log line does not join to LoginAttempt',
-		(_label, address) => {
-			// The limiter keys HMAC-SHA256 with the raw secret over `rateLimitAddressKey`'s text,
-			// trimmed and lowercased (`hashAddress`, auth/rateLimit.ts, not exported). The key text
-			// comes from the production function; only the HMAC around it is retyped here.
-			env.RATE_LIMIT_HASH_SECRET = SECRET;
-			const keyText = rateLimitAddressKey(address, 56).trim().toLowerCase();
-			const limiter = createHmac('sha256', SECRET).update(keyText).digest('hex');
-			expect(logPseudonym(address)).not.toBe(limiter);
-		}
-	);
+	it('never equals the limiter digest of the same address, so a log line does not join to LoginAttempt', () => {
+		// The limiter keys HMAC-SHA256 with the raw secret over `rateLimitAddressKey`'s text,
+		// trimmed and lowercased (`hashAddress`, auth/rateLimit.ts, not exported). The key text
+		// comes from the production function; only the HMAC around it is retyped here. IPv4 only:
+		// an IPv6 key text starts `v6:` and the canonical text never does, so an IPv6 row would stay
+		// green with the two keys merged.
+		env.RATE_LIMIT_HASH_SECRET = SECRET;
+		const keyText = rateLimitAddressKey(ADDRESS, 56).trim().toLowerCase();
+		expect(keyText).toBe(ADDRESS);
+		const limiter = createHmac('sha256', SECRET).update(keyText).digest('hex');
+		expect(logPseudonym(ADDRESS)).not.toBe(limiter);
+	});
 
 	it('uses a key of its own, distinct from the account-memory key derived from the same secret', () => {
 		expect(deriveLogPseudonymKey(SECRET).equals(deriveAccountMemoryKey(SECRET))).toBe(false);
@@ -206,6 +203,15 @@ describe('logPseudonym normalises the address before keying it (#869)', () => {
 		).toBe(4);
 	});
 
+	it('accepts every interface name Linux accepts as a zone, kept verbatim', () => {
+		// dev_valid_name (net/core/dev.c): 1 to 15 bytes, not `.` or `..`, no `/`, `:` or whitespace.
+		// Node writes the name of the interface a link-local peer arrived on, so a refusal here would
+		// throw on a real client.
+		for (const zone of ['tun+', 'veth@1', 'br-0a1b2c3d4e5f', 'é'.repeat(7), '7']) {
+			expect(logPseudonym(`fe80::1%${zone}`)).toBe(keyed(`fe80::1%${zone}`));
+		}
+	});
+
 	it('trims the whole value before reading the zone, so surrounding whitespace is one spelling', () => {
 		expect(logPseudonym(' fe80::1%eth0\t')).toBe(keyed('fe80::1%eth0'));
 	});
@@ -224,9 +230,15 @@ describe('logPseudonym normalises the address before keying it (#869)', () => {
 		['an empty zone', 'fe80::1%'],
 		['a bracketed address', '[2001:db8::1]'],
 		// The zone is an interface name or index: Linux's IFNAMSIZ is 16 bytes with the NUL
-		// (include/uapi/linux/if.h), so a name has at most 15 characters.
+		// (include/uapi/linux/if.h), and dev_valid_name refuses `.`, `..`, `/`, `:` and whitespace.
 		['a zone with a space', 'fe80::1%eth 0'],
+		// Not whitespace, so only the zone check can refuse these.
+		['a zone with a slash', 'fe80::1%eth/0'],
+		['a zone with a colon', 'fe80::1%eth:0'],
+		['a zone named `.`', 'fe80::1%.'],
+		['a zone named `..`', 'fe80::1%..'],
 		['a zone of sixteen characters', `fe80::1%${'a'.repeat(16)}`],
+		['a zone of sixteen bytes in eight characters', `fe80::1%${'é'.repeat(8)}`],
 		['a zone with a second `%`', 'fe80::1%eth0%eth1'],
 		['whitespace before the zone', 'fe80::1 %eth0'],
 		['a zone on an IPv4 address', '203.0.113.7%eth0'],

@@ -25,10 +25,13 @@ import { canonicalIpText } from '$lib/server/net/clientAddress';
  * ONE ADDRESS, ONE PSEUDONYM (#869). What is keyed is `canonicalIpText` of the value, never the
  * value as given: hashing the spelling made one client read as several sources (`2001:db8::1` and
  * `2001:DB8:0:0:0:0:0:1`, an IPv4 client and its `::ffff:` form). A value that is not an address
- * throws rather than being hashed, without the value in the message, which could reach a log. The
- * only producer is `resolveClientAddress`, so a throw is a caller defect, not a request condition;
- * an authentication event therefore takes its pseudonym AFTER `recordFailedLoginAttempt`, never
- * before, so that a throw cannot skip the record.
+ * throws rather than being hashed, without the value in the message, which could reach a log. A
+ * zone index is kept as the peer reports it: Node writes the interface name on Linux and a number
+ * on Windows, so one platform gives one spelling. The value comes from `resolveClientAddress`,
+ * which can still hand over a non-address: adapter-node returns `undefined` once the client has
+ * disconnected (the limiter's own key throws on it too). An authentication event therefore takes
+ * its pseudonym AFTER `recordFailedLoginAttempt`, never before, so that a throw cannot skip the
+ * record.
  */
 export const LOG_PSEUDONYM_KEY_LABEL = 'budgetpilot:log-pseudonym:v1';
 
