@@ -120,6 +120,7 @@ export const ATTRIBUTE = {
 	rateLimitKind: 'budgetpilot.ratelimit.kind',
 	rateLimitCounter: 'budgetpilot.ratelimit.counter',
 	sessionReason: 'budgetpilot.session.reason',
+	cryptPurpose: 'budgetpilot.crypt.purpose',
 
 	// The container start, `boot.mjs`.
 	bootDirectory: 'budgetpilot.boot.directory',
@@ -143,6 +144,9 @@ export const EVENT = {
 	sysStartup: 'sys_startup',
 	sysCrash: 'sys_crash',
 	sysMonitorDisabled: 'sys_monitor_disabled',
+	// OWASP's `crypt_decrypt_fail[userid]`, without the user (above): a stored second-factor secret
+	// that the configured key cannot decrypt (#904).
+	cryptDecryptFail: 'crypt_decrypt_fail',
 
 	// OWASP Logging Vocabulary, authentication. The vocabulary has no name for a second factor, a
 	// re-authentication, a failed registration or a dead session cookie, so those are ours.

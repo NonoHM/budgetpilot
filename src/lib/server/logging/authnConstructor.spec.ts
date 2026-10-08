@@ -13,8 +13,9 @@ import { EVENT } from './names';
  *
  * WHAT IT READS: every tracked `.ts` and `.svelte` file under `src/` that is not a spec, through
  * `git ls-files`, which is what a fresh clone has. WHAT IT LOOKS FOR: the `EVENT` key or the wire
- * name of each event the registry marks `security: true`, which are exactly the authentication
- * events. The calibration is the real constructor: `authn.ts` must be found by the same detector.
+ * name of each event the registry marks `security: true`, which are the authentication
+ * events and `crypt_decrypt_fail` (#904), which carries the user pseudonym too. The calibration is
+ * the real constructor: `authn.ts` must be found by the same detector.
  */
 
 const ROOT = process.cwd();
@@ -45,12 +46,12 @@ const files = execFileSync('git', ['ls-files', 'src'], { cwd: ROOT, encoding: 'u
 
 describe('the authentication events have one constructor', () => {
 	it('reads the files and the events it is about', () => {
-		expect([files.length > 100, securityEvents.length, keys.length]).toEqual([true, 10, 10]);
+		expect([files.length > 100, securityEvents.length, keys.length]).toEqual([true, 11, 11]);
 	});
 
 	it('finds the real constructor with the same detector (calibration)', () => {
 		const constructor = readFileSync(`${ROOT}/src/lib/server/logging/authn.ts`, 'utf8');
-		expect(mentions(constructor).length).toBe(10);
+		expect(mentions(constructor).length).toBe(11);
 	});
 
 	it('finds no authentication event built anywhere else in src', () => {

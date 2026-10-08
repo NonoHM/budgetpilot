@@ -90,7 +90,12 @@ export type LoginFailure =
 	| ({
 			[A.authnStep]: 'second_factor';
 			[A.authnReason]:
-				'wrong_code' | 'reused_code' | 'wrong_recovery_code' | 'unrecognised_code' | 'superseded';
+				| 'wrong_code'
+				| 'reused_code'
+				| 'wrong_recovery_code'
+				| 'unrecognised_code'
+				| 'unreadable_secret'
+				| 'superseded';
 	  } & UserFields);
 
 export type SignInFactor = 'password' | 'totp' | 'recovery_code';
@@ -102,7 +107,8 @@ export type RegistrationFailure =
 	| 'bootstrap_token_invalid'
 	| 'email_taken'
 	| 'invitation_consumed';
-export type ReauthFailure = 'wrong_password' | 'wrong_code' | 'reused_code';
+export type ReauthFailure =
+	'wrong_password' | 'wrong_code' | 'reused_code' | 'wrong_recovery_code' | 'unreadable_secret';
 export type DeadSessionReason = 'unknown' | 'revoked' | 'expired' | 'idle';
 
 export type LogEvent =
@@ -302,6 +308,10 @@ export type LogEvent =
 	| {
 			event: typeof E.sessionInvalid;
 			attributes: Partial<UserFields> & NoSubnetFields & { [A.sessionReason]: DeadSessionReason };
+	  }
+	| {
+			event: typeof E.cryptDecryptFail;
+			attributes: UserFields & NoSubnetFields & { [A.cryptPurpose]: 'totp_secret' };
 	  }
 	| {
 			event: typeof E.consoleOutput;
@@ -553,6 +563,13 @@ export const REGISTRY: { [N in EventName]: EventSpec<AttributesOf<N>> } = {
 			[A.authnAction]: 'Operational',
 			[A.authnReason]: 'Operational'
 		}
+	},
+	[E.cryptDecryptFail]: {
+		severity: 'WARN',
+		body: 'A code was checked against a stored two-factor secret that does not decrypt: TOTP_ENCRYPTION_KEY is not the key it was stored with. Put the old key back, or have the account turn two-factor off with a recovery code and set it up again (docs/operations.md, « The encryption key »).',
+		flood: false,
+		security: true,
+		attributes: { [A.userPseudonym]: 'Pseudonymous', [A.cryptPurpose]: 'Operational' }
 	},
 	[E.sessionInvalid]: {
 		severity: 'INFO',
