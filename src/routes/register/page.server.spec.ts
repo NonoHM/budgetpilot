@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ATTRIBUTE, EVENT } from '$lib/server/logging/names';
 
 const db = vi.hoisted(() => ({
 	prisma: {
@@ -28,7 +29,9 @@ const db = vi.hoisted(() => ({
 const privateEnv = vi.hoisted(() => ({
 	env: {
 		BOOTSTRAP_TOKEN: 'bootstrap-secret' as string | undefined,
-		RATE_LIMIT_HASH_SECRET: 'test-only-rate-limit-hash-secret' as string | undefined,
+		// 64 hex: the log pseudonyms (L3, #250) derive their keys from this secret and refuse any other
+		// shape, as the limiter does (assertRateLimitSecretConfigured).
+		RATE_LIMIT_HASH_SECRET: 'a1'.repeat(32) as string | undefined,
 		REGISTRATION_MODE: undefined as string | undefined
 	}
 }));
@@ -44,10 +47,34 @@ const invitations = vi.hoisted(() => ({
 
 vi.mock('$lib/server/db', () => ({ prisma: db.prisma }));
 vi.mock('$env/dynamic/private', () => privateEnv);
-vi.mock('$lib/server/auth/rateLimit', () => rateLimit);
+// The four limiter calls are faked; the rest of the module is real, because the log pseudonyms read
+// the secret check and the IPv6 prefix from it (`logging/pseudonym.ts`). Faked limiters also mean
+// any event captured below was written by the ROUTE, which is where the contract puts the trip's.
+vi.mock('$lib/server/auth/rateLimit', async (importOriginal) => ({
+	...(await importOriginal<typeof import('$lib/server/auth/rateLimit')>()),
+	...rateLimit
+}));
 vi.mock('$lib/server/auth/invitations', () => invitations);
 
+// Every line the route writes, through the one writer (`log`), captured instead of printed.
+const logged = vi.hoisted(() => [] as unknown[]);
+const logWriter = vi.hoisted(() => ({
+	log: vi.fn((event: unknown) => {
+		logged.push(event);
+	})
+}));
+vi.mock('$lib/server/logging', async (importOriginal) => ({
+	...(await importOriginal<typeof import('$lib/server/logging')>()),
+	log: logWriter.log
+}));
+
+beforeEach(() => {
+	logged.length = 0;
+});
+
 const { actions, load } = await import('./+page.server');
+const { BACKFILL_USER_ID } = await import('$lib/server/auth');
+const { logPseudonym, logSubnet, logUserPseudonym } = await import('$lib/server/logging/pseudonym');
 
 describe('/register action', () => {
 	afterEach(() => {
@@ -870,3 +897,409 @@ async function runRegister(
 		success?: string;
 	};
 }
+
+/**
+ * L3 (#250, contract of 2026-10-08): one security event per outcome of the action, the limiter's
+ * trip included (the route writes it from the trip the wrapper returns), and none for a malformed
+ * form or an admin creating an account (R13, L4's admin action).
+ *
+ * Expected pseudonyms come from the production functions (`logPseudonym`, `logUserPseudonym`),
+ * never from a retyped HMAC. The client address is the one `runRegister` hands the route
+ * (`127.0.0.1`, no trusted proxy, so `resolveClientAddress` returns it as is).
+ *
+ * Each success separates « the NEW account's pseudonym » from « some account's » by giving the new
+ * row an id no other fixture uses. Each failure asserts the status and body the tests above already
+ * pin, so logging cannot change the answer (contract invariant 4).
+ */
+type LoggedEvent = { event: string; attributes: Record<string, unknown> };
+
+const CLIENT_IP = '127.0.0.1';
+
+function userCreated(userId: string, method: string): LoggedEvent {
+	return {
+		event: EVENT.userCreated,
+		attributes: {
+			[ATTRIBUTE.userPseudonym]: logUserPseudonym(userId),
+			[ATTRIBUTE.authnMethod]: method,
+			[ATTRIBUTE.clientPseudonym]: logPseudonym(CLIENT_IP)
+		}
+	};
+}
+
+function registerFail(reason: string): LoggedEvent {
+	return {
+		event: EVENT.authnRegisterFail,
+		attributes: {
+			[ATTRIBUTE.authnReason]: reason,
+			[ATTRIBUTE.clientPseudonym]: logPseudonym(CLIENT_IP)
+		}
+	};
+}
+
+/**
+ * Neither event of this route carries the subnet label (contract: success events never, and the
+ * register failure is outside #936's list). Checked on the keys BEFORE the whole-object comparison,
+ * so it is observed even when that comparison is red; the key names are asserted to exist first, or
+ * an absent key name would make the absence trivially true.
+ */
+/** The limiter trip the ROUTE writes (contract: rateLimit.ts logs nothing). No user field. */
+function rateLimitExceeded(kind: 'REGISTER' | 'INVITE', counter: string): LoggedEvent {
+	const subnet = logSubnet(CLIENT_IP);
+	return {
+		event: EVENT.rateLimitExceeded,
+		attributes: {
+			[ATTRIBUTE.rateLimitKind]: kind,
+			[ATTRIBUTE.rateLimitCounter]: counter,
+			[ATTRIBUTE.clientPseudonym]: logPseudonym(CLIENT_IP),
+			[ATTRIBUTE.clientSubnetPseudonym]: subnet.pseudonym,
+			[ATTRIBUTE.clientSubnetPrefixLength]: subnet.prefixLength
+		}
+	};
+}
+
+function expectNoSubnetKeys(events: unknown[]) {
+	expect(typeof ATTRIBUTE.clientSubnetPseudonym).toBe('string');
+	expect(typeof ATTRIBUTE.clientSubnetPrefixLength).toBe('string');
+	for (const event of events as LoggedEvent[]) {
+		const keys = Object.keys(event.attributes ?? {});
+		expect(keys).not.toContain(ATTRIBUTE.clientSubnetPseudonym);
+		expect(keys).not.toContain(ATTRIBUTE.clientSubnetPrefixLength);
+	}
+}
+
+const TOKEN_REFUSED =
+	'Jeton bootstrap invalide. Vérifiez la valeur de BOOTSTRAP_TOKEN dans votre fichier .env, en copiant la ligne entière après le signe égal.';
+const INVITATION_INVALID = 'Cette invitation est invalide, expirée ou déjà utilisée.';
+
+describe('/register action: security events (L3, #250)', () => {
+	afterEach(() => {
+		privateEnv.env.BOOTSTRAP_TOKEN = 'bootstrap-secret';
+		privateEnv.env.REGISTRATION_MODE = undefined;
+		invitations.findValidInvitationByToken.mockReset();
+		invitations.findValidInvitationByToken.mockResolvedValue(null);
+		vi.clearAllMocks();
+	});
+
+	// Calibration of the capture: a line written through the module the route imports lands in
+	// `logged`. Without it, every « no event » test below is satisfied by a mock wired to nothing.
+	it('captures a line written through the logging module the route imports', async () => {
+		const { log } = await import('$lib/server/logging');
+		const line = { event: EVENT.configOriginUnset, attributes: {} };
+
+		log(line as never);
+
+		expect(logged).toEqual([line]);
+	});
+
+	describe('a created account: one user_created, with the method of the path that created it', () => {
+		it('bootstrap: the first admin, created with the bootstrap token', async () => {
+			db.prisma.user.count.mockResolvedValue(0);
+			db.prisma.user.findUnique.mockResolvedValue(null);
+			db.prisma.user.create.mockResolvedValue({ id: 'user-bootstrap' });
+			db.prisma.session.create.mockResolvedValue({ id: 'session-bootstrap' });
+			db.prisma.user.updateMany.mockResolvedValue({ count: 0 });
+
+			await expect(
+				runRegister(
+					{ get: vi.fn(), set: vi.fn() },
+					{
+						email: 'first@example.test',
+						password: 'mot-de-passe-long',
+						bootstrapToken: 'bootstrap-secret'
+					}
+				)
+			).rejects.toMatchObject({ status: 303 });
+
+			expectNoSubnetKeys(logged);
+			expect(logged).toEqual([userCreated('user-bootstrap', 'bootstrap')]);
+		});
+
+		// The claimed row keeps the backfill id, so the pseudonym is of BACKFILL_USER_ID: separates
+		// « the account that now exists » from a fresh id the route never wrote.
+		it('backfill: the claim of the technical backfill account', async () => {
+			db.prisma.user.count.mockResolvedValue(1);
+			db.prisma.user.findUnique.mockResolvedValue({ email: 'local-backfill@budgetpilot.local' });
+			db.prisma.user.updateMany.mockResolvedValueOnce({ count: 1 }).mockResolvedValue({ count: 0 });
+			db.prisma.session.create.mockResolvedValue({ id: 'session-backfill' });
+
+			await expect(
+				runRegister(
+					{ get: vi.fn(), set: vi.fn() },
+					{
+						email: 'owner@example.test',
+						password: 'mot-de-passe-long',
+						bootstrapToken: 'bootstrap-secret'
+					}
+				)
+			).rejects.toMatchObject({ status: 303 });
+
+			expectNoSubnetKeys(logged);
+			expect(logged).toEqual([userCreated(BACKFILL_USER_ID, 'backfill')]);
+		});
+
+		it('open: REGISTRATION_MODE=open, no token', async () => {
+			privateEnv.env.REGISTRATION_MODE = 'open';
+			db.prisma.user.count.mockResolvedValue(3);
+			db.prisma.user.findUnique.mockResolvedValue(null);
+			db.prisma.user.create.mockResolvedValue({ id: 'user-open' });
+			db.prisma.session.create.mockResolvedValue({ id: 'session-open' });
+			db.prisma.user.updateMany.mockResolvedValue({ count: 0 });
+
+			await expect(
+				runRegister(
+					{ get: vi.fn(), set: vi.fn() },
+					{ email: 'open@example.test', password: 'mot-de-passe-long' }
+				)
+			).rejects.toMatchObject({ status: 303 });
+
+			expectNoSubnetKeys(logged);
+			expect(logged).toEqual([userCreated('user-open', 'open')]);
+		});
+
+		it('invitation: a valid invitation in admin_only mode', async () => {
+			invitations.findValidInvitationByToken.mockResolvedValue({ id: 'invite-l3', email: null });
+			db.prisma.user.count.mockResolvedValue(2);
+			db.prisma.user.create.mockResolvedValue({ id: 'user-invited-l3' });
+			db.prisma.invitation.updateMany.mockResolvedValue({ count: 1 });
+			db.prisma.user.updateMany.mockResolvedValue({ count: 0 });
+			db.prisma.session.create.mockResolvedValue({ id: 'session-invited-l3' });
+
+			await expect(
+				runRegister(
+					{ get: vi.fn(), set: vi.fn() },
+					{ email: 'invitee@example.test', password: 'mot-de-passe-long' },
+					{ user: null },
+					'valid-invite-token'
+				)
+			).rejects.toMatchObject({ status: 303 });
+
+			expectNoSubnetKeys(logged);
+			expect(logged).toEqual([userCreated('user-invited-l3', 'invitation')]);
+		});
+
+		// R13: an admin action (L4's authz.admin_action), not an authentication, so not user_created.
+		// Separates « only the self-service paths are authentication events » from « every row ».
+		it('a signed-in admin creating an account writes nothing', async () => {
+			db.prisma.user.count.mockResolvedValue(2);
+			db.prisma.user.findUnique.mockResolvedValue(null);
+			db.prisma.user.create.mockResolvedValue({ id: 'user-made-by-admin' });
+			db.prisma.user.updateMany.mockResolvedValue({ count: 0 });
+
+			const result = await runRegister(
+				{ get: vi.fn(), set: vi.fn() },
+				{ email: 'made@example.test', password: 'mot-de-passe-long' },
+				{ user: { role: 'ADMIN' } }
+			);
+
+			expect(result.success).toBe('Utilisateur créé.');
+			expect(logged).toEqual([]);
+		});
+	});
+
+	describe('a refusal after a check: one register_fail with its reason, the answer unchanged', () => {
+		it('invitation_invalid: an unknown, expired or revoked invitation (410)', async () => {
+			invitations.findValidInvitationByToken.mockResolvedValue(null);
+
+			const result = await runRegister(
+				{ get: vi.fn(), set: vi.fn() },
+				{ email: 'invitee@example.test', password: 'mot-de-passe-long' },
+				{ user: null },
+				'expired-token'
+			);
+
+			expect(result.status).toBe(410);
+			expect(result.data).toEqual({ error: INVITATION_INVALID });
+			expectNoSubnetKeys(logged);
+			expect(logged).toEqual([registerFail('invitation_invalid')]);
+		});
+
+		// Contract invariant 5: the pseudonym is taken after the limiter's record, so a throw while
+		// taking it cannot skip the record. Separates « recorded, then logged » from the reverse.
+		it('invitation_invalid is logged after the INVITE attempt is recorded', async () => {
+			invitations.findValidInvitationByToken.mockResolvedValue(null);
+
+			await runRegister(
+				{ get: vi.fn(), set: vi.fn() },
+				{ email: 'invitee@example.test', password: 'mot-de-passe-long' },
+				{ user: null },
+				'expired-token'
+			);
+
+			expect(logWriter.log).toHaveBeenCalledTimes(1);
+			expect(rateLimit.recordInviteAttempt).toHaveBeenCalledTimes(1);
+			expect(logWriter.log.mock.invocationCallOrder[0]).toBeGreaterThan(
+				rateLimit.recordInviteAttempt.mock.invocationCallOrder[0]
+			);
+		});
+
+		it('unavailable: admin_only, an account exists, anonymous caller (403)', async () => {
+			db.prisma.user.count.mockResolvedValue(1);
+			db.prisma.user.findUnique.mockResolvedValue(null);
+
+			const result = await runRegister(
+				{ get: vi.fn(), set: vi.fn() },
+				{ email: 'a@example.test', password: 'mot-de-passe-long' }
+			);
+
+			expect(result.status).toBe(403);
+			expect(result.data).toEqual({ error: 'Inscription indisponible.' });
+			expectNoSubnetKeys(logged);
+			expect(logged).toEqual([registerFail('unavailable')]);
+		});
+
+		it('email_mismatch: a named invitation used with another address (400)', async () => {
+			invitations.findValidInvitationByToken.mockResolvedValue({
+				id: 'invite-named',
+				email: 'cible@example.test'
+			});
+
+			const result = await runRegister(
+				{ get: vi.fn(), set: vi.fn() },
+				{ email: 'autre@example.test', password: 'mot-de-passe-long' },
+				{ user: null },
+				'nominative-token'
+			);
+
+			expect(result.status).toBe(400);
+			expect(result.data).toEqual({
+				error: 'Cette invitation est réservée à une autre adresse email.'
+			});
+			expectNoSubnetKeys(logged);
+			expect(logged).toEqual([registerFail('email_mismatch')]);
+		});
+
+		it('bootstrap_token_invalid: a wrong bootstrap token on the first account (403)', async () => {
+			db.prisma.user.count.mockResolvedValue(0);
+			db.prisma.user.findUnique.mockResolvedValue(null);
+
+			const result = await runRegister(
+				{ get: vi.fn(), set: vi.fn() },
+				{
+					email: 'a@example.test',
+					password: 'mot-de-passe-long',
+					bootstrapToken: 'wrongtoken123456'
+				}
+			);
+
+			expect(result.status).toBe(403);
+			expect(result.data).toEqual({ error: TOKEN_REFUSED });
+			expectNoSubnetKeys(logged);
+			expect(logged).toEqual([registerFail('bootstrap_token_invalid')]);
+		});
+
+		it('email_taken: the unique constraint on the address fires (P2002, 400)', async () => {
+			privateEnv.env.REGISTRATION_MODE = 'open';
+			db.prisma.user.count.mockResolvedValue(3);
+			db.prisma.user.findUnique.mockResolvedValue(null);
+			db.prisma.user.create.mockRejectedValue({ code: 'P2002' });
+
+			const result = await runRegister(
+				{ get: vi.fn(), set: vi.fn() },
+				{ email: 'taken@example.test', password: 'mot-de-passe-long' }
+			);
+
+			expect(result.status).toBe(400);
+			expect(result.data).toEqual({ error: 'Inscription impossible.' });
+			expectNoSubnetKeys(logged);
+			expect(logged).toEqual([registerFail('email_taken')]);
+		});
+
+		// Same status and body as invitation_invalid, on purpose (the screen must not tell the two
+		// apart): only the log does. Separates « consumed concurrently » from « never valid ».
+		it('invitation_consumed: the invitation was used concurrently (410)', async () => {
+			invitations.findValidInvitationByToken.mockResolvedValue({ id: 'invite-raced', email: null });
+			db.prisma.user.count.mockResolvedValue(2);
+			db.prisma.user.create.mockResolvedValue({ id: 'user-race-loser-l3' });
+			db.prisma.invitation.updateMany.mockResolvedValue({ count: 0 });
+
+			const result = await runRegister(
+				{ get: vi.fn(), set: vi.fn() },
+				{ email: 'loser@example.test', password: 'mot-de-passe-long' },
+				{ user: null },
+				'race-token'
+			);
+
+			expect(result.status).toBe(410);
+			expect(result.data).toEqual({ error: INVITATION_INVALID });
+			expectNoSubnetKeys(logged);
+			expect(logged).toEqual([registerFail('invitation_consumed')]);
+		});
+	});
+
+	describe('a limiter trip: one excess_rate_limit_exceeded from the route, the 429 unchanged', () => {
+		it('REGISTER: kind, the counter that tripped, the client and its subnet, no user', async () => {
+			privateEnv.env.REGISTRATION_MODE = 'open';
+			rateLimit.isRegisterRateLimited.mockResolvedValueOnce({ counter: 'address' } as never);
+
+			const result = await runRegister(
+				{ get: vi.fn(), set: vi.fn() },
+				{ email: 'a@example.test', password: 'mot-de-passe-long' }
+			);
+
+			expect(result.status).toBe(429);
+			expect(result.data).toEqual({ error: 'Trop de tentatives. Réessayez plus tard.' });
+			expect(logged).toEqual([rateLimitExceeded('REGISTER', 'address')]);
+		});
+
+		it('INVITE: kind, the counter that tripped, the client and its subnet, no user', async () => {
+			rateLimit.isInviteRateLimited.mockResolvedValueOnce({ counter: 'address' } as never);
+
+			const result = await runRegister(
+				{ get: vi.fn(), set: vi.fn() },
+				{ email: 'a@example.test', password: 'mot-de-passe-long' },
+				{ user: null },
+				'any-invite-token'
+			);
+
+			expect(result.status).toBe(429);
+			expect(result.data).toEqual({ error: 'Trop de tentatives. Réessayez plus tard.' });
+			expect(logged).toEqual([rateLimitExceeded('INVITE', 'address')]);
+		});
+
+		// The counter is read from the trip, never a constant: separates « the trip's counter » from
+		// « always address », on the one value the two disagree on.
+		it('REGISTER: carries the counter the trip names, here both', async () => {
+			privateEnv.env.REGISTRATION_MODE = 'open';
+			rateLimit.isRegisterRateLimited.mockResolvedValueOnce({ counter: 'both' } as never);
+
+			await runRegister(
+				{ get: vi.fn(), set: vi.fn() },
+				{ email: 'a@example.test', password: 'mot-de-passe-long' }
+			);
+
+			expect(logged).toEqual([rateLimitExceeded('REGISTER', 'both')]);
+		});
+	});
+
+	describe('no event: a malformed form', () => {
+		it('a malformed email writes nothing (400)', async () => {
+			privateEnv.env.REGISTRATION_MODE = 'open';
+			db.prisma.user.count.mockResolvedValue(3);
+			db.prisma.user.findUnique.mockResolvedValue(null);
+
+			const result = await runRegister(
+				{ get: vi.fn(), set: vi.fn() },
+				{ email: 'pas-un-email', password: 'mot-de-passe-long' }
+			);
+
+			expect(result.status).toBe(400);
+			expect(result.data).toEqual({ error: 'Email invalide.' });
+			expect(logged).toEqual([]);
+		});
+
+		it('a password of the wrong shape writes nothing (400)', async () => {
+			privateEnv.env.REGISTRATION_MODE = 'open';
+			db.prisma.user.count.mockResolvedValue(3);
+			db.prisma.user.findUnique.mockResolvedValue(null);
+
+			const result = await runRegister(
+				{ get: vi.fn(), set: vi.fn() },
+				{ email: 'shape@example.test', password: 'court' }
+			);
+
+			expect(result.status).toBe(400);
+			expect(result.data).toEqual({ error: 'Mot de passe invalide.' });
+			expect(logged).toEqual([]);
+		});
+	});
+});
