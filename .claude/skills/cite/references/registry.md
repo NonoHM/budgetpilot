@@ -116,6 +116,15 @@ The list is tracked; the copies are not. Which of these bind the project, and ho
   `logging/`: https://www.rfc-editor.org/rfc/rfc5952.txt
 - RFC 4007, IPv6 Scoped Address Architecture (March 2005, Standards Track), copy in
   `logging/`: https://www.rfc-editor.org/rfc/rfc4007.txt
+- RFC 4291, IP Version 6 Addressing Architecture (February 2006, Standards Track), copy in
+  `logging/`: https://www.rfc-editor.org/rfc/rfc4291.txt
+- RFC 6052, IPv6 Addressing of IPv4/IPv6 Translators (October 2010, Standards Track), copy in
+  `logging/`: https://www.rfc-editor.org/rfc/rfc6052.txt
+
+## Operating systems
+
+- Linux `include/uapi/linux/if.h`, `IFNAMSIZ` (interface name buffer, NUL included), tag v6.12, copy
+  in `logging/`: https://raw.githubusercontent.com/torvalds/linux/v6.12/include/uapi/linux/if.h
 
 ## Accessibility and testing
 

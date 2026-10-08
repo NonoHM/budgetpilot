@@ -3,6 +3,7 @@ import fc from 'fast-check';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { env } from '$env/dynamic/private';
 import { deriveAccountMemoryKey } from '$lib/server/import/accountMemoryKey';
+import { rateLimitAddressKey } from '$lib/server/net/clientAddress';
 import {
 	deriveLogPseudonymKey,
 	LOG_PSEUDONYM_KEY_LABEL,
@@ -25,7 +26,7 @@ afterEach(() => {
 });
 
 describe('logPseudonym', () => {
-	it('is the HMAC-SHA256 of the value under the key HKDF derives with the ruled label', () => {
+	it('is the HMAC-SHA256 of the canonical address under the key HKDF derives with the ruled label', () => {
 		env.RATE_LIMIT_HASH_SECRET = SECRET;
 		expect(LOG_PSEUDONYM_KEY_LABEL).toBe('budgetpilot:log-pseudonym:v1');
 		expect(logPseudonym(ADDRESS)).toBe(
@@ -33,13 +34,21 @@ describe('logPseudonym', () => {
 		);
 	});
 
-	it('never equals the limiter digest of the same address, so a log line does not join to LoginAttempt', () => {
-		// The limiter keys HMAC-SHA256 with the raw secret over the trimmed, lowercased value
-		// (`hashRateLimitKey`, auth/rateLimit.ts).
-		env.RATE_LIMIT_HASH_SECRET = SECRET;
-		const limiter = createHmac('sha256', SECRET).update(ADDRESS.trim().toLowerCase()).digest('hex');
-		expect(logPseudonym(ADDRESS)).not.toBe(limiter);
-	});
+	it.each([
+		['an IPv4 address', ADDRESS],
+		['an IPv6 address', '2001:db8::1']
+	])(
+		'never equals the limiter digest of %s, so a log line does not join to LoginAttempt',
+		(_label, address) => {
+			// The limiter keys HMAC-SHA256 with the raw secret over `rateLimitAddressKey`'s text,
+			// trimmed and lowercased (`hashAddress`, auth/rateLimit.ts, not exported). The key text
+			// comes from the production function; only the HMAC around it is retyped here.
+			env.RATE_LIMIT_HASH_SECRET = SECRET;
+			const keyText = rateLimitAddressKey(address, 56).trim().toLowerCase();
+			const limiter = createHmac('sha256', SECRET).update(keyText).digest('hex');
+			expect(logPseudonym(address)).not.toBe(limiter);
+		}
+	);
 
 	it('uses a key of its own, distinct from the account-memory key derived from the same secret', () => {
 		expect(deriveLogPseudonymKey(SECRET).equals(deriveAccountMemoryKey(SECRET))).toBe(false);
@@ -150,23 +159,35 @@ describe('logPseudonym normalises the address before keying it (#869)', () => {
 		fc.assert(
 			fc.property(
 				address.chain((groups) => fc.tuple(fc.constant(groups), spelling(groups))),
-				([groups, text]) => logPseudonym(text) === keyed(oracle(groups))
+				// `expect` inside the predicate: vite.config sets requireAssertions, and a boolean
+				// predicate counts no assertion.
+				([groups, text]) => {
+					expect(logPseudonym(text)).toBe(keyed(oracle(groups)));
+				}
 			),
 			{ seed: 869, numRuns: 2000 }
 		);
 	});
 
-	it('never merges two different addresses: injective over the canonical form (property)', () => {
+	// Green before the fix by construction (an unnormalised HMAC merges nothing): it guards the fix
+	// against a normalisation that folds two addresses into one, not against the defect #869 names.
+	it('does not merge two different addresses into one pseudonym (property)', () => {
 		fc.assert(
 			fc.property(address, address, (a, b) => {
 				fc.pre(oracle(a) !== oracle(b));
-				return logPseudonym(oracle(a)) !== logPseudonym(oracle(b));
+				expect(logPseudonym(oracle(a))).not.toBe(logPseudonym(oracle(b)));
 			}),
 			{ seed: 869, numRuns: 2000 }
 		);
-		// An IPv4-compatible address (deprecated, RFC 4291 section 2.5.5.1) is not its IPv4 client:
-		// only the mapped form folds.
-		expect(logPseudonym('::203.0.113.7')).not.toBe(logPseudonym('203.0.113.7'));
+	});
+
+	it('folds only the mapped form: an IPv4-compatible or NAT64 address is not its IPv4 client', () => {
+		// IPv4-compatible is deprecated (RFC 4291 section 2.5.5.1). NAT64 (RFC 6052) is folded by the
+		// limiter, which counts subscribers; the pseudonym names the address it was given.
+		expect([
+			logPseudonym('::203.0.113.7') === logPseudonym('203.0.113.7'),
+			logPseudonym('64:ff9b::203.0.113.7') === logPseudonym('203.0.113.7')
+		]).toEqual([false, false]);
 	});
 
 	it('keeps a zone index verbatim after the canonical address, as Node reports a link-local peer', () => {
@@ -181,6 +202,10 @@ describe('logPseudonym normalises the address before keying it (#869)', () => {
 		).toBe(4);
 	});
 
+	it('trims the whole value before reading the zone, so surrounding whitespace is one spelling', () => {
+		expect(logPseudonym(' fe80::1%eth0\t')).toBe(keyed('fe80::1%eth0'));
+	});
+
 	it('applies the same normalisation through the pure entry point the spec and tools call', () => {
 		expect(logPseudonymWith(key, '2001:DB8:0::1')).toBe(keyed('2001:db8::1'));
 	});
@@ -193,7 +218,15 @@ describe('logPseudonym normalises the address before keying it (#869)', () => {
 		['an address with a port', '203.0.113.7:443'],
 		['two `::`', '2001::db8::1'],
 		['an empty zone', 'fe80::1%'],
-		['a bracketed address', '[2001:db8::1]']
+		['a bracketed address', '[2001:db8::1]'],
+		// The zone is an interface name or index: Linux's IFNAMSIZ is 16 bytes with the NUL
+		// (include/uapi/linux/if.h), so a name has at most 15 characters.
+		['a zone with a space', 'fe80::1%eth 0'],
+		['a zone of sixteen characters', `fe80::1%${'a'.repeat(16)}`],
+		['a zone with a second `%`', 'fe80::1%eth0%eth1'],
+		['whitespace before the zone', 'fe80::1 %eth0'],
+		['a zone on an IPv4 address', '203.0.113.7%eth0'],
+		['a zone on an IPv4-mapped address', '::ffff:203.0.113.7%eth0']
 	])('refuses %s rather than hashing it, and does not echo it', (_label, value) => {
 		let message = '';
 		try {
@@ -203,5 +236,10 @@ describe('logPseudonym normalises the address before keying it (#869)', () => {
 		}
 		expect(message).toMatch(/not an IP address/);
 		if (value !== '') expect(message).not.toContain(value);
+	});
+
+	it('refuses a value that is not a string at run time with the same reason, not a TypeError', () => {
+		// A caller typed `string` can still pass undefined (an absent header read through `!`).
+		expect(() => logPseudonym(undefined as unknown as string)).toThrow(/not an IP address/);
 	});
 });
