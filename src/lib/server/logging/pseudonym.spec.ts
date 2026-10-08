@@ -9,6 +9,8 @@ import {
 	LOG_PSEUDONYM_KEY_LABEL,
 	logPseudonym,
 	logPseudonymWith,
+	deriveLogSubnetKey,
+	LOG_SUBNET_KEY_LABEL,
 	logSubnetPseudonym,
 	logSubnetPseudonymWith,
 	type LogPseudonym
@@ -266,13 +268,19 @@ describe('logPseudonym normalises the address before keying it (#869)', () => {
 /**
  * The subnet label (owner ruling 2026-10-08 on #869). The address pseudonym follows the full
  * address (R1), so one IPv6 subscriber rotating through the block it was given reads as many
- * sources, while the limiter counts it once. The subnet label is the limiter's own bucket
- * (`rateLimitAddressKey` at `BP_RATE_LIMIT_IPV6_PREFIX`) keyed under the log key, so a log line
- * names the source the limiter counted. Both fields are logged; R1's full-address pseudonym stays.
+ * sources, while the limiter counts it once. The subnet label is the limiter's bucket written as
+ * CIDR text (`addressSubnet`, the prefix width included) and keyed under a key of its own, so a log
+ * line names the source the limiter counted. Both fields are logged; R1's pseudonym stays.
+ *
+ * The exception, by design: an address the limiter counts as IPv4 (the mapped form, the NAT64
+ * well-known prefix 64:ff9b::/96) carries its IPv4 client's label. That the label agrees with the
+ * limiter's own counter is asserted in auth/rateLimitSubnet.spec.ts, beside the limiter's fake.
  */
 describe('logSubnetPseudonym: one subscriber, one label (#869)', () => {
-	const key = deriveLogPseudonymKey(SECRET);
-	const keyed = (text: string) => createHmac('sha256', key).update(text, 'utf8').digest('hex');
+	// Derived per call, so a missing export fails each test rather than the whole file.
+	const subnetKey = () => deriveLogSubnetKey(SECRET);
+	const keyedSubnet = (cidr: string) =>
+		createHmac('sha256', subnetKey()).update(cidr, 'utf8').digest('hex');
 	// One /56: the first 56 bits are 2001:0db8:00aa:bb.
 	const INSIDE = '2001:db8:aa:bb00::1';
 	const SAME_56 = '2001:db8:aa:bbff:ffff:ffff:ffff:fffe';
@@ -292,57 +300,82 @@ describe('logSubnetPseudonym: one subscriber, one label (#869)', () => {
 		]).toEqual([true, false]);
 	});
 
-	it('splits on the last bit of the prefix and merges on the first bit after it', () => {
-		// bb vs ba: bit 55, the last inside the /56. bb00 vs bb80: bit 56, the first outside it.
+	// The two boundary bits of a /56: bb vs ba differ in bit 55, the last inside it.
+	it('separates two addresses that differ in the last bit of the prefix', () => {
 		expect(logSubnetPseudonym('2001:db8:aa:ba00::1')).not.toBe(logSubnetPseudonym(INSIDE));
+	});
+
+	// bb00 vs bb80 differ in bit 56, the first outside it.
+	it('merges two addresses that differ in the first bit after the prefix', () => {
 		expect(logSubnetPseudonym('2001:db8:aa:bb80::1')).toBe(logSubnetPseudonym(INSIDE));
 	});
 
-	it('gives every address inside one prefix the same label (property)', () => {
+	it('gives every address inside one /56 the same label, wherever the prefix sits (property)', () => {
 		const word = fc.integer({ min: 0, max: 0xffff });
 		const groups = fc.array(word, { minLength: 8, maxLength: 8 });
+		// Any first group but 0 (the mapped region) and 0x64 (NAT64), which fold to IPv4 by design.
+		const first = word.filter((g) => g !== 0 && g !== 0x64);
 		const text = (g: readonly number[]) => g.map((x) => x.toString(16)).join(':');
 		fc.assert(
-			fc.property(groups, groups, (a, b) => {
-				// Same first 56 bits (3.5 groups), any host part; not mapped or NAT64 by construction.
-				const prefix = [0x2001, a[1], a[2], a[3] & 0xff00];
-				const one = [...prefix.slice(0, 3), prefix[3] | (a[3] & 0xff), ...a.slice(4)];
-				const two = [...prefix.slice(0, 3), prefix[3] | (b[3] & 0xff), ...b.slice(4)];
+			fc.property(first, groups, groups, (head, a, b) => {
+				const top = a[3] & 0xff00; // bits 48-55 shared, bits 56-63 drawn per address
+				const one = [head, a[1], a[2], top | (a[3] & 0xff), ...a.slice(4)];
+				const two = [head, a[1], a[2], top | (b[3] & 0xff), ...b.slice(4)];
 				expect(logSubnetPseudonym(text(one))).toBe(logSubnetPseudonym(text(two)));
 			}),
 			{ seed: 869, numRuns: 500 }
 		);
 	});
 
-	it('follows BP_RATE_LIMIT_IPV6_PREFIX, so the label is the bucket the limiter counts', () => {
+	it('hashes the CIDR text of the bucket, prefix width included, under the subnet key', () => {
+		expect(logSubnetPseudonym(INSIDE)).toBe(keyedSubnet('2001:db8:aa:bb00::/56'));
+		expect(logSubnetPseudonymWith(subnetKey(), INSIDE, 64)).toBe(
+			keyedSubnet('2001:db8:aa:bb00::/64')
+		);
+		expect(logSubnetPseudonym('203.0.113.7')).toBe(keyedSubnet('203.0.113.7/32'));
+	});
+
+	it('changes every IPv6 label when the prefix setting changes, even where the masked bits agree', () => {
+		// 2001:db8:aa:bb00:: is the same masked value at /56 and at /64: only the width tells them apart.
+		const at56 = logSubnetPseudonym(INSIDE);
 		vi.stubEnv('BP_RATE_LIMIT_IPV6_PREFIX', '64');
-		expect(logSubnetPseudonym('2001:db8:aa:bb80::1')).not.toBe(logSubnetPseudonym(INSIDE));
+		expect(logSubnetPseudonym(INSIDE)).not.toBe(at56);
+	});
+
+	it('follows BP_RATE_LIMIT_IPV6_PREFIX: at 48, two /56s of one /48 share a label', () => {
 		vi.stubEnv('BP_RATE_LIMIT_IPV6_PREFIX', '48');
 		expect(logSubnetPseudonym('2001:db8:aa:1200::1')).toBe(logSubnetPseudonym(INSIDE));
 	});
 
-	it("is the limiter's bucket text keyed under the log key", () => {
-		for (const address of [INSIDE, '203.0.113.7', '64:ff9b::203.0.113.7']) {
-			expect(logSubnetPseudonym(address)).toBe(keyed(rateLimitAddressKey(address, 56)));
-			expect(logSubnetPseudonymWith(key, address, 56)).toBe(
-				keyed(rateLimitAddressKey(address, 56))
-			);
-		}
+	it('gives an address the limiter counts as IPv4 its IPv4 client label, and only those', () => {
+		expect(
+			new Set([
+				logSubnetPseudonym('64:ff9b::c000:201'),
+				logSubnetPseudonym('::ffff:192.0.2.1'),
+				logSubnetPseudonym('192.0.2.1')
+			]).size
+		).toBe(1);
+		expect(logSubnetPseudonym('64:ff9b::c000:201')).not.toBe(
+			logSubnetPseudonym('64:ff9b::c000:202')
+		);
+		// Outside the /96 but inside 64:ff9b::/56: an ordinary IPv6 subnet.
+		expect(logSubnetPseudonym('64:ff9b::1:0:1')).toBe(keyedSubnet('64:ff9b::/56'));
 	});
 
-	it.each([
-		['an IPv4 address', '203.0.113.7'],
-		['an IPv6 address', INSIDE]
-	])(
-		"never equals the limiter's stored digest of %s, so a log line does not join to LoginAttempt",
-		(_label, address) => {
-			// The SAME bucket text is hashed on both sides, so only the key keeps them apart: this row
-			// is red if the subnet label is keyed with the raw secret (`hashAddress`, auth/rateLimit.ts).
-			const bucket = rateLimitAddressKey(address, 56);
-			const stored = createHmac('sha256', SECRET).update(bucket.trim().toLowerCase()).digest('hex');
-			expect(logSubnetPseudonym(address)).not.toBe(stored);
-		}
-	);
+	it('uses a key of its own: neither the address pseudonym key nor the raw secret', () => {
+		// Same text under the three keys, so only the key can tell them apart.
+		const cidr = '203.0.113.7/32';
+		const label = logSubnetPseudonym('203.0.113.7');
+		expect(LOG_SUBNET_KEY_LABEL).toBe('budgetpilot:log-subnet:v1');
+		expect([
+			label === createHmac('sha256', deriveLogPseudonymKey(SECRET)).update(cidr).digest('hex'),
+			label === createHmac('sha256', SECRET).update(cidr).digest('hex')
+		]).toEqual([false, false]);
+	});
+
+	it('never equals the address pseudonym of the same IPv4 client, so a line does not reveal the family', () => {
+		expect(logSubnetPseudonym('203.0.113.7')).not.toBe(logPseudonym('203.0.113.7'));
+	});
 
 	it('gives every spelling of one address one subnet label', () => {
 		expect(
@@ -352,7 +385,6 @@ describe('logSubnetPseudonym: one subscriber, one label (#869)', () => {
 				logSubnetPseudonym(`${INSIDE}%eth0`)
 			]).size
 		).toBe(1);
-		expect(logSubnetPseudonym('::ffff:203.0.113.7')).toBe(logSubnetPseudonym('203.0.113.7'));
 	});
 
 	it.each([
@@ -361,7 +393,7 @@ describe('logSubnetPseudonym: one subscriber, one label (#869)', () => {
 		['a zone that is no interface name', 'fe80::1%eth/0'],
 		['a value that is not a string', undefined as unknown as string]
 	])('refuses %s rather than keying it, and does not echo it', (_label, value) => {
-		// rateLimitAddressKey keys a non-address as its own text; the label must refuse first.
+		// The limiter keys a non-address as its own text; the label must refuse first.
 		let message = '';
 		try {
 			logSubnetPseudonym(value);

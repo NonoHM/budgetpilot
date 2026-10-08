@@ -340,3 +340,49 @@ describe('the prefix is the operator setting BP_RATE_LIMIT_IPV6_PREFIX', () => {
 		expect(await startupProblemFor('64')).toBeUndefined();
 	});
 });
+
+/**
+ * THE LOG'S SUBNET LABEL NAMES THE BUCKET THIS LIMITER COUNTS (#869, owner ruling 2026-10-08).
+ *
+ * Two code paths turn an address into "its subscriber": the counter's `ipHash` here and the log's
+ * `logSubnetPseudonym`. A duplicated predicate passes on its own and fails apart, so the two
+ * EQUALITY RELATIONS are compared over pairs that distinguish the candidate rules: the two boundary
+ * bits of each width, a pair in the same /48 but not the same /56, and the regions the limiter folds
+ * to IPv4 (mapped, NAT64) beside one just outside the NAT64 /96. Observed through what the check
+ * queries, never by recomputing the key.
+ */
+describe('the log subnet label agrees with the counter at every width', () => {
+	const PAIRS: [string, string][] = [
+		['2001:db8:aa:bb00::1', '2001:db8:aa:ba00::1'], // bit 55
+		['2001:db8:aa:bb00::1', '2001:db8:aa:bb80::1'], // bit 56
+		['2001:db8:aa:bb00::1', '2001:db8:aa:bb01::1'], // bit 63
+		['2001:db8:aa:bb00::1', '2001:db8:aa:bb00:8000::1'], // bit 64
+		['2001:db8:aa:bb00::1', '2001:db8:aa:1200::1'], // same /48, another /56
+		['2001:db8:aa:bb00::1', '2001:db8:ab:bb00::1'], // bit 47
+		['64:ff9b::c000:201', '192.0.2.1'], // NAT64 and its IPv4 client
+		['::ffff:192.0.2.1', '192.0.2.1'], // mapped and its IPv4 client
+		['64:ff9b::c000:201', '64:ff9b::c000:202'], // two NAT64 clients
+		['64:ff9b::1:0:1', '64:ff9b::1:0:2'] // outside the /96, one /56
+	];
+
+	afterEach(() => {
+		vi.unstubAllEnvs();
+	});
+
+	it.each(['48', '56', '64'])('at %s bits, one counter exactly when one label', async (bits) => {
+		vi.stubEnv('BP_RATE_LIMIT_IPV6_PREFIX', bits);
+		const { logSubnetPseudonym } = await import('$lib/server/logging/pseudonym');
+		const relations = [];
+		for (const [a, b] of PAIRS) {
+			const counter = (await queriedIpHash('LOGIN', a)) === (await queriedIpHash('LOGIN', b));
+			const label = logSubnetPseudonym(a) === logSubnetPseudonym(b);
+			relations.push(`${a} ~ ${b}: counter ${counter}, label ${label}`);
+		}
+		// Each pair printed whole, so a red names the pair that disagreed.
+		expect(relations).toEqual(
+			relations.map((line) =>
+				line.replace(/label (true|false)$/, `label ${/counter true/.test(line)}`)
+			)
+		);
+	});
+});

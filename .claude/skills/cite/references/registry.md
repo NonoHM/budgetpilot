@@ -68,6 +68,8 @@ The list is tracked; the copies are not. Which of these bind the project, and ho
 - SP 800-218, Secure Software Development Framework (SSDF): https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-218.pdf
 - SP 800-40 Rev. 4, enterprise patch management: URL to record at first use
 - SP 800-53 Rev. 5, security and privacy controls: URL to record at first use
+- SP 800-57 Part 1 Rev. 5, Recommendation for Key Management (May 2020; section 5.2 Key Usage), copy in
+  `logging/`: https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-57pt1r5.pdf
 
 ## CIS
 
