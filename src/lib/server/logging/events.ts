@@ -52,11 +52,24 @@ export type BoundName = IntegerSettingName;
  * declared on the three events that signal an attack and on no other, so a success, a sign-out or a
  * session event cannot be given one: data minimisation, GDPR Article 5(1)(c), as ruled on #936.
  */
-export interface ClientFields {
+interface ClientPseudonymField {
 	[A.clientPseudonym]: LogPseudonym;
 }
 
-export interface AttackClientFields extends ClientFields {
+/**
+ * The subnet fields, forbidden. Intersected into every authentication event that is not an attack
+ * event, so a SPREAD of `AttackClientFields` into one is a compile error too: TypeScript does not
+ * check a spread for excess properties, and a declared `?: never` is checked (measured on L3: with
+ * plain `ClientFields`, the helper building a success from `attackClient` compiled).
+ */
+export interface NoSubnetFields {
+	[A.clientSubnetPseudonym]?: never;
+	[A.clientSubnetPrefixLength]?: never;
+}
+
+export type ClientFields = ClientPseudonymField & NoSubnetFields;
+
+export interface AttackClientFields extends ClientPseudonymField {
 	[A.clientSubnetPseudonym]: LogSubnetPseudonym;
 	[A.clientSubnetPrefixLength]: number;
 }
@@ -267,7 +280,7 @@ export type LogEvent =
 					[A.rateLimitCounter]: RateLimitCounter;
 				};
 	  }
-	| { event: typeof E.authnLogout; attributes: UserFields }
+	| { event: typeof E.authnLogout; attributes: UserFields & NoSubnetFields }
 	| {
 			event: typeof E.userCreated;
 			attributes: ClientFields & UserFields & { [A.authnMethod]: RegistrationMethod };
@@ -287,7 +300,7 @@ export type LogEvent =
 	  }
 	| {
 			event: typeof E.sessionInvalid;
-			attributes: Partial<UserFields> & { [A.sessionReason]: DeadSessionReason };
+			attributes: Partial<UserFields> & NoSubnetFields & { [A.sessionReason]: DeadSessionReason };
 	  }
 	| {
 			event: typeof E.consoleOutput;
@@ -317,7 +330,12 @@ export interface EventSpec<Attributes> {
 	floodBy?: readonly (keyof Attributes & string)[];
 	/** A security event in the sense of BP_SECURITY_LOG: dropped when the operator turns it off. */
 	security: boolean;
-	attributes: { [K in keyof Required<Attributes>]: LogLevel };
+	/** Every attribute the event can carry, with its level; a field declared `never` is not one. */
+	attributes: {
+		[
+			K in keyof Required<Attributes> as [Required<Attributes>[K]] extends [never] ? never : K
+		]: LogLevel;
+	};
 }
 
 const ERROR_LEVELS = {

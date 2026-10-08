@@ -2,6 +2,7 @@ import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import { createLogWriter, newChain, sha256Hex, type WriterOptions } from './core';
 import { REGISTRY, type LogEvent } from './events';
+import type { LogPseudonym, LogSubnetPseudonym, LogUserPseudonym } from './pseudonym';
 import { FLOOD_ALLOWANCE, FLOOD_WINDOW_MS } from './flood';
 import { ATTRIBUTE as A, EVENT as E, FIELD, SCHEMA_VERSION, SERVICE_NAME } from './names';
 import { MAX_LINE_BYTES, MAX_OPERATOR_MESSAGE_LENGTH, MAX_VALUE_LENGTH } from './serialize';
@@ -418,5 +419,89 @@ describe('BP_SECURITY_LOG', () => {
 		} finally {
 			spec.security = false;
 		}
+	});
+});
+
+describe('floodBy: a summarised authentication event splits its window by its own field (L3)', () => {
+	// The window key was the event, status, route and class. Twenty cookies of reason `unknown`,
+	// which anyone can send for free, filled `budgetpilot.session.invalid`'s window on a route, and
+	// the replay of a REVOKED cookie on that route became an anonymous count (contradiction pass on
+	// L3's design note). Each test below separates exactly that pair of states.
+	const user = (hex: string) => hex.repeat(64) as LogUserPseudonym;
+	const dead = (reason: 'unknown' | 'revoked', pseudonym?: LogUserPseudonym): LogEvent => ({
+		event: E.sessionInvalid,
+		attributes: {
+			...(pseudonym === undefined ? {} : { [A.userPseudonym]: pseudonym }),
+			[A.sessionReason]: reason
+		}
+	});
+	const onRoute = { context: () => ({ traceId: 'a'.repeat(32), method: 'GET', route: '/' }) };
+
+	it('counts the cheap repeats past the allowance: the window this file relies on does fill', () => {
+		const { write, parsed } = harness(onRoute);
+		for (let index = 0; index < FLOOD_ALLOWANCE + 1; index += 1) write(dead('unknown'));
+		expect(parsed().length).toBe(FLOOD_ALLOWANCE);
+	});
+
+	it('writes a revoked replay inside the window twenty unknown cookies filled', () => {
+		const { write, parsed } = harness(onRoute);
+		for (let index = 0; index < FLOOD_ALLOWANCE + 1; index += 1) write(dead('unknown'));
+		write(dead('revoked', user('b')));
+		expect(parsed().at(-1)?.[A.sessionReason]).toBe('revoked');
+	});
+
+	it("gives each user's revoked replays a window of their own", () => {
+		const { write, parsed } = harness(onRoute);
+		for (let index = 0; index < FLOOD_ALLOWANCE + 1; index += 1) write(dead('revoked', user('c')));
+		write(dead('revoked', user('d')));
+		expect(parsed().at(-1)?.[A.userPseudonym]).toBe(user('d'));
+	});
+
+	it('names the reason and the user it counted in the summary line', () => {
+		const { write, parsed, advance, runScheduled } = harness(onRoute);
+		for (let index = 0; index < FLOOD_ALLOWANCE + 3; index += 1) write(dead('revoked', user('e')));
+		advance(FLOOD_WINDOW_MS);
+		runScheduled();
+		const summary = parsed().at(-1)!;
+		expect([
+			summary[FIELD.eventName],
+			summary[A.suppressedEvent],
+			summary[A.sessionReason],
+			summary[A.userPseudonym],
+			summary[A.suppressedCount]
+		]).toEqual([E.logSuppressed, E.sessionInvalid, 'revoked', user('e'), 3]);
+	});
+});
+
+describe('the subnet fields exist on attack events only (#936 point 1), by type', () => {
+	// Compile time: `npm run check` fails if a success event accepts the field. Run time: the
+	// event is still built, so the test asserts what it built, and vitest's assertion count holds.
+	it('refuses a subnet label on a successful sign-in, written or spread', () => {
+		const hash = '0'.repeat(64);
+		// @ts-expect-error a success event has no subnet label, written as a literal
+		const success: LogEvent = {
+			event: E.authnLoginSuccess,
+			attributes: {
+				[A.clientPseudonym]: hash as LogPseudonym,
+				[A.userPseudonym]: hash as LogUserPseudonym,
+				[A.authnFactor]: 'password',
+				[A.clientSubnetPseudonym]: hash as LogSubnetPseudonym
+			}
+		};
+		const attack = {
+			[A.clientPseudonym]: hash as LogPseudonym,
+			[A.clientSubnetPseudonym]: hash as LogSubnetPseudonym,
+			[A.clientSubnetPrefixLength]: 32
+		};
+		// @ts-expect-error nor spread from an attack event's client fields, which a plain type allowed
+		const spread: LogEvent = {
+			event: E.authnLoginSuccess,
+			attributes: {
+				...attack,
+				[A.userPseudonym]: hash as LogUserPseudonym,
+				[A.authnFactor]: 'totp'
+			}
+		};
+		expect([success.event, spread.event]).toEqual([E.authnLoginSuccess, E.authnLoginSuccess]);
 	});
 });
