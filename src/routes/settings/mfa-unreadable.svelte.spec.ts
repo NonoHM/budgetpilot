@@ -43,17 +43,25 @@ function baseData(status: 'disabled' | 'enabled' | 'unreadable'): PageData {
 const disableRefused = { totpDisableError: 'refused' };
 
 describe('Settings, two-factor whose secret no longer decrypts (#904)', () => {
-	it('keeps the switch on and says the way back, where an enabled factor says it is enabled', async () => {
-		expect.assertions(4);
+	it('says the way back, where an enabled factor says it is enabled', async () => {
+		expect.assertions(3);
 
 		await render(Page, { params: {}, data: baseData('unreadable'), form: null });
 
 		await expect.element(page.getByText(m.settings_mfa_status_unreadable())).toBeInTheDocument();
+		expect(page.getByText(m.settings_mfa_description_enabled()).elements()).toHaveLength(0);
+		expect(m.settings_mfa_status_unreadable()).not.toBe(m.settings_mfa_description_enabled());
+	});
+
+	// Still a factor: the switch reads on, and pressing it opens the disable dialog, not enrolment.
+	it('keeps the switch on', async () => {
+		expect.assertions(1);
+
+		await render(Page, { params: {}, data: baseData('unreadable'), form: null });
+
 		await expect
 			.element(page.getByRole('switch', { name: m.settings_mfa_switch_aria() }))
 			.toHaveAttribute('aria-checked', 'true');
-		expect(page.getByText(m.settings_mfa_description_enabled()).elements()).toHaveLength(0);
-		expect(m.settings_mfa_status_unreadable()).not.toBe(m.settings_mfa_description_enabled());
 	});
 
 	it('the disable dialog asks for a recovery code on a text keyboard', async () => {
