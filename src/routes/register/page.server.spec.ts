@@ -1094,6 +1094,26 @@ describe('/register action: security events (L3, #250)', () => {
 			expect(result.success).toBe('Utilisateur créé.');
 			expect(logged).toEqual([]);
 		});
+
+		// Separates « refused registration » (anonymous, an authentication event) from « refused
+		// account creation » (an admin's, L4's): break B14 logged both and every test stayed green.
+		it("a signed-in admin's refused creation writes nothing either, while the answer is the refusal", async () => {
+			db.prisma.user.count.mockResolvedValue(2);
+			db.prisma.user.findUnique.mockResolvedValue(null);
+			db.prisma.user.create.mockRejectedValue({ code: 'P2002' });
+
+			const result = await runRegister(
+				{ get: vi.fn(), set: vi.fn() },
+				{ email: 'taken@example.test', password: 'mot-de-passe-long' },
+				{ user: { role: 'ADMIN' } }
+			);
+
+			expect({ status: result.status, data: result.data, logged }).toEqual({
+				status: 400,
+				data: { error: 'Inscription impossible.' },
+				logged: []
+			});
+		});
 	});
 
 	describe('a refusal after a check: one register_fail with its reason, the answer unchanged', () => {
