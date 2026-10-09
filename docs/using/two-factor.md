@@ -28,6 +28,11 @@ Flip the switch and a dialog opens with everything you need:
 Nothing is saved until that code is accepted. A mis-scanned QR code cannot
 leave you with a second factor you have no app for.
 
+**Turning it on signs you out everywhere else.** Every other browser and
+device where you are signed in has to sign in again, this time with a code.
+The one you are using stays signed in. If you are turning it on because you
+think somebody else has your password, this is what removes their access.
+
 ## Save your recovery codes
 
 The moment it is enabled, you get ten of them, once:
@@ -73,6 +78,9 @@ a new code.
 Same switch, and it asks for **your password and a current code**. Turning
 it off deletes the stored secret and every remaining recovery code, so
 turning it on again later gives you a fresh set of ten.
+
+Like turning it on, turning it off **signs you out everywhere else** and keeps
+you signed in where you are.
 
 ## If your codes stop being accepted
 

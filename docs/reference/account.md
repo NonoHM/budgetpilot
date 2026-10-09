@@ -49,7 +49,8 @@ first and unhelpful for the other two, but no figure it displays is wrong.
 | Its cookie  | replaced each time you confirm your password                        |
 
 A session ends when it expires, when it goes unused for 7 days, when it is
-revoked from this page, or when the password changes. The list shows every
+revoked from this page, or when another session changes the password or turns
+two-factor authentication on or off. The list shows every
 ended session as revoked, whatever ended it. A visitor whose session ended
 from going unused is told so on the sign-in page.
 

@@ -59,6 +59,28 @@ password or code._ The screen does not say which one failed, so a session left
 open on someone else's device does not tell them whether they guessed the
 password right.
 
+## Other sessions
+
+Turning two-factor on or off changes how the account signs in. Like a password
+change, it ends every other session and every sign-in still in progress.
+
+| When two-factor is turned on or off                       | What happens                                                                |
+| --------------------------------------------------------- | --------------------------------------------------------------------------- |
+| Every other session of the account                        | **revoked**                                                                 |
+| The session that made the change                          | kept, with a new cookie                                                     |
+| A sign-in waiting for its code                            | ended: the code is refused and the person is sent back to the password page |
+| A sign-in whose password was being checked at that moment | refused with _Invalid credentials_                                          |
+| Sessions of other accounts                                | untouched                                                                   |
+
+That sign-in is refused for its timing, not its password: the password was
+right, and signing in again works. Without the refusal, a sign-in proven by the
+password alone could finish after two-factor was turned on.
+
+Measured against SQLite, PostgreSQL and MariaDB by
+`src/lib/server/auth/sessionRotation.db-smoke.ts` and
+`src/lib/server/auth/pendingSignIn.db-smoke.ts`
+([#949](https://github.com/NonoHM/budgetpilot/issues/949)).
+
 ## Rate limiting
 
 Five failed attempts within fifteen minutes, counted per challenge and per
@@ -68,8 +90,8 @@ The pending challenge between the two sign-in steps lasts **five minutes**.
 After that, the verification page sends you back to sign in with your
 password again.
 
-A password change, an admin password reset, or **Log out other sessions**
-ends a pending challenge at once: a code entered afterwards sends you back to
+A password change, an admin password reset, turning two-factor off, or
+**Log out other sessions** ends a pending challenge at once: a code entered afterwards sends you back to
 sign in with your password.
 
 ## When the recovery codes run out
