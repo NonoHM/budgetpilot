@@ -217,6 +217,8 @@ let captured = '';
 let admin: APIRequestContext;
 const contexts: APIRequestContext[] = [];
 const outcomes: Record<string, string> = {};
+/** Each labelled action's HTTP status and its `BudgetPilot-Sign-In` header, or `absent` (#876). */
+const signInMarks: Record<string, string> = {};
 let forcedErrorId = '';
 
 interface BankStub {
@@ -461,6 +463,8 @@ async function exerciseAuthPaths(): Promise<void> {
 			error?: { errorId?: string };
 		};
 		outcomes[label] = body.type;
+		signInMarks[label] =
+			`${response.status()} ${response.headers()['budgetpilot-sign-in'] ?? 'absent'}`;
 		return { response, body, data: actionData(body.data) };
 	};
 
@@ -1032,3 +1036,41 @@ function parseLog(text: string): {
 	}
 	return { total: raw.length, unparsed: raw.length - lines.length, lines, byName };
 }
+
+/**
+ * #876 on the shipped artifact: the header a proxy ban tool reads, on every action the journey above
+ * performs. These are JSON action requests, the door where the status cannot tell a refusal from a
+ * success (every answer is a 200), which is why the signal is a header. The unit specs classify each
+ * refusal reason; this proves the header survives the hooks and SvelteKit's response assembly, and
+ * lands on nothing else. `login-fail-6` is the limiter's refusal, deliberately unmarked: the limiter
+ * counts a subscriber bucket while a proxy bans one address.
+ *
+ * NOT COVERED HERE, and why: the HTML document door a browser takes (these requests ask for JSON),
+ * and a refused second factor (the journey sends none, and adding one would move L3's figures
+ * below). Both were measured on the built app behind a real Caddy for #876's pull request; the
+ * second factor's marks are asserted per reason in its route's unit spec.
+ */
+test.describe('#876: the sign-in refusal header on the built server', () => {
+	test('marks the refused credentials, and no other answer', () => {
+		expect(signInMarks).toEqual({
+			register: '200 absent',
+			'login-success': '200 absent',
+			'totp-start': '200 absent',
+			'totp-confirm': '200 absent',
+			'invitation-create': '200 absent',
+			'invitation-redeem': '200 absent',
+			'admin-reset': '200 absent',
+			'temporary-password-login': '200 absent',
+			'bank-start': '200 absent',
+			'mfa-login-password': '200 absent',
+			'mfa-login-recovery-code': '200 absent',
+			'login-fail-1': '200 refused',
+			'login-fail-2': '200 refused',
+			'login-fail-3': '200 refused',
+			'login-fail-4': '200 refused',
+			'login-fail-5': '200 refused',
+			'login-fail-6': '200 absent',
+			'login-unknown-user': '200 refused'
+		});
+	});
+});
