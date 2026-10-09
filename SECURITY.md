@@ -213,6 +213,18 @@ to almost no ASVS requirement: the closest one is answered "met" here, on the st
 the very invariant that had the hole. A high score on this standard is not a statement
 that the figures on your screen are right.
 
+## Self-assessed against OWASP AISVS 1.0, for the AI advice
+
+The optional AI advice is mapped separately, against every Level 1 and Level 2 requirement of
+the OWASP AI Security Verification Standard 1.0, in the
+[AISVS map](./docs/reference/aisvs-map.md): one verdict per requirement, the evidence, and the
+issue that closes each gap. Its counts are on that page and nowhere else, because a test
+recomputes them from its rows. The same page maps how this repository is developed with an AI
+assistant (Appendix C), counted separately, and the three references that bind the AI path
+beside it: the OWASP Top 10 for LLM Applications, ANSSI-PA-102 and the scope of the EU AI Act.
+
+Self-assessed by the maintainer and unverified by any third party, like the ASVS figure above.
+
 ## Penetration testing and retest policy
 
 A full application penetration test is the annual-equivalent baseline. It

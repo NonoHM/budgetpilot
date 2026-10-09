@@ -135,7 +135,10 @@ source's own text.
 
 The following would apply, and are listed so the reader can see them. **ANSSI is
 PROPOSED, not yet mapped** (`AGENTS.md`, « References »), so none of these is
-claimed as satisfied.
+claimed as satisfied. These positions are about how this repository is
+developed; the product's AI advice is read against PA-102 recommendation by
+recommendation in the [AISVS map](../reference/aisvs-map.md), where R9, R27 and
+R34 get their own verdicts.
 
 | Source                                                                                                                                                      | Identifier | What it says                                                                                                                   | Position                       |
 | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------ | ------------------------------ |
@@ -156,10 +159,17 @@ without a person approving each action, because an approval prompt on every
 write would slow the work more than the owner accepts.
 
 This deviates from AISVS 9.2.1, ATLAS AML.M0029, and ANSSI PA-102 R9 and R30,
-all of which ask for a person before a high-impact or irreversible action. The
-compensating controls are the guards above: each refuses rather than warns, each
-fails closed, and the pull request check and the daily scan run outside the
-assistant. The decision is revisited if a leak gets past them.
+all of which ask for a person before a high-impact or irreversible action, and
+from AISVS AC.4.1 and AC.8.1, which ask for a human review and forbid an agent
+merging what it generated. The compensating controls are the guards above: each
+refuses rather than warns, each fails closed, and the pull request check and the
+daily scan run outside the assistant. What stops a defective merge is a different
+control: the branch rules on `main`, which require a pull request and the CI
+checks and have no bypass. The decision is revisited if a leak gets past them.
+
+The guards above cover what is published, not what enters the assistant's
+context, so the [AISVS map](../reference/aisvs-map.md) records AC.3.1, AC.3.2 and
+AC.4.2 as partly met, row by row, with the issue that closes each.
 
 ### Old session trailers are kept, not expunged
 
