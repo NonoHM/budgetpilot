@@ -677,8 +677,10 @@ export interface SignInFactors {
  * signs in the way the step read it would: the same password (#923) and the same answer to whether
  * a code is asked (#949). A compare-and-set on the User row rather than a read: it locks the row
  * against a concurrent change to either, so whichever commits second sees the first. A change to
- * either committed while the comparison ran makes it throw `SignInSuperseded`; one
- * committing after it waits, then ends what this step wrote (`endPendingSignIns`,
+ * either that leaves a different value, committed while the comparison ran, makes it throw
+ * `SignInSuperseded` (two-factor turned off and on again inside one comparison compares equal, and
+ * the code step then asks for the new secret's code); one committing after it waits, then ends
+ * what this step wrote (`endPendingSignIns`,
  * `revokeSessionsOtherThan`). Without the second column, two-factor turned on during the comparison
  * left a session proven by the password alone, written after the enrolment had ended every other
  * one. The write stores the value already there.
