@@ -602,21 +602,24 @@ describe('any change to how the account signs in ends every other session (#949)
 		'disableTotp'
 	] as const satisfies readonly ReauthAction[];
 
-	it.each(SIGN_IN_CHANGES)('%s: the other device is signed out, the caller is not', async (action) => {
-		const arranged = await CASES[action].arrange();
-		const caller = await mintSession(arranged.callerId);
-		const other = await mintSession(arranged.callerId);
-		const outsider = await mintSession((await seedAccount(`${action}-outsider`)).id);
+	it.each(SIGN_IN_CHANGES)(
+		'%s: the other device is signed out, the caller is not',
+		async (action) => {
+			const arranged = await CASES[action].arrange();
+			const caller = await mintSession(arranged.callerId);
+			const other = await mintSession(arranged.callerId);
+			const outsider = await mintSession((await seedAccount(`${action}-outsider`)).id);
 
-		const { answer, written } = await post('settings', action, caller.token, arranged.form);
+			const { answer, written } = await post('settings', action, caller.token, arranged.form);
 
-		expect.soft(refused(answer), `${action} refused: ${JSON.stringify(answer)}`).toBe(false);
-		expect.soft(await arranged.landed(), `${action} landed`).toBe(true);
-		expect.soft(await readSessionUser(other.token), 'other device of the account').toBeNull();
-		expect.soft(await readSessionUser(outsider.token), 'another account').not.toBeNull();
-		expect.soft(await readSessionUser(caller.token), "caller's old token").toBeNull();
-		expect.soft((await readSessionUser(written()?.value))?.sessionId).toBe(caller.id);
-	});
+			expect.soft(refused(answer), `${action} refused: ${JSON.stringify(answer)}`).toBe(false);
+			expect.soft(await arranged.landed(), `${action} landed`).toBe(true);
+			expect.soft(await readSessionUser(other.token), 'other device of the account').toBeNull();
+			expect.soft(await readSessionUser(outsider.token), 'another account').not.toBeNull();
+			expect.soft(await readSessionUser(caller.token), "caller's old token").toBeNull();
+			expect.soft((await readSessionUser(written()?.value))?.sessionId).toBe(caller.id);
+		}
+	);
 
 	// The revocation is part of the change's commit (the contradiction pass on the design): a change
 	// that rolls back, here because the caller's own session was revoked after the hook resolved it,
