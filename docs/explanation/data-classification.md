@@ -189,8 +189,9 @@ and sent only to the host on `LLM_ALLOWED_HOSTS`, `localhost` by default
 the same nine are refused at compile time (`KEYS_REFUSED_IN_PROMPT` in `prompt.ts`,
 `ForbiddenPromptKey` in `types.ts`). Without opt-in, `largestExpenses` and `recurringPayments`
 labels are replaced by a fixed placeholder, and `flaggedCategoryLabels` is not sent (`summary.ts`).
-With opt-in, all three lists carry labels that crossed `anonymizeMerchant`: letters only, 28
-characters, so no digit of an account number survives, while a name written in a label does
+With opt-in, all three lists carry labels that crossed `anonymizeMerchant` (letters only, 28
+characters; `largestExpenses` and `recurringPayments` then append the category name), so no digit
+of an account number survives, while a name written in a label does
 ([#819](https://github.com/NonoHM/budgetpilot/issues/819)). Category names, which the user types or
 an import column supplies, travel in both modes under the names given
 ([#851](https://github.com/NonoHM/budgetpilot/issues/851)); `docs/ai-insights.md` says so.

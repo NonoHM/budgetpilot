@@ -482,9 +482,10 @@ describe('AI prompt: flagged-category labels are cleaned like the other two list
 		const payload = payloadOf(await capturePrompt(ibanFixture, overBudget, true));
 
 		// The property itself, not the stripper's pattern: no digit of any account number survives.
-		expect(payload.flaggedCategoryLabels?.flatMap((entry) => entry.labels).join('')).not.toMatch(
-			/\d/
-		);
+		// Exactly one label, so an empty list cannot pass this vacuously.
+		expect(payload.flaggedCategoryLabels?.flatMap((entry) => entry.labels)).toEqual([
+			expect.stringMatching(/^\D+$/)
+		]);
 	});
 
 	it('labels on: the flagged label is the cleaned merchant, without the category repeated', async () => {

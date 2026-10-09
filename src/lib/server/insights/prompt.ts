@@ -136,8 +136,7 @@ export function toPromptPayload(value: unknown): unknown {
 // stay true to what is actually sent. When the user has NOT opted into sharing labels, the payload's
 // merchant labels are anonymized to a placeholder (see summary.ts), so "no raw transactions" holds.
 // When they HAVE opted in, `largestExpenses[].label`, `recurringPayments[].label` and
-// `flaggedCategoryLabels[].labels` carry real merchant text, cleaned of numbers and references and
-// truncated (#819), so the sentence must say so rather than claim the opposite.
+// `flaggedCategoryLabels[].labels` carry real merchant text, cleaned of digits and truncated (#819), so the sentence must say so rather than claim the opposite.
 // Both variants are plain English like the rest of this prompt: they reach the model, never the UI.
 const DATA_DESCRIPTION_AGGREGATED = 'Aggregated data, no raw transactions';
 const DATA_DESCRIPTION_WITH_LABELS = 'Aggregated data plus shortened labels of some expenses';
