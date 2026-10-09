@@ -166,9 +166,13 @@ jobs:
   # level that does not serialize them, a caught unique violation on an engine that aborts the
   # enclosing transaction.
   #
-  # One job definition, one matrix leg per engine. The `db` service takes its image and health
+  # One job definition, one matrix leg per engine. The `db` container takes its image and health
   # probe from the leg; the credentials below are throwaway values for a container that lives
   # and dies inside this job, never copied from anywhere real.
+  #
+  # A plain `docker run`, not `services:`, because a service pulls from Docker Hub with no
+  # fallback, and Docker Hub's pull limit failed both legs on a change that touched nothing they
+  # test (#980). The image is pulled by digest instead, mirror first and Docker Hub last.
   db-matrix:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -191,26 +195,6 @@ jobs:
             health-cmd: healthcheck.sh --connect --innodb_initialized
             url: mysql://budgetpilot:budgetpilot@127.0.0.1:3306/budgetpilot
 
-    services:
-      db:
-        image: ${{ matrix.image }}
-        # Both images ignore the other's variables, so one block serves both legs.
-        env:
-          POSTGRES_USER: budgetpilot
-          POSTGRES_PASSWORD: budgetpilot
-          POSTGRES_DB: budgetpilot
-          MARIADB_USER: budgetpilot
-          MARIADB_PASSWORD: budgetpilot
-          MARIADB_DATABASE: budgetpilot
-          MARIADB_ROOT_PASSWORD: budgetpilot-root
-        ports:
-          - ${{ matrix.port }}:${{ matrix.port }}
-        options: >-
-          --health-cmd "${{ matrix.health-cmd }}"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 30
-
     env:
       DATABASE_PROVIDER: ${{ matrix.provider }}
       DATABASE_URL: ${{ matrix.url }}
@@ -222,6 +206,57 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
+      # The digest comes from .github/actions/pull-pinned/images.txt, keyed by this leg's tag, and
+      # not from a matrix key: a new key renames both required checks (see the migration-diff step
+      # below). That file says how to refresh a digest, since no Dependabot ecosystem reads it.
+      - name: Resolve the pinned digest of this leg's database image
+        id: db-image
+        env:
+          IMAGE: ${{ matrix.image }}
+        run: |
+          digest=$(awk -v image="$IMAGE" '$1 == image { print $2 }' .github/actions/pull-pinned/images.txt)
+          if [ -z "$digest" ]; then
+            echo "::error::No pinned digest for $IMAGE in .github/actions/pull-pinned/images.txt."
+            exit 1
+          fi
+          {
+            echo "name=${IMAGE%%:*}"
+            echo "tag=${IMAGE#*:}"
+            echo "digest=$digest"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Pull the database image by digest, mirror first
+        id: db-pull
+        uses: ./.github/actions/pull-pinned
+        with:
+          name: ${{ steps.db-image.outputs.name }}
+          tag: ${{ steps.db-image.outputs.tag }}
+          digest: ${{ steps.db-image.outputs.digest }}
+
+      # Started before the install so the database initialises while npm works, as the service
+      # did. Same environment, port and health probe as the service it replaces.
+      - name: Start the database
+        env:
+          REF: ${{ steps.db-pull.outputs.ref }}
+          PORT: ${{ matrix.port }}
+          HEALTH_CMD: ${{ matrix.health-cmd }}
+        run: |
+          # Both images ignore the other's variables, so one set serves both legs.
+          docker run -d --name db --pull never \
+            -e POSTGRES_USER=budgetpilot \
+            -e POSTGRES_PASSWORD=budgetpilot \
+            -e POSTGRES_DB=budgetpilot \
+            -e MARIADB_USER=budgetpilot \
+            -e MARIADB_PASSWORD=budgetpilot \
+            -e MARIADB_DATABASE=budgetpilot \
+            -e MARIADB_ROOT_PASSWORD=budgetpilot-root \
+            -p "$PORT:$PORT" \
+            --health-cmd "$HEALTH_CMD" \
+            --health-interval 5s \
+            --health-timeout 5s \
+            --health-retries 30 \
+            "$REF"
+
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version-file: .nvmrc
@@ -229,6 +264,23 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      # What the runner did for the service before any step: wait until the container's own health
+      # probe passes, and fail with its log if it never does.
+      - name: Wait for the database to be healthy
+        run: |
+          status=''
+          for _ in $(seq 1 60); do
+            status=$(docker inspect --format '{{.State.Health.Status}}' db)
+            if [ "$status" = healthy ] || [ "$status" = unhealthy ]; then break; fi
+            sleep 5
+          done
+          echo "database health: $status"
+          if [ "$status" != healthy ]; then
+            docker logs db 2>&1 | tail -n 50
+            echo "::error::The database container never became healthy (last status: $status)."
+            exit 1
+          fi
 
       # All three, not just this leg's: the app imports every provider's generated client
       # statically, so the suite will not load without all three on disk. Which one actually
@@ -395,6 +447,13 @@ jobs:
       # would otherwise silently change meaning when that file is edited.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
+      # The Dockerfile's node base comes from Docker Hub through the daemon, so the daemon tries a
+      # mirror first and falls back to Docker Hub by itself (#980). Same action as docker-smoke.
+      - name: Reach Docker Hub through a mirror first
+        uses: ./.github/actions/docker-hub-mirror
+        with:
+          mode: configure
+
       # Deliberately a plain `docker build`, matching scripts/docker-smoke.sh: the artifact under
       # test must be the one the Dockerfile produces, not a buildx variant with a different layer
       # set. docker-smoke builds its own copy and force-removes it in a cleanup trap on every exit
@@ -402,6 +461,12 @@ jobs:
       # that still exists when the scan runs.
       - name: Build the runtime image
         run: docker build -t budgetpilot:cve-scan .
+
+      - name: Say which registry served the base image
+        if: always()
+        uses: ./.github/actions/docker-hub-mirror
+        with:
+          mode: report
 
       # Runs first for two reasons. It records EVERY severity, unfixed included, so the findings
       # the gate deliberately ignores stay readable by whoever is looking; and it is what installs

@@ -1,0 +1,46 @@
+name: Pull a pinned image
+description: >-
+  Pulls one Docker Official Image by digest, mirror first and Docker Hub last, checks the digest,
+  tags it locally and says which registry served it (#980).
+
+# GitHub `services:` pull from Docker Hub by tag and have no fallback, so Docker Hub's pull limit
+# failed required jobs on changes that touched nothing they test (#980). The work is in
+# pull-pinned.sh beside this file, so a job that pulls several images can loop over it.
+
+inputs:
+  name:
+    description: Docker Official Image name without registry, namespace or tag, e.g. `postgres`.
+    required: true
+  digest:
+    description: The manifest digest to pull, `sha256:` followed by 64 hex characters.
+    required: true
+  tag:
+    description: The local tag to give the pulled image, normally the upstream tag it was pinned from.
+    required: true
+  sources:
+    description: >-
+      Registry prefixes to try in order, one per line. Empty means the script's default order:
+      mirror.gcr.io, then ECR Public, then Docker Hub.
+    required: false
+    default: ''
+outputs:
+  ref:
+    description: The local `<name>:<tag>` holding the pinned image, for `docker run --pull never`.
+    value: ${{ steps.pull.outputs.ref }}
+  source:
+    description: The registry prefix that served the image.
+    value: ${{ steps.pull.outputs.source }}
+
+runs:
+  using: composite
+  steps:
+    - id: pull
+      shell: bash
+      env:
+        NAME: ${{ inputs.name }}
+        TAG: ${{ inputs.tag }}
+        DIGEST: ${{ inputs.digest }}
+        SOURCES: ${{ inputs.sources }}
+      run: |
+        if [ -n "$SOURCES" ]; then export PULL_PINNED_SOURCES="$SOURCES"; fi
+        "$GITHUB_ACTION_PATH/pull-pinned.sh" "$NAME" "$TAG" "$DIGEST"
