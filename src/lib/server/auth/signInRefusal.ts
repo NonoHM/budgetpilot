@@ -16,13 +16,15 @@ export const SIGN_IN_REFUSED = 'refused';
 type Reason<Step extends SignInFailure['step']> = Extract<SignInFailure, { step: Step }>['reason'];
 
 /**
- * Which refusals carry the header: a refusal answered to a credential THIS REQUEST sent. Nobody can
- * mark someone else's response at will. Two cases mark a CORRECT credential, once each and never
- * on demand: a sign-in that loses a race with a change to the account's factors (`superseded`, or
- * `wrong_code` when the factor is turned off or re-enrolled meanwhile), and a double-submitted form
- * (the second post of a code reads `reused_code` or `wrong_recovery_code`). A ban needs several
- * marks, so one does not ban. Exhaustive by type, so a new reason does not compile until it is
- * classified here.
+ * Which refusals carry the header: a refusal answered to a credential THIS REQUEST sent, so a mark
+ * lands only on the address that sent it and nobody can mark someone else's response. The owner
+ * can earn marks with a CORRECT credential, which is why a ban threshold of one is wrong: a sign-in
+ * that loses a race with a change to the account's factors (`superseded`, or `wrong_code` when the
+ * factor is turned off or re-enrolled meanwhile); a TOTP code already spent, by a double-submitted
+ * form, by another device or by a re-authentication in the same 30-second step (`reused_code`); a
+ * recovery code spent the same way (`wrong_recovery_code`); and a recovery code typed in a shape
+ * the parser does not read, without its hyphen (`unrecognised_code`). Exhaustive by type, so a new
+ * reason does not compile until it is classified here.
  *
  * - `superseded` at the password step answers with the invalid-credentials body, so it is marked
  *   like the wrong password it reads as: an absent header would tell the client its password was
