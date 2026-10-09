@@ -5,8 +5,15 @@ vi.hoisted(() => {
 	process.env.RATE_LIMIT_HASH_SECRET ??= 'a1'.repeat(32);
 });
 
-/** Every line the action writes, and the order of each line against the limiter's record. */
-const captured = vi.hoisted(() => ({ events: [] as unknown[], order: [] as string[] }));
+/**
+ * Every line the action writes, the order of each line against the limiter's record, and the
+ * response headers of the LAST request (#876), lowercased as SvelteKit stores them.
+ */
+const captured = vi.hoisted(() => ({
+	events: [] as unknown[],
+	order: [] as string[],
+	headers: {} as Record<string, string>
+}));
 vi.mock('$lib/server/logging', async (importOriginal) => ({
 	...(await importOriginal<typeof import('$lib/server/logging')>()),
 	log: (event: unknown) => {
@@ -213,17 +220,21 @@ async function runLogin(
 ) {
 	const formData = new FormData();
 	for (const [key, value] of Object.entries(input)) formData.set(key, value);
+	const headers: Record<string, string> = {};
+	captured.headers = headers;
 
 	return (await (
 		actions.default as unknown as (event: {
 			cookies: typeof cookies;
 			getClientAddress: () => string;
 			request: Request;
+			setHeaders: (set: Record<string, string>) => void;
 			url: URL;
 		}) => Promise<unknown>
 	)({
 		cookies,
 		getClientAddress: () => ip,
+		setHeaders: (set) => setHeadersLikeKit(headers, set),
 		request: new Request('http://localhost/login', {
 			method: 'POST',
 			body: formData
@@ -531,4 +542,126 @@ describe('/login action: security events (L3)', () => {
 		await signIn('mauvais-mot-de-passe');
 		expect(captured.order).toEqual(['record', 'log']);
 	});
+});
+
+/**
+ * `event.setHeaders` as SvelteKit 2.70 implements it (`runtime/server/respond.js`): names stored
+ * lowercased, and a second set of the same name in one request throws rather than overwriting.
+ */
+function setHeadersLikeKit(headers: Record<string, string>, set: Record<string, string>): void {
+	for (const [name, value] of Object.entries(set)) {
+		const lower = name.toLowerCase();
+		if (lower in headers) throw new Error(`"${name}" header is already set`);
+		headers[lower] = value;
+	}
+}
+
+/**
+ * #876: the header a proxy ban tool reads. It marks a refusal of a credential THIS request sent,
+ * and nothing else. The name and value are written literally: they are the contract an operator's
+ * filter matches, so a renamed constant must fail here rather than move both sides.
+ */
+describe('/login action: the sign-in refusal header (#876)', () => {
+	const PASSWORD = 'mot-de-passe-long';
+	const MARKED = { 'budgetpilot-sign-in': 'refused' };
+	let passwordHash: string;
+
+	beforeEach(async () => {
+		vi.clearAllMocks();
+		captured.events.length = 0;
+		captured.order.length = 0;
+		passwordHash ??= await hashPassword(PASSWORD);
+		db.prisma.session.create.mockResolvedValue({ id: 'session-a' });
+		db.prisma.user.updateMany.mockImplementation(async (args) => answerUserUpdateMany(args));
+	});
+
+	async function headersAfter(input: Record<string, string>): Promise<Record<string, string>> {
+		await runLogin({ get: vi.fn(), set: vi.fn() }, input).catch(() => undefined);
+		return captured.headers;
+	}
+
+	const signIn = (password: string) => headersAfter({ email: 'a@example.test', password });
+
+	it('an unknown account is marked', async () => {
+		db.prisma.user.findUnique.mockResolvedValue(null);
+		expect(await signIn('peu-importe')).toEqual(MARKED);
+	});
+
+	it('a wrong password is marked', async () => {
+		db.prisma.user.findUnique.mockResolvedValue({ id: 'user-a', passwordHash });
+		expect(await signIn('mauvais-mot-de-passe')).toEqual(MARKED);
+	});
+
+	// Class 2 (#854): `superseded` answers with the invalid-credentials body, so an absent header
+	// would tell the client its password was right and changed meanwhile.
+	it('a sign-in superseded by a password change is marked, like the wrong password it reads as', async () => {
+		db.prisma.user.findUnique.mockResolvedValue({ id: 'user-a', passwordHash });
+		db.prisma.user.updateMany.mockResolvedValue({ count: 0 });
+		expect(await signIn(PASSWORD)).toEqual(MARKED);
+	});
+
+	it('an unknown account and a wrong password get the same status, body and headers', async () => {
+		db.prisma.user.findUnique.mockResolvedValueOnce({ id: 'user-a', passwordHash });
+		const wrong = await runLogin(
+			{ get: vi.fn(), set: vi.fn() },
+			{ email: 'a@example.test', password: 'mauvais-mot-de-passe' }
+		);
+		const wrongHeaders = captured.headers;
+		db.prisma.user.findUnique.mockResolvedValueOnce(null);
+		const unknown = await runLogin(
+			{ get: vi.fn(), set: vi.fn() },
+			{ email: 'a@example.test', password: 'mauvais-mot-de-passe' }
+		);
+		expect([
+			{ status: wrong.status, data: wrong.data, headers: wrongHeaders },
+			{ status: unknown.status, data: unknown.data, headers: captured.headers }
+		]).toEqual([
+			{ status: 400, data: { error: 'Identifiants invalides' }, headers: MARKED },
+			{ status: 400, data: { error: 'Identifiants invalides' }, headers: MARKED }
+		]);
+	});
+
+	// The pseudonym throws on a value that is not an address, so the line is never written; the
+	// proxy holds the raw address, and the mark must not depend on the line.
+	it('a wrong password from a client whose address the log cannot read is still marked', async () => {
+		db.prisma.user.findUnique.mockResolvedValue({ id: 'user-a', passwordHash });
+		await runLogin(
+			{ get: vi.fn(), set: vi.fn() },
+			{ email: 'a@example.test', password: 'mauvais-mot-de-passe' },
+			'not-an-address'
+		).catch(() => undefined);
+		expect({ events: captured.events.length, headers: captured.headers }).toEqual({
+			events: 0,
+			headers: MARKED
+		});
+	});
+
+	it('a success without a second factor is not marked', async () => {
+		db.prisma.user.findUnique.mockResolvedValue({ id: 'user-a', passwordHash, totpEnabled: false });
+		expect(await signIn(PASSWORD)).toEqual({});
+	});
+
+	it('a password accepted on an account with 2FA is not marked', async () => {
+		db.prisma.user.findUnique.mockResolvedValue({ id: 'user-a', passwordHash, totpEnabled: true });
+		expect(await signIn(PASSWORD)).toEqual({});
+	});
+
+	// No credential was judged: the client knows its own input was malformed.
+	it.each([
+		['an empty password', { email: 'a@example.test', password: '' }],
+		['an email that does not validate', { email: 'pas-une-adresse', password: PASSWORD }]
+	])('%s is not marked', async (_label, input) => {
+		expect(await headersAfter(input)).toEqual({});
+	});
+
+	// Pass F1 on the design note: the limiter counts a subscriber bucket (an IPv6 /56, or the proxy
+	// itself when TRUSTED_PROXIES is unset) while the proxy bans one raw address, so a marked
+	// limiter refusal would ban whoever shares the bucket. A limiter refusal judges no credential.
+	it.each(['address', 'subject', 'both'] as const)(
+		'a limiter refusal by the %s counter is not marked',
+		async (counter) => {
+			rateLimit.isLoginRateLimited.mockResolvedValueOnce({ counter } as never);
+			expect(await signIn(PASSWORD)).toEqual({});
+		}
+	);
 });

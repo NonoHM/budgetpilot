@@ -8,8 +8,15 @@ vi.hoisted(() => {
 	process.env.RATE_LIMIT_HASH_SECRET ??= 'a1'.repeat(32);
 });
 
-/** Every line the action writes, and the order of each line against the limiter's record. */
-const captured = vi.hoisted(() => ({ events: [] as unknown[], order: [] as string[] }));
+/**
+ * Every line the action writes, the order of each line against the limiter's record, and the
+ * response headers of the LAST request (#876), lowercased as SvelteKit stores them.
+ */
+const captured = vi.hoisted(() => ({
+	events: [] as unknown[],
+	order: [] as string[],
+	headers: {} as Record<string, string>
+}));
 vi.mock('$lib/server/logging', async (importOriginal) => ({
 	...(await importOriginal<typeof import('$lib/server/logging')>()),
 	log: (event: unknown) => {
@@ -253,17 +260,21 @@ async function runVerify(
 ) {
 	const formData = new FormData();
 	formData.set('code', code);
+	const headers: Record<string, string> = {};
+	captured.headers = headers;
 
 	return (await (
 		actions.default as unknown as (event: {
 			cookies: typeof cookies;
 			getClientAddress: () => string;
 			request: Request;
+			setHeaders: (set: Record<string, string>) => void;
 			url: URL;
 		}) => Promise<unknown>
 	)({
 		cookies,
 		getClientAddress: () => '127.0.0.1',
+		setHeaders: (set) => setHeadersLikeKit(headers, set),
 		request: new Request('http://localhost/login/verify-totp', {
 			method: 'POST',
 			body: formData
@@ -738,4 +749,116 @@ describe('#904: a stored secret that does not decrypt', () => {
 		});
 		expect(db.prisma.session.create).toHaveBeenCalledTimes(1);
 	});
+});
+
+/**
+ * `event.setHeaders` as SvelteKit 2.70 implements it (`runtime/server/respond.js`): names stored
+ * lowercased, and a second set of the same name in one request throws rather than overwriting.
+ */
+function setHeadersLikeKit(headers: Record<string, string>, set: Record<string, string>): void {
+	for (const [name, value] of Object.entries(set)) {
+		const lower = name.toLowerCase();
+		if (lower in headers) throw new Error(`"${name}" header is already set`);
+		headers[lower] = value;
+	}
+}
+
+/**
+ * #876: the header a proxy ban tool reads, at the second-factor step. It marks a refusal of a code
+ * THIS request sent. Name and value are literal: they are the contract an operator's filter matches.
+ */
+describe('/login/verify-totp action: the sign-in refusal header (#876)', () => {
+	const RECOVERY_CODE = 'ABCDE-12345';
+	const MARKED = { 'budgetpilot-sign-in': 'refused' };
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		captured.events.length = 0;
+		captured.order.length = 0;
+		mfaChallenge.readMfaChallenge.mockResolvedValue({ id: 'challenge-1', userId: 'user-a' });
+		db.prisma.recoveryCode.findMany.mockResolvedValue([]);
+		userClaims({ totpStepMatches: true });
+	});
+
+	/** An account with 2FA on, stored under `encrypt`, and a code its authenticator shows now. */
+	function account(encrypt: (secret: string) => string = encryptTotpSecret): string {
+		const secret = generateTotpSecretBase32();
+		db.prisma.user.findUnique.mockResolvedValue({
+			id: 'user-a',
+			totpEnabled: true,
+			totpSecretEncrypted: encrypt(secret)
+		});
+		return new OTPAuth.TOTP({ secret: OTPAuth.Secret.fromBase32(secret) }).generate();
+	}
+
+	async function headersAfter(code: string): Promise<Record<string, string>> {
+		await runVerify({ get: vi.fn(), set: vi.fn() }, code).catch(() => undefined);
+		return captured.headers;
+	}
+
+	it('a wrong TOTP code is marked', async () => {
+		account();
+		expect(await headersAfter('000000')).toEqual(MARKED);
+	});
+
+	it('a TOTP code already used is marked', async () => {
+		const code = account();
+		userClaims({ totpStepMatches: false });
+		expect(await headersAfter(code)).toEqual(MARKED);
+	});
+
+	it('a wrong recovery code is marked', async () => {
+		account();
+		expect(await headersAfter(RECOVERY_CODE)).toEqual(MARKED);
+	});
+
+	it('a code matching neither shape is marked: it answers as a wrong code does', async () => {
+		account();
+		expect(await headersAfter('pas-un-code')).toEqual(MARKED);
+	});
+
+	// #904: no code from the app can pass and the cause is the server's key. A ban outreaches the
+	// limiter (the whole site, the recovery-code path included), so the owner is not marked for it.
+	it('a code judged against a secret that does not decrypt is not marked', async () => {
+		const code = account(ciphertextUnderAnotherKey);
+		expect(await headersAfter(code)).toEqual({});
+	});
+
+	it('a success by TOTP code is not marked', async () => {
+		const code = account();
+		expect(await headersAfter(code)).toEqual({});
+	});
+
+	it('a success by recovery code is not marked', async () => {
+		account();
+		db.prisma.recoveryCode.findMany.mockResolvedValue([
+			{ id: 'code-1', codeHash: await hashRecoveryCode(RECOVERY_CODE) }
+		]);
+		db.prisma.recoveryCode.updateMany.mockResolvedValue({ count: 1 });
+		db.prisma.user.updateMany.mockResolvedValue({ count: 0 });
+		expect(await headersAfter(RECOVERY_CODE)).toEqual({});
+	});
+
+	// Reached only after a code was ACCEPTED: the challenge was ended meanwhile (#923).
+	it('a challenge superseded after an accepted code is not marked', async () => {
+		const code = account();
+		mfaChallenge.claimMfaChallenge.mockRejectedValueOnce(new SignInSuperseded());
+		expect(await headersAfter(code)).toEqual({});
+	});
+
+	it('an empty code is not marked: nothing was judged', async () => {
+		account();
+		expect(await headersAfter('')).toEqual({});
+	});
+
+	// Pass F1 on the design note: the limiter's address counter is a subscriber bucket, the proxy
+	// bans one raw address, so a marked limiter refusal would ban whoever shares the bucket.
+	it.each(['address', 'subject', 'both'] as const)(
+		'a limiter refusal by the %s counter is not marked',
+		async (counter) => {
+			account();
+			rateLimit.isMfaRateLimited.mockResolvedValueOnce({ counter } as never);
+			expect(await headersAfter('000000')).toEqual({});
+		}
+	);
 });
