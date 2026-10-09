@@ -264,6 +264,20 @@ COPY --from=builder /app/src/lib/server/naming/backfill.ts \
 	/app/src/lib/server/naming/report.ts \
 	./src/lib/server/naming/
 
+# scripts/log-pseudonym.mjs (#942), the operator's way from a log pseudonym back to an account or
+# an address, by the same rule: source listed file by file, and run by scripts/docker-smoke.sh
+# against the built image in an account mode, because Prisma loads its query compiler only at the
+# first query. Its closure beyond the files above: the secret's one reader, the email's stored
+# form, the pseudonym derivation, the address reading, and the settings registry for `--prefix`
+# (which imports logging/settings.ts, copied below for boot.mjs).
+COPY --from=builder /app/scripts/log-pseudonym.mjs ./scripts/log-pseudonym.mjs
+COPY --from=builder /app/src/lib/server/auth/emailAddress.ts \
+	/app/src/lib/server/auth/rateLimitSecret.ts \
+	./src/lib/server/auth/
+COPY --from=builder /app/src/lib/server/env/settings.ts ./src/lib/server/env/settings.ts
+COPY --from=builder /app/src/lib/server/logging/pseudonymDerivation.ts ./src/lib/server/logging/pseudonymDerivation.ts
+COPY --from=builder /app/src/lib/server/net/clientAddress.ts ./src/lib/server/net/clientAddress.ts
+
 # package.json is not documentation here: jwt.ts resolves the project root by walking up to the
 # nearest one, so dropping it breaks token signing at runtime.
 COPY package.json package-lock.json ./

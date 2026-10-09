@@ -171,6 +171,123 @@ per minute and then one `budgetpilot.log.suppressed` line with the count of the 
 count above looks low, look for that line:
 [Why repeats are summarised](./explanation/logging-design.md#why-repeats-are-summarised).
 
+## Find the account or address behind a pseudonym
+
+The log names an account and a client only by pseudonyms
+([The client address and the account](./logging.md#the-client-address-and-the-account)). The
+`log-pseudonym` command turns one back into what it names. It runs inside the container, which
+already holds `RATE_LIMIT_HASH_SECRET` and the database, and computes the pseudonyms with the app's
+own code under that secret.
+
+- To print the email of the account behind a `budgetpilot.user.pseudonym`:
+
+  ```bash
+  docker compose exec budgetpilot /nodejs/bin/node scripts/log-pseudonym.mjs --user PSEUDONYM
+  ```
+
+  Replace `PSEUDONYM` with the 64 characters from the line. When no account matches, the command
+  prints `No account has this pseudonym under the current secret.` and the three reasons it can
+  have: the line predates a rotation of the secret, the account was deleted, or the line came from
+  another instance.
+
+- To print the pseudonym of an account, so that you can search the log for it:
+
+  ```bash
+  docker compose exec budgetpilot /nodejs/bin/node scripts/log-pseudonym.mjs --email
+  ```
+
+  At `Email:`, type the address and press Enter. The command refuses an email written after
+  `--email`: other users of the server can read a command line with `ps`, and your shell keeps it
+  in its history.
+
+- To check whether a line came from an address you see in the web server's access log, compare
+  its `budgetpilot.client.pseudonym` with:
+
+  ```bash
+  docker compose exec budgetpilot /nodejs/bin/node scripts/log-pseudonym.mjs --address ADDRESS
+  ```
+
+  Replace `ADDRESS` with the address alone, without a port.
+
+- To compare a `budgetpilot.client.subnet_pseudonym`:
+
+  ```bash
+  docker compose exec budgetpilot /nodejs/bin/node scripts/log-pseudonym.mjs --subnet ADDRESS --prefix WIDTH
+  ```
+
+  Replace `WIDTH` with the line's `budgetpilot.client.subnet_prefix_length`, not with your current
+  `BP_RATE_LIMIT_IPV6_PREFIX`: a line written before you changed the setting then still matches.
+
+To print every line from one address, keep its pseudonym in a variable and search for it. The
+`&&` stops the search when the command refuses the address, since an empty search would match
+every line:
+
+```bash
+p=$(docker compose exec budgetpilot /nodejs/bin/node scripts/log-pseudonym.mjs --address 203.0.113.7) && docker compose logs --no-log-prefix budgetpilot | grep -F "$p"
+```
+
+The command prints one value and nothing else. It exits with `0` when it printed one, `1` when no
+account matched, and `2` when it refused its input or could not read the secret or the database,
+with the reason on the error output. Node also exits with `1` when it cannot load the command; it
+then prints an error that names a module, not `No account`.
+
+Outside Docker, run it from the checkout with your `.env`:
+`node --env-file=.env scripts/log-pseudonym.mjs --address ADDRESS`.
+
+### When an address matches nothing
+
+The app hashes the address it decided the client has, which is not always the one your web server
+logged:
+
+- `TRUSTED_PROXIES` is not set. The app then sees every request come from the proxy, and every line
+  carries the proxy's pseudonym. Set it as [Reverse proxy](./reverse-proxy.md) describes.
+- The proxy is trusted but sends no `X-Forwarded-For` header. The app hashes the proxy's address.
+- The client's own address is inside `TRUSTED_PROXIES`, for example a machine on the same network
+  as the proxy when you trust that network's whole range. The app skips every address it trusts and
+  hashes the proxy's.
+- The app trusts fewer proxies than your web server does, for example behind a CDN. The app hashes
+  the last address it does not trust, such as the CDN's.
+- A forwarded address the app cannot read. The app hashes the proxy's address.
+- An IPv6 client reaching a Compose network that has no IPv6. Docker's port proxy forwards it, so
+  the web server and the app both see the network's gateway and neither has the client's address.
+
+The spelling matters in three cases:
+
+- An IPv6 address written with a port and without brackets, such as `2001:db8:1:2::5:4431`, reads
+  either as a whole address or as an address and a port. When both readings share their first 64
+  bits, the app hashed the whole text, so try the whole text too. When they do not, the app could
+  not read it and hashed the proxy's address.
+- A link-local address carries its interface, such as `fe80::1%eth0`. Give it with the interface.
+- A client behind NAT64 arrives as an address in `64:ff9b::/96`, such as `64:ff9b::c000:20a`. Give
+  that form to `--address`. Its subnet label is its IPv4 client's: `--subnet 192.0.2.10 --prefix 32`.
+
+### Read lines written under a previous secret
+
+Rotating `RATE_LIMIT_HASH_SECRET` changes every pseudonym. To read a line written before the
+rotation, give the command the old secret without writing it on the command line:
+
+1. Read the old secret into your shell without displaying it, then paste it and press Enter:
+
+   ```bash
+   read -rs RATE_LIMIT_HASH_SECRET && export RATE_LIMIT_HASH_SECRET
+   ```
+
+2. Run the command with `-e RATE_LIMIT_HASH_SECRET`, which passes your shell's value to it:
+
+   ```bash
+   docker compose exec -e RATE_LIMIT_HASH_SECRET budgetpilot /nodejs/bin/node scripts/log-pseudonym.mjs --user PSEUDONYM
+   ```
+
+3. Remove the old secret from your shell:
+
+   ```bash
+   unset RATE_LIMIT_HASH_SECRET
+   ```
+
+After a routine rotation, keep the old secret offline, away from the server, for as long as you keep
+the logs written under it. After a leak, destroy it: it no longer protects those lines from whoever
+holds the leaked copy, and keeping it is one more place it can leak from.
+
 ## Keep the lines that are not JSON
 
 Dropping the lines that `jq` cannot parse hides the database tool's output. That output is where a

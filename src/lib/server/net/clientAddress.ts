@@ -1,4 +1,5 @@
-import { OperatorFacingError } from '$lib/server/operatorFacingError';
+// Relative, with its extension: `scripts/log-pseudonym.mjs` loads this module in plain Node (#942).
+import { OperatorFacingError } from '../operatorFacingError.ts';
 
 /**
  * Trustworthy client-IP resolution for the rate limiter.

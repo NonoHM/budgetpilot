@@ -1,6 +1,6 @@
 import { createHmac, hkdfSync } from 'node:crypto';
 import { env } from '$env/dynamic/private';
-import { assertRateLimitSecretConfigured } from '$lib/server/auth/rateLimit';
+import { readRateLimitSecret } from '$lib/server/auth/rateLimitSecret';
 
 /**
  * The key a remembered account answer is stored under: a keyed hash of the file's FULL account
@@ -59,13 +59,12 @@ let cached: { secret: string; key: Buffer } | undefined;
 /**
  * The stored key for one canonical identifier, under THIS instance's secret.
  *
- * Read lazily, like the limiter's own: `assertRateLimitSecretConfigured` throws with the operator's
+ * Read lazily, like the limiter's own: `readRateLimitSecret` throws with the operator's
  * sentence when the secret is absent or malformed, so a missing secret fails at the first use
  * rather than keying on `undefined`. Cached per secret value, so a changed value is picked up.
  */
 export function accountMemoryKeyFor(userId: string, identifier: string): string {
-	assertRateLimitSecretConfigured(env);
-	const secret = env.RATE_LIMIT_HASH_SECRET!.trim();
+	const secret = readRateLimitSecret(env);
 	if (cached?.secret !== secret) cached = { secret, key: deriveAccountMemoryKey(secret) };
 	return accountMemoryKeyWith(cached.key, userId, identifier);
 }

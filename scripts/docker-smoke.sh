@@ -327,6 +327,32 @@ docker run --rm "${HARDENED[@]}" -v "$DRY_RUN_VOLUME:/data" "${dry_run_env[@]}" 
 docker run --rm "${HARDENED[@]}" -v "$DRY_RUN_VOLUME:/data" "${dry_run_env[@]}" \
 	"$IMAGE" scripts/normalize-names.mjs --dry-run \
 	| tail -n 20
+
+# scripts/log-pseudonym.mjs (#942), by the same reasoning: it imports the app's modules through
+# relative paths, so a file missing from the Dockerfile fails it only in the image. An account
+# mode, on the migrated volume above, because Prisma loads its query compiler at the first query:
+# an address mode alone would leave the database half of the closure unproven. The volume holds no
+# account, so the expected answer is exit 1 with the « No account » sentence; any other status,
+# including a crash at load, fails here.
+echo
+echo "=== asserting the log pseudonym lookup runs in the image ==="
+pseudonym_secret=$(printf 'a1%.0s' {1..32})
+pseudonym_status=0
+pseudonym_err=$(docker run --rm "${HARDENED[@]}" -v "$DRY_RUN_VOLUME:/data" "${dry_run_env[@]}" \
+	-e RATE_LIMIT_HASH_SECRET="$pseudonym_secret" \
+	"$IMAGE" scripts/log-pseudonym.mjs --user "$(printf 'b2%.0s' {1..32})" 2>&1 >/dev/null) \
+	|| pseudonym_status=$?
+if [[ "$pseudonym_status" -ne 1 || "$pseudonym_err" != "No account has this pseudonym"* ]]; then
+	echo "FAIL: log-pseudonym --user exited $pseudonym_status: $pseudonym_err" >&2
+	exit 1
+fi
+pseudonym_out=$(docker run --rm "${HARDENED[@]}" -e RATE_LIMIT_HASH_SECRET="$pseudonym_secret" \
+	"$IMAGE" scripts/log-pseudonym.mjs --address 192.0.2.10)
+if [[ ! "$pseudonym_out" =~ ^[0-9a-f]{64}$ ]]; then
+	echo "FAIL: log-pseudonym --address printed something other than one pseudonym" >&2
+	exit 1
+fi
+echo "log-pseudonym: --user answered no account (exit 1), --address printed one pseudonym"
 docker volume rm "$DRY_RUN_VOLUME" >/dev/null
 
 # The builder stage's throwaway values do not reach the shipped image.

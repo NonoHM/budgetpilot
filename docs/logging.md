@@ -176,6 +176,8 @@ protect against every other reader of the log: a collector, a monitoring tool, a
 The labels differ, so a logged value never equals the hash the rate limiter stores in the database,
 and a line cannot be joined to a database row without the secret. Rotating `RATE_LIMIT_HASH_SECRET`
 changes every hash, so lines written before and after the rotation can no longer be matched.
+[Find the account or address behind a pseudonym](./logging-howto.md#find-the-account-or-address-behind-a-pseudonym)
+does that computation for you, including under a previous secret.
 
 **A tool that blocks addresses cannot act on a hash.** fail2ban, CrowdSec or a Wazuh active response
 needs the address in clear. Detect on this log, where the same client or subnet gives the same hash,
