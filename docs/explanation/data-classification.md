@@ -188,10 +188,13 @@ and sent only to the host on `LLM_ALLOWED_HOSTS`, `localhost` by default
 (`src/lib/server/insights/local-llm.ts`). Nine identifier-shaped keys are refused at run time, and
 the same nine are refused at compile time (`KEYS_REFUSED_IN_PROMPT` in `prompt.ts`,
 `ForbiddenPromptKey` in `types.ts`). Without opt-in, `largestExpenses` and `recurringPayments`
-labels are replaced by a fixed placeholder (`summary.ts`). With opt-in, those two lists carry
-labels that already crossed `anonymizeMerchant`. The third list, `flaggedCategoryLabels`, carries
-the raw label (`getFlaggedCategoryLabels`, `summary.ts`): the owner ruled that it passes through
-`anonymizeMerchant` too (R4), and #819 holds the change.
+labels are replaced by a fixed placeholder, and `flaggedCategoryLabels` is not sent (`summary.ts`).
+With opt-in, all three lists carry labels that crossed `anonymizeMerchant` (letters only, 28
+characters; `largestExpenses` and `recurringPayments` then append the category name), so no digit
+of an account number survives, while a name written in a label does
+([#819](https://github.com/NonoHM/budgetpilot/issues/819)). Category names, which the user types or
+an import column supplies, travel in both modes under the names given
+([#851](https://github.com/NonoHM/budgetpilot/issues/851)); `docs/ai-insights.md` says so.
 
 **Deletion.** There are two doors. `deleteAccount` (`src/routes/settings/+page.server.ts`) and the
 admin `deleteUser` (`src/routes/admin/+page.server.ts`) each remove the user's sessions and
@@ -207,8 +210,8 @@ being unknown: each has an issue.
 | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | No authentication, authorization or control-bypass event is written: the writer, the field allowlist, the log pseudonym and the subnet label exist, the events do not.                                    | Personal, Pseudonymous | [#250](https://github.com/NonoHM/budgetpilot/issues/250)                                                                                                                     |
 | The stored security event table (180 days default, 365 ceiling) does not exist (R2, R8).                                                                                                                  | Pseudonymous           | #841, the 1.4 event table                                                                                                                                                    |
-| Flagged-category labels reach the model without `anonymizeMerchant`.                                                                                                                                      | Financial              | [#819](https://github.com/NonoHM/budgetpilot/issues/819)                                                                                                                     |
-| Category names, which a user types, reach the model in the default mode, and the AI page says "no names".                                                                                                 | Financial              | #851                                                                                                                                                                         |
+| With labels on, a person's name written in a label, such as a transfer's counterparty, reaches the model; the cleaner removes digits, not names.                                                          | Personal               | [#963](https://github.com/NonoHM/budgetpilot/issues/963)                                                                                                                     |
+| With labels off, the prompt tells the model « no raw transactions » while it receives five expenses and recurring dates without their labels.                                                             | Financial              | [#962](https://github.com/NonoHM/budgetpilot/issues/962)                                                                                                                     |
 | The invitation token travels in a URL query string.                                                                                                                                                       | Secret                 | [#825](https://github.com/NonoHM/budgetpilot/issues/825)                                                                                                                     |
 | Caddy's error log, which the access-log filter in `Caddyfile.example` does not reach, writes the full `uri` with its query string and the `Referer` header of a request the upstream failed to answer.    | Financial, Personal    | [#900](https://github.com/NonoHM/budgetpilot/issues/900)                                                                                                                     |
 | A failing migration at boot may print a user's values.                                                                                                                                                    | Financial              | [#846](https://github.com/NonoHM/budgetpilot/issues/846)                                                                                                                     |

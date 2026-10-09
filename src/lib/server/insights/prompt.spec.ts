@@ -158,7 +158,7 @@ describe('buildBudgetInsightsPrompt', () => {
  */
 describe('buildBudgetInsightsPrompt data-description sentence, both locales (#216)', () => {
 	const AGGREGATED = 'Aggregated data, no raw transactions';
-	const WITH_LABELS = 'Aggregated data plus your largest transaction labels';
+	const WITH_LABELS = 'Aggregated data plus shortened labels of some expenses';
 
 	for (const locale of ['en', 'fr']) {
 		it(`says aggregated-only when labels are off (${locale})`, () => {

@@ -1,7 +1,7 @@
 import type { MonthlyBudgetSummary } from '$lib/domain/budget';
 import type { Transaction } from '$lib/domain/transaction';
 import type { CategoryAllocation } from '$lib/domain/allocation';
-import { buildPeriodReport } from '$lib/server/reports/monthly';
+import { anonymizeMerchant, buildPeriodReport } from '$lib/server/reports/monthly';
 import type { FlaggedCategoryLabels, TransactionSummary } from './types';
 
 const MAX_FLAGGED_LABELS_PER_CATEGORY = 3;
@@ -75,6 +75,11 @@ export function buildTransactionSummary(
  *
  * Note what does NOT travel: a part's free-text `note` is never in a CategoryAllocation and so can
  * never reach this payload. That is a property of the type, not a filter applied here.
+ *
+ * Each label crosses `anonymizeMerchant`, like the labels of `largestExpenses` and
+ * `recurringPayments` (#819): a transfer's label carries an IBAN and a reference, and part of it is
+ * written by a third party. Merchant only, because the category is already this entry's key. The
+ * insights screen does not read this list, so its owner still sees the full label there.
  */
 function getFlaggedCategoryLabels(
 	transactions: Transaction[],
@@ -102,7 +107,9 @@ function getFlaggedCategoryLabels(
 				labels: [...perTransaction.entries()]
 					.sort((left, right) => Math.abs(right[1]) - Math.abs(left[1]))
 					.slice(0, MAX_FLAGGED_LABELS_PER_CATEGORY)
-					.map(([transactionId]) => labelsByTransactionId.get(transactionId) ?? '')
+					.map(([transactionId]) =>
+						anonymizeMerchant(labelsByTransactionId.get(transactionId) ?? '')
+					)
 			};
 		})
 		.filter((entry) => entry.labels.length > 0);

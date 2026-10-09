@@ -7,6 +7,7 @@ import { getBudgetInsights } from './index';
 import { buildBudgetInsightsPrompt } from './prompt';
 import { generateRuleInsights } from './rules';
 import { buildTransactionSummary } from './summary';
+import { anonymizeMerchant } from '$lib/server/reports/monthly';
 
 /**
  * Derives the MONEY view from the fixture's IDENTITY view, by calling the canonical helpers rather
@@ -264,6 +265,64 @@ describe('Budget Insights', () => {
 });
 
 /**
+ * Returns the exact prompt string the model would receive. The Ollama client's fetch is spied on,
+ * the /api/chat body is read, and the request is then aborted: requestLocalBudgetInsights swallows
+ * the failure, and by then the prompt has already been assembled and captured. Going through
+ * getBudgetInsights is the point: a test that called buildBudgetInsightsPrompt directly would pass
+ * even if the assembly dropped the flag, which is exactly the bug.
+ */
+async function capturePrompt(
+	fixture: Transaction[],
+	budgets: { category: string; limitCents: number }[],
+	includeLabels: boolean
+): Promise<string> {
+	let captured: string | null = null;
+	const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+		// The connect probe runs first and carries no body (#524). Answering it here rather than
+		// letting it fall into the capture is what keeps this helper measuring the PROMPT: parsing
+		// the probe's absent body throws before the generation is ever assembled, and the helper
+		// then reports "fetch was never called" while fetch had in fact been called once.
+		const url =
+			typeof input === 'string'
+				? input
+				: input instanceof URL
+					? input.href
+					: (input as Request).url;
+		if (url.endsWith('/api/version')) {
+			return new Response(JSON.stringify({ version: '0.32.5' }), { status: 200 });
+		}
+		const body = JSON.parse(String((init as RequestInit).body)) as {
+			messages: { content: string }[];
+		};
+		captured = body.messages[0].content;
+		throw new Error('captured: aborting the real round trip');
+	});
+
+	try {
+		const allocations = toAllocations(fixture);
+		const monthlySummary = summarizeMonthlyBudget(allocations, budgets, '2026-06');
+		await getBudgetInsights({
+			transactions: fixture,
+			allocations,
+			monthlySummary,
+			includeLabels,
+			env: {
+				LLM_ENABLED: 'true',
+				LLM_PROVIDER: 'ollama',
+				LLM_BASE_URL: 'http://127.0.0.1:11434',
+				LLM_MODEL: 'qwen2.5:0.5b',
+				LLM_TIMEOUT_MS: '1000'
+			}
+		});
+	} finally {
+		fetchMock.mockRestore();
+	}
+
+	if (captured === null) throw new Error('fetch was never called: the prompt was not captured');
+	return captured;
+}
+
+/**
  * #216: the prompt's own sentence claimed "no raw transactions" even when the aiIncludeLabels opt-in
  * sent the largest-expense merchant labels to the model. The fix threads includeLabels through
  * getBudgetInsights into the sentence.
@@ -303,60 +362,10 @@ describe('AI prompt truthfulness: the sentence matches the shared payload (#216)
 	const MERCHANT_TOKEN = 'Auchan';
 	const ANONYMIZED_LABEL = 'Expense';
 	const AGGREGATED = 'Aggregated data, no raw transactions';
-	const WITH_LABELS = 'Aggregated data plus your largest transaction labels';
+	const WITH_LABELS = 'Aggregated data plus shortened labels of some expenses';
 
-	/**
-	 * Returns the exact prompt string the model would receive. The Ollama client's fetch is spied on,
-	 * the /api/chat body is read, and the request is then aborted: requestLocalBudgetInsights swallows
-	 * the failure, and by then the prompt has already been assembled and captured. Going through
-	 * getBudgetInsights is the point: a test that called buildBudgetInsightsPrompt directly would pass
-	 * even if the assembly dropped the flag, which is exactly the bug.
-	 */
 	async function captureModelPrompt(includeLabels: boolean): Promise<string> {
-		let captured: string | null = null;
-		const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
-			// The connect probe runs first and carries no body (#524). Answering it here rather than
-			// letting it fall into the capture is what keeps this helper measuring the PROMPT: parsing
-			// the probe's absent body throws before the generation is ever assembled, and the helper
-			// then reports "fetch was never called" while fetch had in fact been called once.
-			const url =
-				typeof input === 'string'
-					? input
-					: input instanceof URL
-						? input.href
-						: (input as Request).url;
-			if (url.endsWith('/api/version')) {
-				return new Response(JSON.stringify({ version: '0.32.5' }), { status: 200 });
-			}
-			const body = JSON.parse(String((init as RequestInit).body)) as {
-				messages: { content: string }[];
-			};
-			captured = body.messages[0].content;
-			throw new Error('captured: aborting the real round trip');
-		});
-
-		try {
-			const allocations = toAllocations(labelFixture);
-			const monthlySummary = summarizeMonthlyBudget(allocations, [], '2026-06');
-			await getBudgetInsights({
-				transactions: labelFixture,
-				allocations,
-				monthlySummary,
-				includeLabels,
-				env: {
-					LLM_ENABLED: 'true',
-					LLM_PROVIDER: 'ollama',
-					LLM_BASE_URL: 'http://127.0.0.1:11434',
-					LLM_MODEL: 'qwen2.5:0.5b',
-					LLM_TIMEOUT_MS: '1000'
-				}
-			});
-		} finally {
-			fetchMock.mockRestore();
-		}
-
-		if (captured === null) throw new Error('fetch was never called: the prompt was not captured');
-		return captured;
+		return capturePrompt(labelFixture, [], includeLabels);
 	}
 
 	/** Parses the JSON payload embedded at the tail of the prompt (its `{"currency"...}` line). */
@@ -400,5 +409,93 @@ describe('AI prompt truthfulness: the sentence matches the shared payload (#216)
 		// and only if the payload actually carries a merchant label.
 		expect(off.includes(WITH_LABELS)).toBe(off.includes(MERCHANT_TOKEN));
 		expect(on.includes(WITH_LABELS)).toBe(on.includes(MERCHANT_TOKEN));
+	});
+});
+
+/**
+ * #819: with labels on, three lists of labels reach the model, and the flagged-category list was the
+ * one that skipped `anonymizeMerchant`, so an IBAN in a transfer that landed in an over-budget
+ * category was sent as stored. Observed on the prompt the model receives, over the WHOLE prompt
+ * rather than one field, so a future list that forgets the cleaner fails here too.
+ *
+ * The detector is a literal substring count, not the cleaner's own pattern: a test sharing the
+ * stripper's regex would agree with it by construction. Its calibration runs in the same pass: the
+ * raw label holds the IBAN once, and the largest-expense copy of the same transaction is already
+ * clean, so the count before the fix (1) comes from the flagged list alone.
+ */
+describe('AI prompt: flagged-category labels are cleaned like the other two lists (#819)', () => {
+	// Synthetic: the same IBAN-shaped string the test above uses, never one from a statement.
+	const IBAN = 'FR7612341234123412341234123';
+	const RAW_LABEL = `VIREMENT ${IBAN} LOYER JUIN`;
+	const ibanFixture: Transaction[] = [
+		{
+			id: 'income',
+			date: '2026-06-01',
+			label: 'Salaire',
+			amountCents: 300_000,
+			type: 'income',
+			category: 'Revenus',
+			source: 'manual'
+		},
+		{
+			id: 'transfer',
+			date: '2026-06-03',
+			label: RAW_LABEL,
+			amountCents: -50_000,
+			type: 'expense',
+			category: 'Logement',
+			source: 'csv'
+		}
+	];
+	// 50 000 spent against a 10 000 limit: Logement is flagged, so the transfer's label is listed.
+	const overBudget = [{ category: 'Logement', limitCents: 10_000 }];
+
+	function countOf(haystack: string, needle: string): number {
+		return haystack.split(needle).length - 1;
+	}
+
+	function payloadOf(prompt: string): {
+		largestExpenses: { label: string }[];
+		flaggedCategoryLabels?: { category: string; labels: string[] }[];
+	} {
+		return JSON.parse(prompt.slice(prompt.indexOf('{"currency"')));
+	}
+
+	it('the detector sees the IBAN in the raw label, and the largest-expense copy is already clean', async () => {
+		expect.assertions(3);
+		const payload = payloadOf(await capturePrompt(ibanFixture, overBudget, true));
+
+		expect(countOf(RAW_LABEL, IBAN)).toBe(1);
+		expect(payload.largestExpenses).toHaveLength(1);
+		expect(countOf(payload.largestExpenses[0].label, IBAN)).toBe(0);
+	});
+
+	it('labels on: the IBAN appears nowhere in the prompt the model receives', async () => {
+		expect.assertions(1);
+		const prompt = await capturePrompt(ibanFixture, overBudget, true);
+
+		expect(countOf(prompt, IBAN)).toBe(0);
+	});
+
+	it('labels on: no digit survives in a flagged label', async () => {
+		expect.assertions(1);
+		const payload = payloadOf(await capturePrompt(ibanFixture, overBudget, true));
+
+		// The property itself, not the stripper's pattern: no digit of any account number survives.
+		// Exactly one label, so an empty list cannot pass this vacuously.
+		expect(payload.flaggedCategoryLabels?.flatMap((entry) => entry.labels)).toEqual([
+			expect.stringMatching(/^\D+$/)
+		]);
+	});
+
+	it('labels on: the flagged label is the cleaned merchant, without the category repeated', async () => {
+		expect.assertions(1);
+		const payload = payloadOf(await capturePrompt(ibanFixture, overBudget, true));
+
+		// Merchant only: the category is already the entry's key, so the composed
+		// `anonymizeLabel` form (« Loyer Juin - Logement ») would repeat it.
+		expect(payload.flaggedCategoryLabels).toEqual([
+			{ category: 'Logement', labels: [anonymizeMerchant(RAW_LABEL)] }
+		]);
 	});
 });

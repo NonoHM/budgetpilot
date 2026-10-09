@@ -10,16 +10,39 @@ makes no network call at all, it doesn't even build a prompt.
 
 ## What gets sent to the model
 
-By default, **aggregates only**: totals per category, budget status, the
-shape of the month. No transaction labels, no account numbers, no names.
+Each request sends a summary of the period shown on the dashboard, never the
+full list of its transactions.
+What the summary holds depends on one switch per user in Settings,
+**Include labels in the prompt**, which is off by default.
 
-One opt-in switch per user in Settings adds the labels of your largest
-expenses, the same ones already shown in the insights above the card. Never
-your full transaction history, in either mode.
+| Sent                                                                                                                          | Labels off (default) | Labels on    |
+| ----------------------------------------------------------------------------------------------------------------------------- | -------------------- | ------------ |
+| Totals for the period: income, expenses, balance, transaction count, and the change from the previous period when it has data | Yes                  | Yes          |
+| Category names, as you wrote them, with their totals and share of spending                                                    | Yes                  | Yes          |
+| Your 5 largest expenses: exact amount, category, and how a split divided it                                                   | Yes                  | Yes          |
+| Recurring payments: amount, count, category, and the date of the latest one                                                   | Yes                  | Yes          |
+| Labels of the largest and recurring expenses                                                                                  | No: a placeholder    | Yes, cleaned |
+| Categories near or over budget, with the labels of their 3 largest expenses                                                   | No                   | Yes, cleaned |
+
+Category names are sent in both modes because the advice is about your
+categories. Pick names you are comfortable sending to the model's host.
+
+With labels on, every label goes through the same cleaner before it is sent.
+It keeps letters only, up to 28 characters, so account
+numbers, IBANs, card numbers and dates are removed, and most references with
+them; a reference written in letters only can remain. The labels of the largest
+and recurring expenses are then followed by their category name. The cleaner
+cannot tell a shop from a person, so a name in a label, such as the recipient
+of a transfer, is still sent.
+
+Never sent, in either mode: account names and numbers, transaction notes, tags,
+and any identifier of a transaction or an account.
+The field-by-field list is in
+[Data classification](explanation/data-classification.md#what-reaches-the-model).
 
 Where that data goes depends on `LLM_ALLOWED_HOSTS`. Keep it on localhost or
 the bundled `ollama` container and it never leaves the machine. Point it at
-a remote host and your aggregated finances travel to that server, which is
+a remote host and this summary travels to that server, which is
 allowed but is a decision you're making deliberately. Remote hosts are
 required to be `https://`, plain HTTP is refused.
 
