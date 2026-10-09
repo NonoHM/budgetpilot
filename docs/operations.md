@@ -575,10 +575,22 @@ docker compose start
 Stopping first matters. Copying a SQLite file while the app is writing to it
 can hand you a truncated database that looks fine until you need it.
 
-**If you installed before the file was renamed, yours is `/data/dev.db`** and
-the command above will report that it does not exist. Use that name instead.
-Nothing needs migrating: the app opens whichever of the two is there, says so
-in its startup log, and keeps working either way.
+**If you set `DATABASE_URL` to a `file:` path, the database is that file.** Use
+its path in place of `/data/budgetpilot.db`, here and in the restore below. The
+value the running container holds is the one that counts, which can differ from
+`.env` until the next `docker compose up -d`. Read it with:
+
+```bash
+docker compose exec budgetpilot /nodejs/bin/node -e 'console.log(process.env.DATABASE_URL)'
+```
+
+**If the copy reports that `/data/budgetpilot.db` does not exist**, your install
+predates the file's rename and its database is `/data/dev.db`: use that name
+instead. Nothing needs migrating. When the app opens `/data/dev.db` on
+its own, its startup log says so.
+
+A copy of 0 bytes is not a backup. Check the size with
+`ls -l budgetpilot-backup.db` before you rely on it.
 
 Restoring is the same move in reverse:
 
@@ -848,6 +860,65 @@ better served by the volume or by `docker compose logs`.
 
 Nothing else leaves the machine: no telemetry, no phone-home, no account on
 anyone's server.
+
+### Two database files
+
+This applies only to a Docker install that started before the database file
+was renamed, and only when its startup log has a
+`budgetpilot.boot.two_databases` line. Both `/data/budgetpilot.db` and
+`/data/dev.db` then hold a database, and BudgetPilot uses
+`/data/budgetpilot.db`.
+
+There are two ways to get here:
+
+- **A version without the fix for
+  [#957](https://github.com/NonoHM/budgetpilot/issues/957)** let a command run
+  in the container create an empty `budgetpilot.db` beside your `dev.db`, and
+  the next restart started using the new file. Your history is then most
+  likely in `dev.db`, and `budgetpilot.db` holds only what was entered since.
+- **You restored a backup** as `/data/budgetpilot.db`, following
+  [Backups](#the-whole-database-file-sqlite). Then `budgetpilot.db` is the one
+  you meant, and `dev.db` is the state you restored away from.
+
+The line gives both sizes in bytes: the larger file usually holds more.
+BudgetPilot cannot merge two databases. Keep the one with your history, and
+enter again anything that exists only in the other.
+
+1. Back up both files, with the app stopped:
+
+   ```bash
+   docker compose stop
+   docker compose cp budgetpilot:/data/budgetpilot.db ./budgetpilot-new-$(date +%F-%H%M).db
+   docker compose cp budgetpilot:/data/dev.db ./budgetpilot-old-$(date +%F-%H%M).db
+   ```
+
+2. Move `budgetpilot.db` aside, with its sibling files, so the app opens
+   `dev.db`. Find the volume name with `docker volume ls`. The command fails
+   rather than overwrite a `.unused` file left by an earlier run:
+
+   ```bash
+   docker run --rm -v <volume name>:/data busybox:1.37 sh -c 'for f in /data/budgetpilot.db /data/budgetpilot.db-journal /data/budgetpilot.db-wal /data/budgetpilot.db-shm; do if [ -e "$f" ]; then mv -n "$f" "$f.unused" && [ ! -e "$f" ] || exit 1; fi; done'
+   docker compose up -d
+   ```
+
+   The startup log now has a `budgetpilot.boot.legacy_database_adopted` line.
+   Sign in and look at your data.
+
+3. Choose:
+   - **Your history is there**: you are done. The app keeps using `dev.db`,
+     and [Backups](#the-whole-database-file-sqlite) applies with that name.
+   - **It is not**: put `budgetpilot.db` back and move `dev.db` aside:
+
+     ```bash
+     docker compose stop
+     docker run --rm -v <volume name>:/data busybox:1.37 sh -c 'for f in /data/dev.db /data/dev.db-journal /data/dev.db-wal /data/dev.db-shm; do if [ -e "$f" ]; then mv -n "$f" "$f.unused" && [ ! -e "$f" ] || exit 1; fi; done; for f in /data/budgetpilot.db /data/budgetpilot.db-journal /data/budgetpilot.db-wal /data/budgetpilot.db-shm; do if [ -e "$f.unused" ]; then mv -n "$f.unused" "$f" && [ ! -e "$f.unused" ] || exit 1; fi; done'
+     docker compose up -d
+     ```
+
+In both cases the warning is gone. The `.unused` files stay on the volume
+until you delete them, and your copies from step 1 stay on the host: keep them
+until you have entered again anything that exists only in the file you did not
+keep.
 
 ## Uninstalling
 
