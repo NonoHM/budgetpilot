@@ -517,6 +517,10 @@ export const actions: Actions = {
 			await tx.recoveryCode.createMany({
 				data: recoveryCodeHashes.map((codeHash) => ({ userId: user.id, codeHash }))
 			});
+			// #949, the owner's ruling: any change to how the account signs in ends every other
+			// session, as a password change does (R3 on #841). A sign-in opened before enrolment was
+			// proven by the password alone, and may be the very one the owner is enrolling against.
+			await revokeSessionsOtherThan(tx, user);
 		});
 
 		return { totpEnableSuccess: true, recoveryCodes };
@@ -545,6 +549,9 @@ export const actions: Actions = {
 				}
 			});
 			await tx.recoveryCode.deleteMany({ where: { userId: user.id } });
+			// #949: turning it off is a change to how the account signs in too, so it ends every other
+			// session and every sign-in waiting at its code step, one rule for every factor change.
+			await revokeSessionsOtherThan(tx, user);
 		});
 
 		return { totpDisableSuccess: m.settings_mfa_success_disabled() };
