@@ -77,7 +77,7 @@ interface UserQuery {
 	path: string;
 	method: string;
 	hasSelect: boolean;
-	credentialsSelected: string[];
+	credentialsSelected: (typeof CREDENTIAL_FIELDS)[number][];
 }
 
 function findUserQueries(): UserQuery[] {
