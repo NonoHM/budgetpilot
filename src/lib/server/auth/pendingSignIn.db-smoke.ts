@@ -618,6 +618,24 @@ describe('a sign-in waiting at the code step (#923)', () => {
 		expect(browser.value(SESSION_COOKIE)).toBeUndefined();
 	});
 
+	// FORCED, #949, the other direction (the contradiction pass on the code): two-factor is turned
+	// off while `/login` compares the password of an account that had it, so the step goes on to open
+	// a challenge for a code the account no longer asks. Separates « refused at the password step,
+	// as any superseded sign-in is » from « a challenge opened and then bounced at the code page »,
+	// which is what the step did before the factor joined the compare-and-set. No session results
+	// either way; this pins the answer the reference documents.
+	it('refuses a sign-in with two-factor when two-factor was turned off while it was being checked', async () => {
+		const { login_error_invalid_credentials } = await import('$lib/paraglide/messages');
+		const target = await seedAccount('disabled-during-check');
+		afterPasswordCheck = () => disableFromAnotherSession(target, 0);
+
+		const { browser, answer } = await submitPassword(target);
+
+		expect(afterPasswordCheck, 'the gate ran').toBeNull();
+		expect(answer).toEqual({ status: 400, data: { error: login_error_invalid_credentials() } });
+		expect(browser.value(MFA_PENDING_COOKIE)).toBeUndefined();
+	});
+
 	// UNFORCED, at the password step: each account's password is posted at its own offset across a
 	// reset's measured duration, then its code if it got a challenge. Whatever the order, nothing the
 	// old password proved may be live afterwards. On main the late offsets are signed in; with only

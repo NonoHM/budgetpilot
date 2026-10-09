@@ -74,8 +74,9 @@ export async function readMfaChallenge(cookies: Cookies): Promise<PendingChallen
 /**
  * Claims the challenge for the session written in the same transaction (`createSession`'s
  * `stillProven`), after a valid code: deleted here, and only if it is still there and unexpired.
- * A challenge ended meanwhile by a password change or « log out other sessions »
- * (`endPendingSignIns`) matches nothing, and the sign-in is refused with `SignInSuperseded` (#923).
+ * A challenge ended meanwhile by a password change, turning two-factor off, or « log out other
+ * sessions » (`endPendingSignIns`) matches nothing, and the sign-in is refused with
+ * `SignInSuperseded` (#923).
  * Checked by the count, never by an earlier read: the read at the start of the request is what a
  * change landing during the code check makes stale.
  */

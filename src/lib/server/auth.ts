@@ -654,9 +654,9 @@ export async function revokeSession(sessionId: string): Promise<void> {
 }
 
 /**
- * A sign-in step whose proof no longer holds: the password it verified was changed, or the
- * challenge it opened was ended, before it could write (#923). Answered as the step's ordinary
- * refusal, never as an error page.
+ * A sign-in step whose proof no longer holds: the password it verified was changed, two-factor was
+ * turned on or off (#949), or the challenge it opened was ended, before it could write (#923).
+ * Answered as the step's ordinary refusal, never as an error page.
  */
 export class SignInSuperseded extends Error {
 	constructor() {
@@ -676,8 +676,8 @@ export interface SignInFactors {
  * Asserts, inside the transaction that writes what a password step proved, that the account still
  * signs in the way the step read it would: the same password (#923) and the same answer to whether
  * a code is asked (#949). A compare-and-set on the User row rather than a read: it locks the row
- * against a concurrent change to either, so whichever commits second sees the first. A change to how
- * the account signs in committed while the comparison ran makes it throw `SignInSuperseded`; one
+ * against a concurrent change to either, so whichever commits second sees the first. A change to
+ * either committed while the comparison ran makes it throw `SignInSuperseded`; one
  * committing after it waits, then ends what this step wrote (`endPendingSignIns`,
  * `revokeSessionsOtherThan`). Without the second column, two-factor turned on during the comparison
  * left a session proven by the password alone, written after the enrolment had ended every other
@@ -714,11 +714,11 @@ export function endPendingSignIns(client: TransactionClient, userId: string) {
 /**
  * Revokes every unrevoked session of the account except the one this request arrived on, idle or
  * past its lifetime included (none can come back afterwards, whatever the timeout): « log out
- * other sessions », and every password change. Sign-ins waiting at their code step end first
- * (`endPendingSignIns`, #923). Identified by the session's ID, never by comparing
- * token hashes: the request's own token is replaced in the same transaction, and a predicate written
- * against a token hash revokes the caller's own session the moment the two orders meet (measured on
- * #249, CONTEXT.md « Session, and its token »).
+ * other sessions », every password change, and turning two-factor on or off (#949). Sign-ins
+ * waiting at their code step end first (`endPendingSignIns`, #923). Identified by the session's ID,
+ * never by comparing token hashes: the request's own token is replaced in the same transaction,
+ * and a predicate written against a token hash revokes the caller's own session the moment the two
+ * orders meet (measured on #249, CONTEXT.md « Session, and its token »).
  */
 export async function revokeSessionsOtherThan(
 	client: TransactionClient,
