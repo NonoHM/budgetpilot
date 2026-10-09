@@ -8,6 +8,7 @@ import type { Role } from './database/types.ts';
 import type { DeadSessionReason } from '$lib/server/logging/events';
 import { readIntegerSetting } from '$lib/server/env/readSetting';
 import { SETTINGS } from '$lib/server/env/settings';
+import { normalizeEmail, validateEmail } from '$lib/server/auth/emailAddress';
 
 export const SESSION_COOKIE = 'budgetpilot_session';
 export const BACKFILL_USER_ID = 'local-backfill-user';
@@ -28,19 +29,6 @@ function passwordCostAtImport(): number {
 	}
 }
 const PASSWORD_COST = passwordCostAtImport();
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-/**
- * C0 and C7 control characters, rejected on every path including the login lookup.
- *
- * EMAIL_PATTERN's `[^\s@]` excludes whitespace but not NUL or the other control characters, so
- * "a\x00b@example.com" used to reach `prisma.user.findUnique`. PostgreSQL rejects a NUL inside a
- * text parameter at the protocol level, which turned a would-be "invalid credentials" into an
- * unhandled 500: an unauthenticated caller could tell the providers apart by it, and the throw
- * skipped the failed-attempt record that feeds the rate limiter. No legitimately registered
- * address can contain one, so rejecting them locks nobody out.
- */
-// eslint-disable-next-line no-control-regex -- matching control characters is the point here
-const CONTROL_CHAR_PATTERN = /[\x00-\x1f\x7f]/;
 /** Printable ASCII only, no control characters. See validateNewEmail() for why. */
 const ASCII_ONLY_PATTERN = /^[\x20-\x7e]+$/;
 
@@ -58,16 +46,7 @@ export interface AuthUser {
 	sessionId: string;
 }
 
-export function normalizeEmail(value: string): string {
-	return value.trim().toLowerCase();
-}
-
-export function validateEmail(value: string): string | null {
-	const email = normalizeEmail(value);
-	if (!email || email.length > 254 || CONTROL_CHAR_PATTERN.test(email)) return null;
-	if (!EMAIL_PATTERN.test(email)) return null;
-	return email;
-}
+export { normalizeEmail, validateEmail };
 
 /**
  * Same as `validateEmail()`, plus an ASCII-only rule. For the paths that CREATE an identity

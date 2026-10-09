@@ -34,7 +34,7 @@ export { UNCLASSIFIED_CATEGORY };
 // unsafe to reuse for `.test()` below — a global regex carries `lastIndex` across calls, which
 // `.test()` on the same instance would then read and corrupt.
 //
-// Same convention as `server/auth.ts`'s `CONTROL_CHAR_PATTERN`, guarding the identical class of
+// Same convention as `server/auth/emailAddress.ts`'s `CONTROL_CHAR_PATTERN`, guarding the identical class of
 // bug (a control character reaching a Postgres text parameter) on a different column.
 // eslint-disable-next-line no-control-regex -- matching control characters is the point here
 const STRANDED_CONTROL_CHARACTER = /[\u0000-\u0008\u000E-\u001F\u007F-\u009F]/;

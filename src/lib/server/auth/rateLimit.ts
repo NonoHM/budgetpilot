@@ -4,6 +4,7 @@ import { env } from '$env/dynamic/private';
 import { prisma } from '$lib/server/db';
 import { readOperatorBound, reportBoundDeparture } from '$lib/server/env/operatorBound';
 import { OperatorFacingError } from '$lib/server/operatorFacingError';
+import { readRateLimitSecret } from '$lib/server/auth/rateLimitSecret';
 import { rateLimitAddressKey } from '$lib/server/net/clientAddress';
 // Order kept on purpose: with the secret assertion first and a name after it on the next line,
 // gitleaks' generic-api-key rule reads that name as a secret value (as in logging/pseudonym.ts).
@@ -135,8 +136,7 @@ let cachedHashSecret: string | undefined;
 
 function hashSecret(): string {
 	if (cachedHashSecret === undefined) {
-		assertRateLimitSecretConfigured();
-		cachedHashSecret = env.RATE_LIMIT_HASH_SECRET!.trim();
+		cachedHashSecret = readRateLimitSecret(env);
 	}
 	return cachedHashSecret;
 }
