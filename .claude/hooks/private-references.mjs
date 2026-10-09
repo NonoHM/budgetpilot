@@ -23,10 +23,12 @@
  *    - read-only and local `git` and `gh` commands, and `curl` or `wget` that send nothing;
  *    - `git commit`, `merge`, annotated `tag` and `push`, with literal arguments, a message given
  *      as `-m "<text>"`, `-m "$(cat <<'EOF' … EOF)"`, `-F <path>` or `-F -` with a quoted heredoc;
+ *      a push to any branch but `main`;
  *    - `gh issue` and `gh pr` writes and `gh release create|edit|upload`, with literal arguments,
- *      text flags given literally or as `$(cat <<'EOF' … EOF)`, and a body as `--body-file <path>`
- *      or `-` with a quoted heredoc in the same command;
- *    - `gh api <path>` with literal fields, `-F body=@<path>` or `--input <path>`;
+ *      text flags given literally or as `"$(cat <<'EOF' … EOF)"`, and a body as `--body-file <path>`
+ *      or `-` with a quoted heredoc in the same command; never `gh pr merge`, never an approval;
+ *    - `gh api <path>` with literal fields, `-F body=@<path>` or `--input <path>`, writing only to
+ *      the closed list in `API_WRITE_PATHS`, and no GraphQL mutation;
  *    - around them, only commands that cannot run what they are given (`grep`, `jq`, `head`, …),
  *      `cd` to a literal directory, and nothing that could write the body file first.
  *    The body of an accepted publishing form is then read and scanned with every kind.
@@ -44,7 +46,9 @@
  *
  * What it cannot see: a script or an alias that publishes on its own (the git hooks and the pull
  * request check read what reaches git whatever typed it), and text typed in the GitHub web UI (the
- * daily scan reads what reached GitHub).
+ * daily scan reads what reached GitHub). The same limit holds for the privileged writes it refuses
+ * (#973): a script the assistant writes can call the API with the session's token, and the control
+ * that closes that is a token without administration rights.
  *
  * Output names the kind, where, and how to tell a true positive from an artefact, with the match
  * REDACTED: this text reaches the model's context.
@@ -124,7 +128,9 @@ class Refusal extends Error {}
 /**
  * @typedef {import('../../scripts/private-references.mjs').Finding} Finding
  * @typedef {{ where: string, text: string, homePaths: boolean }} Text
- * @typedef {{ kind: 'var' | 'cmd' | 'backtick' | 'proc', raw: string, inner: string }} Subst
+ * `quoted` is whether the substitution sits inside double quotes: one that does not is split into
+ * words by the shell, and any of those words can be an option.
+ * @typedef {{ kind: 'var' | 'cmd' | 'backtick' | 'proc', raw: string, inner: string, quoted: boolean }} Subst
  * @typedef {{ type: 'word', value: string, raw: string, substs: Subst[] }} Word
  * @typedef {{ type: 'op', value: string }} Op
  * @typedef {{ type: 'redir', value: string, body: string | null, quoted: boolean }} Redir
@@ -280,17 +286,17 @@ function readDouble(src, start) {
 		} else if (c === '$' && src[i + 1] === '(') {
 			const end = readParen(src, i + 2);
 			const raw = src.slice(i, end + 1);
-			substs.push({ kind: 'cmd', raw, inner: src.slice(i + 2, end) });
+			substs.push({ kind: 'cmd', raw, inner: src.slice(i + 2, end), quoted: true });
 			value += raw;
 			i = end + 1;
 		} else if (c === '`') {
 			const end = readBacktick(src, i + 1);
 			const raw = src.slice(i, end + 1);
-			substs.push({ kind: 'backtick', raw, inner: src.slice(i + 1, end) });
+			substs.push({ kind: 'backtick', raw, inner: src.slice(i + 1, end), quoted: true });
 			value += raw;
 			i = end + 1;
 		} else if (c === '$' && /[A-Za-z_{0-9@*#?!$-]/.test(src[i + 1] ?? '')) {
-			substs.push({ kind: 'var', raw: src.slice(i, i + 2), inner: '' });
+			substs.push({ kind: 'var', raw: src.slice(i, i + 2), inner: '', quoted: true });
 			value += c;
 			i += 1;
 		} else {
@@ -373,21 +379,21 @@ function tokenize(src) {
 		} else if (c === '$' && src[i + 1] === '(') {
 			const end = readParen(src, i + 2);
 			const raw = src.slice(i, end + 1);
-			add(raw, raw, [{ kind: 'cmd', raw, inner: src.slice(i + 2, end) }]);
+			add(raw, raw, [{ kind: 'cmd', raw, inner: src.slice(i + 2, end), quoted: false }]);
 			i = end + 1;
 		} else if ((c === '<' || c === '>') && src[i + 1] === '(') {
 			// Process substitution: a command whose output or input stands in for a file name.
 			const end = readParen(src, i + 2);
 			const raw = src.slice(i, end + 1);
-			add(raw, raw, [{ kind: 'proc', raw, inner: src.slice(i + 2, end) }]);
+			add(raw, raw, [{ kind: 'proc', raw, inner: src.slice(i + 2, end), quoted: false }]);
 			i = end + 1;
 		} else if (c === '`') {
 			const end = readBacktick(src, i + 1);
 			const raw = src.slice(i, end + 1);
-			add(raw, raw, [{ kind: 'backtick', raw, inner: src.slice(i + 1, end) }]);
+			add(raw, raw, [{ kind: 'backtick', raw, inner: src.slice(i + 1, end), quoted: false }]);
 			i = end + 1;
 		} else if (c === '$' && /[A-Za-z_{0-9@*#?!$-]/.test(src[i + 1] ?? '')) {
-			add(c, c, [{ kind: 'var', raw: src.slice(i, i + 2), inner: '' }]);
+			add(c, c, [{ kind: 'var', raw: src.slice(i, i + 2), inner: '', quoted: false }]);
 			i += 1;
 		} else if (src.startsWith('&>', i)) {
 			push();
@@ -555,11 +561,38 @@ const HEADERS = new Set(['for', 'case', 'select', 'in', 'done', 'fi', 'esac', '}
 
 const FORMS =
 	'Accepted forms for a command that can publish: gh issue|pr create|comment|edit|review|close|' +
-	'reopen|merge and gh release create|edit|upload with literal flags and a body as ' +
-	'--body-file <path> (or - with a quoted heredoc); gh api <path> [-X POST|PATCH] ' +
-	'-F body=@<path> or --input <path>; git commit -F <path>, -F - with a quoted heredoc, or ' +
-	'-m "<text>" (literal, or $(cat <<\'EOF\' … EOF)); git push; read-only and local git and gh ' +
-	'commands; and around them only readers such as grep, jq or head, and cd to a literal directory.';
+	'reopen (review without --approve) and gh release create|edit|upload with literal flags and a ' +
+	'body as --body-file <path> (or - with a quoted heredoc); gh api <path> [-X POST|PATCH] ' +
+	'-F body=@<path> or --input <path>, on the closed list of write paths; git commit -F <path>, ' +
+	'-F - with a quoted heredoc, or -m "<text>" (literal, or $(cat <<\'EOF\' … EOF)); git push to ' +
+	'a branch other than main; read-only and local git and gh commands; and around them only ' +
+	'readers such as grep, jq or head, and cd to a literal directory.';
+
+/** Said by every refusal of a privileged GitHub write (#973). */
+const PRIVILEGED =
+	'privileged repository writes go through the owner, because this session acts with an ' +
+	'administrator token (#973)';
+
+/**
+ * The closed list of `gh api` write paths, read after a leading `/` and a `repos/<owner>/<repo>/`
+ * prefix are removed. A path not on it is refused whatever its method; `methods`, where present,
+ * narrows the methods a listed path accepts.
+ *
+ * @type {{ path: string, pattern: RegExp, methods?: string[] }[]}
+ */
+const API_WRITE_PATHS = [
+	{ path: 'issues', pattern: /^issues$/ },
+	{ path: 'issues/<n>/comments', pattern: /^issues\/\d+\/comments$/ },
+	{ path: 'issues/<n>/labels', pattern: /^issues\/\d+\/labels$/ },
+	{ path: 'issues/comments/<n>', pattern: /^issues\/comments\/\d+$/, methods: ['PATCH'] },
+	{ path: 'pulls/<n>/comments', pattern: /^pulls\/\d+\/comments$/ },
+	{ path: 'labels', pattern: /^labels$/ },
+	{ path: 'milestones', pattern: /^milestones$/ },
+	{ path: 'milestones/<n>', pattern: /^milestones\/\d+$/ }
+];
+/** An owner and a repository as GitHub spells them, or gh's placeholders; never `.` or `..`. */
+const REPO_PREFIX =
+	/^repos\/(?:\{owner\}|[A-Za-z0-9-]+)\/(?:\{repo\}|(?!\.\.?\/)[A-Za-z0-9_.-]+)\//;
 
 /**
  * A word's value without the text its substitutions contribute.
@@ -571,6 +604,14 @@ const literalPart = (word) =>
 
 /** @param {Word} word */
 const isLiteral = (word) => word.substs.length === 0;
+
+/**
+ * Whether the shell splits the word on its substitutions' output, so that it can arrive as several
+ * words, options included. A process substitution expands to one path and is not split.
+ *
+ * @param {Word} word
+ */
+const splits = (word) => word.substs.some((subst) => !subst.quoted && subst.kind !== 'proc');
 
 /**
  * The one substitution accepted in published text: `$(cat <<'EOF' … EOF)`, a quoted heredoc and
@@ -859,7 +900,13 @@ function takeValue(ctx, role, where, word, value) {
 	const { result } = ctx;
 	if (role === 'text') {
 		if (isLiteral(word)) result.texts.push({ where, text: value, homePaths: true });
-		else if (quotedHeredocBody(word) === null) {
+		else if (splits(word)) {
+			result.refusals.push(
+				`${where} is an unquoted substitution (${word.raw.slice(0, 40)}): the shell splits its ` +
+					'output into separate words, which can carry options this hook never reads. Put it ' +
+					'in double quotes.'
+			);
+		} else if (quotedHeredocBody(word) === null) {
 			result.refusals.push(
 				`${where} runs a substitution this hook cannot evaluate (${word.raw.slice(0, 40)}): only ` +
 					"a literal or $(cat <<'EOF' … EOF) is accepted in published text."
@@ -886,9 +933,10 @@ function takeValue(ctx, role, where, word, value) {
 /**
  * The flags of one publishing form: which carry published text, which name a file, which take
  * some other value, and which take none. Short and long names both listed; an option may be
- * abbreviated when that is how the tool reads it (`abbreviate`).
+ * abbreviated when that is how the tool reads it (`abbreviate`). `refused` maps a flag to the
+ * reason it is refused, attached or clustered, so the refusal names why.
  *
- * @typedef {{ text: string[], file: string[], value: string[], bool: string[], optional?: string[], noVerify?: string[], abbreviate?: boolean }} FlagTable
+ * @typedef {{ text: string[], file: string[], value: string[], bool: string[], optional?: string[], noVerify?: string[], refused?: Record<string, string>, abbreviate?: boolean }} FlagTable
  */
 
 /**
@@ -907,7 +955,8 @@ function readFlags(args, table, ctx, what) {
 		...table.value,
 		...table.bool,
 		...(table.optional ?? []),
-		...(table.noVerify ?? [])
+		...(table.noVerify ?? []),
+		...Object.keys(table.refused ?? {})
 	].filter((f) => f.startsWith('--'));
 	/** @type {Word[]} */
 	const positionals = [];
@@ -954,6 +1003,10 @@ function readFlags(args, table, ctx, what) {
 			const [option, ...parts] = value.split('=');
 			const attached = parts.length > 0 ? parts.join('=') : undefined;
 			const flag = resolveLong(option);
+			if (flag && table.refused?.[flag]) {
+				result.refusals.push(`${what} ${flag}: ${table.refused[flag]}`);
+				continue;
+			}
 			const role = flag ? roleOf(flag) : undefined;
 			if (!flag || !role) {
 				result.refusals.push(
@@ -979,6 +1032,10 @@ function readFlags(args, table, ctx, what) {
 		// A cluster of short options: booleans until one that takes a value, which owns the rest.
 		for (let k = 1; k < value.length; k += 1) {
 			const flag = `-${value[k]}`;
+			if (table.refused?.[flag]) {
+				result.refusals.push(`${what} ${flag}: ${table.refused[flag]}`);
+				continue;
+			}
 			const role = roleOf(flag);
 			if (!role) {
 				result.refusals.push(
@@ -1258,6 +1315,7 @@ function classifyGit(args, ctx) {
 			if (!isLiteral(word))
 				result.refusals.push(`${what}: the argument ${word.raw.slice(0, 40)} is not literal.`);
 		}
+		if (sub === 'push') pushDestinations(positionals, ctx);
 		result.publishes += 1;
 		return 'publish';
 	}
@@ -1272,6 +1330,44 @@ function classifyGit(args, ctx) {
 	if (GIT_TREE.has(sub)) return 'tree';
 	result.refusals.push(`git ${sub} is not one of the accepted forms. ${FORMS}`);
 	return 'refused';
+}
+
+/** A refspec side spelled with nothing the shell or git would expand: no glob, escape or comma. */
+const PUSH_SIDE = /^[A-Za-z0-9._/@~^-]*$/;
+
+/**
+ * Refuses a `git push` whose refspec updates or deletes `main` (#973). Every argument is read as a
+ * refspec, the remote included, so `--repo` cannot move which one is the remote; git splits a
+ * refspec at its LAST colon, and a side with no colon names the same ref on both ends. A remote
+ * named in the configuration (`git push` alone, `remote.<name>.push`) is not on the command line,
+ * which is this hook's limit.
+ *
+ * @param {Word[]} positionals
+ * @param {Context} ctx
+ */
+function pushDestinations(positionals, ctx) {
+	for (const word of positionals) {
+		if (!isLiteral(word)) continue;
+		const spec = word.value.replace(/^\+/, '');
+		const colon = spec.lastIndexOf(':');
+		const source = colon < 0 ? spec : spec.slice(0, colon);
+		const destination = colon < 0 ? spec : spec.slice(colon + 1);
+		if (!PUSH_SIDE.test(source) || !PUSH_SIDE.test(destination)) {
+			ctx.result.refusals.push(
+				`git push: ${word.raw.slice(0, 40)} is not a plain branch, tag or remote name, so this ` +
+					'hook cannot tell whether it names main. Name the branch literally.'
+			);
+		} else if (colon >= 0 && source === '' && destination === '') {
+			ctx.result.refusals.push(
+				`git push : pushes every matching branch, main included; ${PRIVILEGED}.`
+			);
+		} else if ((destination || source).replace(/^refs\//, '').replace(/^heads\//, '') === 'main') {
+			ctx.result.refusals.push(
+				`git push to main (${word.raw.slice(0, 40)}): main changes only through a pull request ` +
+					`the owner merges; ${PRIVILEGED}.`
+			);
+		}
+	}
 }
 
 /**
@@ -1317,6 +1413,9 @@ function classifyGitConfig(rest, ctx) {
 	return 'index';
 }
 
+const APPROVE_REFUSED =
+	'approving a pull request is refused: a review from this session may comment or request ' +
+	`changes, and approval stays with the owner; ${PRIVILEGED}.`;
 const GH_TEXT = ['--title', '-t', '--body', '-b'];
 const GH_BODY_FILE = ['--body-file', '-F'];
 /** @type {Record<string, Record<string, FlagTable>>} */
@@ -1406,13 +1505,8 @@ const GH_PUBLISHING = {
 			text: ['--body', '-b'],
 			file: GH_BODY_FILE,
 			value: [],
-			bool: ['--approve', '-a', '--comment', '-c', '--request-changes', '-r']
-		},
-		merge: {
-			text: ['--subject', '-t', '--body', '-b'],
-			file: GH_BODY_FILE,
-			value: ['--match-head-commit'],
-			bool: ['--squash', '-s', '--merge', '-m', '--rebase', '-r', '--delete-branch', '-d']
+			bool: ['--comment', '-c', '--request-changes', '-r'],
+			refused: { '--approve': APPROVE_REFUSED, '-a': APPROVE_REFUSED }
 		},
 		close: { text: ['--comment', '-c'], file: [], value: [], bool: ['--delete-branch', '-d'] },
 		reopen: { text: ['--comment', '-c'], file: [], value: [], bool: [] },
@@ -1443,12 +1537,28 @@ const GH_READ = {
 	release: ['view', 'list', 'download'],
 	workflow: ['list', 'view', 'run'],
 	label: ['list'],
-	auth: ['status', 'token'],
+	auth: ['status'],
 	secret: ['list'],
 	cache: ['list'],
 	ruleset: ['list', 'view', 'check'],
 	search: ['*'],
 	status: ['*']
+};
+const TOKEN_REFUSED =
+	"prints the session's GitHub token into the assistant's context, and a token is never exposed " +
+	'(AGENTS.md « Security boundaries »). gh auth status says whether the session is signed in.';
+/**
+ * gh commands refused with their reason, whatever their flags, once they are not reads.
+ *
+ * @type {Record<string, Record<string, string>>}
+ */
+const GH_REFUSED = {
+	pr: {
+		merge:
+			"gh pr merge is refused in every form: a merge goes only through the maintainer's " +
+			`docs/superpowers/tools/merge_pr.sh, run as a script; ${PRIVILEGED}.`
+	},
+	auth: { token: `gh auth token ${TOKEN_REFUSED}` }
 };
 
 /**
@@ -1483,12 +1593,31 @@ function classifyGh(args, ctx) {
 	const group = groupWord.value;
 	const action = actionWord?.value ?? '';
 	if (group === 'api') return classifyApi(words.slice(1), ctx);
+	// gh finds the subcommand past the options before it, and an option it does not know takes the
+	// next word as its value: `gh pr --subject view merge 5` merges. So the word after the group is
+	// the subcommand, and an option there is accepted only when nothing follows but options.
+	if (action.startsWith('-') && words.slice(2).some((word) => !word.value.startsWith('-'))) {
+		result.refusals.push(
+			`gh ${group}: an option before the subcommand (${actionWord.raw.slice(0, 40)}) can make gh ` +
+				'run another subcommand than the word this hook reads. Put options after the subcommand.'
+		);
+		return 'refused';
+	}
+	if (group === 'auth' && words.some((word) => /^(--show-token|-[A-Za-z]*t)/.test(word.value))) {
+		result.refusals.push(`gh auth with --show-token ${TOKEN_REFUSED}`);
+		return 'refused';
+	}
 	const read = GH_READ[group];
 	if (
 		read &&
 		(read.includes('*') || read.includes(action) || action === '' || action.startsWith('-'))
 	) {
 		return 'read';
+	}
+	const refused = GH_REFUSED[group]?.[action];
+	if (refused) {
+		result.refusals.push(refused);
+		return 'refused';
 	}
 	const table = GH_PUBLISHING[group]?.[action];
 	if (!table) {
@@ -1523,6 +1652,7 @@ function classifyGh(args, ctx) {
 /**
  * `gh api`: a read when its method is GET (the default without fields), a publishing form
  * otherwise, with every field literal and a file only as `-F name=@<path>` or `--input <path>`.
+ * A write is accepted only on `API_WRITE_PATHS`, and a GraphQL mutation not at all (#973).
  *
  * @param {Word[]} args
  * @param {Context} ctx
@@ -1531,6 +1661,8 @@ function classifyGh(args, ctx) {
 function classifyApi(args, ctx) {
 	const { result } = ctx;
 	let method = '';
+	/** @type {Word | null} */
+	let methodWord = null;
 	let hasBody = false;
 	/** @type {{ role: 'text' | 'file', where: string, word: Word, value: string }[]} */
 	const values = [];
@@ -1571,8 +1703,10 @@ function classifyApi(args, ctx) {
 			j += 1;
 		}
 		if (argument === undefined) continue;
-		if (flag === '-X' || flag === '--method') method = argument.toUpperCase();
-		else if (VALUE_FLAGS.includes(flag)) continue;
+		if (flag === '-X' || flag === '--method') {
+			method = argument.toUpperCase();
+			methodWord = source;
+		} else if (VALUE_FLAGS.includes(flag)) continue;
 		else if (flag === '--input') {
 			hasBody = true;
 			values.push({ role: 'file', where: 'the --input file', word: source, value: argument });
@@ -1599,11 +1733,59 @@ function classifyApi(args, ctx) {
 			return 'refused';
 		}
 	}
+	// The method is read from the words above, so a word that could expand to `-X DELETE` without
+	// spelling it is refused: an unquoted substitution (split into words by the shell), an argument
+	// whose first character comes from a substitution, and a second argument where gh takes one.
+	const hidden = [
+		...args.filter(splits),
+		...positionals.filter((word) => /^[$`]/.test(word.value) && !isLiteral(word)),
+		...positionals.slice(1)
+	];
+	if (method !== '' && methodWord && !isLiteral(methodWord)) hidden.push(methodWord);
+	if (hidden.length > 0) {
+		result.refusals.push(
+			`gh api: the argument ${hidden[0].raw.slice(0, 40)} can expand to an option such as -X ` +
+				'that this hook never reads. Write every option and the one path out literally.'
+		);
+		return 'refused';
+	}
 	const path = positionals[0]?.value ?? '';
 	const graphql = path === 'graphql';
 	const effective = method || (hasBody ? 'POST' : 'GET');
-	const mutation = graphql && values.some((v) => /\bmutation\b/i.test(v.value));
-	if (effective === 'GET' || (graphql && !mutation)) return 'read';
+	if (graphql) {
+		// A query from a file or a substitution could be a mutation this hook never reads.
+		if (values.some((v) => v.role === 'file' || !isLiteral(v.word))) {
+			result.refusals.push(
+				'gh api graphql reads its query from a file, stdin or a substitution, so this hook ' +
+					"cannot tell a query from a mutation. Pass the query literally, -f query='…'."
+			);
+			return 'refused';
+		}
+		if (values.some((v) => /\bmutation\b/i.test(v.value))) {
+			result.refusals.push(
+				`gh api graphql: a mutation, and no GraphQL mutation is on the closed list of writes; ${PRIVILEGED}.`
+			);
+			return 'refused';
+		}
+		return 'read';
+	}
+	if (effective === 'GET') return 'read';
+	const relative = path.replace(/^\//, '').replace(REPO_PREFIX, '');
+	const listed = API_WRITE_PATHS.find((entry) => entry.pattern.test(relative));
+	if (!listed) {
+		result.refusals.push(
+			`gh api ${effective} ${relative} is not on the closed list of write paths ` +
+				`(${API_WRITE_PATHS.map((entry) => entry.path).join(', ')}): ${PRIVILEGED}.`
+		);
+		return 'refused';
+	}
+	if (listed.methods && !listed.methods.includes(effective)) {
+		result.refusals.push(
+			`gh api ${effective} ${relative}: ${listed.path} accepts ${listed.methods.join(' or ')} ` +
+				`only, and ${PRIVILEGED}.`
+		);
+		return 'refused';
+	}
 	const what = `gh api ${effective} ${path}`;
 	if (ctx.depth > 0) {
 		result.refusals.push(
