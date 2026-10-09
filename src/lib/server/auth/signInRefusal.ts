@@ -16,9 +16,13 @@ export const SIGN_IN_REFUSED = 'refused';
 type Reason<Step extends SignInFailure['step']> = Extract<SignInFailure, { step: Step }>['reason'];
 
 /**
- * Which refusals carry the header: a refusal of a credential THIS REQUEST sent, so that nobody but
- * its sender can put the mark on a response. Exhaustive by type, so a new reason does not compile
- * until it is classified here.
+ * Which refusals carry the header: a refusal answered to a credential THIS REQUEST sent. Nobody can
+ * mark someone else's response at will. Two cases mark a CORRECT credential, once each and never
+ * on demand: a sign-in that loses a race with a change to the account's factors (`superseded`, or
+ * `wrong_code` when the factor is turned off or re-enrolled meanwhile), and a double-submitted form
+ * (the second post of a code reads `reused_code` or `wrong_recovery_code`). A ban needs several
+ * marks, so one does not ban. Exhaustive by type, so a new reason does not compile until it is
+ * classified here.
  *
  * - `superseded` at the password step answers with the invalid-credentials body, so it is marked
  *   like the wrong password it reads as: an absent header would tell the client its password was
@@ -44,9 +48,19 @@ const MARKED: { [Step in SignInFailure['step']]: Record<Reason<Step>, boolean> }
 };
 
 function isMarked(failure: SignInFailure): boolean {
-	return failure.step === 'password'
-		? MARKED.password[failure.reason]
-		: MARKED.second_factor[failure.reason];
+	switch (failure.step) {
+		case 'password':
+			return MARKED.password[failure.reason];
+		case 'second_factor':
+			return MARKED.second_factor[failure.reason];
+		default:
+			return unclassified(failure);
+	}
+}
+
+/** Compiles only while every step is handled above, so a new step cannot fall into another's table. */
+function unclassified(failure: never): never {
+	throw new Error(`sign-in refusal of an unclassified step: ${JSON.stringify(failure)}`);
 }
 
 /**

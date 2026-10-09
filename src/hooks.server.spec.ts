@@ -574,7 +574,13 @@ describe('anti-caching headers (v5.0.0-14.3.2)', () => {
 		expect(control).not.toEqual([]);
 
 		expect(files.filter((path) => /Cache-Control/i.test(readFileSync(path, 'utf8')))).toEqual([]);
-		expect(files.filter((path) => /setHeaders/.test(readFileSync(path, 'utf8')))).toEqual([]);
+		// One call of `setHeaders` exists, and it sets the sign-in refusal header only (#876):
+		// asserted as the exact set of calling files, so a second caller fails here and has to be
+		// read. That file is inside the Cache-Control scan the line above runs. A route that merely
+		// PASSES `setHeaders` on is not a call and does not match.
+		expect(files.filter((path) => /setHeaders\s*\(/.test(readFileSync(path, 'utf8')))).toEqual([
+			join('src', 'lib', 'server', 'auth', 'signInRefusal.ts')
+		]);
 	});
 
 	// SCOPE, so this green is not read as a claim about the shipped server. It says the

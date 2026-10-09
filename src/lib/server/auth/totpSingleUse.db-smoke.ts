@@ -152,6 +152,8 @@ async function submitCode(browser: ReturnType<typeof jar>, code: string): Promis
 			cookies: browser.cookies,
 			getClientAddress: () => freshAddress(),
 			request: new Request('http://localhost/login/verify-totp', { method: 'POST', body: form }),
+			// A refused code is marked for the proxy (#876); the header is the route's unit spec's.
+			setHeaders: () => undefined,
 			url: new URL('http://localhost/login/verify-totp')
 		})) as { data?: { error?: string } };
 		return { accepted: false, error: answer.data?.error };
