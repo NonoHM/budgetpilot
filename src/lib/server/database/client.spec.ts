@@ -1,10 +1,25 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createPrismaClient } from './client';
 import { DEFAULT_SQLITE_URL } from './provider';
 
 const createDatabaseAdapter = vi.hoisted(() => vi.fn(() => ({ adapterName: 'fake' })));
 
 vi.mock('./adapter.ts', () => ({ createDatabaseAdapter }));
+
+// The volume `statSync` sees, path to size, so the legacy-path rule (#957) can be driven without a
+// /data directory. Empty by default, which is every test below that does not set it: no /data.
+const volumeFiles = vi.hoisted(() => new Map<string, number>());
+vi.mock('node:fs', async (importOriginal) => {
+	const actual = await importOriginal<typeof import('node:fs')>();
+	return {
+		...actual,
+		statSync: ((path: string) => {
+			const size = volumeFiles.get(path);
+			if (size === undefined) throw Object.assign(new Error(`ENOENT: ${path}`), { code: 'ENOENT' });
+			return { size };
+		}) as unknown as typeof actual.statSync
+	};
+});
 
 // One stand-in per generated client, each distinguishable, so the dispatch test below can prove
 // which one was constructed. Mocking them also keeps this suite from loading three real clients.
@@ -159,5 +174,41 @@ describe('createPrismaClient', () => {
 		expect.assertions(1);
 
 		expect(wrappedClient(createPrismaClient(env))).toBeInstanceOf(expected);
+	});
+});
+
+/**
+ * #957: a process other than `boot.mjs` (a script run with `docker compose exec` or `run --rm`)
+ * receives the configured `file:/data/budgetpilot.db`, never boot's adopted answer. Before this, it
+ * opened that path on a volume holding only `dev.db`, creating an empty file the next restart then
+ * served. The two tests separate a client that applies the rule from one that passes the
+ * configured path through.
+ */
+describe('createPrismaClient on an upgraded volume', () => {
+	afterEach(() => volumeFiles.clear());
+
+	it('opens the legacy file boot adopted, not a new empty one', () => {
+		expect.assertions(1);
+		volumeFiles.set('/data/dev.db', 8192);
+
+		createPrismaClient({ DATABASE_URL: 'file:/data/budgetpilot.db' });
+
+		expect(createDatabaseAdapter).toHaveBeenLastCalledWith('sqlite', 'file:/data/dev.db', {});
+	});
+
+	// Calibration: on a volume that already holds the new file, the configured path is kept, so the
+	// test above is about the rule and not a client that always answers the legacy path.
+	it('keeps the configured file once it exists', () => {
+		expect.assertions(1);
+		volumeFiles.set('/data/dev.db', 8192);
+		volumeFiles.set('/data/budgetpilot.db', 4096);
+
+		createPrismaClient({ DATABASE_URL: 'file:/data/budgetpilot.db' });
+
+		expect(createDatabaseAdapter).toHaveBeenLastCalledWith(
+			'sqlite',
+			'file:/data/budgetpilot.db',
+			{}
+		);
 	});
 });

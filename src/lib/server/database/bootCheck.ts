@@ -29,8 +29,8 @@ export function assertDatabaseConfigured(source: NodeJS.ProcessEnv = process.env
 				"your server's connection URL and set DATABASE_PROVIDER to match it."
 		);
 	}
-	// provider.ts stays free of imports so the image can copy it alone into a stage with no
-	// application source, so its two refusals are plain Errors. They are the only things it throws,
+	// provider.ts imports nothing but Node's own `node:fs`, so the image can copy it alone into a
+	// stage with no application source, and its two refusals are plain Errors. They are the only things it throws,
 	// both written for the operator from configuration alone, and they are marked here for the boot
 	// report, which keeps a message only from an OperatorFacingError (#816).
 	try {

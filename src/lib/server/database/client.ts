@@ -6,8 +6,8 @@ import { moneyColumnsExtension } from './moneyColumns.ts';
 import {
 	assertDatabaseUrlMatchesProvider,
 	DEFAULT_SQLITE_URL,
-	normalizeDatabaseUrl,
 	resolveDatabaseProvider,
+	resolveImageDatabaseUrl,
 	type DatabaseEnv
 } from './provider.ts';
 // One generated client per provider, all three imported statically, for the same reason
@@ -48,8 +48,10 @@ export function createPrismaClient(
 	const provider = resolveDatabaseProvider(env);
 	// Normalised once, here, and everything downstream uses the result. Validating one string
 	// and connecting with another is how a stray leading space used to reach the driver's
-	// parse error, which quotes the whole connection string.
-	const databaseUrl = normalizeDatabaseUrl(env.DATABASE_URL);
+	// parse error, which quotes the whole connection string. Resolved against the image's legacy
+	// file too (#957): a script run beside the app must open the file boot adopted, never create
+	// an empty one at the configured path.
+	const { databaseUrl } = resolveImageDatabaseUrl(env.DATABASE_URL);
 	assertDatabaseUrlMatchesProvider(provider, databaseUrl);
 
 	// Only SQLite has somewhere sensible to default to. PostgreSQL and MySQL have no local file

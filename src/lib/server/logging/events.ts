@@ -239,6 +239,11 @@ export type LogEvent =
 			attributes: { [A.countsKind]: 'tags' | 'splits'; [A.errorType]: string };
 	  }
 	| { event: typeof E.bootLegacyDatabaseAdopted; attributes: Record<never, never> }
+	| { event: typeof E.bootEmptyDatabaseRemoved; attributes: Record<never, never> }
+	| {
+			event: typeof E.bootTwoDatabases;
+			attributes: { [A.bootDatabaseBytes]: number; [A.bootLegacyDatabaseBytes]: number };
+	  }
 	| {
 			event: typeof E.bootDataDirReadOnly;
 			attributes: { [A.bootDirectory]: string };
@@ -724,6 +729,20 @@ export const REGISTRY: { [N in EventName]: EventSpec<AttributesOf<N>> } = {
 		flood: false,
 		security: false,
 		attributes: {}
+	},
+	[E.bootEmptyDatabaseRemoved]: {
+		severity: 'WARN',
+		body: 'Removed an empty /data/budgetpilot.db beside /data/dev.db. It held no data: a command run in the container while this install used the old name had created it. Your data is in /data/dev.db.',
+		flood: false,
+		security: false,
+		attributes: {}
+	},
+	[E.bootTwoDatabases]: {
+		severity: 'WARN',
+		body: 'Both /data/budgetpilot.db and /data/dev.db hold a database. Using /data/budgetpilot.db. If your history is in /data/dev.db, see « Two database files » in the operations guide; this line repeats at every start until one of the two is renamed.',
+		flood: false,
+		security: false,
+		attributes: { [A.bootDatabaseBytes]: 'Operational', [A.bootLegacyDatabaseBytes]: 'Operational' }
 	},
 	[E.bootDataDirReadOnly]: {
 		severity: 'FATAL',

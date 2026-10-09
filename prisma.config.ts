@@ -4,8 +4,8 @@ import {
 	assertDatabaseUrlMatchesProvider,
 	DEFAULT_SQLITE_URL,
 	migrationsPathFor,
-	normalizeDatabaseUrl,
 	resolveDatabaseProvider,
+	resolveImageDatabaseUrl,
 	schemaPathFor,
 	toPrismaConnectionUrl
 } from './src/lib/server/database/provider.ts';
@@ -29,7 +29,9 @@ const provider = resolveDatabaseProvider(process.env);
 // Normalised once, exactly as client.ts does it, so the CLI and the app agree on what the
 // operator's DATABASE_URL means down to the whitespace. The .env parsing above trims the line
 // but not the value, so this is the layer that catches `DATABASE_URL= mysql://…`.
-const databaseUrl = normalizeDatabaseUrl(process.env.DATABASE_URL);
+// The file boot adopted on an upgraded volume (#957), so the Prisma CLI run beside the app opens
+// the install's database rather than refusing a path that holds none.
+const { databaseUrl } = resolveImageDatabaseUrl(process.env.DATABASE_URL);
 assertDatabaseUrlMatchesProvider(provider, databaseUrl);
 
 export default defineConfig({

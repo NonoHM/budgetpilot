@@ -126,6 +126,8 @@ export const ATTRIBUTE = {
 	bootDirectory: 'budgetpilot.boot.directory',
 	bootUid: 'budgetpilot.boot.uid',
 	bootExitCode: 'budgetpilot.boot.exit_code',
+	bootDatabaseBytes: 'budgetpilot.boot.database_bytes',
+	bootLegacyDatabaseBytes: 'budgetpilot.boot.legacy_database_bytes',
 
 	// The logger about itself.
 	suppressedEvent: 'budgetpilot.log.suppressed_event',
@@ -190,6 +192,8 @@ export const EVENT = {
 	transactionsCountsUnavailable: 'budgetpilot.transactions.counts_unavailable',
 
 	bootLegacyDatabaseAdopted: 'budgetpilot.boot.legacy_database_adopted',
+	bootEmptyDatabaseRemoved: 'budgetpilot.boot.empty_database_removed',
+	bootTwoDatabases: 'budgetpilot.boot.two_databases',
 	bootDataDirReadOnly: 'budgetpilot.boot.data_dir_read_only',
 	bootDataDirNotWritable: 'budgetpilot.boot.data_dir_not_writable',
 	bootDataDirUnusable: 'budgetpilot.boot.data_dir_unusable',

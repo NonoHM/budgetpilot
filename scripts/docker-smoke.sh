@@ -975,6 +975,90 @@ if ! log_event_has "$rename_old_logs" budgetpilot.boot.legacy_database_adopted '
 	exit 1
 fi
 echo "  ok: an install holding dev.db keeps it, and says so"
+
+# #957: every OTHER reader in the image opens the file boot adopted. boot.mjs records the adoption
+# only in its own process, and a command run beside it (`docker compose exec` or `run --rm`) gets
+# the configured path. Opening a missing SQLite path creates it, so the next restart found the new
+# file, adopted nothing and served it empty. The documented commands, verbatim after `docker run`,
+# on the volume boot just adopted. Calibrated on the published 1.1.1 image, where the dry run fails
+# and leaves a 0-byte budgetpilot.db behind and the Prisma CLI answers P1003.
+dry_run_status=0
+docker run --rm "${HARDENED[@]}" -v "$RENAME_VOLUME:/data" "$IMAGE" \
+	scripts/normalize-names.mjs --dry-run >/dev/null 2>&1 || dry_run_status=$?
+if volume_has budgetpilot.db; then
+	echo "FAIL: the documented name dry run created an empty budgetpilot.db beside dev.db (#957)" >&2
+	exit 1
+fi
+if [ "$dry_run_status" -ne 0 ]; then
+	echo "FAIL: the documented name dry run exited $dry_run_status on an install holding dev.db (#957)" >&2
+	exit 1
+fi
+if ! docker run --rm "${HARDENED[@]}" -v "$RENAME_VOLUME:/data" "$IMAGE" \
+	node_modules/prisma/build/index.js migrate status >/dev/null 2>&1; then
+	echo "FAIL: the Prisma CLI does not open the adopted dev.db, so migrate resolve fails here (#957)" >&2
+	exit 1
+fi
+echo "  ok: a script and the Prisma CLI open the dev.db boot adopted, and create nothing"
+
+# The state every door that opens a missing path leaves, planted directly: a 0-byte budgetpilot.db
+# beside the adopted dev.db, as a pre-#957 dry run or the tutorial's `node:sqlite` line leaves it.
+# Before #957 the next boot read its mere presence as "already migrated", adopted nothing, ran the
+# migrations into it and served an empty app. A file of 0 bytes holds no database (a database with
+# a table, or in WAL mode, has at least one page), so the boot adopts dev.db over it and removes it
+# (owner's ruling on #957), which keeps the backup command's « does not exist » signal true.
+docker run --rm -v "$RENAME_VOLUME:/data" busybox:1.37 \
+	sh -c 'touch /data/budgetpilot.db && chown 65532:65532 /data/budgetpilot.db' >/dev/null
+rename_stray=smoke-app-rename-stray
+if ! boot_once_for_rename "$rename_stray"; then
+	docker logs "$rename_stray" 2>&1 | redact || true
+	echo "FAIL: the image did not boot on a volume holding dev.db and a 0-byte budgetpilot.db" >&2
+	exit 1
+fi
+rename_stray_logs=$(docker logs "$rename_stray" 2>&1 | redact || true)
+docker rm -f "$rename_stray" >/dev/null 2>&1 || true
+if volume_has budgetpilot.db; then
+	echo "$rename_stray_logs"
+	echo "FAIL: a 0-byte budgetpilot.db beside dev.db was kept, so it can be served or backed up (#957)" >&2
+	exit 1
+fi
+if ! log_event_has "$rename_stray_logs" budgetpilot.boot.empty_database_removed '/data/budgetpilot.db'; then
+	echo "$rename_stray_logs"
+	echo "FAIL: the empty budgetpilot.db was removed without a line saying so (#957)" >&2
+	exit 1
+fi
+if ! log_event_has "$rename_stray_logs" budgetpilot.boot.legacy_database_adopted '/data/dev.db'; then
+	echo "$rename_stray_logs"
+	echo "FAIL: a 0-byte budgetpilot.db beside dev.db stopped the adoption (#957)" >&2
+	exit 1
+fi
+echo "  ok: a 0-byte budgetpilot.db left by any door is removed, and dev.db stays in use"
+
+# Both files hold a database: an install that restarted on a pre-#957 release after a door created
+# the new file, so that release migrated into it and the owner may have typed data again since. No
+# rule can tell which file they mean (owner's ruling on #957): the configured file stays open, and
+# every boot says so with both sizes until the operator resolves it. A copy of the adopted dev.db
+# stands in for the second database.
+docker run --rm -v "$RENAME_VOLUME:/data" busybox:1.37 \
+	sh -c 'cp -p /data/dev.db /data/budgetpilot.db' >/dev/null
+rename_both=smoke-app-rename-both
+if ! boot_once_for_rename "$rename_both"; then
+	docker logs "$rename_both" 2>&1 | redact || true
+	echo "FAIL: the image did not boot on a volume where both files hold a database" >&2
+	exit 1
+fi
+rename_both_logs=$(docker logs "$rename_both" 2>&1 | redact || true)
+docker rm -f "$rename_both" >/dev/null 2>&1 || true
+if ! log_event_has "$rename_both_logs" budgetpilot.boot.two_databases '/data/dev.db'; then
+	echo "$rename_both_logs"
+	echo "FAIL: both files hold a database and the boot said nothing (#957)" >&2
+	exit 1
+fi
+if log_event_has "$rename_both_logs" budgetpilot.boot.legacy_database_adopted '/data/dev.db'; then
+	echo "$rename_both_logs"
+	echo "FAIL: both files hold a database and the boot switched to dev.db on its own (#957)" >&2
+	exit 1
+fi
+echo "  ok: two databases keep budgetpilot.db open, and every boot says so"
 docker volume rm -f "$RENAME_VOLUME" >/dev/null 2>&1 || true
 
 # The container has to stop on SIGTERM by draining, not by being killed 10 seconds later.
