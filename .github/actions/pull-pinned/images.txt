@@ -1,0 +1,11 @@
+# The Docker Hub images CI runs, each pinned to the digest its tag resolved to when it was written
+# here (#980). One line per image: `<name>:<tag> <digest>`, the tag kept for the human reading it.
+# Read by db-matrix in ci.yml (its leg's line) and by docker-smoke.yml (every line), both through
+# pull-pinned.sh, so the two jobs cannot pin the same tag to different bytes.
+#
+# No Dependabot ecosystem reads this file, so a digest here moves only by hand. To refresh one:
+#   docker buildx imagetools inspect docker.io/library/<name>:<tag>
+# and copy the « Digest: » it prints (the index digest, which covers every platform).
+postgres:17-alpine sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+mariadb:11 sha256:6422478cb8e159f080fb1d8ccf65101e26fe51385787fde7d16c3b165a331f15
+busybox:1.37 sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e
