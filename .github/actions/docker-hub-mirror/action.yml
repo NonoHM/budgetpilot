@@ -1,0 +1,103 @@
+name: Docker Hub through a mirror first
+description: >-
+  Points the runner's Docker daemon at a Docker Hub mirror, with Docker Hub itself as the daemon's
+  automatic fallback, and reports afterwards which registry answered (#980).
+
+# For what reaches Docker Hub THROUGH THE DAEMON, which here is `docker build`: the BuildKit inside
+# the daemon fetches the Dockerfile's pinned node base from each docker.io mirror in turn and then
+# from registry-1.docker.io. A pinned digest names the same bytes on either.
+#
+# Not enough on its own for a `docker run` or `docker pull` of a docker.io name: the runner's Docker
+# client sends the Docker Hub credentials it is configured with, the daemon presents them to the
+# mirror, the mirror refuses them as « unauthorized », and the pull falls through to Docker Hub.
+# Pull those through .github/actions/pull-pinned instead, which names each registry itself.
+#
+# `mode: report` runs after the build (`if: always()`) and reads the daemon's debug log, the only
+# place the answering registry is written down. It also names Docker Hub's rate-limit refusal,
+# because a base image that cannot be fetched otherwise reads as a broken build.
+
+inputs:
+  mode:
+    description: '`configure` before the build, `report` after it.'
+    required: true
+  mirror:
+    description: The docker.io mirror, as a URL with no path.
+    required: false
+    default: https://mirror.gcr.io
+
+runs:
+  using: composite
+  steps:
+    - if: inputs.mode == 'configure'
+      shell: bash
+      env:
+        MIRROR: ${{ inputs.mirror }}
+      run: |
+        set -euo pipefail
+        conf=/etc/docker/daemon.json
+        # Merged, never overwritten: the runner image ships settings of its own in this file.
+        current='{}'
+        if sudo test -s "$conf"; then current=$(sudo cat "$conf"); fi
+        # `debug` is what makes the daemon write which registry answered each request.
+        jq --arg m "$MIRROR" '. + {"registry-mirrors": [$m], "debug": true}' <<< "$current" \
+          | sudo tee "$conf" > /dev/null
+        sudo systemctl restart docker
+        for _ in $(seq 1 30); do
+          if docker info > /dev/null 2>&1; then break; fi
+          sleep 1
+        done
+        mirrors=$(docker info --format '{{json .RegistryConfig.Mirrors}}')
+        echo "docker.io mirrors the daemon tries before Docker Hub: $mirrors"
+        if ! jq -e --arg m "${MIRROR%/}" 'any(.[]; rtrimstr("/") == $m)' <<< "$mirrors" > /dev/null; then
+          echo "::error title=docker-hub-mirror::The daemon restarted without the mirror $MIRROR."
+          exit 1
+        fi
+        date -u '+%Y-%m-%d %H:%M:%S' > "$RUNNER_TEMP/docker-hub-mirror.since"
+
+    - if: inputs.mode == 'report'
+      shell: bash
+      run: |
+        # A report, never a gate: a pattern that matches nothing is an answer here, not a failure,
+        # and the runner starts composite bash with -e and pipefail.
+        set +e -u
+        since=$(cat "$RUNNER_TEMP/docker-hub-mirror.since" 2> /dev/null || true)
+        if [ -z "$since" ]; then
+          echo "::warning title=docker-hub-mirror::No configure step ran before this report."
+          exit 0
+        fi
+        log=$(sudo journalctl -u docker --since "$since UTC" --no-pager -o cat)
+        echo "daemon log lines read since $since UTC: $(wc -l <<< "$log")"
+
+        # BuildKit writes one « fetch response received » per registry answer, with its status and
+        # URL. Counted per repository and host; headers are never printed.
+        builder=$(grep -a 'msg="fetch response received"' <<< "$log" \
+          | grep -a 'response.status="2' \
+          | grep -aoE 'url="https://[^/"]+/v2/[^"?]+/(manifests|blobs)/' \
+          | sed -E 's#^url="https://([^/"]+)/v2/(.+)/(manifests|blobs)/$#\2 served by \1#' \
+          | sort | uniq -c)
+        # A host that failed is logged as « trying next host » before the next one is asked.
+        skipped=$(grep -a 'msg="trying next host"' <<< "$log" | grep -aoE ' host=[^ ]+' | sort | uniq -c)
+        # A classic pull says which endpoint it tries and why it moved on to the next one.
+        classic=$(grep -aoE 'msg="(Trying to pull|Attempting next endpoint for pull after error)([^"\\]|\\.){0,240}' <<< "$log" \
+          | sed -e 's/^msg="//' -e 's/\\"/"/g' | sort | uniq -c)
+
+        {
+          echo "### Registries that answered the daemon"
+          echo
+          echo "Build (successful registry responses, per repository):"
+          echo '```'
+          echo "${builder:-none recorded}"
+          echo '```'
+          echo "Build (hosts that failed, so the next one was asked):"
+          echo '```'
+          echo "${skipped:-none}"
+          echo '```'
+          echo "Pulls outside the build:"
+          echo '```'
+          echo "${classic:-none recorded}"
+          echo '```'
+        } | tee -a "$GITHUB_STEP_SUMMARY"
+
+        if grep -aq 'toomanyrequests' <<< "$log"; then
+          echo "::warning title=docker-hub-mirror::Docker Hub answered « toomanyrequests » (its pull rate limit) at least once in this job. If a build or pull failed, that is why, and the change is not implicated: re-run once the limit resets."
+        fi

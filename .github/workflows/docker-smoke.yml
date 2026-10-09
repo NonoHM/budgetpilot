@@ -21,6 +21,27 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
+      # Nothing this job runs may depend on Docker Hub's pull limit, which failed it on a change
+      # that touched nothing it tests (#980). The script is unchanged; two things around it:
+      #
+      # - The Dockerfile's node base is fetched by the BuildKit inside the daemon, so the daemon
+      #   gets a mirror, tried before Docker Hub and falling back to it by itself.
+      # - The images the script `docker run`s by tag are pulled first, by digest, and tagged with
+      #   the name the script uses, so it finds them locally and pulls nothing. Not left to the
+      #   daemon mirror, which refuses the Docker Hub credentials the runner's client sends with a
+      #   docker.io pull, so every such pull fell through to Docker Hub (see that action's header).
+      - name: Reach Docker Hub through a mirror first
+        uses: ./.github/actions/docker-hub-mirror
+        with:
+          mode: configure
+
+      - name: Pull the images the script runs, pinned, mirror first
+        run: |
+          while read -r image digest; do
+            case "$image" in '' | '#'*) continue ;; esac
+            .github/actions/pull-pinned/pull-pinned.sh "${image%%:*}" "${image#*:}" "$digest"
+          done < .github/actions/pull-pinned/images.txt
+
       # No buildx, no registry cache, no CI-only flags. The script runs here exactly as a
       # contributor runs it locally, which is the point: a check that only works in CI cannot be
       # reproduced when it fails. It builds the image, asserts all three generated Prisma clients
@@ -28,3 +49,9 @@ jobs:
       # default SQLite. See the header of the script for what each step proves.
       - name: Build the image and boot it on every provider
         run: ./scripts/docker-smoke.sh
+
+      - name: Say which registry served the images
+        if: always()
+        uses: ./.github/actions/docker-hub-mirror
+        with:
+          mode: report
