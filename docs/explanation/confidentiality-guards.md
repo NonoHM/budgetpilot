@@ -53,6 +53,16 @@ must exist, and every row must name a guard or an issue.
   `include` settings, and the `GIT_CONFIG_*` variables that could override
   them. A GitHub MCP tool's every string is read.
 
+  The same hook also refuses privileged GitHub writes, because the session acts
+  with a token that administers the repository (#973): `gh pr merge` in every
+  form, a review approval, `gh auth token`, a `git push` whose destination is
+  `main`, a GraphQL mutation, and a `gh api` write to any path outside a closed
+  list of issue, comment, label and milestone paths. Its limit is that it reads
+  command lines. A script the assistant writes, or a GitHub MCP tool, can still
+  call the API with the session's token, and a push that takes its destination
+  from git configuration does not name `main` on the command line. The control
+  that closes those is a token without administration rights (#973).
+
 - **The git hooks**, under `.githooks/`, read the staged lines and the commit
   message whoever typed them, and run gitleaks. `CONTRIBUTING.md` explains how
   to activate them.
