@@ -36,20 +36,23 @@ const SCRIPT = resolve(import.meta.dirname, '../../../../scripts/log-pseudonym.m
 const SECRET = 'c3'.repeat(32);
 const created: string[] = [];
 
+const saved = env.RATE_LIMIT_HASH_SECRET;
 afterEach(() => {
-	delete env.RATE_LIMIT_HASH_SECRET;
+	env.RATE_LIMIT_HASH_SECRET = saved;
 });
 
 afterAll(async () => {
 	await prisma.user.deleteMany({ where: { id: { in: created } } });
 });
 
-function run(args: string[]) {
+// `--email` reads the address from stdin, never argv, which /proc and shell history keep.
+function run(args: string[], input?: string, databaseUrl = process.env.DATABASE_URL) {
 	const result = spawnSync(process.execPath, [SCRIPT, ...args], {
+		input,
 		env: {
 			PATH: process.env.PATH,
 			DATABASE_PROVIDER: process.env.DATABASE_PROVIDER,
-			DATABASE_URL: process.env.DATABASE_URL,
+			DATABASE_URL: databaseUrl,
 			RATE_LIMIT_HASH_SECRET: SECRET
 		},
 		encoding: 'utf8',
@@ -58,8 +61,8 @@ function run(args: string[]) {
 	return { status: result.status, stdout: result.stdout, stderr: result.stderr };
 }
 
-async function createUser() {
-	const email = `log-pseudonym-${randomUUID()}@budgetpilot.invalid`;
+async function createUser(local = 'log-pseudonym') {
+	const email = `${local}-${randomUUID()}@budgetpilot.invalid`;
 	const user = await prisma.user.create({
 		data: { email, passwordHash: 'not-a-hash' },
 		select: { id: true, email: true }
@@ -72,7 +75,7 @@ describe('log-pseudonym on an account', () => {
 	it('prints the user pseudonym the app logs for an email, and nothing else', async () => {
 		const user = await createUser();
 		env.RATE_LIMIT_HASH_SECRET = SECRET;
-		const out = run(['--email', user.email]);
+		const out = run(['--email'], `${user.email}\n`);
 		expect(out.stderr).toBe('');
 		expect(out.status).toBe(0);
 		expect(out.stdout).toBe(`${logUserPseudonym(user.id)}\n`);
@@ -83,7 +86,17 @@ describe('log-pseudonym on an account', () => {
 	it('finds the account from the email as an operator may type it', async () => {
 		const user = await createUser();
 		env.RATE_LIMIT_HASH_SECRET = SECRET;
-		const out = run(['--email', `  ${user.email.toUpperCase()} `]);
+		const out = run(['--email'], `  ${user.email.toUpperCase()} \n`);
+		expect(out.stdout).toBe(`${logUserPseudonym(user.id)}\n`);
+	});
+
+	// Separates sign-in's check (`validateEmail`) from registration's ASCII-only one: an account
+	// registered before that rule must stay reachable, as it does at sign-in.
+	it('finds an account whose email is not ASCII', async () => {
+		const user = await createUser('café');
+		env.RATE_LIMIT_HASH_SECRET = SECRET;
+		const out = run(['--email'], `${user.email}\n`);
+		expect(out.stderr).toBe('');
 		expect(out.stdout).toBe(`${logUserPseudonym(user.id)}\n`);
 	});
 
@@ -98,18 +111,34 @@ describe('log-pseudonym on an account', () => {
 		expect(out.stdout).toBe(`${user.email}\n`);
 	});
 
-	it('says that no account has a pseudonym computed under another secret', async () => {
+	it('says that no account matches a pseudonym no row produces', async () => {
 		await createUser();
 		const out = run(['--user', randomBytes(32).toString('hex')]);
 		expect(out.status).toBe(1);
 		expect(out.stdout).toBe('');
-		expect(out.stderr).toContain('No account has this pseudonym');
+		expect(out.stderr).toMatch(/^No account has this pseudonym under the current secret\./);
+	});
+
+	// Separates « no account matched » from « the database could not be read »: a command that caught
+	// every error as a miss would answer an operator's question wrongly while looking right.
+	it('reports a database it cannot read as a failure, never as no account', () => {
+		const provider = process.env.DATABASE_PROVIDER ?? 'sqlite';
+		const unreachable =
+			provider === 'sqlite'
+				? 'file:/nonexistent-942/directory/smoke.db'
+				: `${provider === 'mysql' ? 'mysql' : 'postgresql'}://nobody:nothing@127.0.0.1:1/none`;
+		for (const args of [['--user', 'ab'.repeat(32)], ['--email']]) {
+			const out = run(args, 'someone@budgetpilot.invalid\n', unreachable);
+			expect(out.status).toBe(2);
+			expect(out.stdout).toBe('');
+			expect(out.stderr).toMatch(/^The database could not be read: /);
+		}
 	});
 
 	it('says that no account has an email that was never registered', () => {
-		const out = run(['--email', `nobody-${randomUUID()}@budgetpilot.invalid`]);
+		const out = run(['--email'], `nobody-${randomUUID()}@budgetpilot.invalid\n`);
 		expect(out.status).toBe(1);
 		expect(out.stdout).toBe('');
-		expect(out.stderr).toContain('No account has this email');
+		expect(out.stderr).toBe('No account has this email.\n');
 	});
 });

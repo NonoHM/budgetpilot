@@ -31,8 +31,9 @@ makes every remembered account stop matching: nothing is lost or misfiled,
 the next statement of each account asks again which account it goes to,
 and the answer is remembered anew. The old entries stay listed under
 Settings > Remembered accounts until you forget them. It also changes the
-key that hashes client addresses in the log, so addresses logged before and
-after the rotation can no longer be matched ([logs](./logging.md#the-client-address)).
+keys that hash client addresses and accounts in the log, so a line written
+before the rotation matches only under the old secret
+([logs](./logging-howto.md#read-lines-written-under-a-previous-secret)).
 
 `npm run setup` regenerates all three, so don't rerun it on an instance you
 already use. Edit `.env` directly to flip a single setting.
