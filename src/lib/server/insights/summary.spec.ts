@@ -4,6 +4,8 @@ import type { Transaction } from '$lib/domain/transaction';
 import { allocationsOf, type CategoryAllocation } from '$lib/domain/allocation';
 import { getEffectiveTransactionNature } from '$lib/server/transactions/nature';
 import { buildTransactionSummary } from './summary';
+import { anonymizeMerchant } from '$lib/server/reports/monthly';
+import * as m from '$lib/paraglide/messages';
 
 /**
  * Derives the MONEY view from the fixture's IDENTITY view, by calling the canonical helpers rather
@@ -300,10 +302,9 @@ describe('buildTransactionSummary - includeLabels', () => {
 		expect(summary.flaggedCategoryLabels).toBeDefined();
 		expect(summary.flaggedCategoryLabels).toHaveLength(1);
 		expect(summary.flaggedCategoryLabels?.[0].category).toBe('Logement');
-		expect(summary.flaggedCategoryLabels?.[0].labels).toEqual([
-			'Loyer juin',
-			'Assurance habitation'
-		]);
+		expect(summary.flaggedCategoryLabels?.[0].labels).toEqual(
+			['Loyer juin', 'Assurance habitation'].map(anonymizeMerchant)
+		);
 	});
 
 	it('limite les libellés inclus aux 3 plus grosses dépenses de la catégorie signalée', () => {
@@ -371,12 +372,40 @@ describe('buildTransactionSummary - includeLabels', () => {
 			}
 		);
 
-		expect(summary.flaggedCategoryLabels?.[0].labels).toEqual([
-			'Dépense B',
-			'Dépense C',
-			'Dépense D'
-		]);
+		expect(summary.flaggedCategoryLabels?.[0].labels).toEqual(
+			['Dépense B', 'Dépense C', 'Dépense D'].map(anonymizeMerchant)
+		);
 		expect(summary.flaggedCategoryLabels?.[0].labels).toHaveLength(3);
+	});
+
+	it('un libellé signalé fait seulement de chiffres devient le libellé de repli, jamais une chaîne vide', () => {
+		expect.assertions(1);
+
+		const digitsOnly: Transaction[] = [
+			{
+				id: 'digits',
+				date: '2026-06-02',
+				label: '0123456789',
+				amountCents: -50_000,
+				type: 'expense',
+				category: 'Logement',
+				source: 'csv'
+			}
+		];
+		const summary = buildTransactionSummary(
+			digitsOnly,
+			toAllocations(digitsOnly),
+			summarizeBudgetAllocations(
+				toAllocations(digitsOnly),
+				[{ category: 'Logement', limitCents: 10_000 }],
+				'2026-06'
+			),
+			undefined,
+			{ includeLabels: true }
+		);
+
+		// An empty string would tell the model a transaction exists with no merchant at all.
+		expect(summary.flaggedCategoryLabels?.[0].labels).toEqual([m.reports_expense_fallback_label()]);
 	});
 
 	it('n’inclut pas les catégories dont le budget est respecté (status ok)', () => {
