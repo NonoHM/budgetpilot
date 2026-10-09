@@ -56,7 +56,7 @@ function run(args: string[], input?: string, databaseUrl = process.env.DATABASE_
 			RATE_LIMIT_HASH_SECRET: SECRET
 		},
 		encoding: 'utf8',
-		timeout: 30_000
+		timeout: 60_000
 	});
 	return { status: result.status, stdout: result.stdout, stderr: result.stderr };
 }
@@ -120,7 +120,8 @@ describe('log-pseudonym on an account', () => {
 	});
 
 	// Separates « no account matched » from « the database could not be read »: a command that caught
-	// every error as a miss would answer an operator's question wrongly while looking right.
+	// every error as a miss would answer an operator's question wrongly while looking right. The
+	// MariaDB driver gives up on an unreachable server after its 20-second pool timeout, per run.
 	it('reports a database it cannot read as a failure, never as no account', () => {
 		const provider = process.env.DATABASE_PROVIDER ?? 'sqlite';
 		const unreachable =
@@ -133,7 +134,7 @@ describe('log-pseudonym on an account', () => {
 			expect(out.stdout).toBe('');
 			expect(out.stderr).toMatch(/^The database could not be read: /);
 		}
-	});
+	}, 120_000);
 
 	it('says that no account has an email that was never registered', () => {
 		const out = run(['--email'], `nobody-${randomUUID()}@budgetpilot.invalid\n`);
