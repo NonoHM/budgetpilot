@@ -2,7 +2,7 @@ import { fail, redirect, type Actions } from '@sveltejs/kit';
 import * as m from '$lib/paraglide/messages';
 import {
 	createSession,
-	passwordStillCurrent,
+	signInFactorsStillCurrent,
 	redirectAfterSignIn,
 	secondFactorUrl,
 	SESSION_COOKIE,
@@ -88,21 +88,20 @@ export const actions: Actions = {
 			return invalid();
 		}
 
-		// What the comparison proved is written only while it still holds (#923): a password changed
-		// while bcrypt ran is the old password, refused as any wrong one is.
-		const verifiedHash = user.passwordHash;
+		// What the comparison proved is written only while it still holds (#923, #949): a password
+		// changed while bcrypt ran is the old password, refused as any wrong one is, and two-factor
+		// turned on or off meanwhile means this step is no longer the one the account asks for.
+		const read = { passwordHash: user.passwordHash, totpEnabled: user.totpEnabled };
 		try {
-			if (user.totpEnabled) {
-				await createMfaChallenge(user.id, verifiedHash, cookies);
+			if (read.totpEnabled) {
+				await createMfaChallenge(user.id, read, cookies);
 				logSecondFactorRequired(ip, user.id);
 				throw redirect(303, secondFactorUrl(url));
 			}
 
 			await ensureDefaultCategoriesSeeded(user.id);
 			await ensureDefaultRulesSeeded(user.id);
-			await createSession(user.id, cookies, (tx) =>
-				passwordStillCurrent(tx, user.id, verifiedHash)
-			);
+			await createSession(user.id, cookies, (tx) => signInFactorsStillCurrent(tx, user.id, read));
 		} catch (caught) {
 			if (!(caught instanceof SignInSuperseded)) throw caught;
 			await recordFailedLoginAttempt(email, ip);

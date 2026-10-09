@@ -97,7 +97,8 @@ export const actions: Actions = {
 		await ensureDefaultCategoriesSeeded(user.id);
 		await ensureDefaultRulesSeeded(user.id);
 		// The challenge is claimed in the session's own transaction (#923): one ended since the read
-		// above, by a password change or « log out other sessions », is sent back to the password step.
+		// above, by a password change, turning two-factor off or « log out other sessions », is sent
+		// back to the password step.
 		try {
 			await createSession(user.id, cookies, (tx) => claimMfaChallenge(tx, challenge.id));
 		} catch (caught) {

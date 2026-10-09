@@ -584,6 +584,64 @@ describe('a password change ends every token that existed before it', () => {
 	});
 });
 
+/**
+ * The owner's ruling on #949: any change to how the account signs in ends every other session, and
+ * the session making it keeps going on a new token. Measured on main before the change: after
+ * `confirmTotpSetup` or `disableTotp`, the other device's token still resolved (1 live session).
+ * Driven through `CASES`, so each action runs with the form the registry already proves lands.
+ *
+ * Each figure is a soft assertion, so all four are read whichever fails first: the change landed
+ * (a refused action would revoke nothing and pass the wrong way), the other device of the SAME
+ * account is signed out, a session of ANOTHER account is untouched (a revocation missing its
+ * `userId` clause), and the caller resolves on its new token and not on its old one.
+ */
+describe('any change to how the account signs in ends every other session (#949)', () => {
+	const SIGN_IN_CHANGES = [
+		'changePassword',
+		'confirmTotpSetup',
+		'disableTotp'
+	] as const satisfies readonly ReauthAction[];
+
+	it.each(SIGN_IN_CHANGES)(
+		'%s: the other device is signed out, the caller is not',
+		async (action) => {
+			const arranged = await CASES[action].arrange();
+			const caller = await mintSession(arranged.callerId);
+			const other = await mintSession(arranged.callerId);
+			const outsider = await mintSession((await seedAccount(`${action}-outsider`)).id);
+
+			const { answer, written } = await post('settings', action, caller.token, arranged.form);
+
+			expect.soft(refused(answer), `${action} refused: ${JSON.stringify(answer)}`).toBe(false);
+			expect.soft(await arranged.landed(), `${action} landed`).toBe(true);
+			expect.soft(await readSessionUser(other.token), 'other device of the account').toBeNull();
+			expect.soft(await readSessionUser(outsider.token), 'another account').not.toBeNull();
+			expect.soft(await readSessionUser(caller.token), "caller's old token").toBeNull();
+			expect.soft((await readSessionUser(written()?.value))?.sessionId).toBe(caller.id);
+		}
+	);
+
+	// The revocation is part of the change's commit (the contradiction pass on the design): a change
+	// that rolls back, here because the caller's own session was revoked after the hook resolved it,
+	// signs no other device out. Separates « revoked inside the rotating commit » from « revoked
+	// beside it », which reads the same on every success above.
+	it.each(SIGN_IN_CHANGES)('%s: rolled back, it signs no other device out', async (action) => {
+		const arranged = await CASES[action].arrange();
+		const caller = await mintSession(arranged.callerId);
+		const other = await mintSession(arranged.callerId);
+		const resolved = await readSessionUser(caller.token);
+		await prisma.session.update({ where: { id: caller.id }, data: { revokedAt: new Date() } });
+
+		const { answer } = await post('settings', action, caller.token, arranged.form, {
+			user: resolved
+		});
+
+		expect.soft(answer).toEqual({ redirect: '/login' });
+		expect.soft(await arranged.landed(), `${action} landed`).toBe(false);
+		expect.soft(await readSessionUser(other.token), 'other device of the account').not.toBeNull();
+	});
+});
+
 describe('the token changes with the change, and only with it', () => {
 	// The rotation is part of the change's commit, so a re-authentication whose action then refuses
 	// (an id that is not the caller's, a backup that does not parse) changes nothing, the token

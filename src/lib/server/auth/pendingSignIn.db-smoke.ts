@@ -382,6 +382,48 @@ async function adminReset(target: Account, adminToken?: string): Promise<void> {
 	expect(answer, 'resetPassword landed').toHaveProperty('temporaryPassword');
 }
 
+/** The owner turns two-factor ON from another session of `target`, through the real action (#949). */
+async function enrolFromAnotherSession(target: Account): Promise<void> {
+	const { actions } = await import('../../../routes/settings/+page.server');
+	const token = await mintSession(target.id);
+	const secret = generateTotpSecretBase32();
+	const answer = await run(
+		actions,
+		'confirmTotpSetup',
+		'/settings',
+		jar({ [SESSION_COOKIE]: token }),
+		formOf({
+			[REAUTH_FIELDS.password]: PASSWORD,
+			[REAUTH_FIELDS.code]: codeAt(secret, 0),
+			secretBase32: secret
+		}),
+		{ user: await readSessionUser(token) }
+	);
+	expect(answer, 'confirmTotpSetup landed').not.toHaveProperty('status');
+}
+
+/**
+ * The owner turns two-factor OFF from another session of `target`, through the real action (#949),
+ * with the code of `step + offset`: steps are spent in order, so it must be later than any code the
+ * account has already accepted.
+ */
+async function disableFromAnotherSession(target: Account, offset: number): Promise<void> {
+	const { actions } = await import('../../../routes/settings/+page.server');
+	const token = await mintSession(target.id);
+	const answer = await run(
+		actions,
+		'disableTotp',
+		'/settings',
+		jar({ [SESSION_COOKIE]: token }),
+		formOf({
+			[REAUTH_FIELDS.password]: PASSWORD,
+			[REAUTH_FIELDS.code]: codeAt(target.secret, offset)
+		}),
+		{ user: await readSessionUser(token) }
+	);
+	expect(answer, 'disableTotp landed').not.toHaveProperty('status');
+}
+
 beforeAll(() => {
 	env.RATE_LIMIT_HASH_SECRET = 'c9'.repeat(32);
 	env.TOTP_ENCRYPTION_KEY = 'd0'.repeat(32);
@@ -442,6 +484,23 @@ describe('a sign-in waiting at the code step (#923)', () => {
 		const target = await seedAccount('interleaved');
 		const pending = await passwordStep(target);
 		betweenCodeAndSession = () => adminReset(target);
+
+		const answer = await codeStep(pending, codeAt(target.secret, 0));
+
+		expect(betweenCodeAndSession, 'the gate ran').toBeNull();
+		expect(answer).toEqual(SENT_BACK);
+	});
+
+	// FORCED, #949: two-factor is turned off after the code was accepted and before the session is
+	// written. The sequential order cannot separate anything here, since a code submitted after the
+	// disable meets `totpEnabled: false` and is sent back before it is judged. Separates « turning
+	// two-factor off ends the sign-ins waiting at their code step » from « it ends only sessions »,
+	// where the claim still finds its challenge and a session is written after the factor is gone.
+	// The disable spends step +1: the sign-in has spent step 0.
+	it('is ended by turning two-factor off between the accepted code and the session', async () => {
+		const target = await seedAccount('disabled-between');
+		const pending = await passwordStep(target);
+		betweenCodeAndSession = () => disableFromAnotherSession(target, 1);
 
 		const answer = await codeStep(pending, codeAt(target.secret, 0));
 
@@ -540,6 +599,41 @@ describe('a sign-in waiting at the code step (#923)', () => {
 		expect(afterPasswordCheck, 'the gate ran').toBeNull();
 		expect(answer).toEqual({ status: 400, data: { error: login_error_invalid_credentials() } });
 		expect(browser.value(SESSION_COOKIE)).toBeUndefined();
+	});
+
+	// FORCED, #949 (the contradiction pass on the design): two-factor is turned on while `/login`
+	// compares the password of an account that had none, so the step goes on to write a session
+	// proven by the password alone, after the enrolment ended every other session. Separates « the
+	// step writes only while the factors it read are still the account's » from « only while the
+	// password is », which matches here because the password did not change.
+	it('refuses a sign-in without two-factor when two-factor was turned on while it was being checked', async () => {
+		const { login_error_invalid_credentials } = await import('$lib/paraglide/messages');
+		const target = await seedAccount('enrolled-during-check', { totp: false });
+		afterPasswordCheck = () => enrolFromAnotherSession(target);
+
+		const { browser, answer } = await submitPassword(target);
+
+		expect(afterPasswordCheck, 'the gate ran').toBeNull();
+		expect(answer).toEqual({ status: 400, data: { error: login_error_invalid_credentials() } });
+		expect(browser.value(SESSION_COOKIE)).toBeUndefined();
+	});
+
+	// FORCED, #949, the other direction (the contradiction pass on the code): two-factor is turned
+	// off while `/login` compares the password of an account that had it, so the step goes on to open
+	// a challenge for a code the account no longer asks. Separates « refused at the password step,
+	// as any superseded sign-in is » from « a challenge opened and then bounced at the code page »,
+	// which is what the step did before the factor joined the compare-and-set. No session results
+	// either way; this pins the answer the reference documents.
+	it('refuses a sign-in with two-factor when two-factor was turned off while it was being checked', async () => {
+		const { login_error_invalid_credentials } = await import('$lib/paraglide/messages');
+		const target = await seedAccount('disabled-during-check');
+		afterPasswordCheck = () => disableFromAnotherSession(target, 0);
+
+		const { browser, answer } = await submitPassword(target);
+
+		expect(afterPasswordCheck, 'the gate ran').toBeNull();
+		expect(answer).toEqual({ status: 400, data: { error: login_error_invalid_credentials() } });
+		expect(browser.value(MFA_PENDING_COOKIE)).toBeUndefined();
 	});
 
 	// UNFORCED, at the password step: each account's password is posted at its own offset across a

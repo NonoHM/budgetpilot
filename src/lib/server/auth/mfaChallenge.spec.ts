@@ -43,7 +43,11 @@ describe('createMfaChallenge', () => {
 		db.prisma.pendingMfaChallenge.create.mockResolvedValue({ id: 'challenge-1' });
 		const cookies = fakeCookies();
 
-		await createMfaChallenge('user-a', 'hash-a', cookies as never);
+		await createMfaChallenge(
+			'user-a',
+			{ passwordHash: 'hash-a', totpEnabled: true },
+			cookies as never
+		);
 
 		expect(cookies.set).toHaveBeenCalledWith(
 			MFA_PENDING_COOKIE,

@@ -196,7 +196,11 @@ describe('/login action', () => {
 			location: expect.stringContaining('/login/verify-totp')
 		});
 
-		expect(mfaChallenge.createMfaChallenge).toHaveBeenCalledWith('user-a', passwordHash, cookies);
+		expect(mfaChallenge.createMfaChallenge).toHaveBeenCalledWith(
+			'user-a',
+			{ passwordHash, totpEnabled: true },
+			cookies
+		);
 		expect(db.prisma.session.create).not.toHaveBeenCalled();
 		expect(cookies.set).not.toHaveBeenCalled();
 	});

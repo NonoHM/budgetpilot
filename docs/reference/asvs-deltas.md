@@ -25,6 +25,31 @@ construction, `X` an argued exception, `N/A` not applicable with a stated reason
 
 ---
 
+## 2026-10-09, a change to two-factor ends the other sessions
+
+Branch `fix/949-sign-in-change-ends-other-sessions` (#949, ruled on the issue). **The letter below
+is quoted from the local L2 assessment report (untracked, not in a clone, #601)**, which describes
+the assessment of 2026-08-13 and not a current state. One row moves.
+
+### `v5.0.0-7.4.3`: `C` to `A`
+
+> Verify that the application gives the option to terminate all other active sessions after a
+> successful change or removal of any authentication factor (including password change via reset
+> or recovery and, if present, an MFA settings update).
+
+The assessment's `C` rested on the password change, which revokes every other session in the
+commit that writes it, and named the arguable part: « MFA settings updates (`confirmTotpSetup`,
+`disableTotp`) do not revoke other sessions ». Both now do, in the commit that writes the factor
+and replaces the acting session's token, by the owner's ruling that any change to how the account
+signs in ends every other session. Turning two-factor off also ends sign-ins waiting at their code
+step, and a password step that was comparing while two-factor was turned on or off is refused
+rather than allowed to write a session proven under the old rule. Verified by attack on SQLite,
+PostgreSQL and MariaDB: after each of the three changes, a session of the same account stops
+resolving and one of another account does not (`auth/sessionRotation.db-smoke.ts`), and the two
+interleavings are forced at the points where they land (`auth/pendingSignIn.db-smoke.ts`). The row
+asks for the option; this goes further and does it without asking, as a password change already
+did.
+
 ## 2026-10-07, the session inactivity timeout
 
 Branch `feat/221-session-idle-timeout` (#221, ruled on #919). **Letters below are quoted from the
