@@ -14,11 +14,11 @@ import {
 import { createMfaChallenge } from '$lib/server/auth/mfaChallenge';
 import { isSelfRegistrationOpen } from '$lib/server/auth/registration';
 import { isLoginRateLimited, recordFailedLoginAttempt } from '$lib/server/auth/rateLimit';
+import { refuseSignIn } from '$lib/server/auth/signInRefusal';
 import { resolveClientAddress } from '$lib/server/net/clientAddress';
 import {
 	logRateLimited,
 	logSecondFactorRequired,
-	logSignInFailed,
 	logSignInSucceeded
 } from '$lib/server/logging/authn';
 import { ensureDefaultCategoriesSeeded } from '$lib/server/categories/defaults';
@@ -50,7 +50,7 @@ export const load: PageServerLoad = async ({ cookies, locals, url }) => {
 };
 
 export const actions: Actions = {
-	default: async ({ cookies, getClientAddress, request, url }) => {
+	default: async ({ cookies, getClientAddress, request, setHeaders, url }) => {
 		const formData = await request.formData();
 		const rawEmail = getFormValue(formData, 'email');
 		const email = validateEmail(rawEmail);
@@ -79,7 +79,8 @@ export const actions: Actions = {
 		const passwordOk = await verifyPasswordTimingSafe(password, user?.passwordHash);
 		if (!user || !passwordOk) {
 			await recordFailedLoginAttempt(email, ip);
-			logSignInFailed(
+			refuseSignIn(
+				setHeaders,
 				ip,
 				user
 					? { step: 'password', reason: 'wrong_password', userId: user.id }
@@ -105,7 +106,7 @@ export const actions: Actions = {
 		} catch (caught) {
 			if (!(caught instanceof SignInSuperseded)) throw caught;
 			await recordFailedLoginAttempt(email, ip);
-			logSignInFailed(ip, { step: 'password', reason: 'superseded', userId: user.id });
+			refuseSignIn(setHeaders, ip, { step: 'password', reason: 'superseded', userId: user.id });
 			return invalid();
 		}
 		logSignInSucceeded(ip, user.id, 'password');

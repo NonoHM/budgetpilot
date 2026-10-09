@@ -8,11 +8,11 @@ import {
 	readMfaChallenge
 } from '$lib/server/auth/mfaChallenge';
 import { isMfaRateLimited, recordMfaAttempt } from '$lib/server/auth/rateLimit';
+import { refuseSignIn } from '$lib/server/auth/signInRefusal';
 import { resolveClientAddress } from '$lib/server/net/clientAddress';
 import {
 	logRateLimited,
 	logSecretUnreadable,
-	logSignInFailed,
 	logSignInSucceeded,
 	type SignInFailure
 } from '$lib/server/logging/authn';
@@ -32,7 +32,7 @@ export const load: PageServerLoad = async ({ cookies }) => {
 };
 
 export const actions: Actions = {
-	default: async ({ cookies, getClientAddress, request, url }) => {
+	default: async ({ cookies, getClientAddress, request, setHeaders, url }) => {
 		const invalid = () => fail(400, { error: m.mfa_verify_error_invalid_code() });
 		const tooManyAttempts = () => fail(400, { error: m.mfa_verify_error_too_many_attempts() });
 
@@ -84,7 +84,7 @@ export const actions: Actions = {
 
 		if (verdict !== 'accepted') {
 			await recordMfaAttempt(challenge.id, ip);
-			logSignInFailed(ip, { step: 'second_factor', reason: refused, userId: user.id });
+			refuseSignIn(setHeaders, ip, { step: 'second_factor', reason: refused, userId: user.id });
 			// A spent code says so (#818): whoever typed it twice needs the next one, not a clock
 			// check. Nothing in that is usable: the password is already proven at this step, and a
 			// spent step is never accepted again. A secret that does not decrypt says so too (#904):
@@ -103,7 +103,11 @@ export const actions: Actions = {
 			await createSession(user.id, cookies, (tx) => claimMfaChallenge(tx, challenge.id));
 		} catch (caught) {
 			if (!(caught instanceof SignInSuperseded)) throw caught;
-			logSignInFailed(ip, { step: 'second_factor', reason: 'superseded', userId: user.id });
+			refuseSignIn(setHeaders, ip, {
+				step: 'second_factor',
+				reason: 'superseded',
+				userId: user.id
+			});
 			clearMfaChallengeCookie(cookies);
 			throw redirect(303, '/login');
 		}
