@@ -91,6 +91,13 @@ The list is tracked; the copies are not. Which of these bind the project, and ho
 - Regulation (EU) 2024/1689, the Artificial Intelligence Act, OJ L, 2024/1689, 12.7.2024. Permanent identifier (ELI): http://data.europa.eu/eli/reg/2024/1689/oj
 - The same, PDF through the Publications Office (EUR-Lex answers scripted downloads with an empty challenge page): https://op.europa.eu/o/opportal-service/download-handler?identifier=dc8116a1-3fe6-11ef-865a-01aa75ed71a1&format=pdf&language=en&productionSystem=cellar&part=
 - Corrigendum to the AI Act, OJ L, 2024/90349: URL to record at first use
+- Regulation (EU) 2016/679, the General Data Protection Regulation, OJ L 119, 4.5.2016. ELI:
+  http://data.europa.eu/eli/reg/2016/679/oj. Scripted copy (read 2026-10-09):
+  http://publications.europa.eu/resource/celex/32016R0679, which EUR-Lex's challenge page does not
+  block. Scope: Article 2(2)(c) excludes processing « by a natural person in the course of a purely
+  personal or household activity », so a single person running their own instance is likely outside
+  it. Cite it for the design principle (Article 5(1)(a) transparency, 5(1)(c) minimisation), which
+  binds an operator who hosts others, never as a claim that every install is a controller.
 - Reuse of EU legal texts: Commission Decision 2011/833/EU on the reuse of Commission documents, reuse authorised provided the source is acknowledged and the meaning not distorted; the copy stays local all the same, because the ELI is a permanent address.
 
 ## CNIL
