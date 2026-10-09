@@ -115,6 +115,8 @@ Rules, limits and exact values, in [reference](./reference/README.md):
 - [What the AI advice requires of a model](./reference/ai-model.md): the four
   things a model has to do, the derived token ceiling, and what is not
   promised.
+- [AISVS map of the AI path](./reference/aisvs-map.md): every OWASP AISVS 1.0
+  Level 1 and 2 requirement with its verdict, evidence and issue.
 
 ## Understand it
 
