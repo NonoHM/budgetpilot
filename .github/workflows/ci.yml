@@ -447,6 +447,13 @@ jobs:
       # would otherwise silently change meaning when that file is edited.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
+      # The Dockerfile's node base comes from Docker Hub through the daemon, so the daemon tries a
+      # mirror first and falls back to Docker Hub by itself (#980). Same action as docker-smoke.
+      - name: Reach Docker Hub through a mirror first
+        uses: ./.github/actions/docker-hub-mirror
+        with:
+          mode: configure
+
       # Deliberately a plain `docker build`, matching scripts/docker-smoke.sh: the artifact under
       # test must be the one the Dockerfile produces, not a buildx variant with a different layer
       # set. docker-smoke builds its own copy and force-removes it in a cleanup trap on every exit
@@ -454,6 +461,12 @@ jobs:
       # that still exists when the scan runs.
       - name: Build the runtime image
         run: docker build -t budgetpilot:cve-scan .
+
+      - name: Say which registry served the base image
+        if: always()
+        uses: ./.github/actions/docker-hub-mirror
+        with:
+          mode: report
 
       # Runs first for two reasons. It records EVERY severity, unfixed included, so the findings
       # the gate deliberately ignores stay readable by whoever is looking; and it is what installs
