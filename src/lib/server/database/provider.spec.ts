@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
 	assertDatabaseUrlMatchesProvider,
+	IMAGE_DATABASE_URL,
+	LEGACY_IMAGE_DATABASE_URL,
 	migrationsPathFor,
 	normalizeDatabaseUrl,
 	resolveDatabaseProvider,
+	resolveImageDatabaseUrl,
 	schemaPathFor,
 	toDriverConnectionUrl,
 	toPrismaConnectionUrl
@@ -263,5 +266,81 @@ describe('migrationsPathFor', () => {
 		// Never a shared directory: the same logical change is different SQL on each engine,
 		// and Prisma records only a migration's name as applied.
 		expect(migrationsPathFor(provider)).toBe(`prisma/migrations/${provider}`);
+	});
+});
+
+/**
+ * #957: the image's database path and the one it replaced. `boot.mjs` used to hold this rule alone
+ * and record its answer only in its own process, so every other reader in the image (a script run
+ * with `docker compose exec` or `run --rm`, the Prisma CLI) opened the new path, and opening a
+ * missing SQLite path creates it at 0 bytes: the next restart then found the new file and served it
+ * empty. Each case below separates one situation from its neighbours. A volume is a map from path
+ * to size in bytes; a path it does not hold is absent.
+ */
+describe('resolveImageDatabaseUrl', () => {
+	const NEW_PATH = IMAGE_DATABASE_URL.slice('file:'.length);
+	const LEGACY_PATH = LEGACY_IMAGE_DATABASE_URL.slice('file:'.length);
+	const volume = (files: Record<string, number>) => (path: string) => files[path];
+
+	it('opens the legacy file on an upgraded volume that holds only it', () => {
+		expect(resolveImageDatabaseUrl(IMAGE_DATABASE_URL, volume({ [LEGACY_PATH]: 8192 }))).toEqual({
+			databaseUrl: LEGACY_IMAGE_DATABASE_URL,
+			situation: 'legacy-adopted'
+		});
+	});
+
+	// The state every door that opens a missing path leaves behind: a pre-fix dry run, a `node:sqlite`
+	// line, any later one. A database with a table, or in WAL mode before any checkpoint, has at
+	// least one 4096-byte page in its main file, so 0 bytes holds nothing. Separates "absent or
+	// empty" from "absent": the second served this file at the next restart.
+	it('opens the legacy file over an empty file at the new path, which holds no database', () => {
+		expect(
+			resolveImageDatabaseUrl(IMAGE_DATABASE_URL, volume({ [NEW_PATH]: 0, [LEGACY_PATH]: 8192 }))
+		).toEqual({ databaseUrl: LEGACY_IMAGE_DATABASE_URL, situation: 'legacy-adopted-over-empty' });
+	});
+
+	// Padding survives an env_file line; the client trims it, so the rule must read the same value
+	// the client connects with, or the two disagree about which file this is.
+	it('reads the configured value as the client does, padding included', () => {
+		expect(
+			resolveImageDatabaseUrl(` ${IMAGE_DATABASE_URL}\t`, volume({ [LEGACY_PATH]: 8192 }))
+		).toEqual({ databaseUrl: LEGACY_IMAGE_DATABASE_URL, situation: 'legacy-adopted' });
+	});
+
+	// The boundary of the empty case: one page is a database. Both files then hold one and no rule
+	// can tell which the owner means, so the configured file stays open and the sizes travel with the
+	// answer for boot to report (owner's ruling on #957: keep it, warn every boot).
+	it('keeps the new file once it holds a database, and reports both sizes', () => {
+		expect(
+			resolveImageDatabaseUrl(IMAGE_DATABASE_URL, volume({ [NEW_PATH]: 4096, [LEGACY_PATH]: 8192 }))
+		).toEqual({
+			databaseUrl: IMAGE_DATABASE_URL,
+			situation: 'both-hold-a-database',
+			imageBytes: 4096,
+			legacyBytes: 8192
+		});
+	});
+
+	it('keeps the new path on a new install, where there is nothing to adopt', () => {
+		expect(resolveImageDatabaseUrl(IMAGE_DATABASE_URL, volume({}))).toEqual({
+			databaseUrl: IMAGE_DATABASE_URL,
+			situation: 'image'
+		});
+	});
+
+	it('gives an operator who set another path exactly that path', () => {
+		expect(resolveImageDatabaseUrl('file:/data/mine.db', volume({ [LEGACY_PATH]: 8192 }))).toEqual({
+			databaseUrl: 'file:/data/mine.db',
+			situation: 'configured'
+		});
+	});
+
+	// An unset URL is the development default, never the image's: outside the image the legacy
+	// path means nothing, and this reader must not invent the image path for it.
+	it('leaves an unset URL unset', () => {
+		expect(resolveImageDatabaseUrl(undefined, volume({ [LEGACY_PATH]: 8192 }))).toEqual({
+			databaseUrl: undefined,
+			situation: 'configured'
+		});
 	});
 });

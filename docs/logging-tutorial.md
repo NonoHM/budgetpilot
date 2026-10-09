@@ -250,10 +250,14 @@ use the reference.
    BudgetPilot container, which includes a small SQLite tool in Node.
 
    ```bash
-   docker compose exec budgetpilot /nodejs/bin/node -e 'new (require("node:sqlite").DatabaseSync)("/data/budgetpilot.db").exec(`ALTER TABLE "NetWorthAccount" RENAME TO "NetWorthAccount_paused"`)'
+   docker compose exec budgetpilot /nodejs/bin/node -e 'const f = "/data/budgetpilot.db"; require("node:fs").statSync(f); new (require("node:sqlite").DatabaseSync)(f).exec(`ALTER TABLE "NetWorthAccount" RENAME TO "NetWorthAccount_paused"`)'
    ```
 
    The command prints nothing when it works.
+
+   If it reports `ENOENT`, your install still uses the database's old name: run it again with
+   `/data/dev.db` in place of `/data/budgetpilot.db`, here and in the next step. The command checks
+   the file exists first, because opening a missing file would create an empty one.
 
    This step needs SQLite, the default database. On PostgreSQL or MySQL, read the next steps without
    running them.
@@ -317,7 +321,7 @@ use the reference.
 1. Rename the table back.
 
    ```bash
-   docker compose exec budgetpilot /nodejs/bin/node -e 'new (require("node:sqlite").DatabaseSync)("/data/budgetpilot.db").exec(`ALTER TABLE "NetWorthAccount_paused" RENAME TO "NetWorthAccount"`)'
+   docker compose exec budgetpilot /nodejs/bin/node -e 'const f = "/data/budgetpilot.db"; require("node:fs").statSync(f); new (require("node:sqlite").DatabaseSync)(f).exec(`ALTER TABLE "NetWorthAccount_paused" RENAME TO "NetWorthAccount"`)'
    ```
 
 1. Open **Net worth** again. The page loads.

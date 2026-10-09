@@ -6,13 +6,15 @@
  * install that sets neither keeps behaving exactly as it did before multi-database support
  * existed.
  *
- * This module is deliberately dependency-free. It is imported by the app through `$lib`, by
- * `prisma.config.ts` and the schema generator through a relative path in plain Node, so it
- * cannot reach for anything Vite resolves or Prisma provides.
+ * This module deliberately imports nothing but Node's own `node:fs`. It is imported by the app
+ * through `$lib`, by `prisma.config.ts`, `boot.mjs` and the schema generator through a relative path
+ * in plain Node, so it cannot reach for anything Vite resolves or Prisma provides.
  *
  * Never log or interpolate `DATABASE_URL` itself: it carries the database password. Only its
  * scheme is ever quoted back, which is the one part that helps diagnose a mismatch.
  */
+
+import { statSync } from 'node:fs';
 
 export const DATABASE_PROVIDERS = ['sqlite', 'postgresql', 'mysql'] as const;
 
@@ -90,6 +92,74 @@ export function resolveDatabaseProvider(env: DatabaseEnv): DatabaseProvider {
 export function normalizeDatabaseUrl(url: string | undefined): string | undefined {
 	const trimmed = url?.trim();
 	return trimmed ? trimmed : undefined;
+}
+
+/** The image's database, and the name it had before: persisted state in operators' volumes. */
+export const IMAGE_DATABASE_URL = 'file:/data/budgetpilot.db';
+export const LEGACY_IMAGE_DATABASE_URL = 'file:/data/dev.db';
+
+/**
+ * Which file the image's database is, and why (#957). The only definition of the legacy rule:
+ * `boot.mjs` acts on the situation, and every other reader in the image (`createPrismaClient`,
+ * `prisma.config.ts`, so any script and the Prisma CLI) opens `databaseUrl`. Before, boot held the
+ * rule alone and recorded its answer in its own process, so a command run beside the app opened the
+ * configured path; opening a missing SQLite path creates it at 0 bytes, and the next restart found
+ * that file, adopted nothing and served it empty.
+ *
+ * - `configured`: not the image path, or unset (the development default). Passed through.
+ * - `image`: no legacy file; a new install, or one already renamed.
+ * - `legacy-adopted`: the image file is absent and the legacy one present.
+ * - `legacy-adopted-over-empty`: the image file is 0 bytes and the legacy one present. A database
+ *   with a table, or in WAL mode before any checkpoint, has at least one page in its main file
+ *   (measured: 4096 bytes), so 0 bytes holds nothing; it is what every door that opens a missing
+ *   path leaves. Boot removes it (owner's ruling on #957).
+ * - `both-hold-a-database`: no rule can tell which file the owner means (an install restarted on a
+ *   pre-#957 release migrated into the stray). The configured file stays open, and boot reports
+ *   both sizes on every start (owner's ruling on #957).
+ *
+ * The legacy file counts at any size, as boot always counted it. `sizeOf` answers undefined for a
+ * missing path; injected for the spec.
+ */
+export type ImageDatabase =
+	| {
+			databaseUrl: string | undefined;
+			situation: 'configured' | 'image' | 'legacy-adopted' | 'legacy-adopted-over-empty';
+	  }
+	| {
+			databaseUrl: string;
+			situation: 'both-hold-a-database';
+			imageBytes: number;
+			legacyBytes: number;
+	  };
+
+export function resolveImageDatabaseUrl(
+	raw: string | undefined,
+	sizeOf: (path: string) => number | undefined = fileSize
+): ImageDatabase {
+	const databaseUrl = normalizeDatabaseUrl(raw);
+	if (databaseUrl !== IMAGE_DATABASE_URL) return { databaseUrl, situation: 'configured' };
+
+	const legacyBytes = sizeOf(LEGACY_IMAGE_DATABASE_URL.slice('file:'.length));
+	if (legacyBytes === undefined) return { databaseUrl, situation: 'image' };
+
+	const imageBytes = sizeOf(IMAGE_DATABASE_URL.slice('file:'.length));
+	if (imageBytes === undefined) {
+		return { databaseUrl: LEGACY_IMAGE_DATABASE_URL, situation: 'legacy-adopted' };
+	}
+	if (imageBytes === 0) {
+		return { databaseUrl: LEGACY_IMAGE_DATABASE_URL, situation: 'legacy-adopted-over-empty' };
+	}
+	return { databaseUrl, situation: 'both-hold-a-database', imageBytes, legacyBytes };
+}
+
+// Every failure reads as absent, exactly as the `existsSync` boot used before: an unreadable /data
+// then fails at boot's write probe, which names the cause, rather than here.
+function fileSize(path: string): number | undefined {
+	try {
+		return statSync(path).size;
+	} catch {
+		return undefined;
+	}
 }
 
 /**

@@ -31,13 +31,14 @@
 // The only window without a handler is the migrate phase below, which installs its own.
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { existsSync, unlinkSync, writeFileSync } from 'node:fs';
+import { statSync, unlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 // The logger's own core, as TypeScript source (Node strips the types): this file runs before the
 // server bundle exists, and its lines belong to the same chain the server continues (#250).
 import { createLogWriter, stdoutSink } from './src/lib/server/logging/core.ts';
 import { ATTRIBUTE, EVENT } from './src/lib/server/logging/names.ts';
 import { readLogSettings } from './src/lib/server/logging/settings.ts';
+import { IMAGE_DATABASE_URL, resolveImageDatabaseUrl } from './src/lib/server/database/provider.ts';
 
 const log = createLogWriter({ ...readLogSettings(process.env), sink: stdoutSink() });
 /** A filesystem error code, admitted only in the shape of one. */
@@ -54,46 +55,55 @@ const FS_ERROR_CODE = /^[A-Z0-9_]{1,40}$/;
 //
 // Renaming before 1.0 costs this function. After 1.0 it would cost a major, because the default
 // path is part of what a major version promises not to move.
-const DEFAULT_DATABASE_URL = 'file:/data/budgetpilot.db';
-const LEGACY_DEFAULT_DATABASE_URL = 'file:/data/dev.db';
-
-/**
- * Resolves the database URL, adopting the legacy default when this is an upgraded install.
- *
- * ADOPTS, never renames. Moving the file would have to move `-wal` and `-shm` with it, and a
- * SIGKILL between the three leaves a database whose committed transactions are in an orphaned
- * write-ahead log. An adoption cannot corrupt anything: it changes which path is opened and
- * touches no bytes.
- *
- * The condition is deliberately narrow, and each conjunct closes a way this could take a database
- * nobody asked it to take:
- *
- *   configured === DEFAULT   an operator who set DATABASE_URL explicitly gets exactly what they
- *                            set. Without this, pointing at a fresh path on a volume that still
- *                            holds a dev.db would silently reopen the old one.
- *   target missing           if the new file already exists this install has already been through
- *                            here, and the legacy file is stale history rather than the database.
- *   legacy present           nothing to adopt otherwise, which is every new install.
- *
- * Announced on stdout rather than done quietly: an operator reading their own logs should be able
- * to see which file the app opened, and the message is the only place that says so.
- */
-function resolveDatabaseUrl(env) {
-	const configured = env.DATABASE_URL ?? DEFAULT_DATABASE_URL;
-	if (configured !== DEFAULT_DATABASE_URL) return configured;
-
-	const target = configured.slice('file:'.length);
-	const legacy = LEGACY_DEFAULT_DATABASE_URL.slice('file:'.length);
-	if (existsSync(target) || !existsSync(legacy)) return configured;
-
+//
+// The rule itself is `resolveImageDatabaseUrl` in provider.ts, the only definition (#957): every
+// other reader in the image (a script, the Prisma CLI) calls it too, so all of them open the file
+// this process opens. It ADOPTS, never renames: moving the file would have to move `-wal` and
+// `-shm` with it, and a SIGKILL between the three leaves a database whose committed transactions
+// are in an orphaned write-ahead log. An unset DATABASE_URL here is the image default, as it always
+// was in this file; to every other reader it is the development default.
+//
+// Announced on stdout rather than done quietly: an operator reading their own logs should be able
+// to see which file the app opened, and these lines are the only place that says so.
+const imageDatabase = resolveImageDatabaseUrl(process.env.DATABASE_URL ?? IMAGE_DATABASE_URL);
+if (imageDatabase.situation === 'legacy-adopted-over-empty') {
+	// What every door that opened a missing path left behind: 0 bytes, so no database. Removed so
+	// the backup procedure's « does not exist » stays true for this install (owner's ruling on
+	// #957), and only while it is still empty: re-read now, since the decision above.
+	const stray = IMAGE_DATABASE_URL.slice('file:'.length);
+	try {
+		if (statSync(stray, { throwIfNoEntry: false })?.size === 0) {
+			unlinkSync(stray);
+			log({ event: EVENT.bootEmptyDatabaseRemoved, attributes: {} });
+		}
+	} catch {
+		// Gone already (a second container on the volume removed it first), or /data refuses the
+		// write: the probe below names that cause in its own line, which a stack trace here would
+		// replace. Either way the adoption stands and dev.db is opened.
+	}
+}
+if (
+	imageDatabase.situation === 'legacy-adopted' ||
+	imageDatabase.situation === 'legacy-adopted-over-empty'
+) {
 	log({ event: EVENT.bootLegacyDatabaseAdopted, attributes: {} });
-	return LEGACY_DEFAULT_DATABASE_URL;
+}
+if (imageDatabase.situation === 'both-hold-a-database') {
+	// No rule can tell which the owner means (owner's ruling on #957): keep the configured file, and
+	// say so at every start until one of the two leaves /data.
+	log({
+		event: EVENT.bootTwoDatabases,
+		attributes: {
+			[ATTRIBUTE.bootDatabaseBytes]: imageDatabase.imageBytes,
+			[ATTRIBUTE.bootLegacyDatabaseBytes]: imageDatabase.legacyBytes
+		}
+	});
 }
 
 // Written back, not merely read: `prisma migrate deploy` is spawned below and inherits this
-// environment, and the server imported after it reads the same variable. If the adoption above
-// fired and only this file knew, the migration and the app would open different databases.
-const databaseUrl = resolveDatabaseUrl(process.env);
+// environment, and the server imported after it reads the same variable, so the decision is taken
+// once for the whole process tree.
+const databaseUrl = imageDatabase.databaseUrl ?? '';
 process.env.DATABASE_URL = databaseUrl;
 
 // SQLite is the only provider that writes to the container's own filesystem, and /data is the

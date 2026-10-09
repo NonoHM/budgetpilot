@@ -269,6 +269,8 @@ line does not carry is absent, not empty.
 | `budgetpilot.boot.directory`                  | The data directory the container start found unusable.                                                         | string  | the directory taken from `DATABASE_URL`, the operator's own path                                                                            | `"/data"`                                                            | Operational    |
 | `budgetpilot.boot.uid`                        | The user id the server runs as.                                                                                | number  | a user id                                                                                                                                   | `65532`                                                              | Operational    |
 | `budgetpilot.boot.exit_code`                  | The exit code of `prisma migrate deploy`.                                                                      | number  | a process exit code                                                                                                                         | `1`                                                                  | Operational    |
+| `budgetpilot.boot.database_bytes`             | The size of `/data/budgetpilot.db`, when it and `/data/dev.db` both hold a database.                           | number  | a size in bytes                                                                                                                             | `593920`                                                             | Operational    |
+| `budgetpilot.boot.legacy_database_bytes`      | The size of `/data/dev.db`, in the same case.                                                                  | number  | a size in bytes                                                                                                                             | `8417280`                                                            | Operational    |
 | `budgetpilot.log.suppressed_event`            | The event whose repeats were counted instead of written, or the event whose line was too long.                 | string  | an event name from « Every event »                                                                                                          | `"budgetpilot.request.not_found"`                                    | Operational    |
 | `budgetpilot.log.suppressed_count`            | How many repeats were counted.                                                                                 | number  | one or more                                                                                                                                 | `6`                                                                  | Operational    |
 | `budgetpilot.log.window_seconds`              | The length of the counting window.                                                                             | number  | seconds; 60                                                                                                                                 | `60`                                                                 | Operational    |
@@ -328,6 +330,8 @@ below asks nothing.
 | `budgetpilot.import.account_not_remembered`   | Nothing to do: the import itself went through. The account answer will be asked again next time.                                                                                                                                                                                                                                                                                   |
 | `budgetpilot.transactions.counts_unavailable` | Nothing to do: the Transactions page works without the filter counts. If it repeats, read the error class and report it.                                                                                                                                                                                                                                                           |
 | `budgetpilot.boot.legacy_database_adopted`    | Nothing was moved, and the instance works. To adopt the new file name, stop the container and rename the database file and its `-wal` and `-shm` siblings as the line says.                                                                                                                                                                                                        |
+| `budgetpilot.boot.empty_database_removed`     | Nothing to do: the removed file was empty, and the instance keeps using `/data/dev.db`.                                                                                                                                                                                                                                                                                            |
+| `budgetpilot.boot.two_databases`              | Find out which file holds your history before you rely on either: [Two database files](./operations.md#two-database-files). The line repeats at every start until one of the two is renamed.                                                                                                                                                                                       |
 | `budgetpilot.boot.data_dir_read_only`         | The server did not start. Mount a volume at the data directory, as in the shipped Compose files, and make `DATABASE_URL` point inside it.                                                                                                                                                                                                                                          |
 | `budgetpilot.boot.data_dir_not_writable`      | The server did not start. The volume belongs to a different user: change its owner to the user id in the line, as the line explains, then start again.                                                                                                                                                                                                                             |
 | `budgetpilot.boot.data_dir_unusable`          | The server did not start. Check that the directory exists, has free space and is writable by the user id in the line; the error code says which of these it is.                                                                                                                                                                                                                    |
@@ -892,6 +896,25 @@ Severity WARN.
 > Using /data/dev.db, where this install's database already is. Nothing was moved. To adopt /data/budgetpilot.db, stop the container and rename the file and its -wal and -shm siblings; to keep the old name, set DATABASE_URL=file:/data/dev.db.
 
 No attributes beyond the envelope.
+
+### `budgetpilot.boot.empty_database_removed`
+
+Severity WARN.
+
+> Removed an empty /data/budgetpilot.db beside /data/dev.db. It held no data: a command run in the container while this install used the old name had created it. Your data is in /data/dev.db.
+
+No attributes beyond the envelope.
+
+### `budgetpilot.boot.two_databases`
+
+Severity WARN.
+
+> Both /data/budgetpilot.db and /data/dev.db hold a database. Using /data/budgetpilot.db. If your history is in /data/dev.db, see « Two database files » in the operations guide; this line repeats at every start until one of the two is renamed.
+
+| Attribute                                | Level       |
+| ---------------------------------------- | ----------- |
+| `budgetpilot.boot.database_bytes`        | Operational |
+| `budgetpilot.boot.legacy_database_bytes` | Operational |
 
 ### `budgetpilot.boot.data_dir_read_only`
 
