@@ -180,8 +180,10 @@ changes every hash, so lines written before and after the rotation can no longer
 **A tool that blocks addresses cannot act on a hash.** fail2ban, CrowdSec or a Wazuh active response
 needs the address in clear. Detect on this log, where the same client or subnet gives the same hash,
 and block on the web server's access log, which keeps the address readable on purpose
-(`Caddyfile.example`). Whether the access log alone can tell a failed sign-in from a successful one
-is open on [#876](https://github.com/NonoHM/budgetpilot/issues/876).
+(`Caddyfile.example`). BudgetPilot marks each refused sign-in with a `BudgetPilot-Sign-In: refused`
+response header, which the access log records beside the address:
+[Ban an address after failed sign-ins](./ban-failed-sign-ins.md) has the fail2ban and CrowdSec
+recipes.
 
 ## Sending the log to a collector
 
@@ -309,7 +311,7 @@ below asks nothing.
 | `budgetpilot.config.log_level_changed`        | Nothing to do if you set `BP_LOG_LEVEL` on purpose. At `warn`, the informational lines, such as the page-not-found ones, are not written.                                                                                                                                                                                                                                          |
 | `budgetpilot.config.env_file_exposed`         | Run `chmod 600 .env` in the directory the app starts from. Until then, any other account on this machine can read the secrets in it, and with a write bit set, change them.                                                                                                                                                                                                        |
 | `budgetpilot.request.failed`                  | A visitor met an error page. Find this line with the reference they were shown (the tutorial shows how), read the error class and code, and fix the cause. During a flood, look for a `budgetpilot.log.suppressed` line in the same minute.                                                                                                                                        |
-| `authn_login_fail`                            | Nothing to do for one line. Many from one `budgetpilot.client.pseudonym` or one subnet label in a few minutes is password guessing: block that client on the web server. Many `wrong_password` for one user pseudonym from many clients is an attack on that account: tell its owner.                                                                                              |
+| `authn_login_fail`                            | Nothing to do for one line. Many from one `budgetpilot.client.pseudonym` or one subnet label in a few minutes is password guessing: block that client on the web server ([Ban an address after failed sign-ins](./ban-failed-sign-ins.md)). Many `wrong_password` for one user pseudonym from many clients is an attack on that account: tell its owner.                           |
 | `excess_rate_limit_exceeded`                  | The rate limiter already refused the attempt. Read `budgetpilot.ratelimit.counter`: `address` points at the client, `subject` at an account or session someone else is attacking.                                                                                                                                                                                                  |
 | `user_created`                                | Nothing to do if you expected a new account. An unexpected one in `REGISTRATION_MODE=open`, or a `bootstrap` you did not make, is worth checking in the admin page.                                                                                                                                                                                                                |
 | `budgetpilot.authn.register_fail`             | Nothing to do for one line. Many `bootstrap_token_invalid` lines mean someone is guessing `BOOTSTRAP_TOKEN`: make sure it is long, or empty it once the first account exists.                                                                                                                                                                                                      |

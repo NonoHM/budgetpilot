@@ -209,6 +209,9 @@ async function run(
 			cookies: browser.cookies,
 			getClientAddress: () => freshAddress(),
 			request: new Request(`http://localhost${path}`, { method: 'POST', body: form }),
+			// A superseded sign-in is marked for the proxy (#876); what is under test here is the
+			// session, not the header, which the route's unit spec asserts.
+			setHeaders: () => undefined,
 			locals,
 			url: new URL(`http://localhost${path}`)
 		})) as { status?: number };

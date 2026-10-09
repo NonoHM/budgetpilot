@@ -574,7 +574,23 @@ describe('anti-caching headers (v5.0.0-14.3.2)', () => {
 		expect(control).not.toEqual([]);
 
 		expect(files.filter((path) => /Cache-Control/i.test(readFileSync(path, 'utf8')))).toEqual([]);
-		expect(files.filter((path) => /setHeaders/.test(readFileSync(path, 'utf8')))).toEqual([]);
+		// `setHeaders` is used in exactly one place, the sign-in refusal header (#876): the two
+		// sign-in routes hand it to `refuseSignIn`, which sets that one header. Pinned as the COUNT
+		// of mentions per file, so any new use fails here, a renamed or forwarded one included, and a
+		// second call inside these three files too. When it fails, read the new mention: if it only
+		// hands `setHeaders` to `refuseSignIn`, move the count; if it sets any other header, the
+		// exception this block pins (v5.0.0-14.3.2, #823) has to be read again. All three files are inside the
+		// Cache-Control scan the line above runs.
+		const mentions = Object.fromEntries(
+			files
+				.map((path) => [path, readFileSync(path, 'utf8').match(/setHeaders/g)?.length ?? 0])
+				.filter(([, count]) => count !== 0)
+		);
+		expect(mentions).toEqual({
+			[join('src', 'lib', 'server', 'auth', 'signInRefusal.ts')]: 2,
+			[join('src', 'routes', 'login', '+page.server.ts')]: 3,
+			[join('src', 'routes', 'login', 'verify-totp', '+page.server.ts')]: 3
+		});
 	});
 
 	// SCOPE, so this green is not read as a claim about the shipped server. It says the

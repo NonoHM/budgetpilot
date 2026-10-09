@@ -4,7 +4,7 @@
 (a security monitoring system). **Type:** how-to, with one reference table.
 
 A collector reads the container's log and forwards it to a place that keeps it, searches it and
-alerts on it. This page gives four recipes, each tested against a real log from a real run, and a
+alerts on it. This page gives five recipes, each tested against a real log from a real run, and a
 table that maps BudgetPilot's fields to OpenTelemetry, ECS and OCSF names. Read
 [Logs](./logging.md) first for what a line contains and what it never contains.
 
@@ -12,7 +12,8 @@ BudgetPilot itself sends nothing. It writes lines to standard output and has no 
 OpenTelemetry SDK and no vendor format. Everything on this page runs in the collector, which you
 install, configure and secure.
 
-Every recipe was run on 2026-10-04, against a real log written by the application. In the tests the
+The first four recipes were run on 2026-10-04 and the Wazuh recipe on 2026-10-09, each against a
+real log written by the application. In the tests of the first four, the
 application's container was named `bp13-docs-app`, so that name stands where the Alloy and Vector
 configurations and the Loki queries below say `budgetpilot`. Everything else, the collector
 containers, the network and the ports, is as written.
@@ -62,14 +63,15 @@ Each collector was started against a log with a known number of lines, and the r
 were counted. The counts below were read from the collector's own output, and the source count is
 the number of lines of `docker logs`.
 
-| Collector                       | Image and version                              | Read through  | Source lines | Records received | What it dropped                                                             |
-| ------------------------------- | ---------------------------------------------- | ------------- | ------------ | ---------------- | --------------------------------------------------------------------------- |
-| OpenTelemetry Collector contrib | `otel/opentelemetry-collector-contrib:0.161.0` | File          | 16           | 16               | Nothing. Plain lines arrive as records without a severity.                  |
-| Vector                          | `timberio/vector:0.58.0-alpine`                | Docker socket | 14           | 14               | Nothing. Plain lines are marked `is_json: false`.                           |
-| Fluent Bit                      | `fluent/fluent-bit:5.1.3`                      | File          | 16           | 16               | Nothing. Plain lines keep their text in `log`.                              |
-| Grafana Alloy and Loki          | `grafana/alloy:v1.20.1`, `grafana/loki:3.7.8`  | Docker socket | 16           | 12               | The 4 empty lines, which Loki never stores. All 12 lines with text arrived. |
+| Collector                       | Image and version                              | Read through  | Source lines | Records received | What it dropped                                                                      |
+| ------------------------------- | ---------------------------------------------- | ------------- | ------------ | ---------------- | ------------------------------------------------------------------------------------ |
+| OpenTelemetry Collector contrib | `otel/opentelemetry-collector-contrib:0.161.0` | File          | 16           | 16               | Nothing. Plain lines arrive as records without a severity.                           |
+| Vector                          | `timberio/vector:0.58.0-alpine`                | Docker socket | 14           | 14               | Nothing. Plain lines are marked `is_json: false`.                                    |
+| Fluent Bit                      | `fluent/fluent-bit:5.1.3`                      | File          | 16           | 16               | Nothing. Plain lines keep their text in `log`.                                       |
+| Grafana Alloy and Loki          | `grafana/alloy:v1.20.1`, `grafana/loki:3.7.8`  | Docker socket | 16           | 12               | The 4 empty lines, which Loki never stores. All 12 lines with text arrived.          |
+| Wazuh                           | `wazuh/wazuh-manager:4.14.8`                   | File          | 42           | 42               | Nothing. The 42 lines were all BudgetPilot's; plain lines were not in the test file. |
 
-Wazuh, Elastic and Splunk have no tested recipe here. They get the [field mapping](#field-mapping)
+Elastic and Splunk have no tested recipe here. They get the [field mapping](#field-mapping)
 only.
 
 ## OpenTelemetry Collector
@@ -641,6 +643,119 @@ creating a stream for each value.
    Anonymous administrator access, as above, is for a test on your own computer. Do not publish
    that port or use that setting anywhere else.
 
+## Wazuh
+
+Wazuh can alert when one client keeps failing to sign in. The rules match the client pseudonym, so
+they detect the guessing without knowing the address; to block the address, use
+[Ban an address after failed sign-ins](./ban-failed-sign-ins.md).
+
+Wazuh reads Docker's log file as text. Its JSON decoder sees only Docker's wrapper (`log`, `stream`
+and `time`), because the application's line is a string inside `log`, so the rules never fire on
+their own. The decoder below takes the four fields the rules need out of that string. This is the
+method Wazuh documents for container logs: a child of the `json` decoder, on files read with
+`log_format syslog`
+([Wazuh, Container security use cases](https://documentation.wazuh.com/4.14/user-manual/capabilities/container-security/use-cases.html)).
+
+1. Append the decoder to `/var/ossec/etc/decoders/local_decoder.xml` on the manager.
+
+   ```xml
+   <decoder name="budgetpilot-docker">
+     <parent>json</parent>
+     <prematch type="pcre2" offset="after_parent">\\"service\.name\\":\\"budgetpilot\\"</prematch>
+     <regex type="pcre2" offset="after_parent">\\"event_name\\":\\"([^\\"]+)\\"</regex>
+     <order>event_name</order>
+   </decoder>
+
+   <decoder name="budgetpilot-docker">
+     <parent>json</parent>
+     <regex type="pcre2" offset="after_parent">\\"budgetpilot\.client\.pseudonym\\":\\"([0-9a-f]+)\\"</regex>
+     <order>budgetpilot.client.pseudonym</order>
+   </decoder>
+
+   <decoder name="budgetpilot-docker">
+     <parent>json</parent>
+     <regex type="pcre2" offset="after_parent">\\"budgetpilot\.authn\.step\\":\\"([^\\"]+)\\"</regex>
+     <order>budgetpilot.authn.step</order>
+   </decoder>
+
+   <decoder name="budgetpilot-docker">
+     <parent>json</parent>
+     <regex type="pcre2" offset="after_parent">\\"budgetpilot\.authn\.reason\\":\\"([^\\"]+)\\"</regex>
+     <order>budgetpilot.authn.reason</order>
+   </decoder>
+   ```
+
+   Each pattern needs the field name followed directly by an escaped quote. A value a visitor gets
+   into the log, such as a path containing `"event_name":"authn_login_fail"`, is escaped twice on
+   its way into Docker's file, by the application and then by Docker, so it cannot complete the
+   pattern.
+
+1. Append the rules to `/var/ossec/etc/rules/local_rules.xml` on the manager.
+
+   ```xml
+   <group name="budgetpilot,">
+     <rule id="100870" level="3">
+       <decoded_as>json</decoded_as>
+       <field name="event_name">^authn_login_fail$</field>
+       <field name="budgetpilot.authn.reason" negate="yes">^unreadable_secret$</field>
+       <description>BudgetPilot: sign-in refused ($(budgetpilot.authn.step), $(budgetpilot.authn.reason))</description>
+       <group>authentication_failed,</group>
+     </rule>
+     <rule id="100871" level="4">
+       <decoded_as>json</decoded_as>
+       <field name="event_name">^authn_login_fail$</field>
+       <field name="budgetpilot.authn.reason">^unreadable_secret$</field>
+       <description>BudgetPilot: a stored second-factor secret does not decrypt with the configured key (not a guess)</description>
+     </rule>
+     <rule id="100872" level="10" frequency="5" timeframe="900">
+       <if_matched_sid>100870</if_matched_sid>
+       <same_field>budgetpilot.client.pseudonym</same_field>
+       <description>BudgetPilot: 5 refused sign-ins from one client in 15 minutes</description>
+       <group>authentication_failures,</group>
+     </rule>
+   </group>
+   ```
+
+   Rule 100872 fires on the fifth refusal from one client pseudonym within 15 minutes, the threshold
+   of BudgetPilot's own limit. A code checked against a secret the server cannot decrypt is the
+   server's key failing, not a guess, so rule 100871 reports it on its own and it does not count.
+
+1. Add the container's log file to `/var/ossec/etc/ossec.conf` on the Wazuh agent of the Docker
+   host.
+
+   ```xml
+   <ossec_config>
+     <localfile>
+       <log_format>syslog</log_format>
+       <location>/var/lib/docker/containers/ID/ID-json.log</location>
+     </localfile>
+   </ossec_config>
+   ```
+
+   Replace both `ID` with the container's identifier from
+   [What the collector receives](#what-the-collector-receives). Name the one file rather than
+   `*/*-json.log`, which would read every container on the host. Restart the agent after Compose
+   recreates the container, because the identifier changes.
+
+1. Restart the Wazuh manager and the agent so that they load the decoder, the rules and the file.
+
+1. Check a refused sign-in. Sign in once with a wrong password, then search the manager's alerts:
+
+   ```bash
+   sudo grep -c '"id":"100870"' /var/ossec/logs/alerts/alerts.json
+   ```
+
+   The count goes up by one. In an alert the four decoded fields are nested objects under `data`,
+   such as `data.budgetpilot.client.pseudonym`, and the whole line is in `full_log`.
+
+In the test, the manager's own log reader read a read-only mount of a log file that Docker wrote:
+42 lines, of which 40 were BudgetPilot's own lines from the run on
+[Ban an address after failed sign-ins](./ban-failed-sign-ins.md) and 2 were copies of a refused
+code with the reason changed to `unreadable_secret`. All 42 arrived with `event_name` decoded.
+Rule 100870 fired 20 times, rule 100871 twice, and rule 100872 once, for the one client with five
+refusals. No successful sign-in raised an alert. The agent on a separate host was not run: the test
+used the manager's own reader, which runs the same `localfile` settings.
+
 ## Field mapping
 
 How each field maps to the names other tools use. Use it to configure a collector that converts the
@@ -710,8 +825,8 @@ Notes on the table:
 - **Fields with no ECS or OCSF name** stay as custom fields. ECS has `labels` for key-value pairs.
   OCSF has `unmapped`. Keep the names unchanged so that a query written against BudgetPilot's own
   names still works.
-- **Wazuh, Elastic and Splunk.** The mapping above is the only support this page gives them. No
-  recipe for them was run, and no claim is made about how they ingest the log.
+- **Elastic and Splunk.** The mapping above is the only support this page gives them. No recipe
+  for them was run, and no claim is made about how they ingest the log.
 
 ## Security notes
 
