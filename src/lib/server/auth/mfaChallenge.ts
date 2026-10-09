@@ -3,8 +3,9 @@ import {
 	createSessionToken,
 	hashSessionToken,
 	areSecureCookiesEnabled,
-	passwordStillCurrent,
+	signInFactorsStillCurrent,
 	SignInSuperseded,
+	type SignInFactors,
 	type TransactionClient
 } from '$lib/server/auth';
 import { isTransientWriteConflict, withConcurrentWriteRetry } from '$lib/server/database/upsert';
@@ -25,11 +26,12 @@ function getChallengeCookieOptions(expires: Date) {
 
 // Opaque token like Session: only its hash is persisted, never the userId in clear
 // text client-side. Never creates a usable session — just a token pending a TOTP code.
-// Written only while `verifiedHash` is still the account's password (#923): a password change
-// committed during the comparison throws `SignInSuperseded`, one committed after deletes the row.
+// Written only while the account still signs in the way the password step read it would (#923,
+// #949): a change to the password or to two-factor committed during the comparison throws
+// `SignInSuperseded`, one committed after deletes the row.
 export async function createMfaChallenge(
 	userId: string,
-	verifiedHash: string,
+	read: SignInFactors,
 	cookies: Cookies
 ): Promise<void> {
 	const token = createSessionToken();
@@ -39,7 +41,7 @@ export async function createMfaChallenge(
 	await withConcurrentWriteRetry(
 		() =>
 			prisma.$transaction(async (tx) => {
-				await passwordStillCurrent(tx, userId, verifiedHash);
+				await signInFactorsStillCurrent(tx, userId, read);
 				await tx.pendingMfaChallenge.create({
 					data: { userId, tokenHash: hashSessionToken(token), expiresAt }
 				});

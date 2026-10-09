@@ -382,6 +382,26 @@ async function adminReset(target: Account, adminToken?: string): Promise<void> {
 	expect(answer, 'resetPassword landed').toHaveProperty('temporaryPassword');
 }
 
+/** The owner turns two-factor ON from another session of `target`, through the real action (#949). */
+async function enrolFromAnotherSession(target: Account): Promise<void> {
+	const { actions } = await import('../../../routes/settings/+page.server');
+	const token = await mintSession(target.id);
+	const secret = generateTotpSecretBase32();
+	const answer = await run(
+		actions,
+		'confirmTotpSetup',
+		'/settings',
+		jar({ [SESSION_COOKIE]: token }),
+		formOf({
+			[REAUTH_FIELDS.password]: PASSWORD,
+			[REAUTH_FIELDS.code]: codeAt(secret, 0),
+			secretBase32: secret
+		}),
+		{ user: await readSessionUser(token) }
+	);
+	expect(answer, 'confirmTotpSetup landed').not.toHaveProperty('status');
+}
+
 /**
  * The owner turns two-factor OFF from another session of `target`, through the real action (#949),
  * with the code of `step + offset`: steps are spent in order, so it must be later than any code the
@@ -573,6 +593,23 @@ describe('a sign-in waiting at the code step (#923)', () => {
 		const { login_error_invalid_credentials } = await import('$lib/paraglide/messages');
 		const target = await seedAccount('reset-during-check-no-totp', { totp: false });
 		afterPasswordCheck = () => adminReset(target);
+
+		const { browser, answer } = await submitPassword(target);
+
+		expect(afterPasswordCheck, 'the gate ran').toBeNull();
+		expect(answer).toEqual({ status: 400, data: { error: login_error_invalid_credentials() } });
+		expect(browser.value(SESSION_COOKIE)).toBeUndefined();
+	});
+
+	// FORCED, #949 (the contradiction pass on the design): two-factor is turned on while `/login`
+	// compares the password of an account that had none, so the step goes on to write a session
+	// proven by the password alone, after the enrolment ended every other session. Separates « the
+	// step writes only while the factors it read are still the account's » from « only while the
+	// password is », which matches here because the password did not change.
+	it('refuses a sign-in without two-factor when two-factor was turned on while it was being checked', async () => {
+		const { login_error_invalid_credentials } = await import('$lib/paraglide/messages');
+		const target = await seedAccount('enrolled-during-check', { totp: false });
+		afterPasswordCheck = () => enrolFromAnotherSession(target);
 
 		const { browser, answer } = await submitPassword(target);
 

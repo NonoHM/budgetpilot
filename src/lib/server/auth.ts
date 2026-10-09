@@ -267,8 +267,8 @@ export function getSessionCookieOptions(expires: Date) {
 
 /**
  * Writes a new session. `stillProven` runs first in the same transaction and throws
- * `SignInSuperseded` when what the sign-in proved no longer holds (#923): `passwordStillCurrent` at
- * the password step, `claimMfaChallenge` at the code step. Retried whole when the engine aborts it,
+ * `SignInSuperseded` when what the sign-in proved no longer holds (#923): `signInFactorsStillCurrent`
+ * at the password step, `claimMfaChallenge` at the code step. Retried whole when the engine aborts it,
  * so a deadlock against a concurrent password change ends as that change's answer, not as a 500.
  */
 export async function createSession(
@@ -664,22 +664,33 @@ export class SignInSuperseded extends Error {
 	}
 }
 
+/** What a password step read about how the account signs in, and then proved or acted on. */
+export interface SignInFactors {
+	/** The hash the password was compared against. */
+	passwordHash: string;
+	/** Whether the step went on to ask for a code (true) or to write a session (false). */
+	totpEnabled: boolean;
+}
+
 /**
- * Asserts, inside the transaction that writes what a password step proved, that `verifiedHash` is
- * still the account's password (#923). A compare-and-set on the User row rather than a read: it
- * locks the row against a concurrent password write, so whichever commits second sees the first.
- * A password change committed while the comparison ran makes it throw `SignInSuperseded`; one
+ * Asserts, inside the transaction that writes what a password step proved, that the account still
+ * signs in the way the step read it would: the same password (#923) and the same answer to whether
+ * a code is asked (#949). A compare-and-set on the User row rather than a read: it locks the row
+ * against a concurrent change to either, so whichever commits second sees the first. A change to how
+ * the account signs in committed while the comparison ran makes it throw `SignInSuperseded`; one
  * committing after it waits, then ends what this step wrote (`endPendingSignIns`,
- * `revokeSessionsOtherThan`). The write stores the value already there.
+ * `revokeSessionsOtherThan`). Without the second column, two-factor turned on during the comparison
+ * left a session proven by the password alone, written after the enrolment had ended every other
+ * one. The write stores the value already there.
  */
-export async function passwordStillCurrent(
+export async function signInFactorsStillCurrent(
 	tx: TransactionClient,
 	userId: string,
-	verifiedHash: string
+	read: SignInFactors
 ): Promise<void> {
 	const { count } = await tx.user.updateMany({
-		where: { id: userId, passwordHash: verifiedHash },
-		data: { passwordHash: verifiedHash }
+		where: { id: userId, passwordHash: read.passwordHash, totpEnabled: read.totpEnabled },
+		data: { passwordHash: read.passwordHash }
 	});
 	if (count !== 1) throw new SignInSuperseded();
 }
@@ -690,8 +701,9 @@ export async function passwordStillCurrent(
  * account's other sessions, BEFORE the sessions are revoked: a code step that claimed its challenge
  * first holds that row until it commits, and the revocation that follows then sees its session.
  *
- * A password step still comparing when this runs is ended only by a PASSWORD change, through
- * `passwordStillCurrent` and the User row both write. « Log out other sessions » changes nothing that
+ * A password step still comparing when this runs is ended only by a change to how the account signs
+ * in (the password, or two-factor on or off, #949), through `signInFactorsStillCurrent` and the User
+ * row both write. « Log out other sessions » changes nothing that
  * step reads, so on PostgreSQL a challenge written while it commits outlives it (the contradiction
  * pass on #923): whoever holds it holds the current password, and could sign in again anyway.
  */
