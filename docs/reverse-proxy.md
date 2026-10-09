@@ -185,7 +185,10 @@ personal data. The example keeps it raw, because you need the real address to
 block an abuser, and it carries a commented `ip_mask` block you can switch on
 if you don't. Masking to a `/24` hides the last part of the address; it is
 pseudonymisation, not anonymisation, because it can still point at one
-household on a small provider.
+household on a small provider. To ban an address after repeated failed
+sign-ins, see [Ban an address after failed sign-ins](./ban-failed-sign-ins.md);
+with the address masked, the ban lands on the network address rather than the
+visitor's.
 
 ## If it doesn't work
 

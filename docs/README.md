@@ -10,6 +10,8 @@
   its default and the values it accepts.
 - **[Reverse proxy](./reverse-proxy.md)**: optional Caddy overlay for a real
   domain with automatic HTTPS.
+- **[Ban an address after failed sign-ins](./ban-failed-sign-ins.md)**: fail2ban
+  or CrowdSec reading the Caddy access log.
 - **[PostgreSQL or MySQL](./database-providers.md)**: optional, for installs
   that already run a database server. SQLite is the default and needs no
   setup.
