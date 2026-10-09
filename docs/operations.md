@@ -662,15 +662,24 @@ Restoring a database next to the wrong key plays out like this:
 - With `TOTP_ENCRYPTION_KEY` unset, the app refuses to start. You cannot get
   this wrong quietly.
 - With a different key, the app starts normally and every stored two-factor
-  secret becomes unreadable. Nothing warns you until an affected user tries
-  to sign in.
-- Those users can still sign in with a **recovery code**. Recovery codes are
-  hashed, not encrypted, so they survive a key change. Tell them to turn
-  two-factor off and set it up again straight after.
-- A user with two-factor on and no recovery code left is locked out for
-  good. An admin password reset does not clear two-factor, and no admin
-  action can disable someone else's. Deleting and recreating the account is
-  the only way back, and it loses that account's data.
+  secret becomes unreadable. Nothing warns you at startup. The first time an
+  affected user types a code, sign-in answers _Codes from your authenticator
+  app can't be checked for this account any more. Use a recovery code._ and
+  the log gets a `crypt_decrypt_fail` line with that user's pseudonym
+  ([logs](./logging.md#crypt_decrypt_fail)).
+- If you still have the old key, put it back and restart. Every two-factor
+  setup works again, with nothing else to do.
+- Otherwise, those users sign in with a **recovery code**. Recovery codes are
+  hashed, not encrypted, so they survive a key change. Then, in **Settings**,
+  each one turns two-factor off with their password and **a second recovery
+  code**, and sets it up again. Their Settings page says so. A user signed
+  out needs two unused codes: one to sign in, one to turn it off.
+- A user with two-factor on and no recovery code left, or only one while
+  signed out, cannot get back in from the app. An admin password reset does not clear two-factor, and no admin
+  action can disable someone else's. The way back is clearing the factor in
+  the database, as
+  [recovering a locked-out account](./reference/two-factor.md#recovering-a-locked-out-account)
+  describes. The account and its data stay.
 - Bank connections recover on their own: reconnect the bank from
   **Imports > Bank connections**.
 
@@ -682,7 +691,7 @@ secrets and how they behave.
 **If you pasted the `.env` block again to upgrade**, as an earlier README said,
 your key changed. If you still have the old `.env` and nobody has set up
 two-factor since, put its `TOTP_ENCRYPTION_KEY` back and restart. Otherwise,
-two-factor users sign in with a recovery code and set two-factor up again, and
+two-factor users turn it off with recovery codes and set it up again, and
 bank connections need reconnecting, as the list above describes. Restore any
 line you had added by hand, such as `ORIGIN`, `PUBLIC_INSTANCE` or the database
 settings: the block wrote only its own.

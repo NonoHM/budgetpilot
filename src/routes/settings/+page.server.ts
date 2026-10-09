@@ -20,6 +20,7 @@ import {
 	hashRecoveryCode
 } from '$lib/server/auth/totp';
 import { reauthenticate, reauthRefusalMessage } from '$lib/server/auth/reauth';
+import { readFactorState } from '$lib/server/auth/totpAcceptance';
 import { resolveClientAddress } from '$lib/server/net/clientAddress';
 import { prisma } from '$lib/server/db';
 import { BackupImportError, restoreBackup } from '$lib/server/backup/import';
@@ -70,7 +71,8 @@ export const load: PageServerLoad = async ({ locals }) => {
 		columnMappings,
 		rememberedAccounts,
 		accountRows,
-		linkableNetWorthAccounts
+		linkableNetWorthAccounts,
+		factorState
 	] = await Promise.all([
 		prisma.user.findUniqueOrThrow({
 			where: { id: user.id },
@@ -78,8 +80,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 				email: true,
 				role: true,
 				aiInsightsEnabled: true,
-				aiIncludeLabels: true,
-				totpEnabled: true
+				aiIncludeLabels: true
 			}
 		}),
 		prisma.session.findMany({
@@ -126,7 +127,9 @@ export const load: PageServerLoad = async ({ locals }) => {
 			},
 			orderBy: [{ archivedAt: 'asc' }, { name: 'asc' }, { id: 'asc' }]
 		}),
-		readLinkableNetWorthAccounts(user.id)
+		readLinkableNetWorthAccounts(user.id),
+		// The verdict alone: the ciphertext is read and decrypted in `totpAcceptance.ts` (#904).
+		readFactorState(user.id)
 	]);
 
 	const live = new Set(liveSessions.map((session) => session.id));
@@ -146,8 +149,10 @@ export const load: PageServerLoad = async ({ locals }) => {
 			email: account.email,
 			role: account.role
 		},
+		// Recomputed per view, never stored (#904): `storedFactorState` says why. Shown, not judged, so
+		// an unreadable secret writes no log line here.
 		mfa: {
-			enabled: account.totpEnabled
+			status: factorState
 		},
 		security: {
 			authMode: 'locale',

@@ -37,20 +37,27 @@ import {
 const CREDENTIAL_FIELDS = ['passwordHash', 'totpSecretEncrypted'] as const;
 
 /**
- * The only paths allowed to SELECT a credential column, and each one verifies a secret:
- * `/login` compares a password, `/login/verify-totp` decrypts a TOTP secret, and
- * `auth/reauth.ts` is the one re-authentication helper every sensitive action calls (S1, #253).
- * `/settings` held that read inline until S1 moved it there, and leaving the route on this list
- * would let it select a credential again unnoticed.
+ * The only paths allowed to SELECT a credential column, each with the columns it may select, and
+ * each one verifies or decrypts the secret it reads: `/login` compares a password,
+ * `/login/verify-totp` decrypts a TOTP secret, `auth/reauth.ts` is the one re-authentication helper
+ * every sensitive action calls (S1, #253), and `auth/totpAcceptance.ts` decrypts the stored TOTP
+ * secret to tell Settings whether it still can be (#904, `readFactorState`), returning only that
+ * verdict. `/settings` held such reads inline until S1 and #904 moved them out, and leaving the
+ * route on this list would let it select a credential again unnoticed.
+ *
+ * Per column, not per file (the narrow pass on #904): a file exempt for the TOTP secret is not
+ * thereby exempt for the password hash it never handles.
  *
  * A closed list rather than a pattern, because "which files may read a password hash" is a
  * decision and should read as one. Adding an entry should be as visible as it is consequential.
  */
-const CREDENTIAL_PATHS = [
-	join('src', 'routes', 'login', '+page.server.ts'),
-	join('src', 'routes', 'login', 'verify-totp', '+page.server.ts'),
-	join('src', 'lib', 'server', 'auth', 'reauth.ts')
-];
+const CREDENTIAL_SELECTS: Record<string, readonly (typeof CREDENTIAL_FIELDS)[number][]> = {
+	[join('src', 'routes', 'login', '+page.server.ts')]: ['passwordHash'],
+	[join('src', 'routes', 'login', 'verify-totp', '+page.server.ts')]: ['totpSecretEncrypted'],
+	[join('src', 'lib', 'server', 'auth', 'reauth.ts')]: ['passwordHash', 'totpSecretEncrypted'],
+	[join('src', 'lib', 'server', 'auth', 'totpAcceptance.ts')]: ['totpSecretEncrypted']
+};
+const CREDENTIAL_PATHS = Object.keys(CREDENTIAL_SELECTS);
 
 /**
  * The `select:` object literal of a call, or '' when there is none.
@@ -70,7 +77,7 @@ interface UserQuery {
 	path: string;
 	method: string;
 	hasSelect: boolean;
-	credentialsSelected: string[];
+	credentialsSelected: (typeof CREDENTIAL_FIELDS)[number][];
 }
 
 function findUserQueries(): UserQuery[] {
@@ -112,7 +119,7 @@ describe('credential exposure (v5.0.0-15.3.1, v5.0.0-8.2.3)', () => {
 		// measured 15 so it is a statement about the matcher working, not about the inventory.
 		expect(reads.length).toBeGreaterThanOrEqual(12);
 
-		// Sharper than the count: the three files where a credential is genuinely read must each be
+		// Sharper than the count: the files where a credential is genuinely read must each be
 		// visible to the scan. If they are, a new query added beside one of them is visible too.
 		const seen = new Set(queries.map((query) => query.path));
 		expect(CREDENTIAL_PATHS.filter((path) => !seen.has(path))).toEqual([]);
@@ -136,17 +143,22 @@ describe('credential exposure (v5.0.0-15.3.1, v5.0.0-8.2.3)', () => {
 		).toEqual([]);
 	});
 
-	it('no select outside the three credential paths returns passwordHash or totpSecretEncrypted', () => {
+	it('no select outside the credential paths returns passwordHash or totpSecretEncrypted', () => {
 		expect.assertions(1);
 
 		const offenders = findUserQueries()
-			.filter((query) => query.credentialsSelected.length > 0)
-			.filter((query) => !CREDENTIAL_PATHS.includes(query.path))
-			.map((query) => `${query.path} selects ${query.credentialsSelected.join(', ')}`);
+			.map((query) => ({
+				path: query.path,
+				unlisted: query.credentialsSelected.filter(
+					(field) => !(CREDENTIAL_SELECTS[query.path] ?? []).includes(field)
+				)
+			}))
+			.filter((query) => query.unlisted.length > 0)
+			.map((query) => `${query.path} selects ${query.unlisted.join(', ')}`);
 
 		expect(
 			offenders,
-			`credential columns selected outside login, verify-totp and the re-authentication helper: ${offenders.join(', ')}`
+			`credential columns selected outside the paths listed for them in CREDENTIAL_SELECTS: ${offenders.join(', ')}`
 		).toEqual([]);
 	});
 

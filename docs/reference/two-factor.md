@@ -90,12 +90,13 @@ documented as behaviour.
 
 ## Recovering a locked-out account
 
-| Route                                | Works?                      |
-| ------------------------------------ | --------------------------- |
-| A recovery code                      | yes, while any remain       |
-| An admin resetting the password      | **no**                      |
-| An admin action to disable it        | **does not exist**          |
-| Clearing the columns in the database | yes, and it is the only way |
+| Route                                | Works?                                                                     |
+| ------------------------------------ | -------------------------------------------------------------------------- |
+| A recovery code                      | yes, while any remain                                                      |
+| Turning it off with a recovery code  | only when the stored secret can't be decrypted, usually after a key change |
+| An admin resetting the password      | **no**                                                                     |
+| An admin action to disable it        | **does not exist**                                                         |
+| Clearing the columns in the database | yes, and the only way with no recovery code left                           |
 
 The password reset was measured rather than assumed: it issues a temporary
 password and revokes the account's sessions, and signing in with that
@@ -112,10 +113,27 @@ was added after the measurement, by #818.
 
 The TOTP secret is stored encrypted with `TOTP_ENCRYPTION_KEY`
 ([configuration](../configuration.md)). If that key is changed or lost,
-every stored secret becomes undecryptable and every code is refused, for
-every account that has two-factor enabled: the same state as a lost phone,
-for everyone at once. Back the key up with the database, not separately from
-it.
+every stored secret becomes undecryptable, for every account that has
+two-factor enabled. Back the key up, and keep that copy **apart from the
+database backups**: a backup that carries its own key protects the secrets
+in it from nobody who gets hold of it
+([operations](../operations.md#the-encryption-key)).
+
+What an account with an unreadable secret meets, measured on a running
+instance with the key changed after enrolment:
+
+| Where                           | What happens                                                                                                      |
+| ------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Signing in with a code          | Refused with _Codes from your authenticator app can't be checked for this account any more. Use a recovery code._ |
+| Signing in with a recovery code | Works, and spends it                                                                                              |
+| Settings                        | The switch stays on, with _Codes can't be checked any more. Turn this off with a recovery code, then on again._   |
+| Turning it off                  | Password plus a recovery code, which is spent. Only in this state: a readable setup still asks for a code         |
+| Any other confirmation          | Refused until two-factor is set up again: a recovery code is not accepted there                                   |
+| Turning it on again over it     | Refused: turn it off first                                                                                        |
+| The log                         | `crypt_decrypt_fail` each time a code is checked against it, not when a page only shows it                        |
+
+The unreadable secret is still a second factor. It is never treated as
+« no two-factor », so no action falls back to the password alone.
 
 ## Related
 

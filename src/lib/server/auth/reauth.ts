@@ -2,13 +2,20 @@ import * as m from '$lib/paraglide/messages';
 import { REAUTH_FIELDS } from '$lib/domain/reauthFields';
 import { verifyPassword, type AuthUser } from '$lib/server/auth';
 import { isReauthRateLimited, recordReauthAttempt } from '$lib/server/auth/rateLimit';
+import { consumeRecoveryCode, RECOVERY_CODE_PATTERN } from '$lib/server/auth/recoveryCodes';
 import {
 	acceptTotpCode,
 	judgeEnrolmentCode,
+	storedFactorState,
 	type TotpAcceptance
 } from '$lib/server/auth/totpAcceptance';
 import { prisma } from '$lib/server/db';
-import { logRateLimited, logReauthFailed, logReauthSucceeded } from '$lib/server/logging/authn';
+import {
+	logRateLimited,
+	logReauthFailed,
+	logReauthSucceeded,
+	logSecretUnreadable
+} from '$lib/server/logging/authn';
 import type { ReauthFailure } from '$lib/server/logging/events';
 
 /**
@@ -29,9 +36,11 @@ import type { ReauthFailure } from '$lib/server/logging/events';
  *      the caller's SESSION, never the account (#879: `isReauthRateLimited` says why).
  *   2. The account row, by the caller's own id (from `locals`, never posted).
  *   3. Shape: an absent password or a code that is not six digits refuses here, BEFORE any secret
- *      is consulted, and records no attempt. A shape refusal guesses nothing, so counting it would
- *      only let a fumbled form lock its owner out; and because no secret was read, it cannot be an
- *      oracle for one.
+ *      is JUDGED, and records no attempt. A shape refusal guesses nothing, so counting it would
+ *      only let a fumbled form lock its owner out; and because no secret was judged, it cannot be an
+ *      oracle for one. Whether the stored secret decrypts is known by then (#904: it decides which
+ *      shape `disableTotp` accepts), but that is the state Settings already shows the session, not
+ *      an answer about anything typed.
  *   4. Both factors, ALWAYS both: the password through bcrypt and the code through the TOTP window,
  *      whatever the first answered. The work then depends on whether the CODE is valid (a valid
  *      code against a stored secret also commits the update that spends it), never on whether the
@@ -45,6 +54,15 @@ import type { ReauthFailure } from '$lib/server/logging/events';
  * and the sentence they get on retrying the same one, `reused-totp`, tells them so. That reason is
  * reported WHATEVER the password answered, and it has to be: reported only beside a right
  * password, a replayed code would answer « was this password right » to whoever holds the session.
+ *
+ * A STORED SECRET THAT DOES NOT DECRYPT (#904, owner ruling of 2026-10-08) is still a factor, so it
+ * is never read as « none ». No code can pass it: a six-digit code is refused `unreadable-totp`,
+ * whatever the password answered, as `reused-totp` is and for the same reason. The one way out is
+ * `disableTotp`, which then takes a RECOVERY CODE in the code field, checked and spent by
+ * `consumeRecoveryCode` whatever the password answered (the #818 direction: a code seen is a code
+ * spent; spending it only beside a right password would make the write a timing signal for the
+ * password). Two factors still, as R3 asks. Every other action stays refused until the owner sets
+ * two-factor up again, and enrolment over it is `totp-already-enabled`.
  *
  * AN ENROLMENT CODE IS ONLY JUDGED HERE (`judgeEnrolmentCode`): the success carries its step, and
  * `confirmTotpSetup` writes that step with the secret. See `totpAcceptance.ts` for why.
@@ -107,6 +125,10 @@ export type ReauthCredentialRefusal =
 	| 'wrong-totp'
 	/** A valid code for a step already accepted for this account (#818). */
 	| 'reused-totp'
+	/** A six-digit code against a stored secret that does not decrypt (#904). */
+	| 'unreadable-totp'
+	/** At `disableTotp` over an unreadable secret: a recovery code that matches none unused (#904). */
+	| 'wrong-recovery-code'
 	| 'totp-not-enabled'
 	| 'no-account';
 
@@ -163,6 +185,8 @@ const LOGGED_REFUSAL: Record<ReauthRefused['reason'], ReauthFailure | null> = {
 	'wrong-password': 'wrong_password',
 	'wrong-totp': 'wrong_code',
 	'reused-totp': 'reused_code',
+	'unreadable-totp': 'unreadable_secret',
+	'wrong-recovery-code': 'wrong_recovery_code',
 	'missing-password': null,
 	'missing-totp': null,
 	'totp-not-enabled': null,
@@ -200,11 +224,14 @@ async function decide(
 		select: { passwordHash: true, totpEnabled: true, totpSecretEncrypted: true }
 	});
 
-	const storedSecret = account?.totpEnabled ? account.totpSecretEncrypted : null;
+	const state = account ? storedFactorState(account) : 'disabled';
+	const storedSecret = state === 'disabled' ? null : (account?.totpSecretEncrypted ?? null);
 	const asksCode =
 		factors === 'password+totp' ||
 		factors === 'password+new-secret-code' ||
 		(factors === 'password+totp-when-enabled' && storedSecret !== null);
+	// The ruling's one way out (#904): only turning the factor off, only while it cannot be read.
+	const takesRecoveryCode = factors === 'password+totp' && state === 'unreadable';
 	const asked: ReauthAsked = asksCode ? 'password-and-code' : 'password';
 	const refuse = (reason: ReauthCredentialRefusal): ReauthRefused => ({ ok: false, reason, asked });
 
@@ -219,23 +246,34 @@ async function decide(
 	if (factors === 'password+new-secret-code' && storedSecret !== null) {
 		return { ok: false, reason: 'totp-already-enabled' };
 	}
-	if (asksCode && !TOTP_CODE_PATTERN.test(code)) return refuse('missing-totp');
+	const recoveryCode = takesRecoveryCode && RECOVERY_CODE_PATTERN.test(code);
+	if (asksCode && !recoveryCode && !TOTP_CODE_PATTERN.test(code)) return refuse('missing-totp');
+
+	// Past the shape step a six-digit code is judged against the stored secret, so a secret that
+	// cannot be is reported here, once. A recovery code is checked against its own rows, never the
+	// secret, so it writes nothing here, as at sign-in (the contradiction pass on the code).
+	if (asksCode && state === 'unreadable' && !recoveryCode) logSecretUnreadable(user.id);
 
 	// Both evaluated before either is acted on: see step 4 in the header.
 	const passwordOk = await verifyPassword(password, account.passwordHash);
 	const enrolledStep =
 		factors === 'password+new-secret-code' ? judgeEnrolmentCode(newTotpSecret ?? '', code) : null;
-	let codeVerdict: TotpAcceptance = 'accepted';
+	let codeVerdict: TotpAcceptance | 'wrong-recovery-code' = 'accepted';
 	if (factors === 'password+new-secret-code') {
 		codeVerdict = enrolledStep === null ? 'wrong' : 'accepted';
+	} else if (recoveryCode) {
+		codeVerdict = (await consumeRecoveryCode(user.id, code)) ? 'accepted' : 'wrong-recovery-code';
 	} else if (asksCode) {
 		codeVerdict = await acceptTotpCode(user.id, storedSecret ?? '', code);
 	}
 
 	if (!passwordOk || codeVerdict !== 'accepted') {
 		await recordReauthAttempt(user.sessionId, ip);
+		// Decided by the stored state or the code, never by the password: see the header.
 		if (codeVerdict === 'reused') return refuse('reused-totp');
-		return refuse(passwordOk ? 'wrong-totp' : 'wrong-password');
+		if (codeVerdict === 'unreadable') return refuse('unreadable-totp');
+		if (!passwordOk) return refuse('wrong-password');
+		return refuse(codeVerdict === 'wrong-recovery-code' ? 'wrong-recovery-code' : 'wrong-totp');
 	}
 	return enrolledStep === null ? { ok: true } : { ok: true, totpStep: enrolledStep };
 }
@@ -258,6 +296,8 @@ export function reauthRefusalMessage(
 	// Its own sentence, because waiting for the next code is the one thing that helps. Safe under
 	// class 2 only because the reason does not depend on the password: see the header.
 	if (refused.reason === 'reused-totp') return m.totp_error_code_reused();
+	// Its own sentence for the same reason: it says what to do, and depends on the stored state alone.
+	if (refused.reason === 'unreadable-totp') return m.reauth_error_totp_unreadable();
 	return refused.asked === 'password'
 		? m.reauth_error_password()
 		: m.reauth_error_password_or_code();

@@ -74,6 +74,23 @@ Same switch, and it asks for **your password and a current code**. Turning
 it off deletes the stored secret and every remaining recovery code, so
 turning it on again later gives you a fresh set of ten.
 
+## If your codes stop being accepted
+
+If signing in says _Codes from your authenticator app can't be checked for
+this account any more. Use a recovery code._, your app is fine: the server
+can no longer read your two-factor setup, usually after a change made by
+whoever runs it. They may be able to undo that change; ask them first if you
+have few recovery codes left. Otherwise:
+
+1. Sign in with a recovery code.
+2. In **Settings**, under _Two-factor authentication_, turn the switch off.
+3. Enter your password and **another recovery code**, and press
+   **Disable**.
+4. Turn the switch on again and scan the new QR code. You get a fresh set of
+   ten recovery codes.
+
+This takes two unused recovery codes, one to sign in and one to turn it off.
+
 ## If you lose access
 
 This is the part to read before enabling, not after.

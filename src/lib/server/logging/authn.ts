@@ -76,7 +76,12 @@ export type SignInFailure =
 	| {
 			step: 'second_factor';
 			reason:
-				'wrong_code' | 'reused_code' | 'wrong_recovery_code' | 'unrecognised_code' | 'superseded';
+				| 'wrong_code'
+				| 'reused_code'
+				| 'wrong_recovery_code'
+				| 'unrecognised_code'
+				| 'unreadable_secret'
+				| 'superseded';
 			userId: string;
 	  };
 
@@ -122,6 +127,19 @@ export function logRateLimited(
 			[A.rateLimitKind]: kind,
 			[A.rateLimitCounter]: trip.counter
 		}
+	});
+}
+
+/**
+ * A code was judged against a stored second-factor secret that does not decrypt (#904): the
+ * configured key is not the one it was stored with. Written where a code is JUDGED, at sign-in and
+ * at re-authentication, never when a page merely shows the state. No client: the cause is the
+ * server's key, and the attempt that met it is its own event, with the client.
+ */
+export function logSecretUnreadable(userId: string): void {
+	log({
+		event: E.cryptDecryptFail,
+		attributes: { ...user(userId), [A.cryptPurpose]: 'totp_secret' }
 	});
 }
 

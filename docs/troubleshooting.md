@@ -263,5 +263,7 @@ Use one of the recovery codes shown when you enabled it. No admin override
 exists, by design: an admin who could disable someone else's second factor
 would be a way around it.
 
-Out of recovery codes too? The only way back in is direct database surgery
-on `dev.db`, so take that backup.
+Out of recovery codes too? The only way back in is clearing the factor in the
+database, as
+[recovering a locked-out account](./reference/two-factor.md#recovering-a-locked-out-account)
+describes. Take a backup of the database first.

@@ -20,7 +20,7 @@ import type { PageData } from './$types';
 function baseData(overrides: Partial<PageData> = {}): PageData {
 	return {
 		account: { email: 'demo@example.com', role: 'ADMIN' },
-		mfa: { enabled: false },
+		mfa: { status: 'disabled' },
 		security: {
 			authMode: 'locale',
 			llmEnabled: false,

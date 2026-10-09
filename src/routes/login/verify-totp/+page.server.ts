@@ -11,11 +11,12 @@ import { isMfaRateLimited, recordMfaAttempt } from '$lib/server/auth/rateLimit';
 import { resolveClientAddress } from '$lib/server/net/clientAddress';
 import {
 	logRateLimited,
+	logSecretUnreadable,
 	logSignInFailed,
 	logSignInSucceeded,
 	type SignInFailure
 } from '$lib/server/logging/authn';
-import { verifyRecoveryCode } from '$lib/server/auth/totp';
+import { consumeRecoveryCode, RECOVERY_CODE_PATTERN } from '$lib/server/auth/recoveryCodes';
 import { acceptTotpCode, type TotpAcceptance } from '$lib/server/auth/totpAcceptance';
 import { ensureDefaultCategoriesSeeded } from '$lib/server/categories/defaults';
 import { ensureDefaultRulesSeeded } from '$lib/server/categorization/defaultRules';
@@ -23,7 +24,6 @@ import { prisma } from '$lib/server/db';
 import type { PageServerLoad } from './$types';
 
 const TOTP_CODE_PATTERN = /^[0-9]{6}$/;
-const RECOVERY_CODE_PATTERN = /^[0-9A-Fa-f]{5}-[0-9A-Fa-f]{5}$/;
 
 export const load: PageServerLoad = async ({ cookies }) => {
 	const challenge = await readMfaChallenge(cookies);
@@ -69,9 +69,16 @@ export const actions: Actions = {
 		const factor = TOTP_CODE_PATTERN.test(code) ? 'totp' : 'recovery_code';
 		if (TOTP_CODE_PATTERN.test(code)) {
 			verdict = await acceptTotpCode(user.id, user.totpSecretEncrypted, code);
-			refused = verdict === 'reused' ? 'reused_code' : 'wrong_code';
+			refused =
+				verdict === 'reused'
+					? 'reused_code'
+					: verdict === 'unreadable'
+						? 'unreadable_secret'
+						: 'wrong_code';
+			// #904: the configured key is not the one the secret was stored with. The operator's line.
+			if (verdict === 'unreadable') logSecretUnreadable(user.id);
 		} else if (RECOVERY_CODE_PATTERN.test(code)) {
-			verdict = (await tryConsumeRecoveryCode(user.id, code.toUpperCase())) ? 'accepted' : 'wrong';
+			verdict = (await consumeRecoveryCode(user.id, code)) ? 'accepted' : 'wrong';
 			refused = 'wrong_recovery_code';
 		}
 
@@ -80,8 +87,11 @@ export const actions: Actions = {
 			logSignInFailed(ip, { step: 'second_factor', reason: refused, userId: user.id });
 			// A spent code says so (#818): whoever typed it twice needs the next one, not a clock
 			// check. Nothing in that is usable: the password is already proven at this step, and a
-			// spent step is never accepted again.
-			return verdict === 'reused' ? fail(400, { error: m.totp_error_code_reused() }) : invalid();
+			// spent step is never accepted again. A secret that does not decrypt says so too (#904):
+			// no code from the app can pass, and a recovery code still can, which is what to do next.
+			if (verdict === 'reused') return fail(400, { error: m.totp_error_code_reused() });
+			if (verdict === 'unreadable') return fail(400, { error: m.totp_error_secret_unreadable() });
+			return invalid();
 		}
 
 		await ensureDefaultCategoriesSeeded(user.id);
@@ -102,24 +112,6 @@ export const actions: Actions = {
 		redirectAfterSignIn(url);
 	}
 };
-
-async function tryConsumeRecoveryCode(userId: string, code: string): Promise<boolean> {
-	const candidates = await prisma.recoveryCode.findMany({
-		where: { userId, usedAt: null },
-		select: { id: true, codeHash: true }
-	});
-
-	for (const candidate of candidates) {
-		if (await verifyRecoveryCode(code, candidate.codeHash)) {
-			const result = await prisma.recoveryCode.updateMany({
-				where: { id: candidate.id, usedAt: null },
-				data: { usedAt: new Date() }
-			});
-			return result.count === 1;
-		}
-	}
-	return false;
-}
 
 function getFormValue(formData: FormData, key: string): string {
 	const value = formData.get(key);
