@@ -57,6 +57,21 @@ const chats: Chat[] = [];
 let proxy: Server | undefined;
 let instance: AiInstance | undefined;
 
+/**
+ * The three paths the app calls on Ollama, returned as CONSTANTS. The proxy forwards nothing else
+ * and never builds the upstream address from what it received: a request in absolute form
+ * (`GET http://elsewhere/ HTTP/1.1`) would otherwise resolve to another host (CodeQL, SSRF).
+ */
+function ollamaPath(
+	received: string | undefined
+): '/api/chat' | '/api/version' | '/api/tags' | null {
+	const pathname = new URL(received ?? '/', 'http://proxy.invalid').pathname;
+	if (pathname === '/api/chat') return '/api/chat';
+	if (pathname === '/api/version') return '/api/version';
+	if (pathname === '/api/tags') return '/api/tags';
+	return null;
+}
+
 function startProxy(target: URL): Promise<void> {
 	proxy = createServer((req, res) => {
 		const chunks: Buffer[] = [];
@@ -64,8 +79,13 @@ function startProxy(target: URL): Promise<void> {
 		req.on('end', () => {
 			const body = Buffer.concat(chunks);
 			const started = Date.now();
+			const upstreamPath = ollamaPath(req.url);
+			if (!upstreamPath) {
+				res.writeHead(404).end();
+				return;
+			}
 			const upstream = httpRequest(
-				new URL(req.url ?? '/', target),
+				new URL(upstreamPath, target.origin),
 				// No accept-encoding upstream: a compressed answer would reach the app intact and the
 				// recorder as unparsable bytes, which would blind every detector below while the run reads clean.
 				{ method: req.method, headers: { ...withoutEncoding(req.headers), host: target.host } },
@@ -74,7 +94,7 @@ function startProxy(target: URL): Promise<void> {
 					answer.on('data', (chunk: Buffer) => back.push(chunk));
 					answer.on('end', () => {
 						const raw = Buffer.concat(back);
-						if (req.url === '/api/chat') {
+						if (upstreamPath === '/api/chat') {
 							chats.push({
 								at: started,
 								durationMs: Date.now() - started,
