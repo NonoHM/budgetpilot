@@ -67,6 +67,10 @@ export interface LocalAiAdvice {
 	insights: BudgetInsight[];
 	unavailable: boolean;
 	failureCode?: LocalLlmFailureCode;
+	/** With `quota_reached` only: whole minutes until this member may start again, at least 1. */
+	retryInMinutes?: number;
+	/** Nobody is waiting for this answer (a newer request, an opt-out): the card goes back to idle. */
+	cancelled?: true;
 }
 
 /**

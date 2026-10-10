@@ -153,7 +153,7 @@ describe('buildBudgetInsightsPrompt', () => {
  * pass a single-locale test and fail here.
  *
  * These assert on the SOURCE function directly; the payload actually delivered to the model is
- * captured end-to-end in index.spec.ts, which is the only thing that proves getBudgetInsights threads
+ * captured end-to-end in assembly.spec.ts, which is the only thing that proves prepareAdvice threads
  * the flag through at all.
  */
 describe('buildBudgetInsightsPrompt data-description sentence, both locales (#216)', () => {

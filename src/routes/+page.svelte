@@ -3,7 +3,7 @@
 	import { labelledValue } from '$lib/domain/typography';
 	import { getTransactionKind } from '$lib/domain/transaction';
 	import type { TransactionNature } from '$lib/domain/transaction';
-	import { goto } from '$app/navigation';
+	import { goto, invalidateAll } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { navigating } from '$app/state';
 	import { enhance } from '$app/forms';
@@ -326,8 +326,10 @@
 
 		<DashboardInsights
 			insights={data.insights}
-			aiAdvice={data.aiAdvice}
 			aiAllowed={data.aiAllowed}
+			aiAdviceKey={data.aiAdviceKey}
+			periodQuery={data.periodQuery}
+			onStale={() => invalidateAll()}
 		/>
 
 		{#if !showDashboardBody}

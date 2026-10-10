@@ -8,6 +8,67 @@ import ts from 'typescript-eslint';
 
 const gitignorePath = path.resolve(import.meta.dirname, '.gitignore');
 
+const LOGGING_IMPORT_RESTRICTION = {
+	paths: [
+		{ name: 'pino', message: 'Only src/lib/server/logging configures the writer.' },
+		{
+			name: 'node:process',
+			importNames: ['stdout', 'stderr'],
+			message: 'Write the log through log(event) in $lib/server/logging.'
+		},
+		{
+			name: 'process',
+			importNames: ['stdout', 'stderr'],
+			message: 'Write the log through log(event) in $lib/server/logging.'
+		}
+	],
+	patterns: [
+		{
+			group: ['**/logging/core', '**/logging/core.ts', '$lib/server/logging/core'],
+			message: 'Import log() from $lib/server/logging; a second writer starts its own chain.'
+		}
+	]
+};
+
+/**
+ * ONE DOOR TO THE MODEL (#535): a generation started anywhere but `ai/gateway.ts` skips the probe,
+ * the cache, the waiting room, the per-member rule and the hourly quota. The import graph is what
+ * keeps « no generation outside an admitted request » true for the next caller.
+ */
+/**
+ * The model client itself, any entry point of the package (`ollama/browser` carries the full client
+ * too): only `insights/local-llm.ts` holds one (#535, narrow pass F5).
+ */
+const MODEL_CLIENT = {
+	group: ['ollama', 'ollama/*'],
+	message:
+		'Only $lib/server/insights/local-llm.ts holds the model client; generate through generateAdvice (#535).'
+};
+
+/** `import()` is invisible to no-restricted-imports; a template literal hides its source from both. */
+const MODEL_DOOR_DYNAMIC = [
+	{
+		selector: 'ImportExpression[source.value=/local-llm|^ollama(\\/|$)/]',
+		message: 'Only $lib/server/ai/gateway.ts reaches the model (#535), and not through import().'
+	},
+	{
+		selector: "ImportExpression[source.type='TemplateLiteral']",
+		message: 'Spell an import() source as a plain string, so the model door (#535) can read it.'
+	}
+];
+
+const MODEL_DOOR = {
+	group: [
+		'**/insights/local-llm',
+		'**/local-llm',
+		'**/local-llm.*',
+		'$lib/server/insights/local-llm'
+	],
+	importNames: ['requestLocalBudgetInsights', 'probeLocalLlm'],
+	message:
+		'Only $lib/server/ai/gateway.ts reaches the model (#535). Ask through generateAdvice, which admits, bounds and caches.'
+};
+
 export default defineConfig(
 	includeIgnoreFile(gitignorePath),
 	js.configs.recommended,
@@ -60,6 +121,7 @@ export default defineConfig(
 			],
 			'no-restricted-syntax': [
 				'error',
+				...MODEL_DOOR_DYNAMIC,
 				{
 					selector: "MemberExpression[object.name='globalThis'][property.name='console']",
 					message: 'Write the log through log(event) in $lib/server/logging.'
@@ -97,28 +159,46 @@ export default defineConfig(
 			'no-restricted-imports': [
 				'error',
 				{
-					paths: [
-						{ name: 'pino', message: 'Only src/lib/server/logging configures the writer.' },
-						{
-							name: 'node:process',
-							importNames: ['stdout', 'stderr'],
-							message: 'Write the log through log(event) in $lib/server/logging.'
-						},
-						{
-							name: 'process',
-							importNames: ['stdout', 'stderr'],
-							message: 'Write the log through log(event) in $lib/server/logging.'
-						}
-					],
-					patterns: [
-						{
-							group: ['**/logging/core', '**/logging/core.ts', '$lib/server/logging/core'],
-							message:
-								'Import log() from $lib/server/logging; a second writer starts its own chain.'
-						}
-					]
+					paths: LOGGING_IMPORT_RESTRICTION.paths,
+					patterns: [...LOGGING_IMPORT_RESTRICTION.patterns, MODEL_CLIENT, MODEL_DOOR]
 				}
 			]
+		}
+	},
+	{
+		// The one door itself (#535): everything else above still applies to it.
+		files: ['src/lib/server/ai/gateway.ts'],
+		rules: {
+			'no-restricted-imports': [
+				'error',
+				{
+					paths: LOGGING_IMPORT_RESTRICTION.paths,
+					patterns: [...LOGGING_IMPORT_RESTRICTION.patterns, MODEL_CLIENT]
+				}
+			]
+		}
+	},
+	{
+		// The model client's one holder (#535).
+		files: ['src/lib/server/insights/local-llm.ts'],
+		rules: {
+			'no-restricted-imports': [
+				'error',
+				{
+					paths: LOGGING_IMPORT_RESTRICTION.paths,
+					patterns: [...LOGGING_IMPORT_RESTRICTION.patterns, MODEL_DOOR]
+				}
+			]
+		}
+	},
+	{
+		// The model door outside src/lib/server too (#535, narrow pass F5): a module under src/lib
+		// that a route imports is as close to the model as the route itself.
+		files: ['src/lib/**/*.{ts,js,svelte}'],
+		ignores: ['src/lib/server/**', '**/*.spec.ts', '**/*.svelte.spec.ts'],
+		rules: {
+			'no-restricted-imports': ['error', { patterns: [MODEL_CLIENT, MODEL_DOOR] }],
+			'no-restricted-syntax': ['error', ...MODEL_DOOR_DYNAMIC]
 		}
 	},
 	{

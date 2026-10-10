@@ -1,22 +1,13 @@
 import { userFacingErrorMessage } from '$lib/server/errors';
 import { fail, type Actions } from '@sveltejs/kit';
 import * as m from '$lib/paraglide/messages';
-import { summarizeBudgetAllocations } from '$lib/domain/budget';
 import { splitIndicatorsByTransactionId } from '$lib/domain/allocation';
 import { requireUser } from '$lib/server/auth';
 import { prisma } from '$lib/server/db';
-import {
-	createManualTransaction,
-	readAccountTransactionSpan,
-	readDashboardDataForRange,
-	readDashboardData
-} from '$lib/server/budget/dashboard';
-import {
-	getPreviousMonthRange,
-	parseDateRange,
-	serializePeriodParams
-} from '$lib/server/date-range';
-import { getBudgetInsights } from '$lib/server/insights';
+import { createManualTransaction, readAccountTransactionSpan } from '$lib/server/budget/dashboard';
+import { parseDateRange, serializePeriodParams } from '$lib/server/date-range';
+import { prepareAdvice } from '$lib/server/ai/gateway';
+import { readDashboardPeriodData } from '$lib/server/dashboard/periodData';
 import { isLocalLlmEnabled } from '$lib/server/insights/local-llm';
 import { loadDashboardInsights } from '$lib/server/dashboard/insights';
 import { analyzeTransactionNatures } from '$lib/server/transactions/nature';
@@ -32,26 +23,8 @@ const MAX_DASHBOARD_GOALS = 2;
 export const load: PageServerLoad = async ({ locals, url }) => {
 	const user = requireUser(locals.user);
 	const period = parseDateRange(url.searchParams);
-	const { transactions, allocations, budgets } = await readDashboardDataForRange(user.id, period);
-	const budgetSummaryAvailable = isWholeMonthPeriod(period.from, period.to);
-	const previousPeriod = getPreviousMonthRange(period);
-	const previousMonthData = previousPeriod
-		? await readDashboardData(user.id, previousPeriod.budgetMonth)
-		: undefined;
-	const summary = summarizeBudgetAllocations(
-		allocations,
-		budgetSummaryAvailable ? budgets : [],
-		period.label
-	);
-	const previousSummary =
-		previousMonthData &&
-		(previousMonthData.transactions.length > 0 || previousMonthData.budgets.length > 0)
-			? summarizeBudgetAllocations(
-					previousMonthData.allocations,
-					previousMonthData.budgets,
-					previousPeriod?.label ?? m.dashboard_previous_period_fallback()
-				)
-			: undefined;
+	const periodData = await readDashboardPeriodData(user.id, period);
+	const { transactions, allocations, budgets, summary, budgetSummaryAvailable } = periodData;
 	const [
 		aiPreferences,
 		insights,
@@ -89,32 +62,11 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		readAccountTransactionSpan(user.id)
 	]);
 	const aiAllowed = isLocalLlmEnabled(process.env) && aiPreferences.aiInsightsEnabled;
-	// Deliberately NOT awaited: a local model generating a few hundred tokens takes seconds
-	// to tens of seconds, and awaiting it here held the whole dashboard hostage for exactly
-	// that long — the page rendered nothing until the model was done or LLM_TIMEOUT_MS blew.
-	// Returning the promise streams it instead: the dashboard paints immediately and the AI
-	// card fills in when it's ready, which is also what makes a realistic timeout safe.
-	// `.catch` keeps a failing model from taking the whole page down with it — the card has
-	// an "unavailable" state for exactly this.
-	const aiAdvice = aiAllowed
-		? getBudgetInsights({
-				transactions,
-				allocations,
-				monthlySummary: summary,
-				previousMonth: previousSummary,
-				env: process.env,
-				includeLabels: aiPreferences.aiIncludeLabels
-			})
-				.then((result) => ({
-					insights: result.insights.filter((item) => item.source === 'local-llm'),
-					unavailable: result.localAiUnavailable,
-					...(result.localAiFailureCode ? { failureCode: result.localAiFailureCode } : {})
-				}))
-				// `unreachable` rather than a sixth code for "the promise itself rejected": nothing
-				// downstream of `getBudgetInsights` throws on a model failure (it returns a code), so
-				// reaching here means the call never completed, and that is what unreachable names.
-				.catch(() => ({ insights: [], unavailable: true, failureCode: 'unreachable' as const }))
-		: null;
+	// #535: the load starts NO generation. It ran on every load, hover prefetches included, with
+	// nothing bounding how many ran at once (a hover spent 9.7 s of GPU). It returns the key of the
+	// advice instead, and the card posts to `/insights/advice` whenever the key changes, so a new
+	// period or a new transaction refreshes the advice and a reload of unchanged data is a cache hit.
+	const aiAdviceKey = aiAllowed ? adviceKeyOrNull(periodData, aiPreferences.aiIncludeLabels) : null;
 	// Computed once over the period's allocations, not per row: `recentTransactions` only ever
 	// looks up the first 10, but the map itself is built from the whole set exactly once.
 	const recentSplitIndicators = splitIndicatorsByTransactionId(allocations);
@@ -133,8 +85,8 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		budgets,
 		summary,
 		natureAnalysis: analyzeTransactionNatures(allocations),
-		aiAdvice,
 		aiAllowed,
+		aiAdviceKey,
 		// Parent-shaped, like the identity view it's sliced from — never re-ranked or relabelled
 		// from a répartition's parts (same OD-3 posture as reports/monthly.ts's largestExpenses).
 		// `splitIndicator` only flags that a répartition exists; `null` for an unsplit row.
@@ -180,12 +132,18 @@ function getErrorMessage(caught: unknown): string {
 	return userFacingErrorMessage(caught, m.dashboard_error_generic());
 }
 
-function isWholeMonthPeriod(from: Date, to: Date): boolean {
-	const nextMonthStart = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth() + 1, 1));
-	return (
-		from.getUTCDate() === 1 &&
-		to.getUTCDate() === 1 &&
-		to.getUTCFullYear() === nextMonthStart.getUTCFullYear() &&
-		to.getUTCMonth() === nextMonthStart.getUTCMonth()
-	);
+/**
+ * `null` when the advice cannot be prepared (a refused key in the payload). That used to be caught
+ * together with the streamed generation; uncaught here it would take the whole dashboard down, and
+ * the card simply shows nothing. The endpoint prepares the same advice and fails the same way.
+ */
+function adviceKeyOrNull(
+	periodData: Awaited<ReturnType<typeof readDashboardPeriodData>>,
+	includeLabels: boolean
+): string | null {
+	try {
+		return prepareAdvice({ periodData, includeLabels }).key;
+	} catch {
+		return null;
+	}
 }

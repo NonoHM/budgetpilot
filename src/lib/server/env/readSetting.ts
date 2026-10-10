@@ -94,6 +94,13 @@ export function assertLlmTimeoutConfigured(): void {
 export function assertLlmConnectTimeoutConfigured(): void {
 	checkIntegerSetting('LLM_CONNECT_TIMEOUT_MS');
 }
+// Added with the settings themselves (#535), so they never had a lenient reading to replace.
+export function assertLlmQueueDepthConfigured(): void {
+	checkIntegerSetting('BP_LLM_QUEUE_DEPTH');
+}
+export function assertLlmUserHourlyConfigured(): void {
+	checkIntegerSetting('BP_LLM_USER_HOURLY');
+}
 
 // Added with the setting itself (#221), so it never had a lenient reading to replace.
 export function assertSessionIdleTimeoutConfigured(): void {

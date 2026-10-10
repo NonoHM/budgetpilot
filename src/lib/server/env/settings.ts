@@ -594,6 +594,35 @@ export const SETTINGS = {
 		summary: 'Hosts the model may be reached on over plain http rather than https.',
 		page: 'ai-insights.md'
 	},
+	BP_LLM_QUEUE_DEPTH: {
+		kind: 'integer',
+		tier: 'advanced',
+		group: 'AI insights',
+		readBy: 'app',
+		default: 2,
+		min: 1,
+		max: 8,
+		unit: 'requests',
+		ceiling:
+			'One analysis runs at a time, so eight waiting is already minutes of queue: anyone further back is better told now that the model is busy.',
+		summary: 'How many analyses may wait while one is running, before the next is refused as busy.',
+		page: 'ai-insights.md'
+	},
+	BP_LLM_USER_HOURLY: {
+		kind: 'integer',
+		tier: 'advanced',
+		group: 'AI insights',
+		readBy: 'app',
+		default: 20,
+		min: 1,
+		max: 120,
+		unit: 'analyses per hour',
+		ceiling:
+			'120 is one analysis every thirty seconds for an hour, already more than a person reading the card asks for.',
+		summary:
+			'How many analyses one account may start in an hour. Advice served again from memory is not counted.',
+		page: 'ai-insights.md'
+	},
 
 	// ── Logging ─────────────────────────────────────────────────────────────────────────────────
 	BP_LOG_LEVEL: {

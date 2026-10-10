@@ -3,7 +3,8 @@ import { summarizeMonthlyBudget } from '$lib/domain/budget';
 import type { Transaction } from '$lib/domain/transaction';
 import { allocationsOf, type CategoryAllocation } from '$lib/domain/allocation';
 import { getEffectiveTransactionNature } from '$lib/server/transactions/nature';
-import { getBudgetInsights } from './index';
+import { createAdmission } from '$lib/server/ai/admission';
+import { createGateway, prepareAdvice } from '$lib/server/ai/gateway';
 import { buildBudgetInsightsPrompt } from './prompt';
 import { generateRuleInsights } from './rules';
 import { buildTransactionSummary } from './summary';
@@ -69,54 +70,18 @@ describe('Budget Insights', () => {
 
 		const allocations = toAllocations(transactions);
 		const monthlySummary = summarizeMonthlyBudget(allocations, [], '2026-06');
-		const result = await getBudgetInsights({
-			transactions,
-			allocations,
+		const insights = generateRuleInsights(
 			monthlySummary,
-			env: { LLM_ENABLED: 'false' }
-		});
-
-		expect(result.localAiUnavailable).toBe(false);
-		expect(result.insights.some((item) => item.id === 'negative-balance')).toBe(true);
-		expect(result.insights.every((item) => item.source === 'rules')).toBe(true);
-	});
-
-	it('garde le fallback si Ollama est indisponible', async () => {
-		expect.assertions(4);
-
-		const fetchMock = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('offline'));
-		const allocations = toAllocations(transactions);
-		const monthlySummary = summarizeMonthlyBudget(allocations, [], '2026-06');
-		const result = await getBudgetInsights({
-			transactions,
-			allocations,
-			monthlySummary,
-			env: {
-				LLM_ENABLED: 'true',
-				LLM_PROVIDER: 'ollama',
-				LLM_BASE_URL: 'http://127.0.0.1:11434',
-				LLM_MODEL: 'qwen2.5:0.5b',
-				LLM_TIMEOUT_MS: '10'
-			}
-		});
-
-		// The CONNECT PROBE, not the generation, and that is the behaviour change #524 shipped: an
-		// Ollama that is not running is refused on `/api/version` inside the connect budget, so the
-		// generation budget is never opened at all. Asserting the probe URL rather than merely that
-		// some fetch happened is what separates "gave up at connect" from "waited on generation",
-		// which are the two states the whole fix is about.
-		expect(fetchMock).toHaveBeenCalledWith(
-			'http://127.0.0.1:11434/api/version',
-			expect.objectContaining({ method: 'GET' })
+			buildTransactionSummary(transactions, allocations, monthlySummary)
 		);
-		expect(
-			fetchMock.mock.calls.map((call) => String(call[0])).filter((url) => url.endsWith('/api/chat'))
-		).toEqual([]);
-		expect(result.localAiUnavailable).toBe(true);
-		expect(result.insights.some((item) => item.source === 'rules')).toBe(true);
 
-		fetchMock.mockRestore();
+		expect(insights.length).toBeGreaterThan(0);
+		expect(insights.some((item) => item.id === 'negative-balance')).toBe(true);
+		expect(insights.every((item) => item.source === 'rules')).toBe(true);
 	});
+
+	// The fallback when Ollama is down moved with the model call (#535): `gateway.spec.ts` « a failed
+	// probe answers its failure and the cache is not read », and `local-llm.spec.ts` for the probe.
 
 	it('n’envoie pas de ligne CSV brute complète dans le résumé LLM', () => {
 		expect.assertions(2);
@@ -192,15 +157,14 @@ describe('Budget Insights', () => {
 		];
 		const allocationsWithTransfer = toAllocations(transactionsWithTransfer);
 		const monthlySummary = summarizeMonthlyBudget(allocationsWithTransfer, [], '2026-06');
-		const result = await getBudgetInsights({
-			transactions: transactionsWithTransfer,
-			allocations: allocationsWithTransfer,
-			monthlySummary,
-			env: { LLM_ENABLED: 'false' }
-		});
+		const summary = buildTransactionSummary(
+			transactionsWithTransfer,
+			allocationsWithTransfer,
+			monthlySummary
+		);
 
-		expect(result.summary.incomeCents).toBe(150_000);
-		expect(result.summary.transactionCount).toBe(transactionsWithTransfer.length);
+		expect(summary.incomeCents).toBe(150_000);
+		expect(summary.transactionCount).toBe(transactionsWithTransfer.length);
 		expect(monthlySummary.balanceCents).toBe(38_002);
 	});
 
@@ -267,9 +231,10 @@ describe('Budget Insights', () => {
 /**
  * Returns the exact prompt string the model would receive. The Ollama client's fetch is spied on,
  * the /api/chat body is read, and the request is then aborted: requestLocalBudgetInsights swallows
- * the failure, and by then the prompt has already been assembled and captured. Going through
- * getBudgetInsights is the point: a test that called buildBudgetInsightsPrompt directly would pass
- * even if the assembly dropped the flag, which is exactly the bug.
+ * the failure, and by then the prompt has already been assembled and captured. Going through the
+ * gateway (`prepareAdvice`, then `generateAdvice` with the real model client, #535) is the point: a
+ * test that called buildBudgetInsightsPrompt directly would pass even if the assembly dropped the
+ * flag, which is exactly the bug.
  */
 async function capturePrompt(
 	fixture: Transaction[],
@@ -301,18 +266,32 @@ async function capturePrompt(
 	try {
 		const allocations = toAllocations(fixture);
 		const monthlySummary = summarizeMonthlyBudget(allocations, budgets, '2026-06');
-		await getBudgetInsights({
-			transactions: fixture,
-			allocations,
-			monthlySummary,
+		const env = {
+			LLM_ENABLED: 'true',
+			LLM_PROVIDER: 'ollama',
+			LLM_BASE_URL: 'http://127.0.0.1:11434',
+			LLM_MODEL: 'qwen2.5:0.5b',
+			LLM_TIMEOUT_MS: '1000'
+		};
+		const prepared = prepareAdvice({
+			periodData: {
+				transactions: fixture,
+				allocations,
+				budgets: [],
+				summary: monthlySummary,
+				previousSummary: undefined,
+				budgetSummaryAvailable: true
+			},
 			includeLabels,
-			env: {
-				LLM_ENABLED: 'true',
-				LLM_PROVIDER: 'ollama',
-				LLM_BASE_URL: 'http://127.0.0.1:11434',
-				LLM_MODEL: 'qwen2.5:0.5b',
-				LLM_TIMEOUT_MS: '1000'
-			}
+			env
+		});
+		const admission = createAdmission({ queueDepth: 2, hourlyQuota: 20, now: () => 0 });
+		await createGateway({ admission, now: () => 0 }).generateAdvice({
+			userId: 'u1',
+			prepared,
+			epoch: admission.epoch('u1'),
+			signal: new AbortController().signal,
+			env
 		});
 	} finally {
 		fetchMock.mockRestore();
@@ -325,7 +304,7 @@ async function capturePrompt(
 /**
  * #216: the prompt's own sentence claimed "no raw transactions" even when the aiIncludeLabels opt-in
  * sent the largest-expense merchant labels to the model. The fix threads includeLabels through
- * getBudgetInsights into the sentence.
+ * the assembly (`prepareAdvice` since #535) into the sentence.
  *
  * These tests separate the two states that matter, which reading the source constant (or calling
  * buildBudgetInsightsPrompt directly with an explicit flag) cannot: "the sentence in the source

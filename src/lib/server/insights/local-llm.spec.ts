@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { requestLocalBudgetInsights } from './local-llm';
+import { probeLocalLlm, requestLocalBudgetInsights } from './local-llm';
 
 /**
  * One generation is TWO requests since #524: a connect probe on `/api/version`, then the generation
@@ -539,6 +539,79 @@ describe('requestLocalBudgetInsights failure codes', () => {
 			expect(chatCalls(fetchMock)).toHaveLength(1);
 		} finally {
 			fetchMock.mockRestore();
+		}
+	});
+
+	// #535: Ollama's own queue full (`OLLAMA_MAX_QUEUE`, `ErrMaxQueue` → 503) is the model being
+	// busy, versus « not running », which sends the operator to restart a healthy service.
+	it('separates a full Ollama queue from a stopped service: busy on a real 503', async () => {
+		expect.assertions(2);
+
+		const fetchMock = mockOllamaWithSignal(
+			async () =>
+				new Response(
+					JSON.stringify({
+						error: 'server busy, please try again.  maximum pending requests exceeded'
+					}),
+					{
+						status: 503
+					}
+				)
+		);
+		try {
+			const result = await requestLocalBudgetInsights('prompt agrégé', baseEnv);
+
+			expect(result?.failureCode).toBe('busy');
+			expect(chatCalls(fetchMock)).toHaveLength(1);
+		} finally {
+			fetchMock.mockRestore();
+		}
+	});
+
+	// #535: the caller's signal (a superseded request, an opt-out, a closed tab) reaches the chat
+	// fetch, versus a cancelled request generating until LLM_TIMEOUT_MS. The timeout is 30 s here, so
+	// a settle inside the test's own limit can only come from the caller's abort.
+	it('the caller signal aborts the generation fetch long before its budget', async () => {
+		// No `expect.assertions`: `vi.waitFor` retries its own assertion a variable number of times.
+
+		const fetchMock = mockOllamaWithSignal(neverAnswers);
+		const caller = new AbortController();
+		try {
+			const pending = requestLocalBudgetInsights(
+				'prompt agrégé',
+				{ ...baseEnv, LLM_TIMEOUT_MS: '30000' },
+				caller.signal
+			);
+			await vi.waitFor(() => expect(chatCalls(fetchMock)).toHaveLength(1));
+			caller.abort();
+			const result = await pending;
+			expect(result?.unavailable).toBe(true);
+		} finally {
+			fetchMock.mockRestore();
+		}
+	});
+
+	// #535: the gateway probes BEFORE it reads its cache (spec F5), so the probe is its own export.
+	it('probeLocalLlm answers null when reachable, and the failure the card names otherwise', async () => {
+		expect.assertions(3);
+
+		const reachable = mockOllamaWithSignal(async () => new Response('{}'));
+		try {
+			expect(await probeLocalLlm(baseEnv)).toBeNull();
+		} finally {
+			reachable.mockRestore();
+		}
+		expect(
+			(await probeLocalLlm({ ...baseEnv, LLM_BASE_URL: 'http://autre-hote.example:11434' }))
+				?.failureCode
+		).toBe('not_configured');
+		const stopped = mockOllamaWithSignal(async () => new Response('{}'), neverAnswers);
+		try {
+			expect((await probeLocalLlm({ ...baseEnv, LLM_CONNECT_TIMEOUT_MS: '50' }))?.failureCode).toBe(
+				'unreachable'
+			);
+		} finally {
+			stopped.mockRestore();
 		}
 	});
 

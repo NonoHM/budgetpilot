@@ -11,7 +11,7 @@ describe('the settings registry', () => {
 	it('declares every setting it is asked about', () => {
 		// The absolute figure beside every « no offenders » below: a registry that lost its entries
 		// would satisfy each of them.
-		expect(entries.length).toBe(46);
+		expect(entries.length).toBe(48);
 	});
 
 	// R13 (#841): a new name starts with `BP_`, and the names that existed before the ruling are

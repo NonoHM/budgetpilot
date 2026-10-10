@@ -340,7 +340,7 @@ describe('operator bounds', () => {
 		// twelve since #221 added `BP_SESSION_IDLE_TIMEOUT_HOURS`; thirteen with
 		// `BP_RATE_LIMIT_IPV6_PREFIX`.
 		expect({ boundsProbed: OPERATOR_BOUNDS.length, readings }).toStrictEqual({
-			boundsProbed: 13,
+			boundsProbed: 15,
 			readings: Object.fromEntries(OPERATOR_BOUNDS.map(([name]) => [name, expectedReadings(name)]))
 		});
 	});

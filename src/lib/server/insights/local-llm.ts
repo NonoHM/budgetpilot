@@ -42,6 +42,11 @@ const DEFAULT_ALLOWED_HOSTS = ['localhost', '127.0.0.1', '[::1]'];
 // it isn't a remote server, so http: remains acceptable (Ollama doesn't serve TLS there).
 const DEFAULT_HTTP_PERMITTED_HOSTS = [...DEFAULT_ALLOWED_HOSTS, 'host.docker.internal'];
 
+/** The model tag this instance asks for. Read by the gateway's cache key as well as the request. */
+export function localLlmModel(env: NodeJS.ProcessEnv = process.env): string {
+	return env.LLM_MODEL ?? DEFAULT_MODEL;
+}
+
 export function isLocalLlmEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
 	return env.LLM_ENABLED === 'true' && (env.LLM_PROVIDER ?? 'ollama') === 'ollama';
 }
@@ -91,6 +96,7 @@ async function probeLocalLlmReachable(
 const recogniseLocalLlmFailure = (caught: unknown): LocalLlmFailureCode | null => {
 	if (isTimeoutError(caught)) return 'cold_start';
 	if (isModelNotFound(caught)) return 'model_unavailable';
+	if (isOllamaBusy(caught)) return 'busy';
 	return null;
 };
 
@@ -101,31 +107,69 @@ const recogniseLocalLlmFailure = (caught: unknown): LocalLlmFailureCode | null =
  * path outside the public surface, and the shape is the stable part.
  */
 function isModelNotFound(caught: unknown): boolean {
-	if (typeof caught !== 'object' || caught === null) return false;
-	const candidate = caught as { name?: unknown; status_code?: unknown };
-	return candidate.name === 'ResponseError' && candidate.status_code === 404;
+	return isResponseError(caught, 404);
 }
 
-export async function requestLocalBudgetInsights(
-	prompt: string,
+/**
+ * Ollama answers 503 when its own queue is full (`OLLAMA_MAX_QUEUE`; `ErrMaxQueue` maps to
+ * `http.StatusServiceUnavailable` in its server). The service is up and occupied, so this is `busy`
+ * rather than the fallback's « not running » (#535).
+ */
+function isOllamaBusy(caught: unknown): boolean {
+	return isResponseError(caught, 503);
+}
+
+function isResponseError(caught: unknown, status: number): boolean {
+	if (typeof caught !== 'object' || caught === null) return false;
+	const candidate = caught as { name?: unknown; status_code?: unknown };
+	return candidate.name === 'ResponseError' && candidate.status_code === status;
+}
+
+/**
+ * The connect leg alone: `null` when something answered at an allowlisted address inside the connect
+ * budget, otherwise the failure the card names. Exported because the gateway asks it BEFORE reading
+ * its cache, so a stopped model stops cached advice too (#535, spec F5).
+ *
+ * `requestLocalBudgetInsights` still runs it, and that second probe is kept on purpose: a request
+ * may have waited in the admission room since the gateway's probe, and the ordering argument for
+ * `cold_start` below needs a probe that answered for THIS generation.
+ */
+export async function probeLocalLlm(
 	env: NodeJS.ProcessEnv = process.env
 ): Promise<LocalLlmResult | null> {
-	if (!isLocalLlmEnabled(env)) return null;
-
 	const baseUrl = getLocalBaseUrl(env.LLM_BASE_URL ?? DEFAULT_BASE_URL, env);
 	// Refused by the host allowlist, before any socket is opened. Distinct from "nothing answered":
 	// no amount of waiting fixes a base URL the allowlist will not accept.
 	if (!baseUrl) return unavailable('not_configured');
+	const connectTimeoutMs = readIntegerSetting('LLM_CONNECT_TIMEOUT_MS', env);
+	return (await probeLocalLlmReachable(baseUrl, connectTimeoutMs, env))
+		? null
+		: unavailable('unreachable');
+}
 
-	const model = env.LLM_MODEL ?? DEFAULT_MODEL;
+/**
+ * `signal` is the caller's: a newer request of the same member, an opt-out, or a closed tab (#535).
+ * It joins the generation budget rather than replacing it, so either one ends the fetch, and Ollama
+ * stops generating when the connection closes. An abort from it reads as `cold_start` here, because
+ * `isTimeoutError` accepts `AbortError`; the gateway checks its ticket BEFORE reading the result for
+ * exactly that reason.
+ */
+export async function requestLocalBudgetInsights(
+	prompt: string,
+	env: NodeJS.ProcessEnv = process.env,
+	signal?: AbortSignal
+): Promise<LocalLlmResult | null> {
+	if (!isLocalLlmEnabled(env)) return null;
+
+	const refused = await probeLocalLlm(env);
+	if (refused) return refused;
+	// Non-null: the probe above returned null only after this same call accepted the address.
+	const baseUrl = getLocalBaseUrl(env.LLM_BASE_URL ?? DEFAULT_BASE_URL, env)!;
+
+	const model = localLlmModel(env);
 	// Refused rather than replaced by the default (#754): `0x10` used to read as 16 ms. The boot
 	// checks refuse the same values before any request reaches this.
 	const timeoutMs = readIntegerSetting('LLM_TIMEOUT_MS', env);
-	const connectTimeoutMs = readIntegerSetting('LLM_CONNECT_TIMEOUT_MS', env);
-
-	if (!(await probeLocalLlmReachable(baseUrl, connectTimeoutMs, env))) {
-		return unavailable('unreachable');
-	}
 
 	const client = new Ollama({
 		host: baseUrl,
@@ -136,7 +180,12 @@ export async function requestLocalBudgetInsights(
 		fetch: (input, init) =>
 			fetchWithRedirectGuard(
 				typeof input === 'string' ? input : input instanceof URL ? input.href : input.url,
-				{ ...init, signal: AbortSignal.timeout(timeoutMs) },
+				{
+					...init,
+					signal: signal
+						? AbortSignal.any([AbortSignal.timeout(timeoutMs), signal])
+						: AbortSignal.timeout(timeoutMs)
+				},
 				{ isRedirectTargetAllowed: (target) => getLocalBaseUrl(target.href, env) !== null }
 			)
 	});
