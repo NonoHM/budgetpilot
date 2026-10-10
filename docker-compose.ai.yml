@@ -37,7 +37,8 @@ services:
       # two files, so a change to one has to be carried to the other by hand.
       # The prebuilt .env that docs/getting-started.md writes is five lines and
       # carries none of these, so whatever is written here IS what that setup runs.
-      LLM_MODEL: ${LLM_MODEL:-qwen2.5:0.5b}
+      # The qualified default (src/lib/server/ai/qualification/qualified-model.json, #971).
+      LLM_MODEL: ${LLM_MODEL:-phi4-mini:3.8b}
       # 45000, matching .env.example and the application default. It was 10000 here
       # from #45 until #524, and the comment above claiming these mirror .env.example
       # became false at #59, which raised the other two and left this one behind. This

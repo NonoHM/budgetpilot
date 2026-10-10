@@ -954,14 +954,15 @@ describe('requestLocalBudgetInsights generation request', () => {
 		// the endpoint does not carry it, which is why the source of the answer is named here.
 		const capture = chatBody();
 		try {
-			// No LLM_MODEL: the default is `qwen2.5:0.5b`, which `/api/tags` reports with no `thinking`
-			// capability. The name is retyped from `DEFAULT_MODEL` rather than imported (it is not
-			// exported), and the assertion on it is deliberate rather than incidental: it pins the
-			// PREMISE this test rests on, so changing the default to some other model reddens here and
-			// forces someone to confirm the new default cannot reason either.
+			// No LLM_MODEL: the default is `phi4-mini:3.8b`, whose `ollama show` on 0.32.5 lists the
+			// capabilities `completion` and `tools`, no `thinking` (checked when it became the default,
+			// #971; `qwen2.5:0.5b` before it had none either). The name is retyped from
+			// `qualified-model.json` rather than imported, and the assertion on it is deliberate rather
+			// than incidental: it pins the PREMISE this test rests on, so changing the default to some
+			// other model reddens here and forces someone to confirm the new default cannot reason either.
 			await requestLocalBudgetInsights('prompt agrégé', baseEnv);
 
-			expect(capture.body().model).toBe('qwen2.5:0.5b');
+			expect(capture.body().model).toBe('phi4-mini:3.8b');
 			expect(capture.body().think).toBe(false);
 		} finally {
 			capture.restore();
