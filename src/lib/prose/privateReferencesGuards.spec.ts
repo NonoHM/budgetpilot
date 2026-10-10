@@ -1400,6 +1400,10 @@ describe('re-review of 2026-09-27: publishing commands validated against an allo
 	});
 
 	// Routine commands the controller and the sessions actually run. None may be refused.
+	// Changed on purpose by the privileged-writes ruling (#973): `gh pr merge 757 --squash` left
+	// this list (a merge goes through the maintainer's script), and so did a curl authorised with
+	// `$(gh auth token)`, because the same substitution sends the admin token to any host curl is
+	// pointed at. Both refusals are pinned in `agentHookPrivilegedWrites.spec.ts`.
 	it.each([
 		['git status --short'],
 		['git log --oneline -3 && git diff --stat HEAD'],
@@ -1416,16 +1420,13 @@ describe('re-review of 2026-09-27: publishing commands validated against an allo
 		['gh pr checks 757 -R NonoHM/budgetpilot 2>&1 | head -20'],
 		['gh pr create --base main --head ci/x --title "ci: x" --body-file CLEAN'],
 		['gh pr edit 757 -R NonoHM/budgetpilot --body-file CLEAN > /dev/null'],
-		['gh pr merge 757 --squash'],
 		["gh issue view 755 --json number,title,state --jq '.title'"],
 		['gh issue comment 5 --body-file CLEAN'],
 		["gh api repos/NonoHM/budgetpilot/pulls/757 --jq '.body'"],
 		["gh api --paginate 'repos/o/r/issues?state=all&per_page=100' --jq '.[] | .number'"],
 		['gh api repos/o/r/issues/1/comments -X POST -F body=@CLEAN'],
 		['gh run list --limit 5'],
-		[
-			'curl -sS -H "Authorization: Bearer $(gh auth token)" https://api.github.com/repos/o/r/pulls/1 | jq -r .body'
-		],
+		['curl -sS https://api.github.com/repos/o/r/pulls/1 | jq -r .body'],
 		['npx vitest run --project server src/lib/prose/ 2>&1 | tail -3'],
 		['cd /tmp && git status'],
 		['ls -la && grep -rn "gh issue" docs | head'],
