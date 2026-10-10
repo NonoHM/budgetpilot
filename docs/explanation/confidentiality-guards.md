@@ -53,15 +53,23 @@ must exist, and every row must name a guard or an issue.
   `include` settings, and the `GIT_CONFIG_*` variables that could override
   them. A GitHub MCP tool's every string is read.
 
-  The same hook also refuses privileged GitHub writes, because the session acts
-  with a token that administers the repository (#973): `gh pr merge` in every
-  form, a review approval, `gh auth token`, a `git push` whose destination is
-  `main`, a GraphQL mutation, and a `gh api` write to any path outside a closed
-  list of issue, comment, label and milestone paths. Its limit is that it reads
-  command lines. A script the assistant writes, or a GitHub MCP tool, can still
-  call the API with the session's token, and a push that takes its destination
-  from git configuration does not name `main` on the command line. The control
-  that closes those is a token without administration rights (#973).
+  The same hook also refuses privileged GitHub writes (#973): `gh pr merge` in
+  every form, a review approval, `gh auth token`, a `git push` whose destination
+  is `main`, a GraphQL mutation, and a `gh api` write to any path outside a
+  closed list of issue, comment, label and milestone paths. A merge goes through
+  the maintainer's merge script instead. The refusals hold when the command is
+  fed to a shell through a heredoc or a here-string, which the hook reads as a
+  command line of its own, and a shell that reads its program from a pipe is
+  refused. The scan of published text covers the same paths.
+
+  Its limit is that it reads command lines. A script the assistant writes, a
+  program whose own argument runs what it reads, text produced only when the
+  command runs (decoded, translated, built in another language), or a GitHub MCP
+  tool can still call the API with the session's token. A push that takes its destination from
+  git configuration does not name `main` on the command line, and a plain read
+  of gh's configuration file prints the token (#983). What keeps the branch
+  rules out of reach whatever the hook misses is the token itself, which has no
+  Administration permission (#973).
 
 - **The git hooks**, under `.githooks/`, read the staged lines and the commit
   message whoever typed them, and run gitleaks. `CONTRIBUTING.md` explains how

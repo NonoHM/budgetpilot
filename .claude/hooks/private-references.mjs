@@ -47,8 +47,9 @@
  * What it cannot see: a script or an alias that publishes on its own (the git hooks and the pull
  * request check read what reaches git whatever typed it), and text typed in the GitHub web UI (the
  * daily scan reads what reached GitHub). The same limit holds for the privileged writes it refuses
- * (#973): a script the assistant writes can call the API with the session's token, and the control
- * that closes that is a token without administration rights.
+ * (#973): a script the assistant writes, or a program whose own argument runs its stdin, can call
+ * the API with the session's token. What keeps the branch rules out of reach whatever this hook
+ * misses is that the token has no Administration permission.
  *
  * Output names the kind, where, and how to tell a true positive from an artefact, with the match
  * REDACTED: this text reaches the model's context.
@@ -554,6 +555,55 @@ const READERS = new Set([
 ]);
 /** Commands that write files but never run what they are given. */
 const WRITERS = new Set(['mkdir', 'touch', 'cp', 'mv', 'rm', 'chmod', 'ln', 'tee']);
+/** Shell programs: a wrapper that names one as an argument (`env bash`, `nice sh`) runs a shell. */
+const SHELL_BINARIES = new Set([
+	'sh',
+	'bash',
+	'zsh',
+	'dash',
+	'ksh',
+	'mksh',
+	'ash',
+	'yash',
+	'fish',
+	'busybox'
+]);
+/**
+ * Commands that run text they are handed as a program: from stdin or from a substitution's output.
+ * Their flags are not read, because a shell's flag can take a value and `-c` can itself read stdin,
+ * so one of these is judged on everything it is given. The built-ins are matched as the command
+ * only: no wrapper can run `.` or `source`, so as an argument (`tar -C .`) they are a path.
+ */
+const SHELLS = new Set([...SHELL_BINARIES, 'source', '.', 'eval', 'parallel']);
+/**
+ * Commands that run their arguments as a command line. xargs builds arguments from stdin, so it
+ * runs what stdin says when told to run a shell or one of these, or when a replacement string
+ * (`-I`, `-i`, `--replace`) can put stdin in the command word itself. GNU parallel runs each input
+ * line as a command when it is given none, and `{}` is its default replacement, so it is a shell.
+ */
+const RUNNERS = new Set([
+	'env',
+	'nice',
+	'nohup',
+	'sudo',
+	'doas',
+	'timeout',
+	'stdbuf',
+	'command',
+	'setsid',
+	'ionice',
+	'chrt',
+	'flock',
+	'strace',
+	'time',
+	'exec',
+	'xargs'
+]);
+const ARGUMENT_BUILDERS = new Set(['xargs']);
+/** An xargs option cluster or long option that sets a replacement string. */
+const REPLACES = /^(?:-[^-]*[Ii]|--replace)/;
+/** A positional that names stdin itself rather than a program file; `-` reads as an option. */
+const STDIN_PATHS = new Set(['/dev/stdin', '/dev/fd/0']);
 /** Shell words that come before a command word without being one. */
 const KEYWORDS = new Set(['!', '{', 'do', 'then', 'else', 'elif', 'if', 'while', 'until', 'time']);
 /** Segments that are the header or the end of a construct rather than a command. */
@@ -570,8 +620,7 @@ const FORMS =
 
 /** Said by every refusal of a privileged GitHub write (#973). */
 const PRIVILEGED =
-	'privileged repository writes go through the owner, because this session acts with an ' +
-	'administrator token (#973)';
+	'privileged repository writes go through the owner, not through this session (#973)';
 
 /**
  * The closed list of `gh api` write paths, read after a leading `/` and a `repos/<owner>/<repo>/`
@@ -825,6 +874,44 @@ function classify(segment, here, result, depth) {
 		);
 		return { kind: 'refused' };
 	}
+	// Nor through its stdin (#973): `bash <<'EOF'` and `… | sh` run the text fed to them, and so
+	// does any command whose line gives it no program of its own, as `node` or `python3 -`.
+	const named = (/** @type {Set<string>} */ set) =>
+		args.some((word) => isLiteral(word) && set.has(basename(word.value)));
+	const shell =
+		SHELLS.has(name) ||
+		named(SHELL_BINARIES) ||
+		(ARGUMENT_BUILDERS.has(name) &&
+			(named(RUNNERS) || args.some((word) => REPLACES.test(word.value))));
+	const program = args.some((word) => !word.value.startsWith('-') && !STDIN_PATHS.has(word.value));
+	if (shell && segment.pipedInto) {
+		result.refusals.push(
+			`« ${name} » reads its program from a pipe, and what comes before it can print any command ` +
+				'(base64 -d, tr, rev), so this hook cannot see what would run. Run the command directly.'
+		);
+		return { kind: 'refused' };
+	}
+	// A heredoc or a here-string fed to a shell is a command line, so it is read as one: the
+	// spellings the shell resolves (`g\h`, `"g"h`) are then resolved here too.
+	if (shell) {
+		for (const redir of segment.redirs) {
+			const fedProgram = redir.body ?? (redir.op === '<<<' && redir.word ? redir.word.value : null);
+			if (fedProgram !== null) mergeInto(result, validate(fedProgram, here, depth + 1));
+		}
+	}
+	const fed = stdinText(segment, result);
+	if (
+		shell
+			? MENTIONS_TOOL.test([fed, ...args.map((word) => word.raw)].join('\n'))
+			: !program && MENTIONS_TOOL.test(fed)
+	) {
+		result.refusals.push(
+			`« ${name} » can run what it is given, and it is given git, gh, curl or wget through its ` +
+				'stdin or a substitution, so this hook cannot see what would be published. Run the ' +
+				`tool directly. ${FORMS}`
+		);
+		return { kind: 'refused' };
+	}
 	// Nor a word it cannot see beside a publishing verb: `nice $G issue comment …` runs whatever
 	// $G holds, with the arguments of a publishing command.
 	if (
@@ -838,6 +925,25 @@ function classify(segment, here, result, depth) {
 		return { kind: 'refused' };
 	}
 	return { kind: 'other' };
+}
+
+/**
+ * The text a command can read from stdin: its heredoc bodies and here-strings and, when it is
+ * piped into, every word and heredoc body of the command before it, groups and subshells
+ * included, since a segment does not record where its pipeline starts.
+ *
+ * @param {Segment} segment
+ * @param {Analysis} result
+ */
+function stdinText(segment, result) {
+	/** @type {string[]} */
+	const parts = [];
+	for (const redir of segment.redirs) {
+		if (redir.body !== null) parts.push(redir.body);
+		else if (redir.op === '<<<' && redir.word) parts.push(redir.word.raw);
+	}
+	if (segment.pipedInto) parts.push(...result.words, ...result.heredocs);
+	return parts.join('\n');
 }
 
 /**

