@@ -4,8 +4,6 @@ import {
 	LOG_LEVELS,
 	SECURITY_LOG_VALUES
 } from '../logging/settings.ts';
-// The qualified default model and its digest, written once (#971); `qualifiedModel.spec.ts`.
-import qualifiedModel from '../ai/qualification/qualified-model.json' with { type: 'json' };
 
 /**
  * THE SETTINGS REGISTRY (R14 of the 1.3 plan, ruled on #841): every environment variable an operator
@@ -545,7 +543,10 @@ export const SETTINGS = {
 		group: 'AI insights',
 		readBy: 'app',
 		format: 'an Ollama model name',
-		default: qualifiedModel.tag,
+		// A literal, not an import of `ai/qualification/qualified-model.json`: this module is a leaf the
+		// image copies on its own for `scripts/log-pseudonym.mjs`, and an import it does not carry
+		// stopped that tool (docker-smoke, #971). `qualifiedModel.spec.ts` holds it to the pin.
+		default: 'phi4-mini:3.8b',
 		summary: 'Which model writes the insights.',
 		page: 'ai-insights.md'
 	},
