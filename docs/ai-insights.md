@@ -84,16 +84,32 @@ unprompted, it does not wall the container off.
 ### 2. Pull a model
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.ai.yml exec ollama ollama pull qwen2.5:0.5b
+docker compose -f docker-compose.yml -f docker-compose.ai.yml exec ollama ollama pull phi4-mini:3.8b
 ```
 
 If that errors with something about the container not running, wait ten
 seconds and run it again, Ollama was still booting.
 
 The model name must match `LLM_MODEL` in `.env`. They default to
-`qwen2.5:0.5b`, which is tiny: it runs on anything, and the advice it
-produces is correspondingly basic. If you have a real GPU, pull something
-bigger and update both:
+`phi4-mini:3.8b`. Choose by the machine Ollama runs on:
+
+| Host                                                 | Model            | Download | Answer time                   |
+| ---------------------------------------------------- | ---------------- | -------- | ----------------------------- |
+| 4 or more x86 cores and 4 GB free, or a GPU          | `phi4-mini:3.8b` | 2.5 GB   | 15 to 30 s on 4 cores         |
+| 2 cores, under 4 GB free, or a single-board computer | `qwen2.5:0.5b`   | 0.4 GB   | a few seconds, plainer advice |
+
+On 2 cores phi4-mini can take longer than the 45 s the app waits, and the card
+then says the model is still loading. A single-board computer such as a Raspberry Pi
+was not measured. For the smaller model, pull it and set
+`LLM_MODEL=qwen2.5:0.5b`. The measurements are in
+[What the AI advice requires of a model](./reference/ai-model.md#measured-models).
+
+**Upgraded from 1.2.0 or earlier without setting `LLM_MODEL`?** The default
+was `qwen2.5:0.5b`, so the card says the model is not installed until you pull
+`phi4-mini:3.8b`, or set `LLM_MODEL=qwen2.5:0.5b` to keep the model you have.
+
+If you have a real GPU, pull something bigger,
+[qualify it first](./ai-model-change.md), and update both:
 
 ```dotenv
 LLM_MODEL=qwen2.5:7b
