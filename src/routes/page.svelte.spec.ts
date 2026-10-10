@@ -129,7 +129,7 @@ function buildData(
 		budgets,
 		summary: EMPTY_SUMMARY,
 		natureAnalysis: EMPTY_NATURE_ANALYSIS,
-		aiAdvice: null,
+		aiAdviceKey: null,
 		aiAllowed: false,
 		recentTransactions: transactions
 			.slice(0, 10)

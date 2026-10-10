@@ -17,7 +17,9 @@ import {
 	assertBankSyncLookbackConfigured,
 	assertInvitationLifetimeConfigured,
 	assertLlmConnectTimeoutConfigured,
+	assertLlmQueueDepthConfigured,
 	assertLlmTimeoutConfigured,
+	assertLlmUserHourlyConfigured,
 	assertPasswordHashCostConfigured,
 	assertSessionIdleTimeoutConfigured,
 	assertRateLimitIpv6PrefixConfigured,
@@ -122,6 +124,8 @@ export const ENVIRONMENT_CHECKS: Check[] = [
 	['BANK_SYNC_FIRST_LOOKBACK_DAYS', assertBankSyncLookbackConfigured],
 	['LLM_TIMEOUT_MS', assertLlmTimeoutConfigured],
 	['LLM_CONNECT_TIMEOUT_MS', assertLlmConnectTimeoutConfigured],
+	['BP_LLM_QUEUE_DEPTH', assertLlmQueueDepthConfigured],
+	['BP_LLM_USER_HOURLY', assertLlmUserHourlyConfigured],
 	['BP_STRICT_SECRET_FILES', assertSecretFilesSafe]
 ];
 

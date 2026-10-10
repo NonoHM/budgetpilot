@@ -41,26 +41,18 @@ const dateRange = vi.hoisted(() => ({
 	serializePeriodParams: vi.fn(() => '')
 }));
 
-const insightsIndex = vi.hoisted(() => ({
-	getBudgetInsights: vi.fn(async () => ({
-		summary: {},
-		insights: [
-			{
-				id: 'x',
-				title: 't',
-				message: 'm',
-				severity: 'info',
-				category: 'budget',
-				source: 'local-llm'
-			}
-		],
-		localAiUnavailable: false
-	}))
+/**
+ * The model's two calls, counted. Since #535 the load never reaches either: the dashboard returns a
+ * key and the card posts to `/insights/advice`. A load that called the model again, a hover prefetch
+ * included, would show here as a non-zero count.
+ */
+const localLlm = vi.hoisted(() => ({
+	isLocalLlmEnabled: vi.fn(() => true),
+	probeLocalLlm: vi.fn(async () => null),
+	requestLocalBudgetInsights: vi.fn(async () => null)
 }));
 
-const localLlm = vi.hoisted(() => ({
-	isLocalLlmEnabled: vi.fn(() => true)
-}));
+const gatewaySpy = vi.hoisted(() => ({ failPrepare: false }));
 
 const dashboardInsights = vi.hoisted(() => ({
 	loadDashboardInsights: vi.fn(async () => [])
@@ -102,8 +94,21 @@ const forecast = vi.hoisted(() => ({
 vi.mock('$lib/server/db', () => ({ prisma: db.prisma }));
 vi.mock('$lib/server/budget/dashboard', () => budgetDashboard);
 vi.mock('$lib/server/date-range', () => dateRange);
-vi.mock('$lib/server/insights', () => insightsIndex);
-vi.mock('$lib/server/insights/local-llm', () => localLlm);
+vi.mock('$lib/server/insights/local-llm', async (importOriginal) => ({
+	...(await importOriginal<typeof import('$lib/server/insights/local-llm')>()),
+	...localLlm
+}));
+// The real prepareAdvice, with a switch that makes it throw: the load must survive that (rev 1 F7).
+vi.mock('$lib/server/ai/gateway', async (importOriginal) => {
+	const original = await importOriginal<typeof import('$lib/server/ai/gateway')>();
+	return {
+		...original,
+		prepareAdvice: (...args: Parameters<typeof original.prepareAdvice>) => {
+			if (gatewaySpy.failPrepare) throw new Error('refused key in payload');
+			return original.prepareAdvice(...args);
+		}
+	};
+});
 vi.mock('$lib/server/dashboard/insights', () => dashboardInsights);
 vi.mock('$lib/server/transactions/nature', () => nature);
 vi.mock('$lib/server/savings-goals/service', () => savingsGoals);
@@ -136,76 +141,111 @@ describe('/ (dashboard) — gating IA à 3 états', () => {
 		dateRange.getPreviousMonthRange.mockReturnValue(null);
 	});
 
-	it('n’appelle jamais getBudgetInsights quand LLM_ENABLED est false globalement', async () => {
-		expect.assertions(2);
+	type AiData = { aiAllowed: boolean; aiAdviceKey: string | null; aiAdvice?: unknown };
+	async function loadAi(): Promise<AiData> {
+		return (await load(buildLoadEvent())) as unknown as AiData;
+	}
+	function expectNoModelCall() {
+		expect(localLlm.probeLocalLlm).not.toHaveBeenCalled();
+		expect(localLlm.requestLocalBudgetInsights).not.toHaveBeenCalled();
+	}
 
-		localLlm.isLocalLlmEnabled.mockReturnValue(false);
+	it.each([
+		['LLM_ENABLED is false for the instance', false, true],
+		['the member turned the AI off', true, false]
+	])('when %s: aiAllowed false, no key, no model call', async (_name, instance, member) => {
+		localLlm.isLocalLlmEnabled.mockReturnValue(instance);
 		db.prisma.user.findUniqueOrThrow.mockResolvedValue({
-			aiInsightsEnabled: true,
+			aiInsightsEnabled: member,
 			aiIncludeLabels: false
 		});
-
-		const data = (await load(buildLoadEvent())) as Awaited<ReturnType<typeof load>> & {
-			aiAllowed: boolean;
-		};
-
-		expect(insightsIndex.getBudgetInsights).not.toHaveBeenCalled();
+		const data = await loadAi();
 		expect(data.aiAllowed).toBe(false);
+		expect(data.aiAdviceKey).toBeNull();
+		expectNoModelCall();
 	});
 
-	it('n’appelle jamais getBudgetInsights quand l’utilisateur a désactivé les conseils IA (même si LLM_ENABLED=true)', async () => {
-		expect.assertions(2);
+	// #535: the load, which a hover prefetch also runs, starts no generation, versus 9.7 s of GPU per
+	// hover. It returns the key the card posts on instead, and no advice promise at all.
+	it.each([true, false])(
+		'with the AI on (labels %s), returns a key and never calls the model',
+		async (labels) => {
+			localLlm.isLocalLlmEnabled.mockReturnValue(true);
+			db.prisma.user.findUniqueOrThrow.mockResolvedValue({
+				aiInsightsEnabled: true,
+				aiIncludeLabels: labels
+			});
+			const data = await loadAi();
+			expect(data.aiAllowed).toBe(true);
+			expect(data.aiAdviceKey).toMatch(/^[0-9a-f]{64}$/);
+			expect('aiAdvice' in data).toBe(false);
+			expectNoModelCall();
+		}
+	);
 
+	// Spec F2: the card refetches when the key changes, so the key must follow the data and the
+	// period, and stay put when neither moved (versus a card that never refreshes, or one that
+	// regenerates on every load).
+	it('the key is stable across identical loads and moves with the period, the data and the labels choice', async () => {
 		localLlm.isLocalLlmEnabled.mockReturnValue(true);
-		db.prisma.user.findUniqueOrThrow.mockResolvedValue({
-			aiInsightsEnabled: false,
-			aiIncludeLabels: false
+		const first = (await loadAi()).aiAdviceKey;
+		expect((await loadAi()).aiAdviceKey).toBe(first);
+
+		dateRange.parseDateRange.mockReturnValueOnce({
+			from: new Date('2026-05-01T00:00:00.000Z'),
+			to: new Date('2026-06-01T00:00:00.000Z'),
+			label: 'Mai 2026',
+			budgetMonth: '2026-05'
 		});
+		expect((await loadAi()).aiAdviceKey).not.toBe(first);
 
-		const data = (await load(buildLoadEvent())) as Awaited<ReturnType<typeof load>> & {
-			aiAllowed: boolean;
+		const rent = {
+			id: 'rent',
+			date: '2026-06-02',
+			label: 'LOYER',
+			amountCents: -80_000,
+			type: 'expense' as const,
+			category: 'Logement',
+			source: 'manual' as const
 		};
+		budgetDashboard.readDashboardDataForRange.mockResolvedValueOnce({
+			transactions: [rent],
+			allocations: [
+				{
+					transactionId: 'rent',
+					date: '2026-06-02',
+					category: 'Logement',
+					amountCents: -80_000,
+					nature: 'expense',
+					kind: 'expense'
+				}
+			],
+			budgets: []
+		} as never);
+		expect((await loadAi()).aiAdviceKey).not.toBe(first);
 
-		expect(insightsIndex.getBudgetInsights).not.toHaveBeenCalled();
-		expect(data.aiAllowed).toBe(false);
-	});
-
-	it('appelle getBudgetInsights et expose aiAllowed=true quand LLM global et préférence utilisateur sont activés', async () => {
-		expect.assertions(3);
-
-		localLlm.isLocalLlmEnabled.mockReturnValue(true);
-		db.prisma.user.findUniqueOrThrow.mockResolvedValue({
+		db.prisma.user.findUniqueOrThrow.mockResolvedValueOnce({
 			aiInsightsEnabled: true,
 			aiIncludeLabels: true
 		});
-
-		const data = (await load(buildLoadEvent())) as Awaited<ReturnType<typeof load>> & {
-			aiAllowed: boolean;
-			advice: unknown;
-		};
-
-		expect(insightsIndex.getBudgetInsights).toHaveBeenCalledTimes(1);
-		expect(data.aiAllowed).toBe(true);
-		expect(data.advice).not.toBeNull();
+		expect((await loadAi()).aiAdviceKey).not.toBe(first);
 	});
 
-	it('transmet includeLabels de la préférence utilisateur à getBudgetInsights', async () => {
-		expect.assertions(1);
-
+	// Rev 1 F7: preparing the advice can throw (a refused key in the payload). That used to be caught
+	// with the streamed promise; now it must not take the whole dashboard down.
+	it('a prepareAdvice that throws leaves the dashboard up with no key', async () => {
 		localLlm.isLocalLlmEnabled.mockReturnValue(true);
-		db.prisma.user.findUniqueOrThrow.mockResolvedValue({
-			aiInsightsEnabled: true,
-			aiIncludeLabels: true
-		});
-
-		await load(buildLoadEvent());
-
-		expect(insightsIndex.getBudgetInsights).toHaveBeenCalledWith(
-			expect.objectContaining({ includeLabels: true })
-		);
+		gatewaySpy.failPrepare = true;
+		try {
+			const data = await loadAi();
+			expect(data.aiAllowed).toBe(true);
+			expect(data.aiAdviceKey).toBeNull();
+		} finally {
+			gatewaySpy.failPrepare = false;
+		}
 	});
 
-	it('attend loadUpcomingBillsWidget (contrairement à aiAdvice, jamais un flux) et le scope à l’utilisateur', async () => {
+	it('attend loadUpcomingBillsWidget (jamais un flux) et le scope à l’utilisateur', async () => {
 		expect.assertions(3);
 
 		const resolved = {

@@ -1,3 +1,4 @@
+import { forgetAdvice } from '$lib/server/ai/gateway';
 import { existsSync } from 'node:fs';
 import { APP_VERSION } from '$lib/server/appVersion';
 import { fail, redirect, type Actions } from '@sveltejs/kit';
@@ -330,6 +331,8 @@ export const actions: Actions = {
 				where: { id: user.id }
 			});
 		});
+		// #535: the account's cached advice and any running generation end with it.
+		forgetAdvice(user.id);
 
 		clearSessionCookie(cookies);
 		throw redirect(303, '/login');
@@ -438,6 +441,9 @@ export const actions: Actions = {
 			where: { id: user.id },
 			data: { aiInsightsEnabled: enabled }
 		});
+		// #535: AFTER the write, so a request that read the old switch in between is refused by
+		// admission (its epoch moved) and cached advice ends with the consent that produced it.
+		forgetAdvice(user.id);
 
 		return { aiSettingsSuccess: true };
 	},
@@ -450,6 +456,8 @@ export const actions: Actions = {
 			where: { id: user.id },
 			data: { aiIncludeLabels: enabled }
 		});
+		// #535: same reason as above; advice built with labels is not kept after they are withdrawn.
+		forgetAdvice(user.id);
 
 		return { aiSettingsSuccess: true };
 	},

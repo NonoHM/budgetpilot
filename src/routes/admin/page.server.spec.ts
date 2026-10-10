@@ -43,6 +43,8 @@ const rateLimit = vi.hoisted(() => ({
 }));
 
 vi.mock('$lib/server/db', () => ({ prisma: db.prisma }));
+const aiGateway = vi.hoisted(() => ({ forgetAdvice: vi.fn() }));
+vi.mock('$lib/server/ai/gateway', () => aiGateway);
 vi.mock('$lib/server/auth/invitations', () => invitations);
 vi.mock('$lib/server/auth/rateLimit', () => rateLimit);
 // The commit rotates the ADMIN's session token in the same transaction (#249). The rotation is
@@ -298,7 +300,7 @@ describe('/admin action deleteUser', () => {
 	});
 
 	it("supprime les sessions puis le compte de l'utilisateur cible", async () => {
-		expect.assertions(5);
+		expect.assertions(6);
 
 		accountsAre({ id: 'user-b' });
 		tx.session.deleteMany.mockResolvedValue({ count: 1 });
@@ -313,6 +315,8 @@ describe('/admin action deleteUser', () => {
 		expect(tx.session.deleteMany).toHaveBeenCalledWith({ where: { userId: 'user-b' } });
 		expect(tx.user.delete).toHaveBeenCalledWith({ where: { id: 'user-b' } });
 		expect(result).toEqual({ deleteSuccess: expect.any(String) });
+		// #535: the deleted account's cached advice and any running generation end with it.
+		expect(aiGateway.forgetAdvice).toHaveBeenCalledWith('user-b');
 
 		// Transactions BEFORE the user, and the ORDER is the assertion rather than the call.
 		// Deleting a user cascades into Category and Transaction in whatever order the engine

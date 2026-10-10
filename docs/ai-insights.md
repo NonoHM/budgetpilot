@@ -109,7 +109,8 @@ gigabytes.
 ### 3. Enable it for your account
 
 The env flag is the global gate. Each user also flips their own switch in
-**Settings**. Both have to be on before anything appears on the dashboard.
+**Settings**. Both have to be on before the AI card appears on the dashboard.
+Open the card to get advice on the period shown.
 
 ## GPU or not
 
@@ -150,11 +151,11 @@ npm run dev:ai       # dev server, making sure Ollama is running first
 `LLM_BASE_URL` defaults to `http://127.0.0.1:11434`, which is where a local
 Ollama listens.
 
-## The first load is the slow one
+## The first analysis is the slow one
 
-The dashboard doesn't wait for the model. The page renders immediately and
-the AI card shows a pending state until the advice arrives, so a slow
-generation costs you a late card, never a late page.
+The dashboard doesn't wait for the model, and doesn't ask it anything until
+you open the AI card. The card then shows a pending state until the advice
+arrives, so a slow generation costs you a late card, never a late page.
 
 Expect the first one after starting the stack to take a while: Ollama has to
 load the model into memory before it can generate anything. Later loads are
@@ -188,25 +189,61 @@ what this page said. On the first dashboard visit that aborted the model load
 and reported the assistant as unavailable (#524). If you worked around it by
 setting `LLM_TIMEOUT_MS` in your own `.env`, you can remove the line.
 
+## How often it runs
+
+The model is a shared resource: on a GPU it writes one answer at a time for
+everyone on the instance. So the app bounds how much each person can ask of it.
+
+- **When.** Advice is generated when you open the AI card, and only then.
+  Changing the period closes the card; open it again for the new period. A
+  period you only pass through costs nothing.
+- **One at a time.** One analysis runs at once. A few more may wait for it;
+  past that, the card says the AI is busy instead of queueing you for minutes.
+- **One request per person.** A newer request from you replaces your older
+  one, for example from another tab.
+- **An hourly limit.** Each account may start a set number of analyses per
+  hour. When it is reached, the card says how many minutes are left. An
+  analysis the model did no work on is not counted: the AI busy, the model not
+  installed, or nothing answering. One the model did work on is counted, even
+  when its answer was cut short or unreadable, and so is one you cancel after
+  it started (a new period, a closed tab) or one that ran out of time.
+- **Answers are kept for an hour.** Advice for a period you already viewed,
+  with unchanged data, comes back at once and does not count against the
+  limit. The last 12 periods per account are kept in memory only, never in the
+  database, and are dropped when you turn the AI or the labels off, or when the
+  app restarts.
+
+| Variable             | Default | Accepted | Covers                                              |
+| -------------------- | ------- | -------- | --------------------------------------------------- |
+| `BP_LLM_QUEUE_DEPTH` | 2       | 1 to 8   | How many analyses may wait while one is running.    |
+| `BP_LLM_USER_HOURLY` | 20      | 1 to 120 | How many analyses one account may start in an hour. |
+
+A value outside the accepted range stops the app at startup rather than being
+adjusted. The [configuration reference](./configuration-reference.md) lists
+both with the reason for each ceiling. The bounds live in the app process, so
+they reset when it restarts.
+
 ## Nothing shows up
 
 If AI is disabled there's no card and no error, because a disabled optional
 feature shouldn't nag you. That silence is deliberate and is not a fault.
 
-When the card does appear and carries no advice, it names which of six things
+When the card does appear and carries no advice, it names which of eight things
 happened. Read the card first: it tells you which of the steps below to skip.
 
 | The card says                  | What happened                                                                           | What to do                                                                                      |
 | ------------------------------ | --------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| The assistant is starting      | Ollama accepted the connection and was still loading the model when the budget ran out. | Reload the page in a moment. If it repeats on every load, raise `LLM_TIMEOUT_MS`.               |
+| The assistant is starting      | Ollama accepted the connection and was still loading the model when the budget ran out. | Close and reopen the card in a moment. If it repeats every time, raise `LLM_TIMEOUT_MS`.        |
 | The assistant is not reachable | Nothing answered at `LLM_BASE_URL` inside the connect budget.                           | Check the service is up: `docker compose ... logs ollama`.                                      |
 | The address was refused        | `LLM_BASE_URL` is outside the host allowlist, so it was never contacted.                | Check `LLM_BASE_URL` against `LLM_ALLOWED_HOSTS` and `LLM_HTTP_PERMITTED_HOSTS`.                |
 | The model is not installed     | Ollama is running and does not have the model it was asked for.                         | Pull it, and check `LLM_MODEL` matches the pulled tag exactly.                                  |
 | The answer was unreadable      | A generation finished and could not be parsed.                                          | Usually clears on the next analysis. A larger model makes it rarer.                             |
 | The answer was cut short       | The generation ran out of room before it finished, so the JSON stops mid-object.        | Pull a different model, and check it against [what a model has to do](./reference/ai-model.md). |
+| The AI is busy                 | Other analyses fill the waiting room, or Ollama's own queue is full.                    | Close and reopen the card in a minute. If it happens often, raise `BP_LLM_QUEUE_DEPTH`.         |
+| Hourly limit reached           | This account started `BP_LLM_USER_HOURLY` analyses in the last hour.                    | Wait the minutes the card gives, or raise `BP_LLM_USER_HOURLY`.                                 |
 
-Only the first of these clears on its own. The other five wait for you, which
-is why the card no longer tells you to try again later for all six.
+The first and the last two clear on their own. The other five wait for you,
+which is why the card does not tell you to try again later for all eight.
 
 If the card never appears at all, work through these in order:
 
@@ -220,6 +257,6 @@ If the card never appears at all, work through these in order:
    `qwen2.5:0.5b` and `qwen2.5` are different names.
 5. Enough data: an account with four transactions gives the model nothing
    to comment on.
-6. Still on the first load? While the card shows its pending state it fills
-   in on its own, without reloading the page. Once it has settled on one of
-   the five outcomes above it will not change until you reload.
+6. Still on the first analysis? While the card shows its pending state it
+   fills in on its own, without reloading the page. Once it has settled on one
+   of the outcomes above, close and reopen it to ask again.

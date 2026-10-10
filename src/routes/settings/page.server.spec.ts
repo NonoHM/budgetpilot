@@ -116,6 +116,8 @@ const rateLimit = vi.hoisted(() => ({
 
 vi.mock('node:fs', () => fs);
 vi.mock('$lib/server/db', () => ({ prisma: db.prisma }));
+const aiGateway = vi.hoisted(() => ({ forgetAdvice: vi.fn() }));
+vi.mock('$lib/server/ai/gateway', () => aiGateway);
 vi.mock('$lib/server/backup/import', () => backupImport);
 vi.mock('$lib/server/tags/service', () => tagsService);
 vi.mock('$lib/server/auth/rateLimit', () => rateLimit);
@@ -586,7 +588,7 @@ describe('/settings', () => {
 		}
 
 		it('supprime le compte après phrase + mot de passe corrects (TOTP désactivé)', async () => {
-			expect.assertions(8);
+			expect.assertions(9);
 
 			const passwordHash = await hashPassword('mot-de-passe-long');
 			db.prisma.user.findUnique.mockResolvedValue({
@@ -619,6 +621,8 @@ describe('/settings', () => {
 
 			expect(tx.session.deleteMany).toHaveBeenCalledWith({ where: { userId: 'user-a' } });
 			expect(tx.user.delete).toHaveBeenCalledWith({ where: { id: 'user-a' } });
+			// #535: the account's cached advice and any running generation end with it.
+			expect(aiGateway.forgetAdvice).toHaveBeenCalledWith('user-a');
 			// Transactions BEFORE the user — see the same assertion in admin/page.server.spec.ts. A
 			// bare user.delete relies on a cascade ORDER the engine chooses, and TransactionSplit is
 			// RESTRICT on Category, so on PostgreSQL a user who has ever split a transaction could
@@ -886,6 +890,24 @@ describe('/settings', () => {
 				data: { aiIncludeLabels: true }
 			});
 			expect(JSON.stringify(db.prisma.user.update.mock.calls[0][0])).not.toContain('user-b');
+		});
+
+		// #535: changing either switch reaches the gateway AFTER the write, so cached advice and a
+		// running generation end with the consent that produced them. Before the write, a request
+		// reading the switches in between would generate under the old answer and nothing would
+		// cancel it.
+		it.each([
+			['updateAiInsightsEnabled', 'false'],
+			['updateAiInsightsEnabled', 'true'],
+			['updateAiIncludeLabels', 'false'],
+			['updateAiIncludeLabels', 'true']
+		] as const)('%s (%s) forgets the member advice after the write', async (action, enabled) => {
+			db.prisma.user.update.mockResolvedValue({ id: 'user-a' });
+			await runAction(action, { token: 'session-courante', input: { enabled } });
+			expect(aiGateway.forgetAdvice).toHaveBeenCalledWith('user-a');
+			expect(aiGateway.forgetAdvice.mock.invocationCallOrder[0]).toBeGreaterThan(
+				db.prisma.user.update.mock.invocationCallOrder[0]
+			);
 		});
 
 		it('ne fait jamais de mise à jour sans passer par l’id du user connecté (pas de userId client)', async () => {
