@@ -282,6 +282,64 @@ describe('generateAdvice (#535)', () => {
 		expect(llm.requestLocalBudgetInsights).toHaveBeenCalledTimes(258);
 	});
 
+	// The owner's ruling (2026-10-10): a failure the model did no work on is not charged, versus
+	// a full Ollama queue or a missing model spending the member's hour. The model call marks those
+	// (notCharged); the gateway never infers it from the displayed code (narrow pass F1).
+	it('a failure the model call marks as no work is not charged to the quota', async () => {
+		const { gateway } = fresh({ hourlyQuota: 1 });
+		llm.requestLocalBudgetInsights.mockResolvedValueOnce({
+			summary: '',
+			insights: [],
+			unavailable: true,
+			failureCode: 'busy',
+			notCharged: true
+		});
+		await ask(gateway);
+		expect(await ask(gateway)).toEqual(ADVICE);
+	});
+
+	// Narrow pass F1: `unreachable` is also the catch-all for an Ollama 500 or a reset mid-generation,
+	// which the GPU worked on. Without the mark, every code stays charged.
+	it.each(['unreachable', 'cold_start', 'response_unusable', 'response_truncated'] as const)(
+		'a %s failure without the no-work mark stays charged',
+		async (code) => {
+			const { gateway } = fresh({ hourlyQuota: 1 });
+			llm.requestLocalBudgetInsights.mockResolvedValueOnce({
+				summary: '',
+				insights: [],
+				unavailable: true,
+				failureCode: code
+			});
+			await ask(gateway);
+			expect((await ask(gateway)).failureCode).toBe('quota_reached');
+		}
+	);
+
+	// The mark never reaches the page: it is an accounting fact, not something the card shows.
+	it('does not pass the no-work mark to the page', async () => {
+		const { gateway } = fresh();
+		llm.requestLocalBudgetInsights.mockResolvedValueOnce({
+			summary: '',
+			insights: [],
+			unavailable: true,
+			failureCode: 'busy',
+			notCharged: true
+		});
+		expect(await ask(gateway)).toEqual({ insights: [], unavailable: true, failureCode: 'busy' });
+	});
+
+	// Narrow pass F2: refused at the limit while this member's own generation still runs, the answer
+	// quotes no minutes, because that generation's outcome (a refund) can still change them.
+	it('a refusal at the limit while the member own generation runs quotes no minutes', async () => {
+		const { gateway, admission } = fresh({ hourlyQuota: 1 });
+		await admission.acquire('u1', open(), admission.epoch('u1'));
+		expect(await ask(gateway)).toEqual({
+			insights: [],
+			unavailable: true,
+			failureCode: 'quota_reached'
+		});
+	});
+
 	// The slot is freed whatever the generation does, versus one throw locking the model for good.
 	it('releases the slot when the generation throws', async () => {
 		const { gateway, admission } = fresh({ queueDepth: 0 });

@@ -684,6 +684,7 @@
 	"dashboard_insights_ai_busy_reason": "It is writing other advice. Close and reopen this card in a minute.",
 	"dashboard_insights_ai_quota_reached_title": "Hourly limit reached",
 	"dashboard_insights_ai_quota_reached_reason": "You can ask again in {minutes} min.",
+	"dashboard_insights_ai_quota_reached_running": "Your other request is still running. Try again once it ends.",
 	"dashboard_insights_ai_check_configuration": "Check the configuration in",
 	"dashboard_insights_settings_link": "settings",
 	"dashboard_insights_ai_advice_title": "AI assistant advice",

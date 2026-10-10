@@ -309,6 +309,14 @@ describe('DashboardInsights.svelte AI card asks for advice (#535)', () => {
 		await expect.element(page.getByText(sentence)).toHaveTextContent(sentence);
 	});
 
+	// Narrow pass F2: refused at the limit while the member's other request still runs, the server
+	// quotes no minutes, and the card says why instead of inventing a figure.
+	it('answers the hourly limit without minutes while another request of the member runs', async () => {
+		await openWith({ insights: [], unavailable: true, failureCode: 'quota_reached' });
+		const sentence = m.dashboard_insights_ai_quota_reached_running();
+		await expect.element(page.getByText(sentence, { exact: true })).toHaveTextContent(sentence);
+	});
+
 	// An answer the page cannot read (a redirect to the sign-in page, a 500) renders no failure
 	// sentence the server never chose, versus « not running » over a session that simply expired.
 	it('an unreadable answer leaves the card idle rather than inventing a failure', async () => {

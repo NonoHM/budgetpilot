@@ -154,6 +154,11 @@ export function createGateway(dependencies: { admission: Admission; now: () => n
 			if (ticket === 'cancelled') return CANCELLED;
 			if (ticket === 'busy') return { insights: [], unavailable: true, failureCode: 'busy' };
 			if (ticket === 'quota_reached') {
+				// While this member's own generation still runs, its outcome (a refund) can still move the
+				// lift time, so no figure is quoted and the card says why (narrow pass F2).
+				if (admission.isRunning(input.userId)) {
+					return { insights: [], unavailable: true, failureCode: 'quota_reached' };
+				}
 				// What the server knows and the reader cannot see: the minute the limit lifts. Rounded up,
 				// so the sentence never says « 0 minutes » while a request would still be refused.
 				const liftsAt = admission.quotaLiftsAt(input.userId) ?? now();
@@ -169,6 +174,12 @@ export function createGateway(dependencies: { admission: Admission; now: () => n
 				// kept.
 				if (ticket.signal.aborted || !result) return CANCELLED;
 				const advice = toAdvice(result);
+				// A failure the model did no work on is not charged to the member's hour (owner's ruling,
+				// 2026-10-10). The model call marks it where that is KNOWN; the displayed code is never
+				// the test, because `unreachable` is also the catch-all after a generation the GPU did
+				// work on, and free failures would be unlimited GPU. A request cancelled after it
+				// started, and a load cut by the budget, stay charged.
+				if (result.notCharged) ticket.refund();
 				if (!advice.unavailable) remember(input.userId, input.prepared.key, advice);
 				return advice;
 			} finally {

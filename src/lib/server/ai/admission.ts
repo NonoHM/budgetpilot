@@ -24,6 +24,11 @@ export interface Ticket {
 	signal: AbortSignal;
 	/** Frees the slot for the next waiting request. Idempotent, so a `finally` cannot free two. */
 	release(): void;
+	/**
+	 * Takes this generation's start back out of the member's quota, once: for a failure the model
+	 * did no work on (the gateway decides which). Never for a generation the GPU worked on.
+	 */
+	refund(): void;
 }
 
 export interface Admission {
@@ -38,6 +43,8 @@ export interface Admission {
 	cancelUser(userId: string): void;
 	/** When a member at their quota may start again; `null` when they are below it. */
 	quotaLiftsAt(userId: string): number | null;
+	/** Whether this member's generation is the one running now. */
+	isRunning(userId: string): boolean;
 	readonly inFlight: number;
 	readonly waiting: number;
 }
@@ -71,10 +78,19 @@ export function createAdmission(options: {
 
 	function start(userId: string, controller: AbortController): Ticket {
 		running = { userId, controller };
-		starts.set(userId, [...recentStarts(userId), options.now()]);
+		const startedAt = options.now();
+		starts.set(userId, [...recentStarts(userId), startedAt]);
 		let released = false;
+		let refunded = false;
 		return {
 			signal: controller.signal,
+			refund() {
+				if (refunded) return;
+				refunded = true;
+				const own = starts.get(userId) ?? [];
+				const at = own.indexOf(startedAt);
+				if (at >= 0) own.splice(at, 1);
+			},
 			release() {
 				if (released) return;
 				released = true;
@@ -102,6 +118,9 @@ export function createAdmission(options: {
 		},
 		epoch(userId) {
 			return epochs.get(userId) ?? 0;
+		},
+		isRunning(userId) {
+			return running?.userId === userId;
 		},
 		quotaLiftsAt(userId) {
 			const recent = recentStarts(userId);

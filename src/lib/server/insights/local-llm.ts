@@ -52,8 +52,14 @@ export function isLocalLlmEnabled(env: NodeJS.ProcessEnv = process.env): boolean
 }
 
 /** One shape for every giving-up path, so a code can never be omitted where `unavailable` is set. */
-function unavailable(code: LocalLlmFailureCode): LocalLlmResult {
-	return { summary: '', insights: [], unavailable: true, failureCode: code };
+function unavailable(code: LocalLlmFailureCode, noWork = false): LocalLlmResult {
+	return {
+		summary: '',
+		insights: [],
+		unavailable: true,
+		failureCode: code,
+		...(noWork ? { notCharged: true as const } : {})
+	};
 }
 
 /**
@@ -140,11 +146,11 @@ export async function probeLocalLlm(
 	const baseUrl = getLocalBaseUrl(env.LLM_BASE_URL ?? DEFAULT_BASE_URL, env);
 	// Refused by the host allowlist, before any socket is opened. Distinct from "nothing answered":
 	// no amount of waiting fixes a base URL the allowlist will not accept.
-	if (!baseUrl) return unavailable('not_configured');
+	if (!baseUrl) return unavailable('not_configured', true);
 	const connectTimeoutMs = readIntegerSetting('LLM_CONNECT_TIMEOUT_MS', env);
 	return (await probeLocalLlmReachable(baseUrl, connectTimeoutMs, env))
 		? null
-		: unavailable('unreachable');
+		: unavailable('unreachable', true);
 }
 
 /**
@@ -240,7 +246,12 @@ export async function requestLocalBudgetInsights(
 		// `unreachable` is the fallback rather than a catch-all sentence: the probe answered, so
 		// anything unrecognised here is the connection having failed since, which is the honest
 		// reading and the one whose advice ("check that it is running") stays true.
-		return unavailable(failureCode(caught, recogniseLocalLlmFailure, LOCAL_LLM_FALLBACK_CODE));
+		// No work done only where it is KNOWN (404, 503 before generating); the catch-all is not,
+		// because a 500 or a reset can arrive after the GPU did the whole generation (#535).
+		return unavailable(
+			failureCode(caught, recogniseLocalLlmFailure, LOCAL_LLM_FALLBACK_CODE),
+			isModelNotFound(caught) || isOllamaBusy(caught)
+		);
 	}
 }
 

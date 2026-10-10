@@ -202,11 +202,16 @@ everyone on the instance. So the app bounds how much each person can ask of it.
 - **One request per person.** A newer request from you replaces your older
   one, for example from another tab.
 - **An hourly limit.** Each account may start a set number of analyses per
-  hour. When it is reached, the card says how many minutes are left.
+  hour. When it is reached, the card says how many minutes are left. An
+  analysis the model did no work on is not counted: the AI busy, the model not
+  installed, or nothing answering. One the model did work on is counted, even
+  when its answer was cut short or unreadable, and so is one you cancel after
+  it started (a new period, a closed tab) or one that ran out of time.
 - **Answers are kept for an hour.** Advice for a period you already viewed,
   with unchanged data, comes back at once and does not count against the
-  limit. The last 12 periods per account are kept, in memory only, and are
-  dropped when you turn the AI or the labels off.
+  limit. The last 12 periods per account are kept in memory only, never in the
+  database, and are dropped when you turn the AI or the labels off, or when the
+  app restarts.
 
 | Variable             | Default | Accepted | Covers                                              |
 | -------------------- | ------- | -------- | --------------------------------------------------- |

@@ -60,6 +60,13 @@ export interface LocalLlmResult {
 	unavailable?: boolean;
 	/** Set whenever `unavailable` is true, and never otherwise. */
 	failureCode?: LocalLlmFailureCode;
+	/**
+	 * The model did no work for this failure: the probe refused, or Ollama answered 404 or 503 before
+	 * generating. Set only where that is known, never inferred from `failureCode`, because
+	 * `unreachable` is also the catch-all after a generation the GPU did work on (#535). The gateway
+	 * refunds the member's quota on it; it never reaches the page.
+	 */
+	notCharged?: true;
 }
 
 /** What the dashboard needs from a local-model run — streamed, so it arrives after the page. */

@@ -129,6 +129,50 @@ describe('admission (#535)', () => {
 		expect(admission.quotaLiftsAt('u1')).toBeNull();
 	});
 
+	// A refunded start no longer counts, versus a failure the model never worked on spending the
+	// member's hour. Only that ticket's own start is removed, and only once.
+	it('refund removes that ticket own start from the quota, once', async () => {
+		// An advancing clock, so « its own start » is told apart from « the oldest start » (narrow
+		// pass F4): removing the oldest would move the lift time to the refunded one's.
+		let t = 0;
+		const admission = createAdmission({ queueDepth: 2, hourlyQuota: 2, now: () => t });
+		const kept = (await take(admission, 'u1', open())) as Ticket;
+		kept.release();
+		t = 10;
+		const refunded = (await take(admission, 'u1', open())) as Ticket;
+		refunded.refund();
+		refunded.refund();
+		refunded.release();
+		t = 20;
+		expect(isTicket(await take(admission, 'u1', open()))).toBe(true);
+		expect(admission.quotaLiftsAt('u1')).toBe(HOUR);
+	});
+
+	// The run-once guard matters only when another start shares the same millisecond: a second
+	// refund would then remove that one too (a break-check found the advancing-clock test blind to it).
+	it('a second refund removes nothing, even when another start shares its millisecond', async () => {
+		const admission = createAdmission({ queueDepth: 2, hourlyQuota: 2, now: () => 0 });
+		((await take(admission, 'u1', open())) as Ticket).release();
+		const refunded = (await take(admission, 'u1', open())) as Ticket;
+		refunded.refund();
+		refunded.refund();
+		refunded.release();
+		((await take(admission, 'u1', open())) as Ticket).release();
+		expect(admission.quotaLiftsAt('u1')).toBe(HOUR);
+	});
+
+	// Narrow pass F2: whether the member's own generation is still running, so a refusal at the
+	// limit does not quote a lift time that the running one's outcome can still change.
+	it('reports whether a member has a generation running', async () => {
+		const admission = createAdmission({ queueDepth: 2, hourlyQuota: 20, now: () => 0 });
+		expect(admission.isRunning('u1')).toBe(false);
+		const running = (await take(admission, 'u1', open())) as Ticket;
+		expect(admission.isRunning('u1')).toBe(true);
+		expect(admission.isRunning('u2')).toBe(false);
+		running.release();
+		expect(admission.isRunning('u1')).toBe(false);
+	});
+
 	// Quota per member, versus one member's use refusing another.
 	it('counts the quota per member', async () => {
 		const admission = createAdmission({ queueDepth: 2, hourlyQuota: 1, now: () => 0 });

@@ -179,7 +179,7 @@
 		return titles[code];
 	}
 
-	function aiFailureReason(code: LocalLlmFailureCode, retryInMinutes = 1): string {
+	function aiFailureReason(code: LocalLlmFailureCode, retryInMinutes?: number): string {
 		const reasons: Record<LocalLlmFailureCode, string> = {
 			cold_start: m.dashboard_insights_ai_cold_start_message(),
 			unreachable: m.dashboard_insights_ai_unreachable_reason(),
@@ -188,7 +188,11 @@
 			response_unusable: m.dashboard_insights_ai_response_unusable_reason(),
 			response_truncated: m.dashboard_insights_ai_response_truncated_reason(),
 			busy: m.dashboard_insights_ai_busy_reason(),
-			quota_reached: m.dashboard_insights_ai_quota_reached_reason({ minutes: retryInMinutes })
+			// No figure when the server quoted none: the member's other request still runs.
+			quota_reached:
+				retryInMinutes === undefined
+					? m.dashboard_insights_ai_quota_reached_running()
+					: m.dashboard_insights_ai_quota_reached_reason({ minutes: retryInMinutes })
 		};
 		return reasons[code];
 	}

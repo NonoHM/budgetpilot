@@ -568,6 +568,45 @@ describe('requestLocalBudgetInsights failure codes', () => {
 		}
 	});
 
+	// Narrow pass F1: only failures the model did no work on carry the no-work mark (the gateway
+	// refunds the quota on it); an Ollama 500 after load or generation maps to the catch-all
+	// `unreachable` WITHOUT it, versus every unrecognised failure becoming free.
+	it('marks a 503 and a 404 as no work, and a 500 as work', async () => {
+		const answer = (status: number) =>
+			mockOllamaWithSignal(async () => new Response(JSON.stringify({ error: 'x' }), { status }));
+		const results: Record<number, unknown> = {};
+		for (const status of [503, 404, 500]) {
+			const fetchMock = answer(status);
+			try {
+				const result = await requestLocalBudgetInsights('prompt agrégé', baseEnv);
+				results[status] = { code: result?.failureCode, notCharged: result?.notCharged ?? false };
+			} finally {
+				fetchMock.mockRestore();
+			}
+		}
+		expect(results).toEqual({
+			503: { code: 'busy', notCharged: true },
+			404: { code: 'model_unavailable', notCharged: true },
+			500: { code: 'unreachable', notCharged: false }
+		});
+	});
+
+	it('marks a refusal by the probe as no work', async () => {
+		const stopped = mockOllamaWithSignal(async () => new Response('{}'), neverAnswers);
+		try {
+			const result = await requestLocalBudgetInsights('prompt agrégé', {
+				...baseEnv,
+				LLM_CONNECT_TIMEOUT_MS: '50'
+			});
+			expect({ code: result?.failureCode, notCharged: result?.notCharged }).toEqual({
+				code: 'unreachable',
+				notCharged: true
+			});
+		} finally {
+			stopped.mockRestore();
+		}
+	});
+
 	// #535: the caller's signal (a superseded request, an opt-out, a closed tab) reaches the chat
 	// fetch, versus a cancelled request generating until LLM_TIMEOUT_MS. The timeout is 30 s here, so
 	// a settle inside the test's own limit can only come from the caller's abort.
