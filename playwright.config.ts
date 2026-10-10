@@ -12,6 +12,8 @@ export default defineConfig({
 	// Test files under e2e/ are named *.spec.ts (helper modules like config.ts/seed.ts are
 	// excluded automatically since they don't match this glob).
 	testMatch: '**/*.spec.ts',
+	// The real-model run (#971) has its own config and needs an Ollama: `npm run ai:check`.
+	testIgnore: ['ai-check/**'],
 	globalSetup: './e2e/global-setup.ts',
 	// Forced serial: every spec shares one server + one SQLite DB file seeded with a single
 	// dataset (SEEDED_BUDGET_CATEGORY, SEEDED_SAVINGS_GOAL_NAME, the seeded net-worth account,

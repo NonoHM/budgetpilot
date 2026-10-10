@@ -27,6 +27,8 @@
   for OpenTelemetry, Vector, Fluent Bit and Alloy with Loki, and the field
   mapping to ECS and OCSF.
 - **[Local AI advice](./ai-insights.md)**: the optional Ollama setup.
+- **[Qualify, change or roll back the AI model](./ai-model-change.md)**: check
+  a model on this app's prompt before using it, and undo a change.
 - **[Bank sync](./bank-sync.md)**: the optional automatic PSD2 connection.
 - **[Troubleshooting](./troubleshooting.md)**: when something's broken.
 
@@ -113,8 +115,8 @@ Rules, limits and exact values, in [reference](./reference/README.md):
 - [Account settings](./reference/account.md): password rules, session
   lifetime, and where the language preference is stored.
 - [What the AI advice requires of a model](./reference/ai-model.md): the four
-  things a model has to do, the derived token ceiling, and what is not
-  promised.
+  things a model has to do, the derived token ceiling, the qualified default,
+  and seven models measured side by side.
 - [AISVS map of the AI path](./reference/aisvs-map.md): every OWASP AISVS 1.0
   Level 1 and 2 requirement with its verdict, evidence and issue.
 

@@ -543,7 +543,10 @@ export const SETTINGS = {
 		group: 'AI insights',
 		readBy: 'app',
 		format: 'an Ollama model name',
-		default: 'qwen2.5:0.5b',
+		// A literal, not an import of `ai/qualification/qualified-model.json`: this module is a leaf the
+		// image copies on its own for `scripts/log-pseudonym.mjs`, and an import it does not carry
+		// stopped that tool (docker-smoke, #971). `qualifiedModel.spec.ts` holds it to the pin.
+		default: 'phi4-mini:3.8b',
 		summary: 'Which model writes the insights.',
 		page: 'ai-insights.md'
 	},

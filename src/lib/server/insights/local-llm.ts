@@ -10,7 +10,6 @@ import { localLlmJsonSchema, localLlmNumPredict, localLlmResponseSchema } from '
 import type { BudgetInsight, LocalLlmFailureCode, LocalLlmResult } from './types';
 
 const DEFAULT_BASE_URL = 'http://127.0.0.1:11434';
-const DEFAULT_MODEL = 'qwen2.5:0.5b';
 /**
  * TWO BUDGETS, NOT ONE, and the split is the fix for #524 rather than a bigger number.
  *
@@ -44,7 +43,7 @@ const DEFAULT_HTTP_PERMITTED_HOSTS = [...DEFAULT_ALLOWED_HOSTS, 'host.docker.int
 
 /** The model tag this instance asks for. Read by the gateway's cache key as well as the request. */
 export function localLlmModel(env: NodeJS.ProcessEnv = process.env): string {
-	return env.LLM_MODEL ?? DEFAULT_MODEL;
+	return env.LLM_MODEL ?? SETTINGS.LLM_MODEL.default;
 }
 
 export function isLocalLlmEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
