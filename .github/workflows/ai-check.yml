@@ -1,0 +1,142 @@
+name: AI check
+
+# Runs `npm run ai:check` (#971): the build, a real browser, and the qualified default model on a
+# real Ollama, on CPU. It answers whether the model the app ships with still does the job on this
+# app's own prompt: every answer readable and not cut, no injected instruction obeyed, and the same
+# weights as when it was qualified (AISVS C11.1.2, C6.1.4).
+#
+# When it runs:
+# - weekly, because a model tag can move upstream with no change here, and the digest check is
+#   what notices;
+# - on a pull request that changes the qualified pin or anything the prompt and the model call are
+#   built from, so the result is on the pull request before anyone merges it. It is NOT a required
+#   check (a path-filtered workflow cannot be one), and it runs the pull request's own copy of the
+#   report script: a reviewer reads both;
+# - when a release is published (after the fact: it records, it gates nothing), and by hand.
+# The `ollama` package is not in the filter: a dependency bump is caught by the weekly run, and the
+# package goes when the transport is rewritten (#967).
+#
+# A refusal names its reason. « the tag moved upstream » means re-qualify; a verdict other than
+# advice on one run means read that run's raw answer in the report artifact before believing it.
+
+on:
+  schedule:
+    - cron: '23 4 * * 1'
+  release:
+    types: [published]
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - src/lib/server/ai/qualification/**
+      - src/lib/server/insights/prompt.ts
+      - src/lib/server/insights/schema.ts
+      - src/lib/server/insights/local-llm.ts
+      - src/lib/server/insights/summary.ts
+      - src/lib/server/reports/monthly.ts
+      - src/lib/server/ai/gateway.ts
+      - src/lib/domain/money.ts
+      - e2e/ai-check/**
+      - e2e/support/aiInstance.ts
+      - playwright.ai-check.config.ts
+      - scripts/ai-check-report.mjs
+      - .github/workflows/ai-check.yml
+
+concurrency:
+  group: ai-check-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # The Ollama release docker-compose.ai.yml runs, which it names by tag only (#839); here it is
+  # pulled by the digest that tag resolved to (the index digest, every platform).
+  # Not in .github/actions/pull-pinned/images.txt, because docker-smoke.yml pulls every line of
+  # that file and this image is several gigabytes. `qualifiedModel.spec.ts` asserts this tag
+  # equals the overlay's. To refresh: docker buildx imagetools inspect docker.io/ollama/ollama:<tag>
+  OLLAMA_TAG: '0.32.5'
+  OLLAMA_DIGEST: 'sha256:4dea9fb511947e24a84237bb636b0203abcb2ff0d3fbc7b4ff865deb91362131'
+
+jobs:
+  ai-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma clients
+        run: npm run db:generate
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      # Same bound and the same two variables as ci.yml's step, for the reason written there.
+      - name: Install Playwright Chromium
+        timeout-minutes: 15
+        env:
+          DEBIAN_FRONTEND: noninteractive
+          NEEDRESTART_MODE: a
+        run: npx playwright install --with-deps chromium
+
+      - name: Build
+        run: npm run build
+        env:
+          # Throwaway CI-only values, as in ci.yml's build step; the spec boots its own instance.
+          DATABASE_URL: file:./dev.db
+
+      - name: Pull Ollama by digest, mirror first
+        id: ollama-image
+        uses: ./.github/actions/pull-pinned
+        with:
+          name: ollama
+          tag: ${{ env.OLLAMA_TAG }}
+          digest: ${{ env.OLLAMA_DIGEST }}
+          sources: |
+            mirror.gcr.io/ollama
+            docker.io/ollama
+
+      - name: Start Ollama on CPU and pull the qualified model
+        id: model
+        env:
+          IMAGE: ${{ steps.ollama-image.outputs.ref }}
+        run: |
+          docker run -d --name ai-check-ollama --pull never -p 127.0.0.1:11434:11434 "$IMAGE"
+          tag=$(node -p "require('./src/lib/server/ai/qualification/qualified-model.json').tag")
+          # A closed format, so the pin a pull request carries cannot become an option or a path.
+          if ! [[ "$tag" =~ ^[a-z0-9][a-z0-9._-]*:[A-Za-z0-9._-]+$ ]]; then
+            echo "::error title=ai-check::'$tag' in qualified-model.json is not an Ollama name:tag."
+            exit 1
+          fi
+          for attempt in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:11434/api/version >/dev/null && break
+            sleep 1
+          done
+          docker exec ai-check-ollama ollama pull "$tag"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: ai:check
+        env:
+          BP_AI_CHECK_OLLAMA_URL: http://127.0.0.1:11434
+          BP_AI_CHECK_MODEL: ${{ steps.model.outputs.tag }}
+          BP_AI_CHECK_RUNS: '3'
+        run: npm run ai:check
+
+      - name: Keep the report, raw answers included
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ai-check-report
+          path: test-results/ai-check/report.json
+          if-no-files-found: warn
+          retention-days: 30

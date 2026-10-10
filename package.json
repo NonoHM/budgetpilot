@@ -9,6 +9,7 @@
 		"dev": "vite dev",
 		"dev:ai": "node scripts/ensure-ollama.mjs && vite dev",
 		"setup:llm": "node scripts/ensure-ollama.mjs --pull",
+		"ai:check": "playwright test -c playwright.ai-check.config.ts && node scripts/ai-check-report.mjs",
 		"seed:dev": "node scripts/seed-dev.mjs",
 		"db:normalize-names": "node scripts/normalize-names.mjs",
 		"db:generate": "node scripts/generate-prisma-clients.mjs",
