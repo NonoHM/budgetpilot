@@ -8,7 +8,7 @@ import {
 } from '$lib/server/insights/local-llm';
 import { buildBudgetInsightsPrompt } from '$lib/server/insights/prompt';
 import { buildTransactionSummary } from '$lib/server/insights/summary';
-import type { LocalAiAdvice, LocalLlmResult } from '$lib/server/insights/types';
+import type { LocalAiAdvice, LocalLlmResult, ModelPick } from '$lib/server/insights/types';
 import { createAdmission, type Admission } from './admission';
 import { acceptPicks, adviceFacts, type AdviceFacts } from './statements';
 
@@ -116,7 +116,11 @@ export function createGateway(dependencies: { admission: Admission; now: () => n
 	const { admission, now } = dependencies;
 	// Map order is insertion order, so re-inserting on every use makes the first key the least
 	// recently used one, at both levels: members, and each member's answers.
-	const cache = new Map<string, Map<string, { advice: LocalAiAdvice; at: number }>>();
+	// WHAT THE MODEL PICKED, not what the card showed (#996, narrow pass F1). The key is the model and
+	// the prompt, and acceptance reads facts the prompt does not carry, so every hit is accepted
+	// again against the facts of the press reading it: the picks are a fact about the past, what the
+	// card may show is a verdict on the present.
+	const cache = new Map<string, Map<string, { picks: ModelPick[]; at: number }>>();
 
 	function touch<K, V>(map: Map<K, V>, key: K, value: V, bound: number): void {
 		map.delete(key);
@@ -124,7 +128,7 @@ export function createGateway(dependencies: { admission: Admission; now: () => n
 		while (map.size > bound) map.delete(map.keys().next().value!);
 	}
 
-	function cached(userId: string, key: string): LocalAiAdvice | undefined {
+	function cached(userId: string, key: string): ModelPick[] | undefined {
 		const answers = cache.get(userId);
 		const entry = answers?.get(key);
 		if (!answers || !entry) return undefined;
@@ -134,12 +138,12 @@ export function createGateway(dependencies: { admission: Admission; now: () => n
 		}
 		touch(answers, key, entry, CACHE_ENTRIES_PER_MEMBER);
 		touch(cache, userId, answers, CACHE_MAX_MEMBERS);
-		return entry.advice;
+		return entry.picks;
 	}
 
-	function remember(userId: string, key: string, advice: LocalAiAdvice): void {
+	function remember(userId: string, key: string, picks: ModelPick[]): void {
 		const answers = cache.get(userId) ?? new Map();
-		touch(answers, key, { advice, at: now() }, CACHE_ENTRIES_PER_MEMBER);
+		touch(answers, key, { picks, at: now() }, CACHE_ENTRIES_PER_MEMBER);
 		touch(cache, userId, answers, CACHE_MAX_MEMBERS);
 	}
 
@@ -164,7 +168,7 @@ export function createGateway(dependencies: { admission: Admission; now: () => n
 			if (refused) return failed(refused);
 
 			const hit = cached(input.userId, input.prepared.key);
-			if (hit) return hit;
+			if (hit) return toAdvice({ picks: hit }, input.prepared.facts);
 
 			const ticket = await admission.acquire(input.userId, input.signal, input.epoch);
 			if (ticket === 'cancelled') return CANCELLED;
@@ -197,7 +201,7 @@ export function createGateway(dependencies: { admission: Admission; now: () => n
 				// work on, and free failures would be unlimited GPU. A request cancelled after it
 				// started, and a load cut by the budget, stay charged.
 				if (result.notCharged) ticket.refund();
-				if (!advice.unavailable) remember(input.userId, input.prepared.key, advice);
+				if (!advice.unavailable) remember(input.userId, input.prepared.key, result.picks);
 				return advice;
 			} finally {
 				ticket.release();

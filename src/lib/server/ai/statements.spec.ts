@@ -287,6 +287,33 @@ describe('#996: the model picks, the app writes', () => {
 		]);
 	});
 
+	// Narrow pass F1 on 5259f2d5: the cache key is the model and the prompt, and acceptance reads
+	// facts the prompt does not carry (two spellings folding outside the top five leave it
+	// byte-identical). So a cached answer is re-checked against the facts of the press reading it:
+	// the model's picks are a fact about the past, what the card may show is a verdict on the present.
+	it('re-checks a cached answer against the facts of the press that reads it', async () => {
+		const chat = answering(picks(['top_category', 'c1']));
+		const prepared = prepareAdvice({ periodData: periodData(), includeLabels: false, env: ENV });
+		const gateway = createGateway({
+			admission: createAdmission({ queueDepth: 2, hourlyQuota: 20, now: () => 0 }),
+			now: () => 0
+		});
+		const press = (facts: typeof prepared.facts) =>
+			gateway.generateAdvice({
+				userId: 'member',
+				prepared: { ...prepared, facts },
+				epoch: gateway.adviceEpoch('member'),
+				signal: new AbortController().signal,
+				env: ENV
+			});
+		expect((await press(prepared.facts)).statements?.map((statement) => statement.id)).toEqual([
+			'top_category-c1'
+		]);
+		const folded = await press({ ...prepared.facts, spellingsFold: true });
+		expect(chat, 'the second press was answered from the cache').toHaveBeenCalledTimes(1);
+		expect(folded).toEqual({ statements: [], unavailable: true, failureCode: 'response_withheld' });
+	});
+
 	it('withholds the answer when every pick is dropped', async () => {
 		const { advice } = await ask(picks(['over_budget', 'c1'], ['near_limit', 'c2']));
 		expect(advice).toEqual({
