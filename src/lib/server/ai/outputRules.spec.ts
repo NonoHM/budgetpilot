@@ -177,7 +177,8 @@ describe('the corpus output rulings, at the gateway (#996)', () => {
 });
 
 describe('the order at the gateway (#996)', () => {
-	// Accepted before the cache write, versus a cache hit serving a pick the app dropped.
+	// Every cache hit is accepted again (the cache keeps raw picks), versus a hit serving a pick the
+	// app dropped.
 	it('serves from the cache only what it accepted', async () => {
 		const chat = answering({
 			picks: [{ kind: 'over_budget', category: 'c2' }, SIBLING.pick]

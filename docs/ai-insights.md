@@ -266,7 +266,8 @@ everyone on the instance. So the app bounds how much each person can ask of it.
   it started (a new period, a closed tab) or one that ran out of time.
 - **Answers are kept for an hour.** Advice for a period you already viewed,
   with unchanged data, comes back at once and does not count against the
-  limit. The last 12 periods per account are kept in memory only, never in the
+  limit. What is kept is the model's picks, and they are checked again against
+  your figures each time they are shown. The last 12 periods per account are kept in memory only, never in the
   database, and are dropped when you turn the AI or the labels off, or when the
   app restarts.
 

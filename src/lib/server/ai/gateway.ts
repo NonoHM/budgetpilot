@@ -193,7 +193,8 @@ export function createGateway(dependencies: { admission: Admission; now: () => n
 				// one replaced. Before the cache write too, so advice finished after an opt-out is not
 				// kept.
 				if (ticket.signal.aborted || !result) return CANCELLED;
-				// Accepted BEFORE the cache write, so a pick the app refuses is never served again.
+				// Accepted here for this press; the cache keeps the raw picks and every hit is accepted
+				// again against the facts of the press reading it, so a refused pick is never shown.
 				const advice = toAdvice(result, input.prepared.facts);
 				// A failure the model did no work on is not charged to the member's hour (owner's ruling,
 				// 2026-10-10). The model call marks it where that is KNOWN; the displayed code is never
