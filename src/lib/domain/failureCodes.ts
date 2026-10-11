@@ -46,9 +46,9 @@
  * - `quota_reached`: this member started `BP_LLM_USER_HOURLY` generations in the last hour.
  *   `ai/gateway.ts`, when admission refuses on the quota (#535).
  *
- * - `response_withheld`: the model answered, and every statement it wrote named a figure the payload
- *   does not hold for it, or broke the output policy (G3, #969). `ai/accept.ts`. The model and the
- *   configuration both work; the reader may ask again later, and the rules card still stands.
+ * - `response_withheld`: the model answered, and every statement it picked is false for this period
+ *   by the app's own figures (#996). `ai/gateway.ts`, from `ai/statements.ts`. The model and the
+ *   configuration both work; the reader may ask again later, and the insights card still stands.
  *
  * THE LAST TWO OF THE FIRST SIX LOOK LIKE ONE STATE AND NEED OPPOSITE ADVICE, which is why they are two codes.
  * Truncation is OUR fault: the ceiling was too small, and the answer is to raise a budget. An

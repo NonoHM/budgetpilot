@@ -5,7 +5,9 @@ import {
 	INPUT_RULES,
 	OUTPUT_ITEMS,
 	OUTPUT_RULES,
-	REAL_MODEL_FIXTURES
+	REAL_MODEL_FIXTURES,
+	SIBLING,
+	TEXT_ATTACKS
 } from './corpus';
 
 /**
@@ -35,16 +37,51 @@ describe('AI qualification corpus', () => {
 	});
 
 	it('counts the rules the design names, so none is dropped unnoticed', () => {
-		expect([OUTPUT_RULES.length, INPUT_RULES.length]).toEqual([11, 9]);
+		expect([OUTPUT_RULES.length, INPUT_RULES.length]).toEqual([6, 9]);
 	});
 
-	it('expects a drop only from the rule the item is about, and a shown text from its twins', () => {
+	// #996: a refusal comes from one rule each. An unreadable answer is the grammar's verdict, a
+	// withheld one is every pick dropped; any other item ends in statements the card shows.
+	it('expects each failure only from the rule that produces it, and statements from every twin', () => {
 		for (const item of OUTPUT_ITEMS) {
-			if ('dropped' in item.expect) {
-				expect(item.fires, `${item.id} drops, so it fires`).toBe(true);
-				expect(item.expect.dropped, item.id).toBe(item.rule);
-			} else {
-				expect(item.expect.shown.title.length, item.id).toBeGreaterThan(0);
+			if (!('failureCode' in item.expect)) continue;
+			expect([item.rule, item.fires], `${item.id} expects ${item.expect.failureCode}`).toEqual(
+				item.expect.failureCode === 'response_unusable' ? ['schema', true] : ['withheld', true]
+			);
+		}
+		const failing = OUTPUT_ITEMS.filter((item) => 'failureCode' in item.expect).length;
+		const showing = OUTPUT_ITEMS.filter((item) => 'statements' in item.expect).length;
+		expect(failing + showing, 'every item is one or the other').toBe(OUTPUT_ITEMS.length);
+		expect(failing, 'some items refuse').toBeGreaterThan(0);
+		expect(showing, 'some items show').toBeGreaterThan(0);
+	});
+
+	// « Dropped, not refused »: an item that drops its pick still shows the sibling, so the empty
+	// place is the rule acting on the pick and not the answer refused.
+	it('keeps the sibling on the card wherever a rule drops one pick', () => {
+		const dropping = OUTPUT_ITEMS.filter(
+			(item) => item.fires && ['scope', 'alias', 'fact', 'repeat'].includes(item.rule)
+		);
+		expect(dropping.length, 'the items that drop a pick').toBeGreaterThan(0);
+		for (const item of dropping) {
+			expect('statements' in item.expect && item.expect.statements, item.id).toContain(SIBLING.id);
+		}
+	});
+
+	// The port of the literature pass: each attack once as a kind and once as an alias, refused.
+	it('carries every text attack as a kind and as an alias, each refused as unreadable', () => {
+		expect(TEXT_ATTACKS.length, 'the attacks of the literature pass').toBe(12);
+		for (const { text } of TEXT_ATTACKS) {
+			for (const field of ['kind', 'category'] as const) {
+				const carrying = OUTPUT_ITEMS.filter((item) =>
+					(item.answer.picks as { kind: unknown; category: unknown }[] | undefined)?.some(
+						(pick) => pick[field] === text
+					)
+				);
+				expect(
+					carrying.map((item) => [item.rule, item.expect]),
+					`${JSON.stringify(text)} as ${field}`
+				).toEqual([['schema', { failureCode: 'response_unusable' }]]);
 			}
 		}
 	});

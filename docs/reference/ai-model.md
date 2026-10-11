@@ -21,7 +21,7 @@ promise, below.
 | ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | Answers over `/api/chat` on Ollama       | `LLM_PROVIDER` accepts `ollama` and nothing else.                                                                                |
 | Honours a JSON schema passed as `format` | The schema is sent on every request. A model that replies in prose fails validation and the card says the answer was unreadable. |
-| Fits its answer in 1060 generated tokens | Sent as `num_predict`. Derived from the schema, not chosen.                                                                      |
+| Fits its answer in 199 generated tokens  | Sent as `num_predict`. Derived from the schema, not chosen.                                                                      |
 | Suppresses reasoning when told to        | `think: false` is sent on every request, to every model.                                                                         |
 
 The last one also asks something of the **server**, not only the model. An
@@ -35,15 +35,15 @@ covered by that pin.
 
 There is no setting for it, and adding one would not help.
 
-The response schema bounds every field: `summary` is at most 160 characters,
-each of at most 5 insights carries a title of 80, a message of 240, and two
-values from closed lists. So the longest answer the schema permits is a
-constant, computed at **2328 characters**, and the ceiling is that figure
+The model writes no sentence: the card writes every one. Its whole answer is
+at most 3 picks, each a statement kind and a category alias from closed lists.
+So the longest answer the schema permits is a
+constant, computed at **176 characters**, and the ceiling is that figure
 converted at a pessimistic 2.5 characters per token plus 128 tokens of
-structure, giving **1060**.
+structure, giving **199**.
 
 Raising the schema's limits moves the ceiling automatically. A model that
-truncates at 1060 tokens is not short of room for the answer; it is spending
+truncates at 199 tokens is not short of room for the answer; it is spending
 the room on something else.
 
 ### Reasoning is suppressed, and this is why it matters
@@ -54,10 +54,10 @@ sized for the schema and the answer still arrive cut in half, or not at all.
 
 Measured on `qwen3.5:4b-q8_0` under Ollama 0.32.5, on the same prompt:
 
-|                        | Stopped because | Tokens generated | Answer         |
-| ---------------------- | --------------- | ---------------- | -------------- |
-| Without `think: false` | ran out of room | 1060             | nothing at all |
-| With `think: false`    | finished        | 282              | complete       |
+|                        | Stopped because | Tokens generated        | Answer         |
+| ---------------------- | --------------- | ----------------------- | -------------- |
+| Without `think: false` | ran out of room | 1060 (then the ceiling) | nothing at all |
+| With `think: false`    | finished        | 282                     | complete       |
 
 So the field is not a saving. On a model that reasons it is the difference
 between advice and an error card. It is sent to every model, including ones

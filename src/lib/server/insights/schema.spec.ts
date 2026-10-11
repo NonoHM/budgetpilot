@@ -5,142 +5,43 @@ import {
 	maxNodeChars,
 	maxSerializedResponseChars
 } from './schema';
+import { AI_MAX_PICKS, AI_STATEMENT_KINDS } from '$lib/domain/aiStatements';
 
-describe('localLlmResponseSchema', () => {
-	it('accepte une réponse conforme au schéma', () => {
-		expect.assertions(2);
+describe('localLlmResponseSchema (#996: picks, never words)', () => {
+	const pick = { kind: 'over_budget', category: 'c2' };
 
+	it('accepts up to three picks of a listed kind and target', () => {
 		const parsed = localLlmResponseSchema.safeParse({
-			summary: 'Résumé du mois',
-			insights: [
-				{
-					title: 'Budget Loisirs dépassé',
-					message: 'Vous avez dépassé votre budget Loisirs de 20 euros ce mois-ci.',
-					severity: 'warning',
-					category: 'budget'
-				}
+			picks: [
+				pick,
+				{ kind: 'spending_up', category: 'all' },
+				{ kind: 'top_category', category: 'c5' }
 			]
 		});
-
-		expect(parsed.success).toBe(true);
-		expect(parsed.success && parsed.data.insights).toHaveLength(1);
+		expect(parsed.success && parsed.data.picks).toEqual([
+			pick,
+			{ kind: 'spending_up', category: 'all' },
+			{ kind: 'top_category', category: 'c5' }
+		]);
 	});
 
-	it('rejette un champ requis manquant (title) au lieu de le tronquer silencieusement', () => {
-		expect.assertions(1);
-
-		const parsed = localLlmResponseSchema.safeParse({
-			summary: 'Résumé',
-			insights: [
-				{
-					message: 'Un conseil sans titre',
-					severity: 'info',
-					category: 'budget'
-				}
-			]
-		});
-
-		expect(parsed.success).toBe(false);
+	it('accepts no pick: the model has nothing to point out', () => {
+		expect(localLlmResponseSchema.safeParse({ picks: [] }).success).toBe(true);
 	});
 
-	it('rejette un type incorrect (severity numérique)', () => {
-		expect.assertions(1);
-
-		const parsed = localLlmResponseSchema.safeParse({
-			summary: 'Résumé',
-			insights: [
-				{
-					title: 'Titre',
-					message: 'Message',
-					severity: 1,
-					category: 'budget'
-				}
-			]
-		});
-
-		expect(parsed.success).toBe(false);
-	});
-
-	it('rejette une chaîne dépassant .max() plutôt que de la tronquer', () => {
-		expect.assertions(1);
-
-		const parsed = localLlmResponseSchema.safeParse({
-			summary: 'x'.repeat(161),
-			insights: []
-		});
-
-		expect(parsed.success).toBe(false);
-	});
-
-	it('rejette un message d’insight dépassant .max()', () => {
-		expect.assertions(1);
-
-		const parsed = localLlmResponseSchema.safeParse({
-			summary: 'Résumé',
-			insights: [
-				{
-					title: 'Titre',
-					message: 'x'.repeat(241),
-					severity: 'info',
-					category: 'budget'
-				}
-			]
-		});
-
-		expect(parsed.success).toBe(false);
-	});
-
-	it('rejette une valeur d’enum severity invalide', () => {
-		expect.assertions(1);
-
-		const parsed = localLlmResponseSchema.safeParse({
-			summary: 'Résumé',
-			insights: [
-				{
-					title: 'Titre',
-					message: 'Message',
-					severity: 'catastrophic',
-					category: 'budget'
-				}
-			]
-		});
-
-		expect(parsed.success).toBe(false);
-	});
-
-	it('rejette une valeur d’enum category invalide', () => {
-		expect.assertions(1);
-
-		const parsed = localLlmResponseSchema.safeParse({
-			summary: 'Résumé',
-			insights: [
-				{
-					title: 'Titre',
-					message: 'Message',
-					severity: 'info',
-					category: 'invalide'
-				}
-			]
-		});
-
-		expect(parsed.success).toBe(false);
-	});
-
-	it('rejette plus de 5 insights', () => {
-		expect.assertions(1);
-
-		const insight = {
-			title: 'Titre',
-			message: 'Message',
-			severity: 'info',
-			category: 'budget'
-		};
-		const parsed = localLlmResponseSchema.safeParse({
-			summary: 'Résumé',
-			insights: Array.from({ length: 6 }, () => insight)
-		});
-
-		expect(parsed.success).toBe(false);
+	// Each case is one way a model could carry words or an unlisted target; the first row is the
+	// calibration, so a schema that refuses everything is as red as one that accepts everything.
+	it.each([
+		['the calibration, a valid answer', { picks: [pick] }, true],
+		['a fourth pick', { picks: [pick, pick, pick, pick] }, false],
+		['an unlisted kind', { picks: [{ ...pick, kind: 'buy_an_etf' }] }, false],
+		['an unlisted target', { picks: [{ ...pick, category: 'c6' }] }, false],
+		['a target in another case', { picks: [{ ...pick, category: 'C2' }] }, false],
+		['a text field beside a pick', { picks: [{ ...pick, message: 'Buy an ETF' }] }, false],
+		['a text field beside the picks', { summary: 'Your month', picks: [pick] }, false],
+		['the G3 shape', { summary: 'ok', insights: [] }, false]
+	])('%s: accepted %s', (_name, answer, accepted) => {
+		expect(localLlmResponseSchema.safeParse(answer).success).toBe(accepted);
 	});
 });
 
@@ -156,23 +57,21 @@ describe('localLlmResponseSchema', () => {
  * The symptom was a 200 response in 4.7 s whose JSON stopped mid-object, reported to the reader as
  * « Assistant IA indisponible ». Changing to a thinking model did not create the defect; reasoning
  * tokens spend the same budget, so it turned a reachable failure into the common one.
+ *
+ * Since #996 the answer is at most three closed picks, so the ceiling is small; it is still derived
+ * from the schema, never written down.
  */
 describe('local LLM generation ceiling', () => {
 	it('bounds a MAXIMAL response built from the schema own limits, not from restated numbers', () => {
 		expect.assertions(2);
 
-		// Constructed from the limits rather than from `maxSerializedResponseChars`, so the two do not
+		// Constructed from the lists rather than from `maxSerializedResponseChars`, so the two do not
 		// share a source: if the walker under-counts a field, this fixture overflows its answer.
-		// Accented characters on purpose, because they are what the French catalogue actually produces
-		// and what makes the token estimate pessimistic.
+		const longestKind = [...AI_STATEMENT_KINDS].sort(
+			(left, right) => right.length - left.length
+		)[0];
 		const maximal = {
-			summary: 'é'.repeat(160),
-			insights: Array.from({ length: 5 }, () => ({
-				title: 'é'.repeat(80),
-				message: 'é'.repeat(240),
-				severity: 'critical' as const,
-				category: 'recurring' as const
-			}))
+			picks: Array.from({ length: AI_MAX_PICKS }, () => ({ kind: longestKind, category: 'all' }))
 		};
 
 		// Separates "the biggest response the schema ALLOWS" from "a big response". A fixture the
@@ -181,8 +80,8 @@ describe('local LLM generation ceiling', () => {
 		expect(JSON.stringify(maximal).length).toBeLessThanOrEqual(maxSerializedResponseChars());
 	});
 
-	it('asks for more tokens than the worst case needs, and more than the 512 that truncated', () => {
-		expect.assertions(2);
+	it('asks for more tokens than the worst case needs', () => {
+		expect.assertions(1);
 
 		// 2.5 is the pessimistic chars-per-token floor documented beside `localLlmNumPredict`. Restated
 		// here on purpose: this assertion is the RELATIONSHIP between the two constants, so lowering
@@ -197,9 +96,6 @@ describe('local LLM generation ceiling', () => {
 		// cannot bound. Green here is not evidence the ceiling holds; only a generation against a
 		// real model is.
 		expect(localLlmNumPredict() * 2.5).toBeGreaterThanOrEqual(maxSerializedResponseChars());
-
-		// Reproduces the original figure, per AGENTS.md: the red must bring back the measured value.
-		expect(localLlmNumPredict()).toBeGreaterThan(512);
 	});
 
 	it('refuses a schema node it cannot size, rather than counting it as zero', () => {

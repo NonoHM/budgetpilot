@@ -70,7 +70,7 @@ export const POST: RequestHandler = async ({ request, locals, url }) => {
 				// `unreachable` for the same reason the dashboard's `.catch` used it: nothing downstream of
 				// the gateway throws on a model failure (it answers a code), so reaching here means the
 				// call never completed, and that is what unreachable names.
-				advice = { insights: [], unavailable: true, failureCode: 'unreachable' };
+				advice = { statements: [], unavailable: true, failureCode: 'unreachable' };
 			}
 			if (signal.aborted) return;
 			controller.enqueue(encoder.encode(JSON.stringify(advice)));

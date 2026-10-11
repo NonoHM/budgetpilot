@@ -6,6 +6,7 @@ import { getEffectiveTransactionNature } from '$lib/server/transactions/nature';
 import { createAdmission } from '$lib/server/ai/admission';
 import { createGateway, prepareAdvice } from '$lib/server/ai/gateway';
 import { buildBudgetInsightsPrompt } from './prompt';
+import { adviceFacts } from '$lib/server/ai/statements';
 import { generateRuleInsights } from './rules';
 import { buildTransactionSummary } from './summary';
 import { anonymizeMerchant } from '$lib/server/reports/monthly';
@@ -113,9 +114,10 @@ describe('Budget Insights', () => {
 		];
 		const ibanAllocations = toAllocations(ibanTransactions);
 		const monthlySummary = summarizeMonthlyBudget(ibanAllocations, [], '2026-06');
-		const prompt = buildBudgetInsightsPrompt(
-			buildTransactionSummary(ibanTransactions, ibanAllocations, monthlySummary)
-		);
+		const ibanSummary = buildTransactionSummary(ibanTransactions, ibanAllocations, monthlySummary);
+		const prompt = buildBudgetInsightsPrompt(ibanSummary, {
+			facts: adviceFacts(ibanSummary, { budgetsKnown: true, summaries: [] })
+		});
 
 		expect(prompt).not.toContain('FR7612341234123412341234123');
 		expect(prompt).not.toContain('VIREMENT');

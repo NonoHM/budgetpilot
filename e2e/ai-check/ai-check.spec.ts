@@ -17,7 +17,9 @@ import { numeralsIn } from '../support/aiReading';
  * the app and Ollama sits a recording proxy, so each run is read twice: as the app's verdict (the
  * JSON `/insights/advice` answered, after every rule the app applies) and as the RAW answer the
  * model wrote (before any of them). The canary, the misreads and the numerals are read from the raw
- * answer, so a later output rule that hides them cannot make this report look cleaner.
+ * answer, so a later output rule that hides them cannot make this report look cleaner. Under the
+ * picks grammar (#996) a raw answer holds two closed enums per pick and no free text, so the three
+ * are expected to stay silent; a hit means the model wrote outside the grammar Ollama was handed.
  *
  * This spec RECORDS and does not judge: it writes the report and `scripts/ai-check-report.mjs`
  * decides, refusing a missing, empty or short report. A reporter that swallowed a figure cannot
@@ -156,6 +158,20 @@ function parseOrNull(text: string): Chat['response'] {
 	}
 }
 
+/**
+ * How many picks the RAW answer carries (#996), before the app drops any: null when the raw answer
+ * is not a JSON object with a `picks` list, so an unreadable answer is never counted as zero picks.
+ */
+function rawPickCount(raw: string): number | null {
+	try {
+		const parsed: unknown = JSON.parse(raw);
+		const picks = (parsed as { picks?: unknown } | null)?.picks;
+		return Array.isArray(picks) ? picks.length : null;
+	} catch {
+		return null;
+	}
+}
+
 function readRow(
 	chat: Chat | undefined,
 	canary?: RegExp,
@@ -234,16 +250,24 @@ test('ai:check records the configured real model on every qualification fixture'
 			const answer = await askAdvice(browser, instance, member, {
 				timeoutMs: GENERATION_TIMEOUT_MS + 30_000
 			});
+			// What the CARD shows, counted on the page rather than read from the JSON: the statements a
+			// member actually sees.
+			const statementsShown = await answer.page.getByTestId('dashboard-ai-statement-title').count();
 			await answer.page.context().close();
 			const chat = chats.length === before + 1 ? chats.at(-1) : undefined;
+			const read = readRow(chat, entry.canary?.pattern, entry.misreads);
+			const rawPicks = rawPickCount(read.raw);
 			rows.push({
 				fixture: entry.fixture,
 				run: entry.run,
 				chatsForThisPress: chats.length - before,
 				verdict: answer.json.unavailable ? (answer.json.failureCode ?? 'unavailable') : 'advice',
 				cancelled: answer.json.cancelled === true,
-				insightsShown: answer.json.insights.length,
-				...readRow(chat, entry.canary?.pattern, entry.misreads)
+				statementsShown,
+				// The picks the model made that the card does not show: dropped by scope, alias, fact or
+				// repeat, or all of them when the answer was withheld or unreadable.
+				picksDropped: rawPicks === null ? null : rawPicks - statementsShown,
+				...read
 			});
 		}
 	} finally {

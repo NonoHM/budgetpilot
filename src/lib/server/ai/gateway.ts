@@ -1,5 +1,4 @@
 import { createHash } from 'node:crypto';
-import { getLocale } from '$lib/paraglide/runtime';
 import type { DashboardPeriodData } from '$lib/server/dashboard/periodData';
 import { readIntegerSetting } from '$lib/server/env/readSetting';
 import {
@@ -10,15 +9,8 @@ import {
 import { buildBudgetInsightsPrompt } from '$lib/server/insights/prompt';
 import { buildTransactionSummary } from '$lib/server/insights/summary';
 import type { LocalAiAdvice, LocalLlmResult } from '$lib/server/insights/types';
-import {
-	acceptAdvice,
-	analysisText,
-	budgetStatusOf,
-	cleanShownText,
-	type Grounding
-} from './accept';
 import { createAdmission, type Admission } from './admission';
-import { categoryDisplayName } from '$lib/domain/categoryLabels';
+import { acceptPicks, adviceFacts, type AdviceFacts } from './statements';
 
 /**
  * THE ONE DOOR TO THE MODEL (#535). Nothing else imports the model call: ESLint refuses a static
@@ -37,16 +29,16 @@ import { categoryDisplayName } from '$lib/domain/categoryLabels';
  * the caller is also where the member's epoch is read, and the epoch must be read FIRST.
  */
 
-/** A prompt, the key of the advice it would produce, and what its answer is checked against. */
+/** A prompt, the key of the advice it would produce, and the facts its picks are checked against. */
 export interface PreparedAdvice {
 	key: string;
 	prompt: string;
-	grounding: Grounding;
+	facts: AdviceFacts;
 }
 
 /**
- * The prompt is a pure function of what the model would receive, and it already carries the locale's
- * response language, the labels choice and the system text, so the key is the model and the prompt
+ * The prompt is a pure function of what the model would receive, and it already carries the period's
+ * figures and labels (localised period names included), the labels choice and the system text, so the key is the model and the prompt
  * and nothing else: a change to any of them is a change to the prompt. G2 adds a random marker to
  * the prompt, and the key then moves to the payload before the marker (spec F4).
  *
@@ -57,7 +49,6 @@ export function prepareAdvice(input: {
 	periodData: DashboardPeriodData;
 	includeLabels: boolean;
 	env?: NodeJS.ProcessEnv;
-	locale?: string;
 }): PreparedAdvice {
 	const { periodData, includeLabels } = input;
 	const summary = buildTransactionSummary(
@@ -67,25 +58,17 @@ export function prepareAdvice(input: {
 		periodData.previousSummary,
 		{ includeLabels }
 	);
-	const prompt = buildBudgetInsightsPrompt(summary, {
-		includeLabels,
-		locale: input.locale ?? getLocale()
+	// ONE reading of the period's facts, handed to the prompt AND to the acceptance, so a pick is
+	// checked against exactly what the model was told (#996).
+	const facts = adviceFacts(summary, {
+		budgetsKnown: periodData.budgetSummaryAvailable,
+		summaries: periodData.summary.categorySummaries
 	});
+	const prompt = buildBudgetInsightsPrompt(summary, { includeLabels, facts });
 	const key = createHash('sha256')
 		.update(JSON.stringify([localLlmModel(input.env ?? process.env), prompt]))
 		.digest('hex');
-	// The values the payload holds, read from the same summary the prompt was built from, so an
-	// answer is checked against exactly what the model was given (G3, #831).
-	const grounding: Grounding = {
-		categories: summary.topCategories.map((category) => ({
-			name: category.category,
-			amountCents: category.amountCents,
-			status: budgetStatusOf(category.category, periodData.summary.categorySummaries),
-			aliases: [categoryDisplayName(category.category)]
-		})),
-		request: analysisText(cleanShownText(prompt))
-	};
-	return { key, prompt, grounding };
+	return { key, prompt, facts };
 }
 
 /**
@@ -106,14 +89,24 @@ const MINUTE_MS = 60_000;
  * so the card returns to its idle face and asks again on the next open, rather than reading it as a
  * model that had nothing to say (final pass F3).
  */
-const CANCELLED: LocalAiAdvice = { insights: [], unavailable: false, cancelled: true };
+const CANCELLED: LocalAiAdvice = { statements: [], unavailable: false, cancelled: true };
 
-function toAdvice(result: LocalLlmResult): LocalAiAdvice {
+/** A failure of the model call, as the card reads it. */
+function failed(result: LocalLlmResult): LocalAiAdvice {
 	return {
-		insights: result.insights.filter((item) => item.source === 'local-llm'),
-		unavailable: result.unavailable === true,
+		statements: [],
+		unavailable: true,
 		...(result.failureCode ? { failureCode: result.failureCode } : {})
 	};
+}
+
+/** The model's picks, kept only where the app checks the fact as true (#996). */
+function toAdvice(result: LocalLlmResult, facts: AdviceFacts): LocalAiAdvice {
+	if (result.unavailable) return failed(result);
+	const statements = acceptPicks(result.picks, facts);
+	if (statements === null)
+		return { statements: [], unavailable: true, failureCode: 'response_withheld' };
+	return { statements, unavailable: false };
 }
 
 export function createGateway(dependencies: { admission: Admission; now: () => number }) {
@@ -165,25 +158,25 @@ export function createGateway(dependencies: { admission: Admission; now: () => n
 		}): Promise<LocalAiAdvice> {
 			const env = input.env ?? process.env;
 			const refused = await probeLocalLlm(env);
-			if (refused) return toAdvice(refused);
+			if (refused) return failed(refused);
 
 			const hit = cached(input.userId, input.prepared.key);
 			if (hit) return hit;
 
 			const ticket = await admission.acquire(input.userId, input.signal, input.epoch);
 			if (ticket === 'cancelled') return CANCELLED;
-			if (ticket === 'busy') return { insights: [], unavailable: true, failureCode: 'busy' };
+			if (ticket === 'busy') return { statements: [], unavailable: true, failureCode: 'busy' };
 			if (ticket === 'quota_reached') {
 				// While this member's own generation still runs, its outcome (a refund) can still move the
 				// lift time, so no figure is quoted and the card says why (narrow pass F2).
 				if (admission.isRunning(input.userId)) {
-					return { insights: [], unavailable: true, failureCode: 'quota_reached' };
+					return { statements: [], unavailable: true, failureCode: 'quota_reached' };
 				}
 				// What the server knows and the reader cannot see: the minute the limit lifts. Rounded up,
 				// so the sentence never says « 0 minutes » while a request would still be refused.
 				const liftsAt = admission.quotaLiftsAt(input.userId) ?? now();
 				const retryInMinutes = Math.max(1, Math.ceil((liftsAt - now()) / MINUTE_MS));
-				return { insights: [], unavailable: true, failureCode: 'quota_reached', retryInMinutes };
+				return { statements: [], unavailable: true, failureCode: 'quota_reached', retryInMinutes };
 			}
 
 			try {
@@ -193,8 +186,8 @@ export function createGateway(dependencies: { admission: Admission; now: () => n
 				// one replaced. Before the cache write too, so advice finished after an opt-out is not
 				// kept.
 				if (ticket.signal.aborted || !result) return CANCELLED;
-				// Accepted BEFORE the cache write, so a statement the app refuses is never served again.
-				const advice = acceptAdvice(toAdvice(result), input.prepared.grounding);
+				// Accepted BEFORE the cache write, so a pick the app refuses is never served again.
+				const advice = toAdvice(result, input.prepared.facts);
 				// A failure the model did no work on is not charged to the member's hour (owner's ruling,
 				// 2026-10-10). The model call marks it where that is KNOWN; the displayed code is never
 				// the test, because `unreachable` is also the catch-all after a generation the GPU did

@@ -5,6 +5,7 @@ import * as m from '$lib/paraglide/messages';
 import DashboardInsights from './DashboardInsights.svelte';
 import type { DashboardInsights as DashboardInsightsData } from '$lib/server/dashboard/insights';
 import type { LocalLlmFailureCode } from '$lib/domain/failureCodes';
+import type { AiStatementKind } from '$lib/domain/aiStatements';
 
 const alertInsights: DashboardInsightsData = {
 	alerts: [
@@ -85,33 +86,23 @@ describe('DashboardInsights.svelte', () => {
  * `fetch` is stubbed, so its calls are the measure.
  */
 type Answer = {
-	insights: {
+	statements: {
 		id: string;
-		source: 'local-llm';
-		title: string;
-		message: string;
-		severity: 'info';
-		category: 'spending';
-		figures?: { category: string; amountCents: number }[];
+		kind: AiStatementKind;
+		figures: { category: string; amountCents: number }[];
 	}[];
 	unavailable: boolean;
 	failureCode?: LocalLlmFailureCode;
 	retryInMinutes?: number;
 	cancelled?: true;
 };
-const advice = (title: string): Answer => ({
-	insights: [
-		{
-			id: '1',
-			source: 'local-llm',
-			title,
-			message: 'Détail',
-			severity: 'info',
-			category: 'spending'
-		}
-	],
+const advice = (kind: AiStatementKind): Answer => ({
+	statements: [{ id: `${kind}-c1`, kind, figures: [] }],
 	unavailable: false
 });
+/** The title the card writes for a kind (#996): the catalogue's, in the page's language. */
+const titleOf = (kind: AiStatementKind): string =>
+	(m as unknown as Record<string, () => string>)[`dashboard_insights_ai_kind_${kind}_title`]();
 
 /** A fetch whose answers the test releases one at a time, recording each request. */
 function stubFetch() {
@@ -196,8 +187,8 @@ describe('DashboardInsights.svelte AI card asks for advice (#535)', () => {
 		await vi.waitFor(() => expect(calls).toHaveLength(1));
 		expect(calls[0].body).toEqual({ period: 'period=2026-06', aiAdviceKey: 'key-june' });
 		await expect.element(page.getByText(m.dashboard_insights_ai_pending())).toBeInTheDocument();
-		calls[0].answer(advice('Réduisez vos abonnements'));
-		await expect.element(page.getByText('Réduisez vos abonnements')).toBeInTheDocument();
+		calls[0].answer(advice('recurring'));
+		await expect.element(page.getByText(titleOf('recurring'))).toBeInTheDocument();
 		expect(page.getByText(m.dashboard_insights_ai_pending()).elements()).toHaveLength(0);
 	});
 
@@ -216,16 +207,16 @@ describe('DashboardInsights.svelte AI card asks for advice (#535)', () => {
 			.element(page.getByText(m.dashboard_insights_ai_idle(), { exact: true }))
 			.toBeInTheDocument();
 		await expect.element(aiToggle()).toHaveAttribute('aria-expanded', 'false');
-		calls[0].answer(advice('Conseil de juin'));
+		calls[0].answer(advice('over_budget'));
 		await new Promise((settle) => setTimeout(settle, 600));
 		expect(calls).toHaveLength(1);
-		expect(page.getByText('Conseil de juin').elements()).toHaveLength(0);
+		expect(page.getByText(titleOf('over_budget')).elements()).toHaveLength(0);
 
 		await aiToggle().click();
 		await vi.waitFor(() => expect(calls).toHaveLength(2));
 		expect(calls[1].body).toEqual({ period: 'period=2026-05', aiAdviceKey: 'key-may' });
-		calls[1].answer(advice('Conseil de mai'));
-		await expect.element(page.getByText('Conseil de mai')).toBeInTheDocument();
+		calls[1].answer(advice('spending_up'));
+		await expect.element(page.getByText(titleOf('spending_up'))).toBeInTheDocument();
 	});
 
 	// Periods passed through with the card open ask nothing at all, versus one charge per month.
@@ -234,8 +225,8 @@ describe('DashboardInsights.svelte AI card asks for advice (#535)', () => {
 		const card = await renderCard();
 		await aiToggle().click();
 		await vi.waitFor(() => expect(calls).toHaveLength(1));
-		calls[0].answer(advice('Conseil de juin'));
-		await expect.element(page.getByText('Conseil de juin')).toBeInTheDocument();
+		calls[0].answer(advice('over_budget'));
+		await expect.element(page.getByText(titleOf('over_budget'))).toBeInTheDocument();
 		for (const month of ['05', '04', '03']) {
 			await card.rerender({
 				aiAdviceKey: `advice-2026-${month}`,
@@ -253,14 +244,14 @@ describe('DashboardInsights.svelte AI card asks for advice (#535)', () => {
 		const card = await renderCard();
 		await aiToggle().click();
 		await vi.waitFor(() => expect(calls).toHaveLength(1));
-		calls[0].answer(advice('Conseil de juin'));
-		await expect.element(page.getByText('Conseil de juin')).toBeInTheDocument();
+		calls[0].answer(advice('over_budget'));
+		await expect.element(page.getByText(titleOf('over_budget'))).toBeInTheDocument();
 		await aiToggle().click();
 		await card.rerender({ aiAdviceKey: 'key-may', periodQuery: 'period=2026-05' });
 		await expect
 			.element(page.getByText(m.dashboard_insights_ai_idle(), { exact: true }))
 			.toBeInTheDocument();
-		expect(page.getByText('Conseil de juin').elements()).toHaveLength(0);
+		expect(page.getByText(titleOf('over_budget')).elements()).toHaveLength(0);
 	});
 
 	// Closed, a period change asks nothing; reopening asks for the period now on screen.
@@ -286,7 +277,7 @@ describe('DashboardInsights.svelte AI card asks for advice (#535)', () => {
 	});
 
 	it('answers the busy refusal with its own sentence, and no configuration link', async () => {
-		await openWith({ insights: [], unavailable: true, failureCode: 'busy' });
+		await openWith({ statements: [], unavailable: true, failureCode: 'busy' });
 		await expect.element(page.getByText(m.dashboard_insights_ai_busy_title())).toBeInTheDocument();
 		await expect
 			.element(page.getByText(m.dashboard_insights_ai_busy_reason()))
@@ -300,7 +291,7 @@ describe('DashboardInsights.svelte AI card asks for advice (#535)', () => {
 	// whole sentence, so a doubled or missing figure cannot pass.
 	it('answers the hourly limit with the minutes until it lifts', async () => {
 		await openWith({
-			insights: [],
+			statements: [],
 			unavailable: true,
 			failureCode: 'quota_reached',
 			retryInMinutes: 12
@@ -313,7 +304,7 @@ describe('DashboardInsights.svelte AI card asks for advice (#535)', () => {
 	// Narrow pass F2: refused at the limit while the member's other request still runs, the server
 	// quotes no minutes, and the card says why instead of inventing a figure.
 	it('answers the hourly limit without minutes while another request of the member runs', async () => {
-		await openWith({ insights: [], unavailable: true, failureCode: 'quota_reached' });
+		await openWith({ statements: [], unavailable: true, failureCode: 'quota_reached' });
 		const sentence = m.dashboard_insights_ai_quota_reached_running();
 		await expect.element(page.getByText(sentence, { exact: true })).toHaveTextContent(sentence);
 	});
@@ -346,7 +337,7 @@ describe('DashboardInsights.svelte AI card asks for advice (#535)', () => {
 	// Final pass F3: a cancelled answer (a newer tab, an opt-out) returns the card to idle and the
 	// next open asks again, versus an action that is pressed and asks nothing.
 	it('a cancelled answer returns to idle, and one press asks again', async () => {
-		const calls = await openWith({ insights: [], unavailable: false, cancelled: true });
+		const calls = await openWith({ statements: [], unavailable: false, cancelled: true });
 		await expect
 			.element(page.getByText(m.dashboard_insights_ai_idle(), { exact: true }))
 			.toBeInTheDocument();
@@ -359,7 +350,7 @@ describe('DashboardInsights.svelte AI card asks for advice (#535)', () => {
 
 	// Final pass F3: a model that answered with no insight says so, versus the idle action again.
 	it('an answer with no insight says there is nothing to point out', async () => {
-		await openWith({ insights: [], unavailable: false });
+		await openWith({ statements: [], unavailable: false });
 		const sentence = m.dashboard_insights_ai_empty();
 		await expect.element(page.getByText(sentence, { exact: true })).toHaveTextContent(sentence);
 	});
@@ -375,7 +366,7 @@ describe('DashboardInsights.svelte AI card asks for advice (#535)', () => {
 	// A refusal can be retried by the member: closing and reopening asks again, versus a card stuck
 	// on « busy » until a reload.
 	it('reopening after a refusal asks again', async () => {
-		const calls = await openWith({ insights: [], unavailable: true, failureCode: 'busy' });
+		const calls = await openWith({ statements: [], unavailable: true, failureCode: 'busy' });
 		await expect.element(page.getByText(m.dashboard_insights_ai_busy_title())).toBeInTheDocument();
 		await aiToggle().click();
 		await aiToggle().click();
@@ -386,9 +377,9 @@ describe('DashboardInsights.svelte AI card asks for advice (#535)', () => {
 	// stays as written. The calibration is the advice without figures, which shows no amount.
 	it('shows the figure the server attached beside the advice, in the page locale', async () => {
 		await openWith({
-			insights: [
+			statements: [
 				{
-					...advice('Surveillez vos Courses').insights[0],
+					...advice('over_budget').statements[0],
 					figures: [{ category: 'Courses', amountCents: 14_530 }]
 				}
 			],
@@ -403,11 +394,11 @@ describe('DashboardInsights.svelte AI card asks for advice (#535)', () => {
 	});
 
 	it('marks the advice as generated, for machines as well as readers (EU AI Act Art. 50(2))', async () => {
-		await openWith(advice('Réduisez vos abonnements'));
-		await expect.element(page.getByText('Réduisez vos abonnements')).toBeInTheDocument();
+		await openWith(advice('recurring'));
+		await expect.element(page.getByText(titleOf('recurring'))).toBeInTheDocument();
 		const marked = document.querySelectorAll('[data-ai-generated="true"]');
 		expect(marked).toHaveLength(1);
-		expect(marked[0].textContent).toContain('Réduisez vos abonnements');
+		expect(marked[0].textContent).toContain(titleOf('recurring'));
 		expect(
 			page.getByTestId('dashboard-ai-figure').elements(),
 			'no figure was attached'
@@ -415,8 +406,8 @@ describe('DashboardInsights.svelte AI card asks for advice (#535)', () => {
 	});
 
 	it('never renders both AI cards at once, even if the answer is contradictory', async () => {
-		await openWith({ ...advice('Réduisez vos abonnements'), unavailable: true });
-		await expect.element(page.getByText('Réduisez vos abonnements')).toBeInTheDocument();
+		await openWith({ ...advice('recurring'), unavailable: true });
+		await expect.element(page.getByText(titleOf('recurring'))).toBeInTheDocument();
 		expect(page.getByText(m.dashboard_insights_ai_unreachable_title()).elements()).toHaveLength(0);
 	});
 });
@@ -507,7 +498,7 @@ describe('DashboardInsights.svelte AI failure states', () => {
 	it.each(AI_FAILURE_CODES)(
 		'renders the %s title and reason, with the configuration link only where there is something to configure',
 		async (code) => {
-			await openWith({ insights: [], unavailable: true, failureCode: code, retryInMinutes: 1 });
+			await openWith({ statements: [], unavailable: true, failureCode: code, retryInMinutes: 1 });
 			await expect.element(page.getByText(AI_FAILURE_STATES[code].title())).toBeInTheDocument();
 			await expect.element(page.getByText(AI_FAILURE_STATES[code].reason())).toBeInTheDocument();
 			expect(page.getByText(m.dashboard_insights_ai_check_configuration()).elements()).toHaveLength(
@@ -521,5 +512,77 @@ describe('DashboardInsights.svelte AI failure states', () => {
 		expect(new Set(titles).size).toBe(9);
 		const reasons = AI_FAILURE_CODES.map((code) => AI_FAILURE_STATES[code].reason());
 		expect(new Set(reasons).size).toBe(9);
+	});
+});
+
+/**
+ * #996: the card writes every AI sentence. The server sends a statement KIND and the app's
+ * figures; the words come from the catalogue, in the page's language. The calibration is a
+ * field the server must never send (a `title` riding beside the kind): it is not rendered.
+ */
+const AI_STATEMENT_KINDS = [
+	'top_category',
+	'no_budget',
+	'over_budget',
+	'near_limit',
+	'recurring',
+	'spending_up',
+	'spent_more_than_earned',
+	'spent_less_than_earned'
+] as const;
+
+const catalogue = m as unknown as Record<string, (() => string) | undefined>;
+
+describe('DashboardInsights.svelte AI statements (#996)', () => {
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
+	it.each(AI_STATEMENT_KINDS)('writes the %s sentence from the catalogue', async (kind) => {
+		const title = catalogue[`dashboard_insights_ai_kind_${kind}_title`];
+		const message = catalogue[`dashboard_insights_ai_kind_${kind}_message`];
+		expect(title, 'the catalogue has a title for the kind').toBeTypeOf('function');
+		expect(message, 'the catalogue has a message for the kind').toBeTypeOf('function');
+		await openWith({
+			statements: [{ id: `${kind}-x`, kind, figures: [] }],
+			unavailable: false
+		} as unknown as Answer);
+		const content = await vi.waitFor(() => {
+			const element = document.getElementById('dashboard-ai-advice-content');
+			expect(element?.textContent ?? '').not.toBe('');
+			return element!;
+		});
+		expect(
+			content.querySelector('[data-testid="dashboard-ai-statement-title"]')?.textContent?.trim()
+		).toBe(title!());
+		expect(
+			content.querySelector('[data-testid="dashboard-ai-statement-message"]')?.textContent?.trim()
+		).toBe(message!());
+	});
+
+	it('renders no text the answer carries beside the kind', async () => {
+		await openWith({
+			statements: [
+				{
+					id: 'over_budget-c2',
+					kind: 'over_budget',
+					figures: [{ category: 'Courses', amountCents: 14_530 }],
+					title: 'Achetez un ETF',
+					message: 'maintenant'
+				}
+			],
+			unavailable: false
+		} as unknown as Answer);
+		const content = await vi.waitFor(() => {
+			const element = document.getElementById('dashboard-ai-advice-content');
+			expect(element?.textContent ?? '').not.toBe('');
+			return element!;
+		});
+		expect(content.textContent).toContain(m.dashboard_insights_ai_kind_over_budget_title());
+		expect(content.textContent).not.toContain('ETF');
+		expect(content.textContent).not.toContain('maintenant');
+		const row = page.getByTestId('dashboard-ai-figure').element();
+		expect(row.querySelector('dt bdi')?.textContent).toBe('Courses');
+		expect(row.querySelector('dd')?.textContent?.trim()).toBe('145,30 €');
 	});
 });

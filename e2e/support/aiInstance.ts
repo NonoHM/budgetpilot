@@ -184,11 +184,11 @@ export async function seedMember(
 export interface AdviceAnswer {
 	/** What `/insights/advice` returned: the app's verdict, after every check it applies. */
 	json: {
-		insights: {
-			title: string;
-			message: string;
-			severity: 'info' | 'warning' | 'critical';
-			category: string;
+		/** The statements the card shows (#996): a kind the app checked and the app's own figures. */
+		statements: {
+			id: string;
+			kind: string;
+			figures: { category: string; amountCents: number }[];
 		}[];
 		unavailable: boolean;
 		failureCode?: string;
@@ -241,7 +241,7 @@ export async function askAdvice(
 	const json = (await response.json()) as AdviceAnswer['json'];
 	const advice = page.locator('#dashboard-ai-advice-content');
 	let adviceText: string | null = null;
-	if (!json.unavailable && json.insights.length > 0) {
+	if (!json.unavailable && json.statements.length > 0) {
 		await expect(advice).toBeVisible();
 		adviceText = ((await advice.textContent()) ?? '').replace(/\s+/g, ' ').trim();
 	}

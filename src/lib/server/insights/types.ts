@@ -1,3 +1,4 @@
+import type { AiPickTarget, AiStatementKind } from '$lib/domain/aiStatements';
 import type { LocalLlmFailureCode } from '$lib/domain/failureCodes';
 import type {
 	AnonymizedExpense,
@@ -10,11 +11,28 @@ export type InsightSeverity = 'info' | 'warning' | 'critical';
 
 export type InsightCategory = 'budget' | 'spending' | 'income' | 'recurring' | 'anomaly';
 
-/** A figure the app attaches beside a model's statement, from the payload (G3, #831). */
+/** A figure the app attaches beside an AI statement, from the payload (G3, #831). */
 export interface AttachedFigure {
-	/** The category's name as the card shows it: cleaned of invisible and direction characters. */
+	/** The category's name as stored: the card shows it through `categoryDisplayName`, in `<bdi>`. */
 	category: string;
 	amountCents: number;
+}
+
+/** One pick of the model, as its answer carries it: a kind and a target, never words (#996). */
+export interface ModelPick {
+	kind: AiStatementKind;
+	category: AiPickTarget;
+}
+
+/**
+ * One statement of the AI card: a kind the app checked as true, and the figure of the category it is
+ * about. The card writes the sentence from the kind (#996), so no string here came from the model.
+ */
+export interface AiStatement {
+	/** `<kind>-<alias>`: unique on a card, because a repeated pick is kept once. */
+	id: string;
+	kind: AiStatementKind;
+	figures: AttachedFigure[];
 }
 
 export interface BudgetInsight {
@@ -23,12 +41,7 @@ export interface BudgetInsight {
 	message: string;
 	severity: InsightSeverity;
 	category: InsightCategory;
-	source: 'rules' | 'local-llm';
-	/**
-	 * On an AI statement only: the figure of every category it names, in payload order. The model
-	 * writes no figure the app did not give it; these are what the card shows as figures.
-	 */
-	figures?: AttachedFigure[];
+	source: 'rules';
 }
 
 export interface FlaggedCategoryLabels {
@@ -67,8 +80,7 @@ export interface TransactionSummary {
 export type { LocalLlmFailureCode };
 
 export interface LocalLlmResult {
-	summary: string;
-	insights: BudgetInsight[];
+	picks: ModelPick[];
 	unavailable?: boolean;
 	/** Set whenever `unavailable` is true, and never otherwise. */
 	failureCode?: LocalLlmFailureCode;
@@ -83,7 +95,7 @@ export interface LocalLlmResult {
 
 /** What the dashboard needs from a local-model run — streamed, so it arrives after the page. */
 export interface LocalAiAdvice {
-	insights: BudgetInsight[];
+	statements: AiStatement[];
 	unavailable: boolean;
 	failureCode?: LocalLlmFailureCode;
 	/** With `quota_reached` only: whole minutes until this member may start again, at least 1. */
