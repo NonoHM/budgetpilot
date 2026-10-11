@@ -513,7 +513,7 @@ export const SETTINGS = {
 		values: ['false', 'true'],
 		default: 'false',
 		otherwise: 'treated as false',
-		summary: 'Turns on the optional insights written by a local model.',
+		summary: 'Turns on the optional AI advice, chosen by a local model.',
 		page: 'ai-insights.md'
 	},
 	LLM_PROVIDER: {
@@ -547,7 +547,7 @@ export const SETTINGS = {
 		// image copies on its own for `scripts/log-pseudonym.mjs`, and an import it does not carry
 		// stopped that tool (docker-smoke, #971). `qualifiedModel.spec.ts` holds it to the pin.
 		default: 'phi4-mini:3.8b',
-		summary: 'Which model writes the insights.',
+		summary: 'Which model chooses the AI advice.',
 		page: 'ai-insights.md'
 	},
 	LLM_TIMEOUT_MS: {

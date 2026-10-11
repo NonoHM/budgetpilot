@@ -36,8 +36,13 @@ const DATABASE_URL = `file:./e2e/.data/ai-admission/ai.sqlite`;
 const PASSWORD = 'AiAdmissionPassw0rd-6d1e!';
 const QUEUE_DEPTH = 2;
 const HOURLY = 3;
-// No digit: since G3 (#969) a statement holding one is dropped before it reaches the card.
-const ADVICE_TITLE = 'Conseil factice de la salle d’attente';
+/**
+ * What an answered press shows. These members have no transaction, so every statement kind is false
+ * for them and a pick would be withheld (#996); the model answering no pick is the honest answer, and
+ * the card says there is nothing to point out. It is cached and charged like any answer, which is
+ * what this suite measures. A function, because the catalogue is read in the page's locale.
+ */
+const adviceShown = () => m.dashboard_insights_ai_empty({}, { locale: E2E_LOCALE });
 
 const SERVER_ENV = {
 	DATABASE_URL,
@@ -63,12 +68,7 @@ let fakeServer: Server | undefined;
 let server: ChildProcessByStdio<null, Readable, Readable> | undefined;
 let captured = '';
 
-const ANSWER = JSON.stringify({
-	summary: 'Résumé factice',
-	insights: [
-		{ title: ADVICE_TITLE, message: 'Détail factice', severity: 'info', category: 'spending' }
-	]
-});
+const ANSWER = JSON.stringify({ picks: [] });
 
 function startFake(): Promise<void> {
 	fakeServer = createServer((req, res) => {
@@ -255,7 +255,7 @@ test('a dashboard load and ten hover prefetches start no generation; opening the
 	expect(fake.chats - before, 'no generation from a load or a prefetch').toBe(0);
 
 	await pressCard(page);
-	await expect(page.getByText(ADVICE_TITLE).first()).toBeVisible();
+	await expect(page.getByText(adviceShown()).first()).toBeVisible();
 	console.log(`[ai-admission] chats after opening the card: ${fake.chats - before}`);
 	expect(fake.chats - before, 'the calibration: opening the card generates once').toBe(1);
 	await page.context().close();
@@ -271,7 +271,7 @@ test(`${EMAILS.length} members at once with a slow model: ${1 + QUEUE_DEPTH} ser
 	await Promise.all(pages.map((page) => pressCard(page)));
 	const outcomes = await Promise.all(
 		pages.map(async (page) => {
-			const advice = page.getByText(ADVICE_TITLE).first();
+			const advice = page.getByText(adviceShown()).first();
 			const busy = page.getByText(m.dashboard_insights_ai_busy_title());
 			await expect(advice.or(busy)).toBeVisible({ timeout: 20_000 });
 			return (await busy.isVisible()) ? 'busy' : 'served';
@@ -379,13 +379,13 @@ test('the hourly limit says when it lifts, and a period seen again costs nothing
 	for (const period of periods) {
 		await settle(page, `/?period=${period}`);
 		await pressCard(page);
-		await expect(page.getByText(ADVICE_TITLE).first()).toBeVisible();
+		await expect(page.getByText(adviceShown()).first()).toBeVisible();
 	}
 	expect(fake.chats - before, `${HOURLY} periods, ${HOURLY} generations`).toBe(HOURLY);
 
 	await settle(page, '/?period=last-month');
 	await pressCard(page);
-	await expect(page.getByText(ADVICE_TITLE).first()).toBeVisible();
+	await expect(page.getByText(adviceShown()).first()).toBeVisible();
 	expect(fake.chats - before, 'a period already seen comes from the cache').toBe(HOURLY);
 
 	await settle(page, '/?period=all-time');

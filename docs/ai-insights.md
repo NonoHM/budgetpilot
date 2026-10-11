@@ -61,10 +61,16 @@ The kinds, and the fact the app checks before it shows one:
 | No budget set              | The period is a whole month and the category has no budget.                                      |
 | Over budget                | The period is a whole month and the category is over its budget.                                 |
 | Close to its budget        | The period is a whole month and the category used 80% of its budget or more, without going over. |
-| Repeated payments          | The category holds a payment that repeats in the period.                                         |
+| Repeated payments          | A payment repeats in the period, and its transaction is filed under this category.               |
 | Spending is up             | Spending is above the whole previous month, which had spending.                                  |
 | Spent more than you earned | The period has income, and expenses above it.                                                    |
 | Spent less than you earned | The period has income, and expenses below it.                                                    |
+
+When two stored spellings of one category appear in the period (« Courses » and
+« courses », which a restore or a category rule can write), budgets count them
+as one and the top categories as two. The card then shows no budget statement
+about that name and names no top category, rather than a verdict beside a total
+that counts only one spelling.
 
 A pick whose fact is false is dropped. So is a pick that names a category the
 summary does not hold, or a category kind given `all`. A repeated pick is shown
