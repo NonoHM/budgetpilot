@@ -390,10 +390,6 @@
 		if (form?.passwordSuccess) closePasswordModal();
 	});
 
-	// AI toggles: immediate submission on click via an inverted hidden input
-	let aiInsightsForm = $state<HTMLFormElement | undefined>(undefined);
-	let aiLabelsForm = $state<HTMLFormElement | undefined>(undefined);
-
 	// Common card chrome (pattern already used by /rules, /categories):
 	// see cardBase in $lib/styles.
 	const card = `${cardBase} p-5`;
@@ -540,20 +536,6 @@
 					<div>
 						<div class="text-sm font-medium text-zinc-900">{m.settings_auth_label()}</div>
 						<div class="text-xs text-zinc-500">{m.settings_auth_value()}</div>
-					</div>
-					<!-- LLM : état réel binaire → dot encodé -->
-					<div class="flex items-start gap-2.5">
-						<span
-							class="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full"
-							class:bg-emerald-500={data.security.llmEnabled}
-							class:bg-zinc-300={!data.security.llmEnabled}
-						></span>
-						<div>
-							<div class="text-sm font-medium text-zinc-900">{m.settings_llm_local_label()}</div>
-							<div class="text-xs text-zinc-500">
-								{data.security.llmEnabled ? m.settings_llm_enabled() : m.settings_llm_disabled()}
-							</div>
-						</div>
 					</div>
 					<!-- Informational, no dot, like the environment row it sits next to. Placed there
 					     because that block is already the page's answer to "what is this instance", and
@@ -1133,76 +1115,6 @@
 						</form>
 					</div>
 				{/if}
-			</div>
-		</div>
-
-		<!-- ASSISTANT IA -->
-		<div class={card} class:opacity-50={!data.aiSettings.llmGloballyEnabled}>
-			<h2 class="text-[11px] font-semibold tracking-wide text-zinc-500 uppercase">
-				{m.settings_ai_heading()}
-			</h2>
-			{#if !data.aiSettings.llmGloballyEnabled}
-				<p class="mt-2 text-xs text-zinc-500">{m.settings_ai_disabled_notice()}</p>
-			{/if}
-
-			<div class="mt-3 space-y-3">
-				<div
-					class="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-zinc-200 px-4 py-3.5"
-				>
-					<div class="min-w-0">
-						<div class="text-sm font-medium text-zinc-900">{m.settings_ai_insights_title()}</div>
-						<div class="mt-0.5 text-xs text-zinc-500">
-							{m.settings_ai_insights_description()}
-						</div>
-					</div>
-					<form
-						method="POST"
-						action="?/updateAiInsightsEnabled"
-						class="shrink-0"
-						bind:this={aiInsightsForm}
-					>
-						<input
-							type="hidden"
-							name="enabled"
-							value={(!data.aiSettings.insightsEnabled).toString()}
-						/>
-						<Switch
-							checked={data.aiSettings.insightsEnabled}
-							disabled={!data.aiSettings.llmGloballyEnabled}
-							ariaLabel={m.settings_ai_insights_switch_aria()}
-							onchange={() => aiInsightsForm?.requestSubmit()}
-						/>
-					</form>
-				</div>
-
-				<div
-					class="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-zinc-200 px-4 py-3.5"
-				>
-					<div class="min-w-0">
-						<div class="text-sm font-medium text-zinc-900">{m.settings_ai_labels_title()}</div>
-						<div class="mt-0.5 text-xs text-zinc-500">
-							{m.settings_ai_labels_description()}
-						</div>
-					</div>
-					<form
-						method="POST"
-						action="?/updateAiIncludeLabels"
-						class="shrink-0"
-						bind:this={aiLabelsForm}
-					>
-						<input
-							type="hidden"
-							name="enabled"
-							value={(!data.aiSettings.includeLabels).toString()}
-						/>
-						<Switch
-							checked={data.aiSettings.includeLabels}
-							disabled={!data.aiSettings.llmGloballyEnabled}
-							ariaLabel={m.settings_ai_labels_switch_aria()}
-							onchange={() => aiLabelsForm?.requestSubmit()}
-						/>
-					</form>
-				</div>
 			</div>
 		</div>
 

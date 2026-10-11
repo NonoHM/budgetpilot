@@ -22,8 +22,9 @@ import { resolveDatabaseProvider } from '$lib/server/database/provider';
  * The fix is `serializedSqliteAdapter.ts`; its own spec carries the same property against the real
  * driver in the unit suite, because CI's db-matrix runs this file on PostgreSQL and MariaDB only.
  *
- * Users are the isolation boundary between tests, and each scenario touches a column nothing
- * else in the app reads (`aiIncludeLabels`, default false) on rows it created.
+ * Users are the isolation boundary between tests, and each scenario writes one column on rows it
+ * created: `categoryRenamePromptDismissedAt`, null by default and read only by `/categories`, which
+ * no scenario here loads. A fixed instant, so the probe is « set or not » and nothing reads a clock.
  *
  * See vitest.db.config.ts for how to run it.
  */
@@ -57,12 +58,15 @@ async function createUser(): Promise<string> {
 	return user.id;
 }
 
+/** The probe write: sets the column `flag` reads, on whichever user the scenario names. */
+const PROBE = { categoryRenamePromptDismissedAt: new Date('2026-01-01T00:00:00.000Z') };
+
 async function flag(userId: string): Promise<boolean> {
 	const row = await prisma.user.findUniqueOrThrow({
 		where: { id: userId },
-		select: { aiIncludeLabels: true }
+		select: { categoryRenamePromptDismissedAt: true }
 	});
-	return row.aiIncludeLabels;
+	return row.categoryRenamePromptDismissedAt !== null;
 }
 
 /** Rejects with a named reason if `work` has not settled within `ms`, instead of hanging. */
@@ -114,7 +118,7 @@ async function runBesideRollback<T>(
 		.$transaction(
 			async (tx) => {
 				open = true;
-				await tx.user.update({ where: { id: insideUserId }, data: { aiIncludeLabels: true } });
+				await tx.user.update({ where: { id: insideUserId }, data: PROBE });
 				markInsideWritten();
 				const start = Date.now();
 				while (!outsideFinished && Date.now() - start < OPEN_WINDOW_MS) {
@@ -160,8 +164,8 @@ describe('a write made outside an open transaction, which then rolls back', () =
 		// back until the transaction had closed, hiding whether the second's own path is guarded.
 		const run = await runBesideRollback(insideUserId, () =>
 			Promise.all([
-				prisma.user.update({ where: { id: updateUserId }, data: { aiIncludeLabels: true } }),
-				prisma.user.updateMany({ where: { id: updateManyUserId }, data: { aiIncludeLabels: true } })
+				prisma.user.update({ where: { id: updateUserId }, data: PROBE }),
+				prisma.user.updateMany({ where: { id: updateManyUserId }, data: PROBE })
 			])
 		);
 
@@ -241,8 +245,8 @@ describe('a batch transaction built on the plain client', () => {
 			5_000,
 			'the batch transaction',
 			prisma.$transaction([
-				prisma.user.update({ where: { id: first }, data: { aiIncludeLabels: true } }),
-				prisma.user.update({ where: { id: second }, data: { aiIncludeLabels: true } })
+				prisma.user.update({ where: { id: first }, data: PROBE }),
+				prisma.user.update({ where: { id: second }, data: PROBE })
 			])
 		);
 
@@ -276,10 +280,10 @@ describe('the global client used INSIDE a transaction callback', () => {
 			'the transaction using the global client',
 			prisma.$transaction(
 				async (tx) => {
-					await tx.user.update({ where: { id: insideUserId }, data: { aiIncludeLabels: true } });
+					await tx.user.update({ where: { id: insideUserId }, data: PROBE });
 					await prisma.user.update({
 						where: { id: globalUserId },
-						data: { aiIncludeLabels: true }
+						data: PROBE
 					});
 				},
 				{ timeout: TIMEOUT_MS }

@@ -10,14 +10,13 @@ holds everything about your account rather than about your money.
 | Section            | What it is for                                           |
 | ------------------ | -------------------------------------------------------- |
 | Account            | Your email and your role                                 |
-| Security status    | Whether the local AI is on, and when you last signed in  |
+| Security status    | The app version, where it runs, and your last sign-in    |
 | Language           | The interface language                                   |
 | Security           | Changing your password                                   |
 | Two-factor         | [A second check at sign-in](./two-factor.md)             |
 | Sessions           | Every device signed in as you                            |
 | Tags               | Renaming, recolouring and deleting [tags](./tags.md)     |
 | Accounts           | The accounts your imports go into                        |
-| AI insights        | The optional [local AI advice](../ai-insights.md)        |
 | Backup and restore | [Exporting and restoring your data](./backup-restore.md) |
 | Delete my account  | Removing the account and its data                        |
 

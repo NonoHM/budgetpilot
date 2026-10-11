@@ -18,7 +18,9 @@
  */
 
 /**
- * WHY the local model produced nothing.
+ * WHY the local model produced nothing. Produced by `insights/local-llm.ts`; since #1010 no screen
+ * reads it (the dashboard advice was removed, decision record #1009), and the next caller of the
+ * connection owns a sentence for each code, as the advice card did.
  *
  * `unavailable: true` had five distinct producers and one message, « Assistant IA indisponible »,
  * which tells a reader to wait for something that in four of the five cases will never change on
@@ -40,15 +42,8 @@
  * - `response_truncated`: the generation hit the token ceiling and stopped mid-object.
  *   `local-llm.ts`, on `done_reason === 'length'` from that same response.
  *
- * - `busy`: the model is occupied. `ai/gateway.ts` when admission refuses past the waiting room
- *   (`BP_LLM_QUEUE_DEPTH`), and `local-llm.ts` catch on an HTTP 503, which is Ollama's own queue
- *   full (#535). The sentence never says WHO is generating (ANSSI-PA-102 R17).
- * - `quota_reached`: this member started `BP_LLM_USER_HOURLY` generations in the last hour.
- *   `ai/gateway.ts`, when admission refuses on the quota (#535).
- *
- * - `response_withheld`: the model answered, and every statement it picked is false for this period
- *   by the app's own figures (#996). `ai/gateway.ts`, from `ai/statements.ts`. The model and the
- *   configuration both work; the reader may ask again later, and the insights card still stands.
+ * - `busy`: the model is occupied. `local-llm.ts` catch on an HTTP 503, which is Ollama's own queue
+ *   full (#535). A sentence for it never says WHO is generating (ANSSI-PA-102 R17).
  *
  * THE LAST TWO OF THE FIRST SIX LOOK LIKE ONE STATE AND NEED OPPOSITE ADVICE, which is why they are two codes.
  * Truncation is OUR fault: the ceiling was too small, and the answer is to raise a budget. An
@@ -66,9 +61,7 @@ export type LocalLlmFailureCode =
 	| 'model_unavailable'
 	| 'response_unusable'
 	| 'response_truncated'
-	| 'busy'
-	| 'quota_reached'
-	| 'response_withheld';
+	| 'busy';
 
 /**
  * Used when nothing recognised the error, and when a payload carries no code at all.

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { probeLocalLlm, requestLocalBudgetInsights } from './local-llm';
+import { z } from 'zod';
+import { probeLocalLlm, requestLocalModel, type LocalModelRequest } from './local-llm';
 
 /**
  * One generation is TWO requests since #524: a connect probe on `/api/version`, then the generation
@@ -32,15 +33,34 @@ function mockOllamaFetch(
 	});
 }
 
-/** A schema-valid answer (#996): one pick, so a test can tell it from the empty failure shape. */
+/**
+ * The caller's half of a request, as a test stands it in. The transport has no caller in 1.3
+ * (#1010), so the schema here is the spec's own, shaped like the last answer the app asked for (up to
+ * three picks of two strings, `.strict()`), which is what the cases below were written against.
+ */
+const PICKS = z
+	.object({
+		picks: z.array(z.object({ kind: z.string(), category: z.string() }).strict()).max(3)
+	})
+	.strict();
+const FORMAT = { type: 'object', properties: { picks: { type: 'array', maxItems: 3 } } };
+const NUM_PREDICT = 199;
+const REQUEST: LocalModelRequest<z.infer<typeof PICKS>> = {
+	prompt: 'prompt agrégé',
+	format: FORMAT,
+	schema: PICKS,
+	numPredict: NUM_PREDICT
+};
+
+/** A schema-valid answer: one pick, so a test can tell it from the empty failure shape. */
 const VALID_ANSWER = { picks: [{ kind: 'spending_up', category: 'all' }] };
 
-describe('requestLocalBudgetInsights', () => {
+describe('requestLocalModel', () => {
 	it('refuse une URL LLM non locale sans appeler fetch', async () => {
 		expect.assertions(2);
 
 		const fetchMock = vi.spyOn(globalThis, 'fetch');
-		const result = await requestLocalBudgetInsights('prompt agrégé', {
+		const result = await requestLocalModel(REQUEST, {
 			LLM_ENABLED: 'true',
 			LLM_PROVIDER: 'ollama',
 			LLM_BASE_URL: 'https://example.com'
@@ -62,7 +82,7 @@ describe('requestLocalBudgetInsights', () => {
 				headers: { location: 'http://127.0.0.2:9998/latest/meta-data/' }
 			})
 		);
-		const result = await requestLocalBudgetInsights('prompt agrégé', {
+		const result = await requestLocalModel(REQUEST, {
 			LLM_ENABLED: 'true',
 			LLM_PROVIDER: 'ollama',
 			LLM_BASE_URL: 'http://127.0.0.1:11434'
@@ -90,14 +110,14 @@ describe('requestLocalBudgetInsights', () => {
 					{ status: 200 }
 				)
 		);
-		const result = await requestLocalBudgetInsights('prompt agrégé', {
+		const result = await requestLocalModel(REQUEST, {
 			LLM_ENABLED: 'true',
 			LLM_PROVIDER: 'ollama',
 			LLM_BASE_URL: 'http://127.0.0.1:11434'
 		});
 
 		expect(result?.unavailable).toBe(true);
-		expect(result?.picks).toEqual([]);
+		expect(result?.value).toBeUndefined();
 
 		fetchMock.mockRestore();
 	});
@@ -118,14 +138,14 @@ describe('requestLocalBudgetInsights', () => {
 					{ status: 200 }
 				)
 		);
-		const result = await requestLocalBudgetInsights('prompt agrégé', {
+		const result = await requestLocalModel(REQUEST, {
 			LLM_ENABLED: 'true',
 			LLM_PROVIDER: 'ollama',
 			LLM_BASE_URL: 'http://127.0.0.1:11434'
 		});
 
 		expect(result?.unavailable).toBe(true);
-		expect(result?.picks).toEqual([]);
+		expect(result?.value).toBeUndefined();
 
 		fetchMock.mockRestore();
 	});
@@ -144,7 +164,7 @@ describe('requestLocalBudgetInsights', () => {
 					{ status: 200 }
 				)
 		);
-		const result = await requestLocalBudgetInsights('prompt agrégé', {
+		const result = await requestLocalModel(REQUEST, {
 			LLM_ENABLED: 'true',
 			LLM_PROVIDER: 'ollama',
 			LLM_BASE_URL: 'http://127.0.0.1:11434'
@@ -159,7 +179,7 @@ describe('requestLocalBudgetInsights', () => {
 		expect.assertions(2);
 
 		const fetchMock = vi.spyOn(globalThis, 'fetch');
-		const result = await requestLocalBudgetInsights('prompt agrégé', {
+		const result = await requestLocalModel(REQUEST, {
 			LLM_ENABLED: 'true',
 			LLM_PROVIDER: 'ollama',
 			LLM_BASE_URL: 'http://host.docker.internal:11434',
@@ -186,7 +206,7 @@ describe('requestLocalBudgetInsights', () => {
 					{ status: 200 }
 				)
 		);
-		const result = await requestLocalBudgetInsights('prompt agrégé', {
+		const result = await requestLocalModel(REQUEST, {
 			LLM_ENABLED: 'true',
 			LLM_PROVIDER: 'ollama',
 			LLM_BASE_URL: 'http://host.docker.internal:11434',
@@ -197,7 +217,7 @@ describe('requestLocalBudgetInsights', () => {
 			'http://host.docker.internal:11434/api/chat',
 			expect.objectContaining({ method: 'POST' })
 		);
-		expect(result?.picks).toEqual(VALID_ANSWER.picks);
+		expect(result?.value).toEqual(VALID_ANSWER);
 
 		fetchMock.mockRestore();
 	});
@@ -206,7 +226,7 @@ describe('requestLocalBudgetInsights', () => {
 		expect.assertions(2);
 
 		const fetchMock = vi.spyOn(globalThis, 'fetch');
-		const result = await requestLocalBudgetInsights('prompt agrégé', {
+		const result = await requestLocalModel(REQUEST, {
 			LLM_ENABLED: 'true',
 			LLM_PROVIDER: 'ollama',
 			LLM_BASE_URL: 'http://autre-hote.example:11434',
@@ -223,7 +243,7 @@ describe('requestLocalBudgetInsights', () => {
 		expect.assertions(2);
 
 		const fetchMock = vi.spyOn(globalThis, 'fetch');
-		const result = await requestLocalBudgetInsights('prompt agrégé', {
+		const result = await requestLocalModel(REQUEST, {
 			LLM_ENABLED: 'true',
 			LLM_PROVIDER: 'ollama',
 			LLM_BASE_URL: 'https://host.docker.internal:11434',
@@ -240,7 +260,7 @@ describe('requestLocalBudgetInsights', () => {
 		expect.assertions(2);
 
 		const fetchMock = vi.spyOn(globalThis, 'fetch');
-		const result = await requestLocalBudgetInsights('prompt agrégé', {
+		const result = await requestLocalModel(REQUEST, {
 			LLM_ENABLED: 'true',
 			LLM_PROVIDER: 'ollama',
 			LLM_BASE_URL: 'http://host.docker.internal:11434'
@@ -264,7 +284,7 @@ describe('requestLocalBudgetInsights', () => {
 					{ status: 200 }
 				)
 		);
-		await requestLocalBudgetInsights('prompt agrégé', {
+		await requestLocalModel(REQUEST, {
 			LLM_ENABLED: 'true',
 			LLM_PROVIDER: 'ollama',
 			LLM_BASE_URL: 'http://127.0.0.1:11434'
@@ -279,7 +299,7 @@ describe('requestLocalBudgetInsights', () => {
 		expect.assertions(2);
 
 		const fetchMock = vi.spyOn(globalThis, 'fetch');
-		const result = await requestLocalBudgetInsights('prompt agrégé', {
+		const result = await requestLocalModel(REQUEST, {
 			LLM_ENABLED: 'true',
 			LLM_PROVIDER: 'ollama',
 			LLM_BASE_URL: 'http://vps.example.com:11434',
@@ -304,7 +324,7 @@ describe('requestLocalBudgetInsights', () => {
 					{ status: 200 }
 				)
 		);
-		const result = await requestLocalBudgetInsights('prompt agrégé', {
+		const result = await requestLocalModel(REQUEST, {
 			LLM_ENABLED: 'true',
 			LLM_PROVIDER: 'ollama',
 			LLM_BASE_URL: 'https://vps.example.com:11434',
@@ -315,7 +335,7 @@ describe('requestLocalBudgetInsights', () => {
 			'https://vps.example.com:11434/api/chat',
 			expect.objectContaining({ method: 'POST' })
 		);
-		expect(result?.picks).toEqual(VALID_ANSWER.picks);
+		expect(result?.value).toEqual(VALID_ANSWER);
 
 		fetchMock.mockRestore();
 	});
@@ -324,7 +344,7 @@ describe('requestLocalBudgetInsights', () => {
 		expect.assertions(2);
 
 		const fetchMock = vi.spyOn(globalThis, 'fetch');
-		const result = await requestLocalBudgetInsights('prompt agrégé', {
+		const result = await requestLocalModel(REQUEST, {
 			LLM_ENABLED: 'true',
 			LLM_PROVIDER: 'ollama',
 			LLM_BASE_URL: 'http://ollama:11434',
@@ -349,7 +369,7 @@ describe('requestLocalBudgetInsights', () => {
 					{ status: 200 }
 				)
 		);
-		const result = await requestLocalBudgetInsights('prompt agrégé', {
+		const result = await requestLocalModel(REQUEST, {
 			LLM_ENABLED: 'true',
 			LLM_PROVIDER: 'ollama',
 			LLM_BASE_URL: 'http://ollama:11434',
@@ -361,7 +381,7 @@ describe('requestLocalBudgetInsights', () => {
 			'http://ollama:11434/api/chat',
 			expect.objectContaining({ method: 'POST' })
 		);
-		expect(result?.picks).toEqual(VALID_ANSWER.picks);
+		expect(result?.value).toEqual(VALID_ANSWER);
 
 		fetchMock.mockRestore();
 	});
@@ -380,7 +400,7 @@ describe('requestLocalBudgetInsights', () => {
 					{ status: 200 }
 				)
 		);
-		const result = await requestLocalBudgetInsights('prompt agrégé', {
+		const result = await requestLocalModel(REQUEST, {
 			LLM_ENABLED: 'true',
 			LLM_PROVIDER: 'ollama',
 			LLM_BASE_URL: 'http://127.0.0.1:11434'
@@ -390,7 +410,7 @@ describe('requestLocalBudgetInsights', () => {
 			'http://127.0.0.1:11434/api/chat',
 			expect.objectContaining({ method: 'POST' })
 		);
-		expect(result?.picks).toEqual(VALID_ANSWER.picks);
+		expect(result?.value).toEqual(VALID_ANSWER);
 
 		fetchMock.mockRestore();
 	});
@@ -409,7 +429,7 @@ describe('requestLocalBudgetInsights', () => {
  * whether or not `AbortSignal.timeout` actually produces that shape. So the abort is a real
  * `AbortSignal.timeout` firing, and the 404 is a real `Response` the Ollama client converts.
  */
-describe('requestLocalBudgetInsights failure codes', () => {
+describe('requestLocalModel failure codes', () => {
 	/** Like `mockOllamaFetch`, but the chat leg receives `init` so it can honour the abort signal. */
 	function mockOllamaWithSignal(
 		chat: (init: RequestInit) => Promise<Response>,
@@ -453,7 +473,7 @@ describe('requestLocalBudgetInsights failure codes', () => {
 
 		const fetchMock = vi.spyOn(globalThis, 'fetch');
 		try {
-			const result = await requestLocalBudgetInsights('prompt agrégé', {
+			const result = await requestLocalModel(REQUEST, {
 				...baseEnv,
 				LLM_BASE_URL: 'http://autre-hote.example:11434'
 			});
@@ -484,7 +504,7 @@ describe('requestLocalBudgetInsights failure codes', () => {
 		);
 		try {
 			const startedAt = Date.now();
-			const result = await requestLocalBudgetInsights('prompt agrégé', {
+			const result = await requestLocalModel(REQUEST, {
 				...baseEnv,
 				LLM_CONNECT_TIMEOUT_MS: '50',
 				LLM_TIMEOUT_MS: '30000'
@@ -512,7 +532,7 @@ describe('requestLocalBudgetInsights failure codes', () => {
 		// abort, so this also asserts that the signal reaches the fetch at all.
 		const fetchMock = mockOllamaWithSignal(neverAnswers);
 		try {
-			const result = await requestLocalBudgetInsights('prompt agrégé', {
+			const result = await requestLocalModel(REQUEST, {
 				...baseEnv,
 				LLM_CONNECT_TIMEOUT_MS: '5000',
 				LLM_TIMEOUT_MS: '50'
@@ -535,7 +555,7 @@ describe('requestLocalBudgetInsights failure codes', () => {
 				new Response(JSON.stringify({ error: 'model "qwen2.5:0.5b" not found' }), { status: 404 })
 		);
 		try {
-			const result = await requestLocalBudgetInsights('prompt agrégé', baseEnv);
+			const result = await requestLocalModel(REQUEST, baseEnv);
 
 			expect(result?.failureCode).toBe('model_unavailable');
 			expect(chatCalls(fetchMock)).toHaveLength(1);
@@ -561,7 +581,7 @@ describe('requestLocalBudgetInsights failure codes', () => {
 				)
 		);
 		try {
-			const result = await requestLocalBudgetInsights('prompt agrégé', baseEnv);
+			const result = await requestLocalModel(REQUEST, baseEnv);
 
 			expect(result?.failureCode).toBe('busy');
 			expect(chatCalls(fetchMock)).toHaveLength(1);
@@ -580,7 +600,7 @@ describe('requestLocalBudgetInsights failure codes', () => {
 		for (const status of [503, 404, 500]) {
 			const fetchMock = answer(status);
 			try {
-				const result = await requestLocalBudgetInsights('prompt agrégé', baseEnv);
+				const result = await requestLocalModel(REQUEST, baseEnv);
 				results[status] = { code: result?.failureCode, notCharged: result?.notCharged ?? false };
 			} finally {
 				fetchMock.mockRestore();
@@ -596,7 +616,7 @@ describe('requestLocalBudgetInsights failure codes', () => {
 	it('marks a refusal by the probe as no work', async () => {
 		const stopped = mockOllamaWithSignal(async () => new Response('{}'), neverAnswers);
 		try {
-			const result = await requestLocalBudgetInsights('prompt agrégé', {
+			const result = await requestLocalModel(REQUEST, {
 				...baseEnv,
 				LLM_CONNECT_TIMEOUT_MS: '50'
 			});
@@ -618,8 +638,8 @@ describe('requestLocalBudgetInsights failure codes', () => {
 		const fetchMock = mockOllamaWithSignal(neverAnswers);
 		const caller = new AbortController();
 		try {
-			const pending = requestLocalBudgetInsights(
-				'prompt agrégé',
+			const pending = requestLocalModel(
+				REQUEST,
 				{ ...baseEnv, LLM_TIMEOUT_MS: '30000' },
 				caller.signal
 			);
@@ -666,7 +686,7 @@ describe('requestLocalBudgetInsights failure codes', () => {
 				})
 		);
 		try {
-			const result = await requestLocalBudgetInsights('prompt agrégé', baseEnv);
+			const result = await requestLocalModel(REQUEST, baseEnv);
 
 			// The generation SUCCEEDED and the reading failed, which is the one state where telling the
 			// operator to check that Ollama is running points at a service that is working.
@@ -683,13 +703,13 @@ describe('requestLocalBudgetInsights failure codes', () => {
 		// A SECOND producer of the same code, and it exists because a break-check found the first test
 		// did not reach it: rewriting the `!content` branch to return `cold_start` left this file
 		// entirely green, so that branch was covered by nothing. Empty content and unparseable content
-		// travel different paths (`requestLocalBudgetInsights` versus `parseLocalLlmContent`) and only
+		// travel different paths (`requestLocalModel` versus `parseLocalLlmContent`) and only
 		// this fixture separates "the model said nothing" from "the model said something unreadable".
 		const fetchMock = mockOllamaWithSignal(
 			async () => new Response(JSON.stringify({ message: { content: '' } }), { status: 200 })
 		);
 		try {
-			const result = await requestLocalBudgetInsights('prompt agrégé', baseEnv);
+			const result = await requestLocalModel(REQUEST, baseEnv);
 
 			expect(result?.failureCode).toBe('response_unusable');
 			expect(chatCalls(fetchMock)).toHaveLength(1);
@@ -719,7 +739,7 @@ describe('requestLocalBudgetInsights failure codes', () => {
 				)
 		);
 		try {
-			const result = await requestLocalBudgetInsights('prompt agrégé', baseEnv);
+			const result = await requestLocalModel(REQUEST, baseEnv);
 
 			expect(result?.failureCode).toBe('response_truncated');
 			expect(chatCalls(fetchMock)).toHaveLength(1);
@@ -745,7 +765,7 @@ describe('requestLocalBudgetInsights failure codes', () => {
 				)
 		);
 		try {
-			const result = await requestLocalBudgetInsights('prompt agrégé', baseEnv);
+			const result = await requestLocalModel(REQUEST, baseEnv);
 			expect(result?.failureCode).toBe('response_unusable');
 		} finally {
 			fetchMock.mockRestore();
@@ -782,11 +802,11 @@ describe('requestLocalBudgetInsights failure codes', () => {
 				)
 		);
 		try {
-			const result = await requestLocalBudgetInsights('prompt agrégé', baseEnv);
+			const result = await requestLocalModel(REQUEST, baseEnv);
 
 			expect(result?.failureCode).toBeUndefined();
 			expect(result?.unavailable).toBeUndefined();
-			expect(result?.picks).toEqual(VALID_ANSWER.picks);
+			expect(result?.value).toEqual(VALID_ANSWER);
 		} finally {
 			fetchMock.mockRestore();
 		}
@@ -805,9 +825,9 @@ describe('requestLocalBudgetInsights failure codes', () => {
 				)
 		);
 		try {
-			const result = await requestLocalBudgetInsights('prompt agrégé', baseEnv);
+			const result = await requestLocalModel(REQUEST, baseEnv);
 
-			expect(result?.picks).toEqual(VALID_ANSWER.picks);
+			expect(result?.value).toEqual(VALID_ANSWER);
 			expect(result?.unavailable).toBeUndefined();
 			expect(result?.failureCode).toBeUndefined();
 		} finally {
@@ -826,7 +846,7 @@ describe('requestLocalBudgetInsights failure codes', () => {
  * prompt returned `done_reason: length`, 1060 tokens and zero characters of content without the
  * field, and `stop`, 282 tokens and complete French JSON with it.
  */
-describe('requestLocalBudgetInsights generation request', () => {
+describe('requestLocalModel generation request', () => {
 	const baseEnv = {
 		LLM_ENABLED: 'true',
 		LLM_PROVIDER: 'ollama',
@@ -874,13 +894,30 @@ describe('requestLocalBudgetInsights generation request', () => {
 		// ceiling and the answer was empty, not degraded but absent.
 		const capture = chatBody();
 		try {
-			const result = await requestLocalBudgetInsights('prompt agrégé', {
+			const result = await requestLocalModel(REQUEST, {
 				...baseEnv,
 				LLM_MODEL: 'qwen3.5:4b-q8_0'
 			});
 
 			expect(result?.unavailable).toBeUndefined();
 			expect(capture.body().think).toBe(false);
+		} finally {
+			capture.restore();
+		}
+	});
+
+	it("sends the caller's format and ceiling verbatim, so the bound is the caller's schema", async () => {
+		expect.assertions(2);
+
+		// The transport takes both as arguments since #1010. Separates « what the caller derived from
+		// its schema reaches Ollama » from « a constant of the transport's own », which is the shape
+		// #524 found: a literal 512 that outlived the schema it was sized for.
+		const capture = chatBody();
+		try {
+			await requestLocalModel(REQUEST, baseEnv);
+
+			expect(capture.body().format).toEqual(FORMAT);
+			expect((capture.body().options as Record<string, unknown>).num_predict).toBe(NUM_PREDICT);
 		} finally {
 			capture.restore();
 		}
@@ -910,7 +947,7 @@ describe('requestLocalBudgetInsights generation request', () => {
 			// `qualified-model.json` rather than imported, and the assertion on it is deliberate rather
 			// than incidental: it pins the PREMISE this test rests on, so changing the default to some
 			// other model reddens here and forces someone to confirm the new default cannot reason either.
-			await requestLocalBudgetInsights('prompt agrégé', baseEnv);
+			await requestLocalModel(REQUEST, baseEnv);
 
 			expect(capture.body().model).toBe('phi4-mini:3.8b');
 			expect(capture.body().think).toBe(false);

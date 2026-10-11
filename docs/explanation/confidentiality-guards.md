@@ -154,7 +154,7 @@ source's own text.
 The following would apply, and are listed so the reader can see them. **ANSSI is
 PROPOSED, not yet mapped** (`AGENTS.md`, « References »), so none of these is
 claimed as satisfied. These positions are about how this repository is
-developed; the product's AI advice is read against PA-102 recommendation by
+developed; the product's AI path (no caller in 1.3, #1009) is read against PA-102 recommendation by
 recommendation in the [AISVS map](../reference/aisvs-map.md), where R9, R27 and
 R34 get their own verdicts.
 

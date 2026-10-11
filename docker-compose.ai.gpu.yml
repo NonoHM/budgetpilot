@@ -12,7 +12,7 @@
 # machine, which is slower and always starts.
 #
 # Nothing else changes. The model, the timeout and the host allowlist all stay
-# where they are, in docker-compose.ai.yml. See docs/ai-insights.md.
+# where they are, in docker-compose.ai.yml. See docs/reference/ai-model.md.
 services:
   ollama:
     deploy:

@@ -166,12 +166,6 @@ To change it, go to **Settings** > **Language** and choose it in **Interface
 language**. BudgetPilot keeps that choice for this browser, whatever language
 the browser asks for.
 
-## No AI card on the dashboard
-
-Covered in detail in [local AI advice](./ai-insights.md#nothing-shows-up).
-The short version: `LLM_ENABLED=true` in `.env`, the per-user switch on in
-Settings, and the model in `LLM_MODEL` actually pulled.
-
 ## My CSV import is rejected
 
 **You don't have to reshape your file.** If BudgetPilot can't read it, the

@@ -134,6 +134,4 @@ Tags are yours and stay local, like everything else. They are included in
 backups and restored with them.
 
 They are **not** included in the CSV export, which is a transaction
-export and has no column for them. They are also never sent to the
-optional local AI model, whatever the model is allowed to see. See
-[local AI advice](../ai-insights.md).
+export and has no column for them.

@@ -26,9 +26,6 @@
 - **[Send the log to a collector](./logging-collectors.md)**: tested recipes
   for OpenTelemetry, Vector, Fluent Bit and Alloy with Loki, and the field
   mapping to ECS and OCSF.
-- **[Local AI advice](./ai-insights.md)**: the optional Ollama setup.
-- **[Qualify, change or roll back the AI model](./ai-model-change.md)**: check
-  a model on this app's prompt before using it, and undo a change.
 - **[Bank sync](./bank-sync.md)**: the optional automatic PSD2 connection.
 - **[Troubleshooting](./troubleshooting.md)**: when something's broken.
 
@@ -72,14 +69,13 @@ How to do things, in [using BudgetPilot](./using/README.md):
 - [What the security log records about you](./using/security-logging.md):
   what goes in, what never does, and how long it is kept.
 
-**Two features are documented above in "Install it" rather than here, and
-that is a decision rather than a gap.** [Bank sync](./bank-sync.md) and
-[local AI advice](./ai-insights.md) are both gated on setup an operator does
-first: a provider account and its credentials for one, a running Ollama
-model for the other. Neither exists in the app until that is done. A
-how-to that began "first, ask whoever runs the instance to enable this"
-would be the operator page with an extra step in front of it, so each is
-documented once, where the work starts.
+**Bank sync is documented above in "Install it" rather than here, and that
+is a decision rather than a gap.** [Bank sync](./bank-sync.md) is gated on
+setup an operator does first: a provider account and its credentials. It
+does not exist in the app until that is done. A how-to that began "first,
+ask whoever runs the instance to enable this" would be the operator page
+with an extra step in front of it, so it is documented once, where the work
+starts.
 
 ## Look it up
 
@@ -114,9 +110,9 @@ Rules, limits and exact values, in [reference](./reference/README.md):
   what it leaves out, and what the validator checks.
 - [Account settings](./reference/account.md): password rules, session
   lifetime, and where the language preference is stored.
-- [What the AI advice requires of a model](./reference/ai-model.md): the four
-  things a model has to do, the derived token ceiling, the qualified default,
-  and seven models measured side by side.
+- [The local model connection](./reference/ai-model.md): what 1.3 keeps of
+  the connection to Ollama with no feature calling it, what it asks of a
+  model, and the pinned default.
 - [AISVS map of the AI path](./reference/aisvs-map.md): every OWASP AISVS 1.0
   Level 1 and 2 requirement with its verdict, evidence and issue.
 

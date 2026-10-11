@@ -59,6 +59,11 @@ if (/(^|[/\\])dev\.db(\?|$)/.test(process.env.DATABASE_URL)) {
 const PASSWORD = 'rotation-smoke-password';
 const NEW_PASSWORD = 'rotation-smoke-new-password';
 const created: string[] = [];
+/**
+ * The stand-in change the two transaction tests write: a column no auth or session path reads, so
+ * writing it changes nothing the rotation depends on, and the value says which side committed.
+ */
+const STAND_IN_CHANGE = new Date('2026-01-01T00:00:00.000Z');
 
 let addressCounter = 0;
 function freshAddress(): string {
@@ -675,22 +680,28 @@ describe('the token changes with the change, and only with it', () => {
 	it('a revocation that lands during the change rolls the change back', async () => {
 		expect.assertions(3);
 		const user = await seedAccount('revoked-during');
-		await prisma.user.update({ where: { id: user.id }, data: { aiInsightsEnabled: true } });
+		await prisma.user.update({
+			where: { id: user.id },
+			data: { categoryRenamePromptDismissedAt: null }
+		});
 		const caller = await mintSession(user.id);
 		const request = browser(caller.token);
 
 		await expect(
 			commitWithRotatedToken({ sessionId: caller.id }, request.cookies, async (tx) => {
-				await tx.user.update({ where: { id: user.id }, data: { aiInsightsEnabled: false } });
+				await tx.user.update({
+					where: { id: user.id },
+					data: { categoryRenamePromptDismissedAt: STAND_IN_CHANGE }
+				});
 				await tx.session.update({ where: { id: caller.id }, data: { revokedAt: new Date() } });
 			})
 		).rejects.toSatisfy((thrown: unknown) => isRedirect(thrown) && thrown.location === '/login');
 
 		const after = await prisma.user.findUniqueOrThrow({
 			where: { id: user.id },
-			select: { aiInsightsEnabled: true }
+			select: { categoryRenamePromptDismissedAt: true }
 		});
-		expect(after.aiInsightsEnabled).toBe(true);
+		expect(after.categoryRenamePromptDismissedAt).toBeNull();
 		expect(request.written()).toBeNull();
 	});
 
@@ -699,19 +710,25 @@ describe('the token changes with the change, and only with it', () => {
 	it('the same change on a live session commits and rotates', async () => {
 		expect.assertions(3);
 		const user = await seedAccount('live-during');
-		await prisma.user.update({ where: { id: user.id }, data: { aiInsightsEnabled: true } });
+		await prisma.user.update({
+			where: { id: user.id },
+			data: { categoryRenamePromptDismissedAt: null }
+		});
 		const caller = await mintSession(user.id);
 		const request = browser(caller.token);
 
 		await commitWithRotatedToken({ sessionId: caller.id }, request.cookies, async (tx) => {
-			await tx.user.update({ where: { id: user.id }, data: { aiInsightsEnabled: false } });
+			await tx.user.update({
+				where: { id: user.id },
+				data: { categoryRenamePromptDismissedAt: STAND_IN_CHANGE }
+			});
 		});
 
 		const after = await prisma.user.findUniqueOrThrow({
 			where: { id: user.id },
-			select: { aiInsightsEnabled: true }
+			select: { categoryRenamePromptDismissedAt: true }
 		});
-		expect(after.aiInsightsEnabled).toBe(false);
+		expect(after.categoryRenamePromptDismissedAt).toEqual(STAND_IN_CHANGE);
 		expect(await liveSessionsCarrying(caller.token)).toBe(0);
 		expect((await readSessionUser(request.written()?.value))?.sessionId).toBe(caller.id);
 	});

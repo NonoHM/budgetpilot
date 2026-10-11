@@ -550,7 +550,7 @@ other than the default is written in the startup log.
 Both are off by default, and neither makes a single network call while off.
 
 ```dotenv
-LLM_ENABLED=false         # local AI advice, see docs/ai-insights.md
+LLM_ENABLED=false         # local model connection, no feature calls it in 1.3: docs/reference/ai-model.md
 BANK_SYNC_ENABLED=false   # automatic bank sync, see docs/bank-sync.md
 ```
 

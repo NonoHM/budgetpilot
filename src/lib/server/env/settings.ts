@@ -43,7 +43,7 @@ export const SETTING_GROUPS = [
 	'Reverse proxy',
 	'Uploads and imports',
 	'Bank sync',
-	'AI insights',
+	'AI connection',
 	'Logging',
 	'Server process'
 ] as const;
@@ -504,56 +504,62 @@ export const SETTINGS = {
 		page: 'bank-sync.md'
 	},
 
-	// ── AI insights ─────────────────────────────────────────────────────────────────────────────
+	// ── AI connection ───────────────────────────────────────────────────────────────────────────
+	// No feature calls the model in 1.3 (#1009, #1010): every row below is still registered and
+	// checked at boot, so an .env written for 1.2 behaves the same, and each summary says so.
 	LLM_ENABLED: {
 		kind: 'choice',
 		tier: 'common',
-		group: 'AI insights',
+		group: 'AI connection',
 		readBy: 'app',
 		values: ['false', 'true'],
 		default: 'false',
 		otherwise: 'treated as false',
-		summary: 'Turns on the optional AI advice, chosen by a local model.',
-		page: 'ai-insights.md'
+		summary:
+			'Turns on the connection to a local model. No feature reads it in 1.3 (#1009); kept for the next one.',
+		page: 'reference/ai-model.md'
 	},
 	LLM_PROVIDER: {
 		kind: 'choice',
 		tier: 'advanced',
-		group: 'AI insights',
+		group: 'AI connection',
 		readBy: 'app',
 		values: ['ollama'],
 		default: 'ollama',
-		otherwise: 'treated as insights off',
-		summary: 'Which model server to call. Only Ollama exists; any other value turns insights off.',
+		otherwise: 'treated as the connection off',
+		summary:
+			'Which model server to call. Only Ollama exists; any other value turns the connection off. No feature reads it in 1.3 (#1009); kept for the next one.',
 		page: 'reference/ai-model.md'
 	},
 	LLM_BASE_URL: {
 		kind: 'text',
 		tier: 'common',
-		group: 'AI insights',
+		group: 'AI connection',
 		readBy: 'app',
 		format: 'a URL whose host is in LLM_ALLOWED_HOSTS',
 		default: 'http://127.0.0.1:11434',
-		summary: 'Where the model server listens.',
-		page: 'ai-insights.md'
+		summary:
+			'Where the model server listens. No feature reads it in 1.3 (#1009); kept for the next one.',
+		page: 'reference/ai-model.md'
 	},
 	LLM_MODEL: {
 		kind: 'text',
 		tier: 'common',
-		group: 'AI insights',
+		group: 'AI connection',
 		readBy: 'app',
 		format: 'an Ollama model name',
 		// A literal, not an import of `ai/qualification/qualified-model.json`: this module is a leaf the
 		// image copies on its own for `scripts/log-pseudonym.mjs`, and an import it does not carry
 		// stopped that tool (docker-smoke, #971). `qualifiedModel.spec.ts` holds it to the pin.
 		default: 'phi4-mini:3.8b',
-		summary: 'Which model chooses the AI advice.',
-		page: 'ai-insights.md'
+		summary:
+			'Which model the connection asks for. No feature reads it in 1.3 (#1009); kept for the next one.',
+		page: 'reference/ai-model.md'
 	},
 	LLM_TIMEOUT_MS: {
 		kind: 'integer',
 		tier: 'advanced',
-		group: 'AI insights',
+		group: 'AI connection',
 		readBy: 'app',
 		default: 45_000,
 		min: 1,
@@ -561,13 +567,14 @@ export const SETTINGS = {
 		unit: 'milliseconds',
 		ceiling:
 			'Ten minutes is longer than any proxy or browser keeps a request open, so a longer wait would never reach the reader.',
-		summary: 'How long to wait for the model once its server has answered, loading included.',
-		page: 'ai-insights.md'
+		summary:
+			'How long to wait for the model once its server has answered, loading included. No feature reads it in 1.3 (#1009); kept for the next one.',
+		page: 'reference/ai-model.md'
 	},
 	LLM_CONNECT_TIMEOUT_MS: {
 		kind: 'integer',
 		tier: 'advanced',
-		group: 'AI insights',
+		group: 'AI connection',
 		readBy: 'app',
 		default: 2_000,
 		min: 1,
@@ -575,32 +582,35 @@ export const SETTINGS = {
 		unit: 'milliseconds',
 		ceiling:
 			'A model server that has not answered the first probe in a minute is not coming, and the page waits for this probe.',
-		summary: 'How long to wait for the model server to answer at all, before giving up.',
-		page: 'ai-insights.md'
+		summary:
+			'How long to wait for the model server to answer at all, before giving up. No feature reads it in 1.3 (#1009); kept for the next one.',
+		page: 'reference/ai-model.md'
 	},
 	LLM_ALLOWED_HOSTS: {
 		kind: 'text',
 		tier: 'advanced',
-		group: 'AI insights',
+		group: 'AI connection',
 		readBy: 'app',
 		format: 'comma-separated host names; a value replaces the default',
 		default: 'localhost,127.0.0.1,[::1]',
-		summary: 'The only hosts the model may be reached on.',
-		page: 'ai-insights.md'
+		summary:
+			'The only hosts the model may be reached on. No feature reads it in 1.3 (#1009); kept for the next one.',
+		page: 'reference/ai-model.md'
 	},
 	LLM_HTTP_PERMITTED_HOSTS: {
 		kind: 'text',
 		tier: 'advanced',
-		group: 'AI insights',
+		group: 'AI connection',
 		readBy: 'app',
 		format: 'comma-separated host names, added to the local ones',
-		summary: 'Hosts the model may be reached on over plain http rather than https.',
-		page: 'ai-insights.md'
+		summary:
+			'Hosts the model may be reached on over plain http rather than https. No feature reads it in 1.3 (#1009); kept for the next one.',
+		page: 'reference/ai-model.md'
 	},
 	BP_LLM_QUEUE_DEPTH: {
 		kind: 'integer',
 		tier: 'advanced',
-		group: 'AI insights',
+		group: 'AI connection',
 		readBy: 'app',
 		default: 2,
 		min: 1,
@@ -608,13 +618,14 @@ export const SETTINGS = {
 		unit: 'requests',
 		ceiling:
 			'One analysis runs at a time, so eight waiting is already minutes of queue: anyone further back is better told now that the model is busy.',
-		summary: 'How many analyses may wait while one is running, before the next is refused as busy.',
-		page: 'ai-insights.md'
+		summary:
+			'How many analyses may wait while one is running, before the next is refused as busy. No feature reads it in 1.3 (#1009); kept for the next one.',
+		page: 'reference/ai-model.md'
 	},
 	BP_LLM_USER_HOURLY: {
 		kind: 'integer',
 		tier: 'advanced',
-		group: 'AI insights',
+		group: 'AI connection',
 		readBy: 'app',
 		default: 20,
 		min: 1,
@@ -623,8 +634,8 @@ export const SETTINGS = {
 		ceiling:
 			'120 is one analysis every thirty seconds for an hour, already more than a person reading the card asks for.',
 		summary:
-			'How many analyses one account may start in an hour. Advice served again from memory is not counted.',
-		page: 'ai-insights.md'
+			'How many analyses one account may start in an hour. No feature reads it in 1.3 (#1009); kept for the next one.',
+		page: 'reference/ai-model.md'
 	},
 
 	// ── Logging ─────────────────────────────────────────────────────────────────────────────────

@@ -78,8 +78,8 @@ trap cleanup EXIT INT TERM
 #
 #   docker-compose.yml                     README.md, docs/configuration.md
 #   docker-compose.prebuilt.yml            README.md, docs/getting-started.md
-#   + docker-compose.ai.yml                docs/ai-insights.md
-#   + docker-compose.ai.gpu.yml            docs/ai-insights.md
+#   + docker-compose.ai.yml                docs/reference/ai-model.md
+#   + docker-compose.ai.gpu.yml            docs/reference/ai-model.md
 #   + docker-compose.proxy.yml             docs/reverse-proxy.md
 #   + both                                 docs/reverse-proxy.md
 #   + docker-compose.keys.yml              docs/bank-sync.md

@@ -240,9 +240,8 @@ npm run setup
 docker compose up -d --build
 ```
 
-`npm run setup` asks four questions (Docker or not, optional AI, optional
-bank sync), then writes a complete `.env` with three freshly generated
-secrets. It only uses Node.js built-ins, so it works on a fresh clone
+`npm run setup` asks whether you run Docker and whether to enable bank sync,
+then writes a complete `.env` with three freshly generated secrets. It only uses Node.js built-ins, so it works on a fresh clone
 without running `npm install` first. It also detects if port 3000 is taken
 and offers you a free one, keeping `APP_PORT` and `ORIGIN` in sync for you.
 
@@ -495,6 +494,5 @@ twice.
   database server. The install above uses SQLite and needs nothing.
 - [Operations](./operations.md): updating, backups, moving to another
   machine.
-- [Local AI advice](./ai-insights.md): the optional Ollama setup.
 - [Bank sync](./bank-sync.md): the optional automatic PSD2 connection.
 - [Troubleshooting](./troubleshooting.md): when something's broken.

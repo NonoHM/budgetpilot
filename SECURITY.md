@@ -2,9 +2,11 @@
 
 BudgetPilot is a local-first personal finance app. It is designed so that,
 by default, your financial data never leaves your machine: no bank cloud
-sync, no scraping, no mandatory external calls. Optional features (local AI
-via Ollama, PSD2 bank connections via Enable Banking) are opt-in and gated
-behind explicit configuration and host allowlists.
+sync, no scraping, no mandatory external calls. The optional PSD2 bank
+connection via Enable Banking is opt-in and gated behind explicit
+configuration and a host allowlist. Release 1.3 makes no call to a model; the
+connection to a local Ollama is kept with no caller, behind the same kind of
+allowlist.
 
 ## Supported versions
 
@@ -213,9 +215,12 @@ to almost no ASVS requirement: the closest one is answered "met" here, on the st
 the very invariant that had the hole. A high score on this standard is not a statement
 that the figures on your screen are right.
 
-## Self-assessed against OWASP AISVS 1.0, for the AI advice
+## Self-assessed against OWASP AISVS 1.0, for the AI path
 
-The optional AI advice is mapped separately, against every Level 1 and Level 2 requirement of
+Release 1.3 makes no call to a model (#1009): the map's rows describe 1.3, where most requirements
+have nothing to attach to and the rest bear on the connection and the Compose overlay that still
+ship. The verdicts the removed advice earned are in the page's history. Its counts fell because
+the scope fell: no gap was closed by removing the feature, and the page says so beside them. The AI path is mapped separately, against every Level 1 and Level 2 requirement of
 the OWASP AI Security Verification Standard 1.0, in the
 [AISVS map](./docs/reference/aisvs-map.md): one verdict per requirement, the evidence, and the
 issue that closes each gap. Its counts are on that page and nowhere else, because a test

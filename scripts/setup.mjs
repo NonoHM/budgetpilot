@@ -144,11 +144,6 @@ if (useDocker) {
 	}
 }
 
-const enableLlm = await askYesNo(
-	'\nEnable optional local AI advice (Ollama)? You can turn this on later in .env.',
-	{ defaultYes: false }
-);
-
 const enableBankSync = await askYesNo(
 	'Enable optional automatic bank sync (Enable Banking)? You can turn this on later in .env.',
 	{ defaultYes: false }
@@ -165,7 +160,6 @@ const totpEncryptionKey = randomBytes(32).toString('hex');
 content = setEnvValue(content, 'BOOTSTRAP_TOKEN', bootstrapToken);
 content = setEnvValue(content, 'RATE_LIMIT_HASH_SECRET', rateLimitHashSecret);
 content = setEnvValue(content, 'TOTP_ENCRYPTION_KEY', totpEncryptionKey);
-content = setEnvValue(content, 'LLM_ENABLED', String(enableLlm));
 content = setEnvValue(content, 'BANK_SYNC_ENABLED', String(enableBankSync));
 if (useDocker) {
 	content = setEnvValue(content, 'APP_PORT', String(appPort));
@@ -204,14 +198,6 @@ if (useDocker) {
 console.log(
 	'\nThe first account you register needs the BOOTSTRAP_TOKEN from your new .env. That account becomes an admin automatically.'
 );
-
-if (enableLlm) {
-	console.log(
-		useDocker
-			? '\nAI enabled: use docker-compose.ai.yml (see README) to also start the Ollama service.'
-			: '\nAI enabled: run "npm run setup:llm" to install Ollama and pull the model, then "npm run dev:ai".'
-	);
-}
 
 if (enableBankSync) {
 	console.log(

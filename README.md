@@ -29,7 +29,6 @@ All screenshots use fake demo data, not a real user's finances.
 - **[Categorization rules](docs/using/rules.md)** (text or regex), applied automatically on import, never overriding something you fixed by hand. A ready-made set ships with the app.
 - **[Split transactions](docs/using/split-transactions.md)**: one payment across several categories, so an 80 € supermarket trip can be 50 € Groceries and 30 € Shopping. Budgets and reports count the parts, your totals stay exactly the same, and the CSV export carries the split back out and in again.
 - **Tags**: free labels that cut across categories, so "Portugal 2026" can hold a train, a restaurant and a hotel while each keeps its own category. Filter the list by one, tag a whole filtered set at once, and undo that in one step.
-- **Optional local AI advice** via Ollama. By default, only anonymized aggregates reach the model. An opt-in setting can add the labels of your largest expenses, never your full transaction history.
 - **Backup and restore**: a full export of your own data, nothing held hostage.
 - French and English, out of the box.
 
@@ -151,7 +150,7 @@ Reaching it from another device on your LAN takes two extra lines in `.env` (`OR
 - **[Reverse proxy](docs/reverse-proxy.md)**: optional Caddy overlay for a real domain with automatic HTTPS.
 - **[PostgreSQL or MySQL](docs/database-providers.md)**: optional overlays for installs that already run a database server. SQLite is the default and needs nothing.
 - **[Running it day to day](docs/operations.md)**: updating, backups, moving machines.
-- **[Local AI advice](docs/ai-insights.md)** and **[bank sync](docs/bank-sync.md)**: the two optional features.
+- **[Bank sync](docs/bank-sync.md)**: the optional automatic PSD2 connection.
 - **[Troubleshooting](docs/troubleshooting.md)**: when something's broken.
 
 ## Why this exists

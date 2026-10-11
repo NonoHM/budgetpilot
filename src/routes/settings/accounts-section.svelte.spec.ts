@@ -47,13 +47,11 @@ function baseData(overrides: Partial<PageData> = {}): PageData {
 		mfa: { status: 'disabled' },
 		security: {
 			authMode: 'locale',
-			llmEnabled: false,
 			runtime: 'local',
 			latestSessionCreatedAt: null
 		},
 		sessions: [],
 		tags: [],
-		aiSettings: { insightsEnabled: false, includeLabels: false, llmGloballyEnabled: false },
 		columnMappings: [],
 		columnMappingCap: 50,
 		rememberedAccounts: [],

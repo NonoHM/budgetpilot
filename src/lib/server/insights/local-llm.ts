@@ -1,11 +1,11 @@
 import { Ollama } from 'ollama';
+import type { ZodType } from 'zod';
 import { LOCAL_LLM_FALLBACK_CODE } from '$lib/domain/failureCodes';
 import { failureCode, isTimeoutError } from '$lib/server/errors';
 import { parseHostsCsv } from '$lib/server/hosts';
 import { fetchWithRedirectGuard } from '$lib/server/net/redirectGuard';
 import { readIntegerSetting } from '$lib/server/env/readSetting';
 import { SETTINGS } from '$lib/server/env/settings';
-import { localLlmJsonSchema, localLlmNumPredict, localLlmResponseSchema } from './schema';
 import type { LocalLlmFailureCode, LocalLlmResult } from './types';
 
 const DEFAULT_BASE_URL = 'http://127.0.0.1:11434';
@@ -40,7 +40,7 @@ const DEFAULT_ALLOWED_HOSTS = ['localhost', '127.0.0.1', '[::1]'];
 // it isn't a remote server, so http: remains acceptable (Ollama doesn't serve TLS there).
 const DEFAULT_HTTP_PERMITTED_HOSTS = [...DEFAULT_ALLOWED_HOSTS, 'host.docker.internal'];
 
-/** The model tag this instance asks for. Read by the gateway's cache key as well as the request. */
+/** The model tag this instance asks for. */
 export function localLlmModel(env: NodeJS.ProcessEnv = process.env): string {
 	return env.LLM_MODEL ?? SETTINGS.LLM_MODEL.default;
 }
@@ -50,9 +50,8 @@ export function isLocalLlmEnabled(env: NodeJS.ProcessEnv = process.env): boolean
 }
 
 /** One shape for every giving-up path, so a code can never be omitted where `unavailable` is set. */
-function unavailable(code: LocalLlmFailureCode, noWork = false): LocalLlmResult {
+function unavailable(code: LocalLlmFailureCode, noWork = false): LocalLlmResult<never> {
 	return {
-		picks: [],
 		unavailable: true,
 		failureCode: code,
 		...(noWork ? { notCharged: true as const } : {})
@@ -130,16 +129,16 @@ function isResponseError(caught: unknown, status: number): boolean {
 
 /**
  * The connect leg alone: `null` when something answered at an allowlisted address inside the connect
- * budget, otherwise the failure the card names. Exported because the gateway asks it BEFORE reading
- * its cache, so a stopped model stops cached advice too (#535, spec F5).
+ * budget, otherwise the failure. Exported so a caller holding a cache can ask it BEFORE reading the
+ * cache, so a stopped model stops cached answers too (#535, spec F5).
  *
- * `requestLocalBudgetInsights` still runs it, and that second probe is kept on purpose: a request
- * may have waited in the admission room since the gateway's probe, and the ordering argument for
- * `cold_start` below needs a probe that answered for THIS generation.
+ * `requestLocalModel` runs it again, on purpose: a request may have waited in an admission room
+ * since the caller's probe, and the ordering argument for `cold_start` below needs a probe that
+ * answered for THIS generation.
  */
 export async function probeLocalLlm(
 	env: NodeJS.ProcessEnv = process.env
-): Promise<LocalLlmResult | null> {
+): Promise<LocalLlmResult<never> | null> {
 	const baseUrl = getLocalBaseUrl(env.LLM_BASE_URL ?? DEFAULT_BASE_URL, env);
 	// Refused by the host allowlist, before any socket is opened. Distinct from "nothing answered":
 	// no amount of waiting fixes a base URL the allowlist will not accept.
@@ -150,18 +149,39 @@ export async function probeLocalLlm(
 		: unavailable('unreachable', true);
 }
 
+/** One generation: what the caller asks, and the two things that bound what may come back. */
+export interface LocalModelRequest<T> {
+	prompt: string;
+	/**
+	 * The answer's JSON schema, sent as Ollama's `format`, which compiles it into a grammar. Bounds an
+	 * honest model only: `schema` below is what decides, because a hostile one follows no grammar.
+	 */
+	format: Record<string, unknown>;
+	/** Validates the parsed answer; anything it refuses is `response_unusable` or `_truncated`. */
+	schema: ZodType<T>;
+	/**
+	 * The generation ceiling, sent as `num_predict`. DERIVED by the caller from the largest answer its
+	 * schema admits, never a literal: a literal 512 outlived the schema it was sized for and cut every
+	 * full answer short (#524).
+	 */
+	numPredict: number;
+}
+
 /**
- * `signal` is the caller's: a newer request of the same member, an opt-out, or a closed tab (#535).
- * It joins the generation budget rather than replacing it, so either one ends the fetch, and Ollama
- * stops generating when the connection closes. An abort from it reads as `cold_start` here, because
- * `isTimeoutError` accepts `AbortError`; the gateway checks its ticket BEFORE reading the result for
- * exactly that reason.
+ * THE MODEL CALL, with no caller in 1.3 (decision record #1009): the dashboard advice that used it
+ * was removed (#1010), and the connection is kept as a library for the next feature to name one.
+ *
+ * `signal` is the caller's: a newer request, an opt-out, or a closed tab (#535). It joins the
+ * generation budget rather than replacing it, so either one ends the fetch, and Ollama stops
+ * generating when the connection closes. An abort from it reads as `cold_start` here, because
+ * `isTimeoutError` accepts `AbortError`; a caller checks its own signal BEFORE reading the result
+ * for exactly that reason.
  */
-export async function requestLocalBudgetInsights(
-	prompt: string,
+export async function requestLocalModel<T>(
+	request: LocalModelRequest<T>,
 	env: NodeJS.ProcessEnv = process.env,
 	signal?: AbortSignal
-): Promise<LocalLlmResult | null> {
+): Promise<LocalLlmResult<T> | null> {
 	if (!isLocalLlmEnabled(env)) return null;
 
 	const refused = await probeLocalLlm(env);
@@ -196,8 +216,8 @@ export async function requestLocalBudgetInsights(
 	try {
 		const response = await client.chat({
 			model,
-			messages: [{ role: 'user', content: prompt }],
-			format: localLlmJsonSchema,
+			messages: [{ role: 'user', content: request.prompt }],
+			format: request.format,
 			// UNCONDITIONAL, and the absence of a capability gate is the decision rather than the
 			// shortcut. A reasoning model spends its reasoning tokens out of the same `num_predict`
 			// budget as the answer, so the ceiling below can be correctly sized for the schema and
@@ -222,11 +242,8 @@ export async function requestLocalBudgetInsights(
 			think: false,
 			options: {
 				temperature: 0.2,
-				// Derived from the schema, never a literal. 512 shipped with the initial release and was
-				// never revisited while the schema was, and it sits below the schema's own worst case in
-				// every estimate: a fully populated five-insight French response could not fit even with
-				// no reasoning tokens at all. See `localLlmNumPredict` for the measurement.
-				num_predict: localLlmNumPredict()
+				// The caller's, derived from its schema: see `LocalModelRequest.numPredict`.
+				num_predict: request.numPredict
 			}
 		});
 
@@ -238,7 +255,7 @@ export async function requestLocalBudgetInsights(
 		const content = response.message?.content;
 		if (!content) return unreadable(truncated);
 
-		return parseLocalLlmContent(content, truncated);
+		return parseLocalLlmContent(content, request.schema, truncated);
 	} catch (caught) {
 		// `unreachable` is the fallback rather than a catch-all sentence: the probe answered, so
 		// anything unrecognised here is the connection having failed since, which is the honest
@@ -276,11 +293,15 @@ export async function requestLocalBudgetInsights(
  * half 2 entirely; the third case, `length` over VALID content, is the only one that can see it.
  * Recorded at #531.
  */
-function unreadable(truncated: boolean): LocalLlmResult {
+function unreadable(truncated: boolean): LocalLlmResult<never> {
 	return unavailable(truncated ? 'response_truncated' : 'response_unusable');
 }
 
-function parseLocalLlmContent(content: string, truncated: boolean): LocalLlmResult {
+function parseLocalLlmContent<T>(
+	content: string,
+	schema: ZodType<T>,
+	truncated: boolean
+): LocalLlmResult<T> {
 	let parsedJson: unknown;
 	try {
 		parsedJson = JSON.parse(content);
@@ -290,15 +311,12 @@ function parseLocalLlmContent(content: string, truncated: boolean): LocalLlmResu
 		return unreadable(truncated);
 	}
 
-	const parsed = localLlmResponseSchema.safeParse(parsedJson);
+	const parsed = schema.safeParse(parsedJson);
 	if (!parsed.success) return unreadable(truncated);
 
 	// Half 2 of the rule stated beside `unreadable`: a schema-valid answer is kept whatever stopped
 	// the generation, so `truncated` is deliberately not read from here on.
-
-	// Picks only: closed lists, no words (#996). Which of them reach the card is decided in ONE place,
-	// `ai/statements.ts`, against the figures the prompt was built from.
-	return { picks: parsed.data.picks };
+	return { value: parsed.data };
 }
 
 function getAllowedHosts(env: NodeJS.ProcessEnv): string[] {

@@ -31,25 +31,26 @@ const LOGGING_IMPORT_RESTRICTION = {
 };
 
 /**
- * ONE DOOR TO THE MODEL (#535): a generation started anywhere but `ai/gateway.ts` skips the probe,
- * the cache, the waiting room, the per-member rule and the hourly quota. The import graph is what
- * keeps « no generation outside an admitted request » true for the next caller.
- */
-/**
+ * THE MODEL DOOR (#535), CLOSED IN 1.3 (decision record #1009). The dashboard advice that called the
+ * model was removed (#1010); the connection in `insights/local-llm.ts` is kept as a library with no
+ * caller. So nothing under `src/` imports that module at all, and the refusal is the whole module
+ * rather than a list of its exports: a list goes stale silently the day an export is renamed, and
+ * ESLint does not report an entry that matches nothing. The next caller is added here by name, with
+ * the admission that bounds it. `modelDoor.spec.ts` lints planted imports against this config.
+ *
  * The model client itself, any entry point of the package (`ollama/browser` carries the full client
  * too): only `insights/local-llm.ts` holds one (#535, narrow pass F5).
  */
 const MODEL_CLIENT = {
 	group: ['ollama', 'ollama/*'],
-	message:
-		'Only $lib/server/insights/local-llm.ts holds the model client; generate through generateAdvice (#535).'
+	message: 'Only $lib/server/insights/local-llm.ts holds the model client (#535).'
 };
 
 /** `import()` is invisible to no-restricted-imports; a template literal hides its source from both. */
 const MODEL_DOOR_DYNAMIC = [
 	{
 		selector: 'ImportExpression[source.value=/local-llm|^ollama(\\/|$)/]',
-		message: 'Only $lib/server/ai/gateway.ts reaches the model (#535), and not through import().'
+		message: 'Nothing reaches the model in 1.3 (#1009), and not through import().'
 	},
 	{
 		selector: "ImportExpression[source.type='TemplateLiteral']",
@@ -64,9 +65,8 @@ const MODEL_DOOR = {
 		'**/local-llm.*',
 		'$lib/server/insights/local-llm'
 	],
-	importNames: ['requestLocalBudgetInsights', 'probeLocalLlm'],
 	message:
-		'Only $lib/server/ai/gateway.ts reaches the model (#535). Ask through generateAdvice, which admits, bounds and caches.'
+		'Nothing calls the model in 1.3 (#1009): no file imports insights/local-llm. A caller is added to eslint.config.js by name, with its admission (#535).'
 };
 
 export default defineConfig(
@@ -166,19 +166,6 @@ export default defineConfig(
 		}
 	},
 	{
-		// The one door itself (#535): everything else above still applies to it.
-		files: ['src/lib/server/ai/gateway.ts'],
-		rules: {
-			'no-restricted-imports': [
-				'error',
-				{
-					paths: LOGGING_IMPORT_RESTRICTION.paths,
-					patterns: [...LOGGING_IMPORT_RESTRICTION.patterns, MODEL_CLIENT]
-				}
-			]
-		}
-	},
-	{
 		// The model client's one holder (#535).
 		files: ['src/lib/server/insights/local-llm.ts'],
 		rules: {
@@ -193,8 +180,15 @@ export default defineConfig(
 	},
 	{
 		// The model door outside src/lib/server too (#535, narrow pass F5): a module under src/lib
-		// that a route imports is as close to the model as the route itself.
-		files: ['src/lib/**/*.{ts,js,svelte}'],
+		// that a route imports is as close to the model as the route itself. Route components and the
+		// universal and client hooks too (#1010): `ollama/browser` would call the model from the
+		// member's browser, which no server-side door sees.
+		files: [
+			'src/lib/**/*.{ts,js,svelte}',
+			'src/routes/**/*.svelte',
+			'src/hooks.ts',
+			'src/hooks.client.ts'
+		],
 		ignores: ['src/lib/server/**', '**/*.spec.ts', '**/*.svelte.spec.ts'],
 		rules: {
 			'no-restricted-imports': ['error', { patterns: [MODEL_CLIENT, MODEL_DOOR] }],
@@ -205,7 +199,8 @@ export default defineConfig(
 		// The writer itself configures pino and owns the core; boot.mjs runs before the bundle exists
 		// and imports the core as TypeScript source, which is the one other place allowed to.
 		files: ['src/lib/server/logging/**/*.ts'],
-		rules: { 'no-restricted-imports': 'off' }
+		// The logging restriction is lifted for the writer, the model door is not (#1010).
+		rules: { 'no-restricted-imports': ['error', { patterns: [MODEL_CLIENT, MODEL_DOOR] }] }
 	},
 	{
 		files: ['boot.mjs'],
