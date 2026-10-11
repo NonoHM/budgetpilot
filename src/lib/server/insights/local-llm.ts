@@ -1,7 +1,6 @@
 import { Ollama } from 'ollama';
 import { LOCAL_LLM_FALLBACK_CODE } from '$lib/domain/failureCodes';
 import { failureCode, isTimeoutError } from '$lib/server/errors';
-import { stripMarkdown } from './plainText';
 import { parseHostsCsv } from '$lib/server/hosts';
 import { fetchWithRedirectGuard } from '$lib/server/net/redirectGuard';
 import { readIntegerSetting } from '$lib/server/env/readSetting';
@@ -298,20 +297,18 @@ function parseLocalLlmContent(content: string, truncated: boolean): LocalLlmResu
 	// Half 2 of the rule stated beside `unreadable`: a schema-valid answer is kept whatever stopped
 	// the generation, so `truncated` is deliberately not read from here on.
 
-	// Stripped at RECEPTION, after validation and before anything else sees the text. Neither the
-	// schema nor the prompt forbids markdown, so a model that emits « **35%** » puts the asterisks on
-	// screen, and which model the operator pulled decides whether that happens. Stripping here means
-	// one place rather than one per render site, and it never turns generated text into markup.
+	// As the model wrote it. What reaches the card is decided in ONE place, `ai/accept.ts`, which
+	// cleans the text (markdown included) before it checks it, so the check reads what is shown.
 	const insights: BudgetInsight[] = parsed.data.insights.map((item, index) => ({
 		id: `local-llm-${index + 1}`,
-		title: stripMarkdown(item.title),
-		message: stripMarkdown(item.message),
+		title: item.title,
+		message: item.message,
 		severity: item.severity,
 		category: item.category,
 		source: 'local-llm'
 	}));
 
-	return { summary: stripMarkdown(parsed.data.summary), insights };
+	return { summary: parsed.data.summary, insights };
 }
 
 function getAllowedHosts(env: NodeJS.ProcessEnv): string[] {

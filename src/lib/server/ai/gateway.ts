@@ -10,7 +10,15 @@ import {
 import { buildBudgetInsightsPrompt } from '$lib/server/insights/prompt';
 import { buildTransactionSummary } from '$lib/server/insights/summary';
 import type { LocalAiAdvice, LocalLlmResult } from '$lib/server/insights/types';
+import {
+	acceptAdvice,
+	analysisText,
+	budgetStatusOf,
+	cleanShownText,
+	type Grounding
+} from './accept';
 import { createAdmission, type Admission } from './admission';
+import { categoryDisplayName } from '$lib/domain/categoryLabels';
 
 /**
  * THE ONE DOOR TO THE MODEL (#535). Nothing else imports the model call: ESLint refuses a static
@@ -29,10 +37,11 @@ import { createAdmission, type Admission } from './admission';
  * the caller is also where the member's epoch is read, and the epoch must be read FIRST.
  */
 
-/** A prompt and the key of the advice it would produce. */
+/** A prompt, the key of the advice it would produce, and what its answer is checked against. */
 export interface PreparedAdvice {
 	key: string;
 	prompt: string;
+	grounding: Grounding;
 }
 
 /**
@@ -65,7 +74,18 @@ export function prepareAdvice(input: {
 	const key = createHash('sha256')
 		.update(JSON.stringify([localLlmModel(input.env ?? process.env), prompt]))
 		.digest('hex');
-	return { key, prompt };
+	// The values the payload holds, read from the same summary the prompt was built from, so an
+	// answer is checked against exactly what the model was given (G3, #831).
+	const grounding: Grounding = {
+		categories: summary.topCategories.map((category) => ({
+			name: category.category,
+			amountCents: category.amountCents,
+			status: budgetStatusOf(category.category, periodData.summary.categorySummaries),
+			aliases: [categoryDisplayName(category.category)]
+		})),
+		request: analysisText(cleanShownText(prompt))
+	};
+	return { key, prompt, grounding };
 }
 
 /**
@@ -173,7 +193,8 @@ export function createGateway(dependencies: { admission: Admission; now: () => n
 				// one replaced. Before the cache write too, so advice finished after an opt-out is not
 				// kept.
 				if (ticket.signal.aborted || !result) return CANCELLED;
-				const advice = toAdvice(result);
+				// Accepted BEFORE the cache write, so a statement the app refuses is never served again.
+				const advice = acceptAdvice(toAdvice(result), input.prepared.grounding);
 				// A failure the model did no work on is not charged to the member's hour (owner's ruling,
 				// 2026-10-10). The model call marks it where that is KNOWN; the displayed code is never
 				// the test, because `unreachable` is also the catch-all after a generation the GPU did

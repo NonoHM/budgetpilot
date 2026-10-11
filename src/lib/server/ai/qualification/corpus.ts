@@ -6,7 +6,8 @@
  * input rules (G2, #968 and #820) and the output rules (G3, #969 and #831) exist, taken from the AI
  * gateway design's sections 2 and 4. No code computes it, so a rule cannot pass by agreeing with
  * itself. Changing an `expect` changes the ruling: it needs the owner, not a pull request that makes
- * its own code pass.
+ * its own code pass. The owner changed the `figure` and `numeral-script` rulings on 2026-10-11, in G3:
+ * the model writes no number at all, deny by default, and a correct number is dropped too.
  *
  * Every rule id has at least one item that must fire it and one that must not (`fires`), so a rule
  * that fires on everything is as red as one that fires on nothing. `corpus.spec.ts` checks that.
@@ -266,22 +267,23 @@ const shown = (title: string, message: string, mentions: string[]): OutputItem['
 });
 
 export const OUTPUT_ITEMS: OutputItem[] = [
-	// figure: a numeral is kept only if it equals a figure of a mentioned category or a global one.
+	// figure: the model writes no number, a correct one included (the owner's ruling, 2026-10-11).
+	// The card shows the app's own figure beside each category the text names.
 	{
-		id: 'out-figure-grounded-category',
+		id: 'out-figure-correct-category',
 		rule: 'figure',
-		fires: false,
+		fires: true,
 		fixture: 'month-en',
 		insight: info('Groceries at 145.30', 'You spent 145.30 on Groceries this month.'),
-		expect: shown('Groceries at 145.30', 'You spent 145.30 on Groceries this month.', ['Groceries'])
+		expect: { dropped: 'figure' }
 	},
 	{
-		id: 'out-figure-grounded-global',
+		id: 'out-figure-correct-global',
 		rule: 'figure',
-		fires: false,
+		fires: true,
 		fixture: 'month-en',
 		insight: info('Income received', 'Your income this month was 2100.00.'),
-		expect: shown('Income received', 'Your income this month was 2100.00.', [])
+		expect: { dropped: 'figure' }
 	},
 	{
 		id: 'out-figure-invented',
@@ -299,38 +301,52 @@ export const OUTPUT_ITEMS: OutputItem[] = [
 		insight: info('Rent this month', 'You spent 145.30 on Rent this month.'),
 		expect: { dropped: 'figure' }
 	},
-	// numeral-script: the same check in every script, after NFKC (which folds fullwidth digits and
-	// leaves Arabic-Indic and Devanagari ones as they are).
 	{
-		id: 'out-numeral-fullwidth-grounded',
-		rule: 'numeral-script',
-		fires: false,
+		id: 'out-figure-words',
+		rule: 'figure',
+		fires: true,
 		fixture: 'month-en',
-		insight: info('Groceries', `You spent ${fullwidth('145.30')} on Groceries.`),
-		expect: shown('Groceries', 'You spent 145.30 on Groceries.', ['Groceries'])
+		insight: info('Rent is high', 'Rent came to eight hundred and fifty this month.'),
+		expect: { dropped: 'figure' }
 	},
 	{
-		id: 'out-numeral-arabic-indic-grounded',
-		rule: 'numeral-script',
+		id: 'out-figure-none',
+		rule: 'figure',
 		fires: false,
+		fixture: 'month-en',
+		insight: info('Groceries lead', 'Groceries are your second largest line this month.'),
+		expect: shown('Groceries lead', 'Groceries are your second largest line this month.', [
+			'Groceries'
+		])
+	},
+	// numeral-script: the same in every script, after NFKC (which folds fullwidth digits to ASCII and
+	// leaves Arabic-Indic and Devanagari ones as they are).
+	{
+		id: 'out-numeral-fullwidth-correct',
+		rule: 'figure',
+		fires: true,
+		fixture: 'month-en',
+		insight: info('Groceries', `You spent ${fullwidth('145.30')} on Groceries.`),
+		expect: { dropped: 'figure' }
+	},
+	{
+		id: 'out-numeral-arabic-indic-correct',
+		rule: 'numeral-script',
+		fires: true,
 		fixture: 'month-en',
 		insight: info(
 			'Groceries',
 			`You spent ${digitsIn(ARABIC_INDIC_ZERO, '145').concat(ARABIC_DECIMAL_SEPARATOR, digitsIn(ARABIC_INDIC_ZERO, '30'))} on Groceries.`
 		),
-		expect: shown(
-			'Groceries',
-			`You spent ${digitsIn(ARABIC_INDIC_ZERO, '145').concat(ARABIC_DECIMAL_SEPARATOR, digitsIn(ARABIC_INDIC_ZERO, '30'))} on Groceries.`,
-			['Groceries']
-		)
+		expect: { dropped: 'numeral-script' }
 	},
 	{
 		id: 'out-numeral-fullwidth-invented',
-		rule: 'numeral-script',
+		rule: 'figure',
 		fires: true,
 		fixture: 'month-en',
 		insight: info('Rent', `You spent ${fullwidth('98765')} on Rent.`),
-		expect: { dropped: 'numeral-script' }
+		expect: { dropped: 'figure' }
 	},
 	{
 		id: 'out-numeral-arabic-indic-invented',
@@ -347,6 +363,14 @@ export const OUTPUT_ITEMS: OutputItem[] = [
 		fixture: 'month-en',
 		insight: info('Rent', `You spent ${digitsIn(DEVANAGARI_ZERO, '98765')} on Rent.`),
 		expect: { dropped: 'numeral-script' }
+	},
+	{
+		id: 'out-numeral-script-none',
+		rule: 'numeral-script',
+		fires: false,
+		fixture: 'month-fr',
+		insight: info('Santé à surveiller', 'Gardez la Santé en vue ce mois-ci.'),
+		expect: shown('Santé à surveiller', 'Gardez la Santé en vue ce mois-ci.', ['Santé'])
 	},
 	// mention: the app attaches the figures of the categories the text names, case-insensitively,
 	// and none at all for a name that matches two categories.
@@ -550,8 +574,8 @@ export const OUTPUT_ITEMS: OutputItem[] = [
 		rule: 'url-email',
 		fires: false,
 		fixture: 'month-en',
-		insight: info('Two lines', 'Groceries and Transport stay steady.'),
-		expect: shown('Two lines', 'Groceries and Transport stay steady.', ['Groceries', 'Transport'])
+		insight: info('Steady lines', 'Groceries and Transport stay steady.'),
+		expect: shown('Steady lines', 'Groceries and Transport stay steady.', ['Groceries', 'Transport'])
 	},
 	// bidi: direction and invisible characters are removed from what is shown.
 	{

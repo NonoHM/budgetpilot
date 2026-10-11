@@ -10,6 +10,13 @@ export type InsightSeverity = 'info' | 'warning' | 'critical';
 
 export type InsightCategory = 'budget' | 'spending' | 'income' | 'recurring' | 'anomaly';
 
+/** A figure the app attaches beside a model's statement, from the payload (G3, #831). */
+export interface AttachedFigure {
+	/** The category's name as the card shows it: cleaned of invisible and direction characters. */
+	category: string;
+	amountCents: number;
+}
+
 export interface BudgetInsight {
 	id: string;
 	title: string;
@@ -17,6 +24,11 @@ export interface BudgetInsight {
 	severity: InsightSeverity;
 	category: InsightCategory;
 	source: 'rules' | 'local-llm';
+	/**
+	 * On an AI statement only: the figure of every category it names, in payload order. The model
+	 * writes no figure the app did not give it; these are what the card shows as figures.
+	 */
+	figures?: AttachedFigure[];
 }
 
 export interface FlaggedCategoryLabels {

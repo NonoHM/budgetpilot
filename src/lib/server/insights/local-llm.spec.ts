@@ -800,48 +800,6 @@ describe('requestLocalBudgetInsights failure codes', () => {
 		}
 	});
 
-	it('strips markdown the model emitted, so the reader never sees the asterisks', async () => {
-		expect.assertions(3);
-
-		// The fifth producer, and the only one found by USING the feature rather than by reading a log.
-		// ministral emits « **35%** » into an insight; nothing in the schema or the prompt forbids it,
-		// so what renders depends on which model the operator pulled. Asserted through the whole
-		// reception path rather than on `stripMarkdown` alone, because the unit is already covered and
-		// what was missing is the WIRING: the strip existing and the strip being applied are different
-		// facts, and only this test separates them.
-		const fetchMock = mockOllamaWithSignal(
-			async () =>
-				new Response(
-					JSON.stringify({
-						message: {
-							content: JSON.stringify({
-								summary: 'Vos **dépenses** ont augmenté',
-								insights: [
-									{
-										title: '`Alimentation` en hausse',
-										message: 'Vous avez dépensé **35%** de plus quen juin.',
-										severity: 'warning',
-										category: 'spending'
-									}
-								]
-							})
-						},
-						done_reason: 'stop'
-					}),
-					{ status: 200 }
-				)
-		);
-		try {
-			const result = await requestLocalBudgetInsights('prompt agrégé', baseEnv);
-
-			expect(result?.summary).toBe('Vos dépenses ont augmenté');
-			expect(result?.insights[0]?.title).toBe('Alimentation en hausse');
-			expect(result?.insights[0]?.message).toBe('Vous avez dépensé 35% de plus quen juin.');
-		} finally {
-			fetchMock.mockRestore();
-		}
-	});
-
 	it('sets no failure code on a successful generation, so the card cannot render a reason for a success', async () => {
 		expect.assertions(3);
 

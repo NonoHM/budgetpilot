@@ -46,6 +46,10 @@
  * - `quota_reached`: this member started `BP_LLM_USER_HOURLY` generations in the last hour.
  *   `ai/gateway.ts`, when admission refuses on the quota (#535).
  *
+ * - `response_withheld`: the model answered, and every statement it wrote named a figure the payload
+ *   does not hold for it, or broke the output policy (G3, #969). `ai/accept.ts`. The model and the
+ *   configuration both work; the reader may ask again later, and the rules card still stands.
+ *
  * THE LAST TWO OF THE FIRST SIX LOOK LIKE ONE STATE AND NEED OPPOSITE ADVICE, which is why they are two codes.
  * Truncation is OUR fault: the ceiling was too small, and the answer is to raise a budget. An
  * unparseable answer is the model's: the answer is to try a different model. One sentence for both
@@ -63,7 +67,8 @@ export type LocalLlmFailureCode =
 	| 'response_unusable'
 	| 'response_truncated'
 	| 'busy'
-	| 'quota_reached';
+	| 'quota_reached'
+	| 'response_withheld';
 
 /**
  * Used when nothing recognised the error, and when a payload carries no code at all.
