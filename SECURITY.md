@@ -219,7 +219,8 @@ that the figures on your screen are right.
 
 Release 1.3 makes no call to a model (#1009): the map's rows describe 1.3, where most requirements
 have nothing to attach to and the rest bear on the connection and the Compose overlay that still
-ship. The verdicts the removed advice earned are in the page's history. The AI path is mapped separately, against every Level 1 and Level 2 requirement of
+ship. The verdicts the removed advice earned are in the page's history. Its counts fell because
+the scope fell: no gap was closed by removing the feature, and the page says so beside them. The AI path is mapped separately, against every Level 1 and Level 2 requirement of
 the OWASP AI Security Verification Standard 1.0, in the
 [AISVS map](./docs/reference/aisvs-map.md): one verdict per requirement, the evidence, and the
 issue that closes each gap. Its counts are on that page and nowhere else, because a test

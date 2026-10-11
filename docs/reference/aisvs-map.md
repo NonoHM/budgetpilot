@@ -10,6 +10,7 @@ Release 1.3 makes no model call. The dashboard advice this map used to assess wa
 [#1009](https://github.com/NonoHM/budgetpilot/issues/1009), and the connection to Ollama is kept as
 a part with no caller. **The product rows below describe 1.3.** A requirement that attaches to a
 model call is `n/a`; one that attaches to a part 1.3 ships keeps a verdict read from that part.
+The resulting drop in `partly` and `unmet` closes no gap: the section « Counts » says what it means.
 
 The verdicts the removed advice earned, with their evidence, are in this file's history at the
 commit before #1010 (`a4f3f2c` on `main`). The next feature that calls a model re-resolves every row
@@ -93,6 +94,15 @@ Re-derived by `npx vitest run src/lib/prose/aisvsMap.spec.ts`, which recounts th
 | C12           | 0   | 0      | 1     | 18  | 0        | 0         | 19    |
 | Product total | 2   | 8      | 10    | 125 | 1        | 0         | 146   |
 | Development   | 3   | 18     | 25    | 2   | 2        | 3         | 53    |
+
+**The product total fell because the scope fell, and no gap was closed.** On `main` before #1010
+(`a4f3f2c`) the product total read met 7, partly 21, unmet 33, n/a 83, operator 2. Here it reads met
+2, partly 8, unmet 10, n/a 125, operator 1. All 42 rows that moved went to `n/a`, because the feature
+they described no longer exists; none moved because a control was added, and five of them were
+`met`. So the two totals are about two different products and are not a before and after of one: do
+not read the drop in `unmet` as a security improvement. The gaps of the removed advice (imported text
+reaching a prompt unscreened, #820; category names reaching it raw, #968) come back with the next
+feature that calls a model, whose pull request re-resolves every row it touches (#1016).
 
 ## Product rows
 
