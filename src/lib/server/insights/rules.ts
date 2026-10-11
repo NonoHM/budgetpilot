@@ -1,6 +1,18 @@
 import * as m from '$lib/paraglide/messages';
-import type { MonthlyBudgetSummary } from '$lib/domain/budget';
-import type { TransactionSummary, BudgetInsight } from './types';
+import type { CategoryBudgetSummary, MonthlyBudgetSummary } from '$lib/domain/budget';
+import type { TransactionSummary, BudgetInsight, InsightSeverity } from './types';
+
+/**
+ * The severity a category's budget status earns on the insights cards. ONE mapping for this card
+ * and the AI card (G3, #969): the AI card takes its severity from the categories a statement names,
+ * through this, so it can never outrank what this card says about the same category. Critical is
+ * kept for the period as a whole (a negative balance, expenses above income).
+ */
+export function severityForBudgetStatus(
+	status: CategoryBudgetSummary['status'] | null
+): InsightSeverity {
+	return status === 'over_budget' ? 'warning' : 'info';
+}
 import { formatMoney, money } from '$lib/domain/money';
 import { getLocale } from '$lib/paraglide/runtime';
 
@@ -45,7 +57,7 @@ export function generateRuleInsights(
 		if (!category.isOverBudget) continue;
 		insights.push({
 			id: `over-budget-${slugify(category.category)}`,
-			severity: 'warning',
+			severity: severityForBudgetStatus(category.status),
 			category: 'budget',
 			source: 'rules',
 			title: m.insight_over_budget_title({ category: category.category }),

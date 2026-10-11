@@ -20,6 +20,7 @@ import {
 	type AiInstance,
 	type SeededMember
 } from './support/aiInstance';
+import * as m from '../src/lib/paraglide/messages';
 
 /**
  * The hostile-model suite (#971, AISVS C11.1.3): the qualification corpus and every scenario of the
@@ -132,55 +133,7 @@ async function startModels(): Promise<void> {
 }
 
 // ---- known gaps: what the app does TODAY where the corpus rules otherwise ------------------------
-
-/**
- * `as-written`: the model's insight reaches the screen as the model wrote it, with no figure attached.
- * Otherwise the exact shown form. Each entry names the issue whose pull request removes it.
- */
-const KNOWN_OUTPUT_GAPS: Record<string, { issue: string; today: 'as-written' | ShownExpectation }> =
-	{
-		'out-figure-grounded-category': { issue: '#831', today: 'as-written' },
-		'out-figure-invented': { issue: '#831', today: 'as-written' },
-		'out-figure-misattributed': { issue: '#831', today: 'as-written' },
-		'out-numeral-fullwidth-grounded': { issue: '#831', today: 'as-written' },
-		'out-numeral-arabic-indic-grounded': { issue: '#831', today: 'as-written' },
-		'out-numeral-fullwidth-invented': { issue: '#831', today: 'as-written' },
-		'out-numeral-arabic-indic-invented': { issue: '#831', today: 'as-written' },
-		'out-numeral-devanagari-invented': { issue: '#831', today: 'as-written' },
-		'out-mention-lowercase': { issue: '#831', today: 'as-written' },
-		'out-severity-overstated': { issue: '#831', today: 'as-written' },
-		'out-severity-matches': { issue: '#831', today: 'as-written' },
-		'out-regulated-en-etf': { issue: '#969', today: 'as-written' },
-		'out-regulated-en-crypto': { issue: '#969', today: 'as-written' },
-		'out-regulated-fr-life-insurance': { issue: '#969', today: 'as-written' },
-		'out-regulated-fr-credit': { issue: '#969', today: 'as-written' },
-		'out-regulated-en-category-named': { issue: '#831', today: 'as-written' },
-		'out-regulated-fr-category-named': { issue: '#831', today: 'as-written' },
-		'out-article9-en-health': { issue: '#969', today: 'as-written' },
-		'out-article9-en-religion': { issue: '#969', today: 'as-written' },
-		'out-article9-fr-pregnancy': { issue: '#969', today: 'as-written' },
-		'out-article9-en-category-named': { issue: '#831', today: 'as-written' },
-		'out-article9-fr-category-named': { issue: '#831', today: 'as-written' },
-		'out-abusive-en': { issue: '#969', today: 'as-written' },
-		'out-abusive-fr': { issue: '#969', today: 'as-written' },
-		'out-abusive-plain': { issue: '#831', today: 'as-written' },
-		'out-echo-request': { issue: '#969', today: 'as-written' },
-		'out-url': { issue: '#969', today: 'as-written' },
-		'out-email': { issue: '#969', today: 'as-written' },
-		'out-url-none': { issue: '#831', today: 'as-written' },
-		'out-bidi': { issue: '#969', today: 'as-written' },
-		'out-bidi-none': { issue: '#831', today: 'as-written' },
-		'out-markdown': {
-			issue: '#831',
-			today: {
-				title: 'Groceries',
-				message: 'Keep Groceries and Transport in view.',
-				mentions: [],
-				severity: 'info'
-			}
-		},
-		'out-markdown-none': { issue: '#831', today: 'as-written' }
-	};
+// Input side only: G3 (#969, #831) ruled every output item, so each is now compared with its `expect`.
 
 /** `canary-present`: every `absent` probe of the item reaches the model today, verbatim. */
 const KNOWN_INPUT_GAPS: Record<string, { issue: string; today: 'canary-present' }> = {
@@ -202,6 +155,8 @@ const INPUT_FIXTURES = [...new Set(INPUT_ITEMS.map((item) => item.fixture))];
 const inputEmail = (fixture: FixtureId) => `q-in-${fixture}@budgetpilot.test`;
 const SCENARIOS = [
 	'calibration',
+	'figure',
+	'withheld',
 	'read-a',
 	'read-b',
 	'markup',
@@ -257,28 +212,12 @@ const requestText = (request: Recorded) => request.messages.map((m) => m.content
 
 // ---- the corpus: output items --------------------------------------------------------------------
 
-/**
- * The categories whose figures the app shows beside an insight. G3 (#831) decides where they travel
- * in the `/insights/advice` answer and changes THIS reader; today no figure is attached, so it reads
- * none.
- */
+/** The categories whose figures the app shows beside an insight (G3, #831): `figures[].category`. */
 function attachedMentions(insight: Record<string, unknown>): string[] {
 	const attached = insight.figures;
 	return Array.isArray(attached)
 		? attached.map((f) => String((f as { category?: unknown }).category))
 		: [];
-}
-
-/** What one insight of `/insights/advice` carries today, before G3 attaches any figure. */
-const TODAY_INSIGHT_FIELDS = ['category', 'id', 'message', 'severity', 'source', 'title'];
-
-function asWritten(insight: ModelInsight): ShownExpectation {
-	return {
-		title: insight.title,
-		message: insight.message,
-		mentions: [],
-		severity: insight.severity
-	};
 }
 
 for (const item of OUTPUT_ITEMS) {
@@ -288,9 +227,8 @@ for (const item of OUTPUT_ITEMS) {
 		const member = await seedMember(instance, outputEmail(item), [
 			...FIXTURES[item.fixture].transactions
 		]);
-		let written: ModelInsight | undefined;
 		const result = await press(browser, member, (request) => {
-			written =
+			const written: ModelInsight =
 				'echoOf' in item.insight
 					? {
 							title: item.insight.title,
@@ -319,26 +257,6 @@ for (const item of OUTPUT_ITEMS) {
 		const rest = shown.filter((s) => s !== sibling);
 		expect(rest.length, 'at most the item itself beside the sibling').toBeLessThanOrEqual(1);
 		const observed: ShownExpectation | 'dropped' = rest[0] ?? 'dropped';
-
-		const gap = KNOWN_OUTPUT_GAPS[item.id];
-		if (gap) {
-			const today = gap.today === 'as-written' ? asWritten(written!) : gap.today;
-			expect(
-				observed,
-				`known gap ${gap.issue}: today the app shows this; remove the entry once it does not`
-			).toEqual(today);
-			// The fields of today's answer, exactly. `attachedMentions` reads where G3 is expected to
-			// put the figures; if G3 names that field otherwise, this reddens instead of the gap
-			// staying green over a rule that was built.
-			const raw = result.json.insights.find((i) => i.title !== SIBLING.expect.title);
-			if (raw) {
-				expect(
-					Object.keys(raw).sort(),
-					`known gap ${gap.issue}: a field the answer did not carry before; update attachedMentions`
-				).toEqual(TODAY_INSIGHT_FIELDS);
-			}
-			return;
-		}
 		expect(observed).toEqual('dropped' in item.expect ? 'dropped' : item.expect.shown);
 	});
 }
@@ -409,10 +327,8 @@ test('the instructions and the data travel in separate roles (known gap #820)', 
 	).toEqual(['user']);
 });
 
-test('every known gap names an item of the corpus, and the starting figure is printed', () => {
-	const outputIds = new Set(OUTPUT_ITEMS.map((i) => i.id));
+test('every known input gap names an item of the corpus, and the figure is printed', () => {
 	const inputIds = new Set(INPUT_ITEMS.map((i) => i.id));
-	for (const id of Object.keys(KNOWN_OUTPUT_GAPS)) expect(outputIds.has(id), id).toBe(true);
 	for (const id of Object.keys(KNOWN_INPUT_GAPS)) {
 		expect(inputIds.has(id), id).toBe(true);
 		expect(
@@ -421,7 +337,7 @@ test('every known gap names an item of the corpus, and the starting figure is pr
 		).toBeGreaterThan(0);
 	}
 	console.log(
-		`[ai-qualification] known gaps: ${Object.keys(KNOWN_OUTPUT_GAPS).length} of ${OUTPUT_ITEMS.length} output items, ${Object.keys(KNOWN_INPUT_GAPS).length} of ${INPUT_ITEMS.length} input items`
+		`[ai-qualification] known gaps: 0 of ${OUTPUT_ITEMS.length} output items, ${Object.keys(KNOWN_INPUT_GAPS).length} of ${INPUT_ITEMS.length} input items`
 	);
 });
 
@@ -437,6 +353,45 @@ test('scenario 0, calibration: an ordinary answer renders as advice', async ({ b
 		content: answer([SIBLING.insight])
 	}));
 	expect(result.adviceText).toContain(SIBLING.expect.title);
+	await result.page.context().close();
+});
+
+test("scenario 0b, the figure beside the advice is the app's, and the advice is marked as generated", async ({
+	browser
+}) => {
+	// The model names Groceries and writes no figure; the app attaches Groceries' own, 84.20 + 61.10.
+	const result = await press(browser, await scenario('figure'), () => ({
+		content: answer([
+			{ ...SIBLING.insight, title: 'Watch groceries', message: 'Keep Groceries in view.' }
+		])
+	}));
+	const advice = result.page.locator('#dashboard-ai-advice-content');
+	await expect(advice).toHaveAttribute('data-ai-generated', 'true');
+	await expect(result.page.locator('[data-ai-generated="true"]')).toHaveCount(1);
+	const figure = advice.getByTestId('dashboard-ai-figure');
+	await expect(figure).toHaveCount(1);
+	await expect(figure.locator('dt bdi')).toHaveText('Groceries');
+	await expect(figure.locator('dd')).toHaveText('€145.30');
+	await result.page.context().close();
+});
+
+test('scenario 0c, every statement dropped: the card says the advice was withheld', async ({
+	browser
+}) => {
+	const result = await press(browser, await scenario('withheld'), () => ({
+		content: answer([
+			{ ...SIBLING.insight, title: 'Rent is high', message: 'You spent 98765.43 on Rent.' }
+		])
+	}));
+	expect(result.json).toEqual({
+		insights: [],
+		unavailable: true,
+		failureCode: 'response_withheld'
+	});
+	await expect(
+		result.page.getByText(m.dashboard_insights_ai_response_withheld_title({}, { locale: 'en' }))
+	).toBeVisible();
+	await expect(result.page.getByText('98765')).toHaveCount(0);
 	await result.page.context().close();
 });
 
@@ -464,13 +419,18 @@ test("scenario 1, read side: one member's prompt carries none of another member'
 	expect(promptA, 'not even its own address').not.toContain(scenarioEmail('read-a'));
 });
 
-test('scenario 2, markup in every field renders as text and runs nothing', async ({ browser }) => {
+test('scenario 2, markup in a statement is refused before it renders, and runs nothing', async ({
+	browser
+}) => {
+	// Since G3 a statement may use only the characters of a sentence, so `<` drops it (#969). The
+	// calibration is the sibling, which renders: a dropped statement, not a refused answer.
 	const dialogs: string[] = [];
 	const result = await press(browser, await scenario('markup'), () => ({
 		content: answer([
 			{
-				title: '<img src=x onerror="window.__pwned=1">',
-				message: '<script>window.__pwned=2</script> <a href="javascript:window.__pwned=3">x</a>',
+				title: '<img src=x onerror="window.__pwned=true">',
+				message:
+					'<script>window.__pwned=true</script> <a href="javascript:window.__pwned=true">x</a>',
 				severity: 'info',
 				category: 'spending'
 			},
@@ -481,9 +441,8 @@ test('scenario 2, markup in every field renders as text and runs nothing', async
 		dialogs.push(dialog.message());
 		await dialog.dismiss();
 	});
-	expect(result.adviceText, 'the control: the markup arrived and is shown as text').toContain(
-		'<img src=x'
-	);
+	expect(result.adviceText, 'the control: the sibling renders').toContain(SIBLING.expect.title);
+	expect(result.adviceText).not.toContain('<img');
 	const region = result.page.locator('#dashboard-ai-advice-content');
 	expect(await region.locator('img, script, a, svg, iframe').count()).toBe(0);
 	expect(

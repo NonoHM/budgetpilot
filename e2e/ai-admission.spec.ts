@@ -36,7 +36,8 @@ const DATABASE_URL = `file:./e2e/.data/ai-admission/ai.sqlite`;
 const PASSWORD = 'AiAdmissionPassw0rd-6d1e!';
 const QUEUE_DEPTH = 2;
 const HOURLY = 3;
-const ADVICE_TITLE = 'Conseil factice 535';
+// No digit: since G3 (#969) a statement holding one is dropped before it reaches the card.
+const ADVICE_TITLE = 'Conseil factice de la salle d’attente';
 
 const SERVER_ENV = {
 	DATABASE_URL,

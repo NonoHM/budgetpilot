@@ -43,7 +43,11 @@ const ACCEPTED: LocalLlmResult = {
 		}
 	]
 };
-const ADVICE = { insights: ACCEPTED.insights, unavailable: false };
+/** What the gateway answers once `accept.ts` has read it: no category named, so no figure. */
+const ADVICE = {
+	insights: ACCEPTED.insights.map((insight) => ({ ...insight, figures: [] })),
+	unavailable: false
+};
 /** A request nobody is waiting for: the card returns to its idle face and may ask again. */
 const NOTHING = { insights: [], unavailable: false, cancelled: true };
 
@@ -182,7 +186,11 @@ describe('generateAdvice (#535)', () => {
 	// The per-member bound is a count, versus a member's entries growing with every period viewed.
 	it('keeps at most twelve answers per member, dropping the least recently used', async () => {
 		const { gateway } = fresh({ hourlyQuota: 120 });
-		const keys = Array.from({ length: 13 }, (_, i) => ({ key: `k${i}`, prompt: `p${i}` }));
+		const keys = Array.from({ length: 13 }, (_, i) => ({
+			...prepared(),
+			key: `k${i}`,
+			prompt: `p${i}`
+		}));
 		for (const advice of keys) await ask(gateway, 'u1', open(), advice);
 		// k1 is the oldest of the twelve kept, so a hit; k0 was the thirteenth back, so a miss.
 		await ask(gateway, 'u1', open(), keys[1]);

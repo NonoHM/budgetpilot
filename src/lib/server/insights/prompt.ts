@@ -17,10 +17,12 @@ const PROMPT_CURRENCY = DEFAULT_CURRENCY;
 // The advice is rendered straight into the dashboard card, so it has to come back in the
 // language the rest of the page is in. The prompt used to hardcode "réponds en français",
 // which left an English-locale user reading French advice under English headings.
-const RESPONSE_LANGUAGES: Record<string, string> = {
+export const RESPONSE_LANGUAGES = {
 	fr: 'French',
 	en: 'English'
-};
+} as const;
+/** The languages the advice can come back in. `ai/cardLanguages.ts` must have an entry for each. */
+export type ResponseLocale = keyof typeof RESPONSE_LANGUAGES;
 const DEFAULT_RESPONSE_LANGUAGE = 'English';
 
 function buildSystemPrompt(responseLanguage: string): string {
@@ -31,7 +33,9 @@ Do not give investment, tax, credit, insurance or financial-product advice.
 Do not make the user feel guilty.
 Reply in ${responseLanguage}.
 Give at most 3 to 5 pieces of advice.
-Each one must be short, actionable and based on the figures provided.
+Each one must be short, actionable and based on the data provided.
+Write no number, amount or percentage, in digits or in words: the app shows each category's
+figure beside your text, and drops any advice that contains one.
 If the data is insufficient, say so plainly.
 
 All amounts are in euros (${PROMPT_CURRENCY}), already converted, with two decimals.
@@ -146,7 +150,8 @@ export function buildBudgetInsightsPrompt(
 	options: { includeLabels?: boolean; locale?: string } = {}
 ): string {
 	const locale = options.locale ?? getLocale();
-	const responseLanguage = RESPONSE_LANGUAGES[locale] ?? DEFAULT_RESPONSE_LANGUAGE;
+	const responseLanguage =
+		(RESPONSE_LANGUAGES as Record<string, string>)[locale] ?? DEFAULT_RESPONSE_LANGUAGE;
 	const dataDescription = options.includeLabels
 		? DATA_DESCRIPTION_WITH_LABELS
 		: DATA_DESCRIPTION_AGGREGATED;

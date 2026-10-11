@@ -174,7 +174,8 @@
 			response_unusable: m.dashboard_insights_ai_response_unusable_title(),
 			response_truncated: m.dashboard_insights_ai_response_truncated_title(),
 			busy: m.dashboard_insights_ai_busy_title(),
-			quota_reached: m.dashboard_insights_ai_quota_reached_title()
+			quota_reached: m.dashboard_insights_ai_quota_reached_title(),
+			response_withheld: m.dashboard_insights_ai_response_withheld_title()
 		};
 		return titles[code];
 	}
@@ -192,7 +193,8 @@
 			quota_reached:
 				retryInMinutes === undefined
 					? m.dashboard_insights_ai_quota_reached_running()
-					: m.dashboard_insights_ai_quota_reached_reason({ minutes: retryInMinutes })
+					: m.dashboard_insights_ai_quota_reached_reason({ minutes: retryInMinutes }),
+			response_withheld: m.dashboard_insights_ai_response_withheld_reason()
 		};
 		return reasons[code];
 	}
@@ -215,7 +217,9 @@
 			response_unusable: true,
 			response_truncated: true,
 			busy: false,
-			quota_reached: false
+			quota_reached: false,
+			// The model and the configuration both work: what it wrote could not be checked (G3).
+			response_withheld: false
 		};
 		return showsLink[code];
 	}
@@ -495,11 +499,36 @@
 							/>
 						</svg>
 					</button>
-					<div id="dashboard-ai-advice-content" class="{aiOpen ? '' : 'hidden'} mt-2.5 space-y-2.5">
+					<!-- `data-ai-generated`: the machine-readable mark of EU AI Act Art. 50(2), beside the
+					     visible badge. Each figure is the app's, from the payload (G3, #831), never the
+					     model's; the name is isolated so a direction character in it cannot reorder the
+					     amount beside it. -->
+					<div
+						id="dashboard-ai-advice-content"
+						data-ai-generated="true"
+						class="{aiOpen ? '' : 'hidden'} mt-2.5 space-y-2.5"
+					>
 						{#each aiItems as item (item.id)}
 							<div>
 								<div class="text-sm font-medium text-zinc-900">{item.title}</div>
 								<p class="text-xs text-zinc-600">{item.message}</p>
+								{#if item.figures?.length}
+									<dl class="mt-1 space-y-0.5 text-xs">
+										{#each item.figures as figure (figure.category)}
+											<div
+												class="flex items-baseline justify-between gap-3"
+												data-testid="dashboard-ai-figure"
+											>
+												<dt class="min-w-0 truncate text-zinc-500">
+													<bdi>{categoryDisplayName(figure.category)}</bdi>
+												</dt>
+												<dd class="shrink-0 font-medium text-zinc-900 tabular-nums">
+													{formatCents(figure.amountCents)}
+												</dd>
+											</div>
+										{/each}
+									</dl>
+								{/if}
 							</div>
 						{/each}
 					</div>

@@ -685,6 +685,8 @@
 	"dashboard_insights_ai_quota_reached_title": "Hourly limit reached",
 	"dashboard_insights_ai_quota_reached_reason": "You can ask again in {minutes} min.",
 	"dashboard_insights_ai_quota_reached_running": "Your other request is still running. Try again once it ends.",
+	"dashboard_insights_ai_response_withheld_title": "Advice not shown",
+	"dashboard_insights_ai_response_withheld_reason": "The model's advice did not pass this app's checks.",
 	"dashboard_insights_ai_check_configuration": "Check the configuration in",
 	"dashboard_insights_settings_link": "settings",
 	"dashboard_insights_ai_advice_title": "AI assistant advice",
