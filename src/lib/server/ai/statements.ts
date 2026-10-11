@@ -39,6 +39,14 @@ export interface CategoryFacts {
 
 export interface AdviceFacts {
 	categories: CategoryFacts[];
+	/**
+	 * Two stored spellings of one category in the period (« Courses » and « courses »): budgets sum
+	 * them as one (`domain/budget.ts`), the top categories as two (`reports/monthly.ts`). Restore and
+	 * the category rules store a name as written, so it happens. Then no ranking and no budget
+	 * verdict about those names is shown beside a figure that counts only one of them (contradiction
+	 * pass F1 on the final code).
+	 */
+	spellingsFold: boolean;
 	incomeCents: number;
 	expenseCents: number;
 	/** The whole previous month's spending, when the period has one to compare with. */
@@ -47,15 +55,23 @@ export interface AdviceFacts {
 
 /**
  * The facts of a period, read from the summary the prompt is built from. `budgetsKnown` is
- * `budgetSummaryAvailable`: false on a period that is not a whole month.
+ * `budgetSummaryAvailable`: false on a period that is not a whole month. `expenseCategories` is
+ * every category name the period's expenses carry, as stored, top five or not.
  */
 export function adviceFacts(
 	summary: TransactionSummary,
 	budgets: {
 		budgetsKnown: boolean;
 		summaries: Pick<CategoryBudgetSummary, 'category' | 'status'>[];
+		expenseCategories: string[];
 	}
 ): AdviceFacts {
+	const spellings = new Map<string, Set<string>>();
+	for (const name of budgets.expenseCategories) {
+		const key = normalizeForMatch(name);
+		spellings.set(key, (spellings.get(key) ?? new Set()).add(name));
+	}
+	const folds = (key: string) => (spellings.get(key)?.size ?? 0) > 1;
 	const recurring = new Set(
 		summary.recurringPayments.map((payment) => normalizeForMatch(payment.category))
 	);
@@ -71,10 +87,11 @@ export function adviceFacts(
 					alias: AI_CATEGORY_ALIASES[index],
 					name: category.category,
 					amountCents: category.amountCents,
-					budget: budgets.budgetsKnown ? (status ?? 'none') : 'unknown',
+					budget: budgets.budgetsKnown && !folds(key) ? (status ?? 'none') : 'unknown',
 					recurring: recurring.has(key)
 				};
 			}),
+		spellingsFold: [...spellings.keys()].some(folds),
 		incomeCents: summary.incomeCents,
 		expenseCents: summary.expenseCents,
 		previousExpenseCents: summary.previousMonth
@@ -95,8 +112,10 @@ const FACTS: {
 		? CategoryFact
 		: PeriodFact;
 } = {
-	// No category strictly larger: two tied at the top are both the top category.
+	// No category strictly larger: two tied at the top are both the top category. Not asserted when
+	// two spellings fold together, because the ranking by stored name is not the folded one.
 	top_category: (category, facts) =>
+		!facts.spellingsFold &&
 		facts.categories.every((other) => other.amountCents <= category.amountCents),
 	no_budget: (category) => category.budget === 'none',
 	over_budget: (category) => category.budget === 'over_budget',

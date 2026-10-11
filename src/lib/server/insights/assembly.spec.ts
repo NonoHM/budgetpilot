@@ -116,7 +116,7 @@ describe('Budget Insights', () => {
 		const monthlySummary = summarizeMonthlyBudget(ibanAllocations, [], '2026-06');
 		const ibanSummary = buildTransactionSummary(ibanTransactions, ibanAllocations, monthlySummary);
 		const prompt = buildBudgetInsightsPrompt(ibanSummary, {
-			facts: adviceFacts(ibanSummary, { budgetsKnown: true, summaries: [] })
+			facts: adviceFacts(ibanSummary, { budgetsKnown: true, summaries: [], expenseCategories: [] })
 		});
 
 		expect(prompt).not.toContain('FR7612341234123412341234123');

@@ -36,7 +36,7 @@ const summary: TransactionSummary = {
 };
 
 /** The facts the prompt is built with, read from the same summary, as `prepareAdvice` does. */
-const facts = adviceFacts(summary, { budgetsKnown: true, summaries: [] });
+const facts = adviceFacts(summary, { budgetsKnown: true, summaries: [], expenseCategories: [] });
 
 describe('toPromptPayload', () => {
 	it('converts every *Cents field to euros and drops the suffix', () => {
@@ -154,7 +154,7 @@ describe('buildBudgetInsightsPrompt', () => {
 		expect(known).toContain('"alias":"c1","category":"Logement"');
 		expect(known).toContain('"budgetStatus":"none"');
 		const unknown = buildBudgetInsightsPrompt(summary, {
-			facts: adviceFacts(summary, { budgetsKnown: false, summaries: [] })
+			facts: adviceFacts(summary, { budgetsKnown: false, summaries: [], expenseCategories: [] })
 		});
 		expect(unknown).toContain('"alias":"c1","category":"Logement"');
 		expect(unknown).not.toContain('"budgetStatus"');

@@ -6,6 +6,7 @@ import { readDashboardPeriodData } from '$lib/server/dashboard/periodData';
 import { parseDateRange } from '$lib/server/date-range';
 import { prepareAdvice } from './gateway';
 import { acceptPicks } from './statements';
+import { manualCategoryUpdate } from '$lib/server/transactions/manualCategory';
 
 /**
  * #996, at the seam the contradiction pass on the design note found the defect in: the facts a pick
@@ -103,7 +104,77 @@ afterAll(async () => {
 	}
 });
 
+/**
+ * Contradiction pass F1 on the final code: two stored spellings of one category. Budget spending is
+ * summed per FOLDED name (`domain/budget.ts`), the top categories per RAW name
+ * (`reports/monthly.ts`), so « Courses » and « courses » are one budget and two top lines. A verdict
+ * on the budget beside the figure of one spelling reads « Over budget, Courses 300,00 € » under a
+ * 400,00 € limit, and the ranking of top categories is not the folded one. Restore and the category
+ * rules both store a name as written, so the shape is reachable.
+ */
+async function seedTwoSpellings(): Promise<string> {
+	const userId = await seedMember();
+	const account = await prisma.account.findFirstOrThrow({
+		where: { userId },
+		select: { id: true }
+	});
+	const courses = await prisma.category.findFirstOrThrow({
+		where: { userId, name: 'Courses' },
+		select: { id: true }
+	});
+	const logement = await prisma.category.create({
+		data: { userId, name: 'Logement', nameKey: computeNameKey('Logement') },
+		select: { id: true }
+	});
+	await prisma.monthlyBudget.updateMany({ where: { userId }, data: { amountCents: 40_000 } });
+	await prisma.transaction.deleteMany({ where: { userId } });
+	const row = {
+		...DEFAULT_DENOMINATION,
+		userId,
+		accountId: account.id,
+		date: today(),
+		type: 'expense',
+		source: 'manual'
+	} as const;
+	for (const data of [
+		{ ...row, categoryId: courses.id, label: 'MARCHE COUVERT', amountCents: -30_000 },
+		{
+			...row,
+			label: 'EPICERIE',
+			amountCents: -25_000,
+			categoryId: courses.id,
+			// How restore and the category rules store it: as written, with its key.
+			...manualCategoryUpdate('courses')
+		},
+		{ ...row, categoryId: logement.id, label: 'BAILLEUR', amountCents: -50_000 }
+	])
+		await prisma.transaction.create({ data });
+	return userId;
+}
+
 describe('the facts an AI pick is checked against, read by the route’s own reader (#996)', () => {
+	it('shows no budget verdict and no top category where two spellings fold to one category', async () => {
+		const userId = await seedTwoSpellings();
+		const facts = await factsFor(userId, 'this-month');
+		// The measured shape first: three raw lines, the budget over on the folded total.
+		expect(facts.categories.map((category) => [category.name, category.amountCents])).toEqual([
+			['Logement', 50_000],
+			['Courses', 30_000],
+			['courses', 25_000]
+		]);
+		const aliases = Object.fromEntries(facts.categories.map((c) => [c.name, c.alias]));
+		expect(
+			acceptPicks(
+				[
+					{ kind: 'over_budget', category: aliases.Courses },
+					{ kind: 'over_budget', category: aliases.courses },
+					{ kind: 'top_category', category: aliases.Logement }
+				],
+				facts
+			)
+		).toBeNull();
+	});
+
 	it('reads the budget on a whole month, and shows over_budget there', async () => {
 		const userId = await seedMember();
 		const facts = await factsFor(userId, 'this-month');

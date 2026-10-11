@@ -62,7 +62,10 @@ export function prepareAdvice(input: {
 	// checked against exactly what the model was told (#996).
 	const facts = adviceFacts(summary, {
 		budgetsKnown: periodData.budgetSummaryAvailable,
-		summaries: periodData.summary.categorySummaries
+		summaries: periodData.summary.categorySummaries,
+		expenseCategories: periodData.allocations
+			.filter((allocation) => allocation.kind === 'expense')
+			.map((allocation) => allocation.category)
 	});
 	const prompt = buildBudgetInsightsPrompt(summary, { includeLabels, facts });
 	const key = createHash('sha256')
