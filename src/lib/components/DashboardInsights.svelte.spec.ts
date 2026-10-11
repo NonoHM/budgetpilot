@@ -92,6 +92,7 @@ type Answer = {
 		message: string;
 		severity: 'info';
 		category: 'spending';
+		figures?: { category: string; amountCents: number }[];
 	}[];
 	unavailable: boolean;
 	failureCode?: LocalLlmFailureCode;
@@ -381,6 +382,38 @@ describe('DashboardInsights.svelte AI card asks for advice (#535)', () => {
 		await vi.waitFor(() => expect(calls).toHaveLength(2));
 	});
 
+	// G3 (#831): the figure beside an insight is the app's, formatted by the app; the model's text
+	// stays as written. The calibration is the advice without figures, which shows no amount.
+	it('shows the figure the server attached beside the advice, in the page locale', async () => {
+		await openWith({
+			insights: [
+				{
+					...advice('Surveillez vos Courses').insights[0],
+					figures: [{ category: 'Courses', amountCents: 14_530 }]
+				}
+			],
+			unavailable: false
+		});
+		const figure = page.getByTestId('dashboard-ai-figure');
+		await expect.element(figure).toBeInTheDocument();
+		expect(figure.elements()).toHaveLength(1);
+		const row = figure.element();
+		expect(row.querySelector('dt bdi')?.textContent).toBe('Courses');
+		expect(row.querySelector('dd')?.textContent?.trim()).toBe('145,30\u00a0€');
+	});
+
+	it('marks the advice as generated, for machines as well as readers (EU AI Act Art. 50(2))', async () => {
+		await openWith(advice('Réduisez vos abonnements'));
+		await expect.element(page.getByText('Réduisez vos abonnements')).toBeInTheDocument();
+		const marked = document.querySelectorAll('[data-ai-generated="true"]');
+		expect(marked).toHaveLength(1);
+		expect(marked[0].textContent).toContain('Réduisez vos abonnements');
+		expect(
+			page.getByTestId('dashboard-ai-figure').elements(),
+			'no figure was attached'
+		).toHaveLength(0);
+	});
+
 	it('never renders both AI cards at once, even if the answer is contradictory', async () => {
 		await openWith({ ...advice('Réduisez vos abonnements'), unavailable: true });
 		await expect.element(page.getByText('Réduisez vos abonnements')).toBeInTheDocument();
@@ -435,6 +468,13 @@ const AI_FAILURE_STATES = {
 		title: () => m.dashboard_insights_ai_quota_reached_title(),
 		reason: () => m.dashboard_insights_ai_quota_reached_reason({ minutes: 1 }),
 		showsConfigurationLink: false
+	},
+	// G3 (#969): the model answered and the server dropped every statement it could not verify.
+	// Nothing to configure: the model is reachable and the configuration is fine.
+	response_withheld: {
+		title: () => m.dashboard_insights_ai_response_withheld_title(),
+		reason: () => m.dashboard_insights_ai_response_withheld_reason(),
+		showsConfigurationLink: false
 	}
 } satisfies Record<
 	LocalLlmFailureCode,
@@ -448,7 +488,7 @@ describe('DashboardInsights.svelte AI failure states', () => {
 		vi.unstubAllGlobals();
 	});
 
-	it('covers all eight codes, so a shrunken table cannot report a clean run', () => {
+	it('covers all nine codes, so a shrunken table cannot report a clean run', () => {
 		// The absolute figure beside the coverage claim. `it.each` over an empty or shortened list
 		// passes by running nothing.
 		expect(AI_FAILURE_CODES).toEqual([
@@ -459,7 +499,8 @@ describe('DashboardInsights.svelte AI failure states', () => {
 			'response_unusable',
 			'response_truncated',
 			'busy',
-			'quota_reached'
+			'quota_reached',
+			'response_withheld'
 		]);
 	});
 
@@ -475,10 +516,10 @@ describe('DashboardInsights.svelte AI failure states', () => {
 		}
 	);
 
-	it('gives the eight states eight DIFFERENT titles and reasons, which is the property #524 violated', () => {
+	it('gives the nine states nine DIFFERENT titles and reasons, which is the property #524 violated', () => {
 		const titles = AI_FAILURE_CODES.map((code) => AI_FAILURE_STATES[code].title());
-		expect(new Set(titles).size).toBe(8);
+		expect(new Set(titles).size).toBe(9);
 		const reasons = AI_FAILURE_CODES.map((code) => AI_FAILURE_STATES[code].reason());
-		expect(new Set(reasons).size).toBe(8);
+		expect(new Set(reasons).size).toBe(9);
 	});
 });
