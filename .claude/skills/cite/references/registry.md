@@ -132,6 +132,84 @@ The list is tracked; the copies are not. Which of these bind the project, and ho
 - RFC 8981, Temporary Address Extensions for Stateless Address Autoconfiguration in IPv6 (February
   2021, Standards Track), copy in `logging/`: https://www.rfc-editor.org/rfc/rfc8981.txt
 
+## Unicode
+
+Copies in `unicode/`, read 2026-10-11 for the AI card's character allow-list (#998). The report
+headers link a « Latest Proposed Update »; the copies are the published versions. Node 24.18 ships
+Unicode 17.0 while these are 18.0.0, so a property read through a `\p{...}` regex and a vendored
+table can disagree by one version.
+
+- UTS #39, Unicode Security Mechanisms, revision 34 (Unicode 18.0.0, 2026-08-27): restriction levels,
+  mixed-script detection, skeletons, ZWNJ rule A1: https://www.unicode.org/reports/tr39/tr39-34.html
+- Its data (confusables.txt, IdentifierStatus.txt, IdentifierType.txt, intentional.txt), 18.0.0:
+  https://www.unicode.org/Public/18.0.0/security/ (the same bytes as `Public/security/latest/` on 2026-10-11)
+- ArabicShaping.txt (Joining_Type, for rule A1), 18.0.0:
+  https://www.unicode.org/Public/18.0.0/ucd/ArabicShaping.txt
+- UTS #55, Unicode Source Code Handling, version 2 revision 5 (2024-01-29), § 5.1.2.2 mixed-script
+  detection per chunk: https://www.unicode.org/reports/tr55/tr55-5.html
+- UAX #31, Unicode Identifiers and Syntax, revision 45 (Unicode 18.0.0): read, not used. It defines
+  identifier syntax, and a statement on the card is prose: https://www.unicode.org/reports/tr31/tr31-45.html
+
+## Research literature
+
+An academic question goes through `literature-review` or `paper-lookup`. Rows record what a paper
+was read FOR, so nobody re-reads it to find out. Copies in `guardrails/` and `data-to-text/`.
+
+Character-level attacks on filters (read 2026-10-11, #998, #996, #250):
+
+- Hackett et al., « Bypassing LLM Guardrails: An Empirical Analysis of Evasion Attacks against Prompt
+  Injection and Jailbreak Detection Systems », arXiv 2504.11168. The attack classes (Table 1) and
+  their rates against INPUT detectors (§ 5.1): https://arxiv.org/abs/2504.11168
+- Boucher et al., « Bad Characters: Imperceptible NLP Attacks », IEEE S&P 2022, arXiv 2106.09898.
+  Invisible characters, homoglyphs, reorderings, deletions; strip and check what the reader sees:
+  https://arxiv.org/abs/2106.09898
+- Boucher and Anderson, « Trojan Source: Invisible Vulnerabilities », USENIX Security 2023, arXiv
+  2111.00169. Bidirectional controls:
+  https://arxiv.org/abs/2111.00169
+- Gao et al., « Imperceptible Jailbreaking against Large Language Models », arXiv 2510.05025. Variation
+  selectors on the input, Table 3: https://arxiv.org/abs/2510.05025
+- « Jailbreaking Large Language Models Against Moderation Guardrails via Cipher Characters » (JAM),
+  arXiv 2405.20413: attacks an OUTPUT filter by interleaving filler, with two countermeasures:
+  https://arxiv.org/abs/2405.20413
+- Yang et al., « What the Eyes See, the LLMs Miss: Exploiting Human Perception for Adversarial Text
+  Attacks », USENIX Security 2026, arXiv 2606.09700. Visible spacing and segmentation against input
+  AND output moderation: https://arxiv.org/abs/2606.09700
+- Read, not used, because they attack the model or an input guard and recommend the stripping
+  `cleanShownText` already does: arXiv 2603.00164, 2607.05744, 2412.03556, 2510.26847, 2610.10742,
+  2605.19159, 2609.26178, 2405.14490; arXiv 2411.01077 needs a model judge, which the app
+  does not have; arXiv 2602.00750 is not character-level.
+
+Data-to-text faithfulness and constrained output (read 2026-10-11, evidence for #996):
+
+- Kasner and Dušek, « Beyond Traditional Benchmarks: Analyzing Behaviors of Open LLMs on Data-to-Text
+  Generation », ACL 2024, arXiv 2401.10186. Semantic errors in open 7B output, § 5.1:
+  https://arxiv.org/abs/2401.10186
+- Wiseman et al., « Challenges in Data-to-Document Generation », EMNLP 2017, arXiv 1707.08052. Template
+  against neural RG precision, Table 2: https://arxiv.org/abs/1707.08052
+- Thomson and Reiter, « A Gold Standard Methodology for Evaluating Accuracy in Data-To-Text Systems »,
+  INLG 2020, arXiv 2011.03992. Number errors among annotated errors, § 4.3:
+  https://arxiv.org/abs/2011.03992
+- Warczyński et al., « Leveraging Large Language Models for Building Interpretable Rule-Based
+  Data-to-Text Systems », arXiv 2502.20609, and Osuji et al., « Pipeline Neural Data-to-text with Large
+  Language Models », INLG 2024: the counter-evidence to templates. https://arxiv.org/abs/2502.20609,
+  https://aclanthology.org/2024.inlg-main.27/
+- Tam et al., « Let Me Speak Freely? », arXiv 2408.02442; Geng et al., « JSONSchemaBench », arXiv
+  2501.10868; Park et al., « Grammar-Aligned Decoding », arXiv 2405.21047. Constrained decoding on a
+  choice: https://arxiv.org/abs/2408.02442, https://arxiv.org/abs/2501.10868,
+  https://arxiv.org/abs/2405.21047
+- Ollama structured outputs, schema to grammar, at commit eab97e9f:
+  https://github.com/ollama/ollama/blob/eab97e9f92b9a25c2d52d2cc6c1b1c99bd9fae21/llm/llama_server.go
+- Castro Ferreira et al., « Neural data-to-text generation: A comparison between pipeline and
+  end-to-end architectures », EMNLP-IJCNLP 2019, arXiv 1908.09022 (pipeline better, with neural
+  stages; dated by Osuji et al.); Dušek and Kasner, « Evaluating Semantic Accuracy of Data-to-Text
+  Generation with Natural Language Inference », INLG 2020, arXiv 2011.10819 (a model-scored checker is
+  probabilistic); Cunha et al., « Imaginary Numbers! », Insights from Negative Results 2024,
+  ACL 2024.insights-1.10 (neural realisers invent numbers): https://arxiv.org/abs/1908.09022,
+  https://arxiv.org/abs/2011.10819, https://aclanthology.org/2024.insights-1.10/
+- Read, not used: arXiv 1910.08684 and 2004.06577 (they mitigate free text rather than remove it),
+  1809.00582 and 1808.10122 (planning or learned templates with a free realiser), 2407.14088
+  (fine-tuned models, automatic metrics), ACL 2021.inlg-1.23 (no figure used).
+
 ## Operating systems
 
 - Linux `include/uapi/linux/if.h`, `IFNAMSIZ` (interface name buffer, NUL included), tag v6.12, copy
