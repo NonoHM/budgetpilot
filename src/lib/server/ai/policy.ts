@@ -19,80 +19,24 @@
 
 export type PolicyRule = 'regulated' | 'article9' | 'abusive' | 'echo' | 'url-email';
 
-/** The accents of a pattern go the way `normalizeForMatch` takes them from the text it reads. */
-const COMBINING_ACCENT = new RegExp(
-	`[${String.fromCodePoint(0x300)}-${String.fromCodePoint(0x36f)}]`,
-	'gu'
-);
-const fold = (source: string): string => source.normalize('NFD').replace(COMBINING_ACCENT, '');
-
-/** No letter, mark or digit on either side: `\b` is ASCII-only, and the text is not. */
-const word = (alternatives: string): string =>
-	`(?<![\\p{L}\\p{M}\\p{N}])(?:${fold(alternatives)})(?![\\p{L}\\p{M}\\p{N}])`;
+/*
+ * REGEX LITERALS, NEVER BUILT FROM A STRING (ASVS v5.0.0-1.2.9, held by `injection-sinks.spec.ts`).
+ * Each is one list of alternatives, written already folded the way `normalizeForMatch` folds the
+ * text (no accents, lower case), each alternative a whole word: no letter, mark or digit on either
+ * side, because `\b` is ASCII-only and the text is not.
+ */
 
 /**
- * (a) A recommendation to acquire a regulated financial product: an acquisition verb followed, in
- * the same sentence, by a product. Investment, credit and insurance advice is what the system prompt
+ * (a) A recommendation to acquire a regulated financial product: an acquisition verb and a product
+ * in the same sentence, in either order (« put your savings in an index fund », « an index fund is
+ * the place to put them »). Investment, credit and insurance advice is what the system prompt
  * forbids and what a budgeting card must not give (MiFID II, the Consumer Credit Directive and the
  * Insurance Distribution Directive each regulate it).
  */
-const ACQUIRE = word(
-	[
-		'invest(?:ing|s)?',
-		'consider(?:ing)?',
-		'put(?:ting)?',
-		'buy(?:ing|s)?',
-		'purchas(?:e|ing)',
-		'open(?:ing)?',
-		'subscrib(?:e|ing)',
-		'take out',
-		'sign up',
-		'apply for',
-		'switch to',
-		'get',
-		'investi\\p{L}*',
-		'plac(?:ez|er)',
-		'achet\\p{L}*',
-		'ouvr(?:ez|ir)',
-		'souscri\\p{L}*',
-		'contract(?:ez|er)',
-		'pren(?:ez|dre)',
-		'emprunt(?:ez|er)',
-		'opt(?:ez|er)'
-	].join('|')
-);
-const PRODUCT = word(
-	[
-		'etfs?',
-		'index funds?',
-		'mutual funds?',
-		'funds?',
-		'stocks?',
-		'equit(?:y|ies)',
-		'bonds?',
-		'crypto\\p{L}*',
-		'bitcoins?',
-		'ethereum',
-		'loans?',
-		'credit(?: cards?)?',
-		'mortgages?',
-		'(?:life )?insurances?',
-		'annuit(?:y|ies)',
-		'pension plans?',
-		'fonds',
-		'actions en bourse',
-		'bourse',
-		'obligations?',
-		'pea',
-		'scpi',
-		'assurances?(?:[- ]vie)?',
-		'crédits?',
-		'prêts?',
-		'placements?'
-	].join('|')
-);
-// Either order: « put your savings in an index fund » and « an index fund is the place to put them ».
-const REGULATED = new RegExp(`${ACQUIRE}.*${PRODUCT}|${PRODUCT}.*${ACQUIRE}`, 'u');
+const ACQUIRE =
+	/(?<![\p{L}\p{M}\p{N}])(?:invest(?:ing|s)?|consider(?:ing)?|put(?:ting)?|buy(?:ing|s)?|purchas(?:e|ing)|open(?:ing)?|subscrib(?:e|ing)|take out|sign up|apply for|switch to|get|investi\p{L}*|plac(?:ez|er)|achet\p{L}*|ouvr(?:ez|ir)|souscri\p{L}*|contract(?:ez|er)|pren(?:ez|dre)|emprunt(?:ez|er)|opt(?:ez|er))(?![\p{L}\p{M}\p{N}])/u;
+const PRODUCT =
+	/(?<![\p{L}\p{M}\p{N}])(?:etfs?|index funds?|mutual funds?|funds?|stocks?|equit(?:y|ies)|bonds?|crypto\p{L}*|bitcoins?|ethereum|loans?|credit(?: cards?)?|mortgages?|(?:life )?insurances?|annuit(?:y|ies)|pension plans?|fonds|actions en bourse|bourse|obligations?|pea|scpi|assurances?(?:[- ]vie)?|credits?|prets?|placements?)(?![\p{L}\p{M}\p{N}])/u;
 
 /**
  * (b) An inference about the person in a GDPR Article 9 category: health, pregnancy, religion,
@@ -100,136 +44,21 @@ const REGULATED = new RegExp(`${ACQUIRE}.*${PRODUCT}|${PRODUCT}.*${ACQUIRE}`, 'u
  * ATTRIBUTED to « you », so « Health is a small part of your spending » stays while « your Health
  * spending suggests you may be ill » goes.
  */
-const ATTRIBUTION = word(
-	[
-		"you(?:'re| are| were| may be| might be| could be| must be| seem(?: to be)?| appear(?: to be)?| have| suffer from| practi[cs]e| belong to| vote)",
-		'your (?:health condition|illness|pregnancy|religion|faith|sexual orientation|sexuality|politics|ethnicity|diagnosis)',
-		'vous (?:êtes|etes|étiez|semblez|paraissez|pourriez être|devez être|avez|souffrez|pratiquez|votez)',
-		'tu es',
-		'votre (?:maladie|grossesse|religion|foi|orientation|sexualité|origine)'
-	].join('|')
-);
-const SPECIAL_CATEGORY = word(
-	[
-		'ill',
-		'sick',
-		'unwell',
-		'pregnant',
-		'expecting a (?:baby|child)',
-		'diabet\\p{L}*',
-		'depress\\p{L}*',
-		'cancer',
-		'disab\\p{L}*',
-		'illness',
-		'disease',
-		'addict\\p{L}*',
-		'alcoholic',
-		'hiv',
-		'catholic',
-		'muslim',
-		'jewish',
-		'christian',
-		'protestant',
-		'buddhist',
-		'hindu',
-		'religious',
-		'practi[cs]ing',
-		'believer',
-		'atheist',
-		'gay',
-		'lesbian',
-		'bisexual',
-		'homosexual',
-		'transgender',
-		'queer',
-		'left-wing',
-		'right-wing',
-		'communist',
-		'socialist',
-		'union member',
-		'unioni[sz]ed',
-		'ethnic\\p{L}*',
-		'immigrant',
-		'malade',
-		'enceinte',
-		'diabétique',
-		'dépressi\\p{L}*',
-		'déprimée?',
-		'handicap\\p{L}*',
-		'alcoolique',
-		'séropositi\\p{L}*',
-		'catholique',
-		'musulman\\p{L}*',
-		'juif',
-		'juive',
-		'chrétien\\p{L}*',
-		'bouddhiste',
-		'hindou\\p{L}*',
-		'religieu\\p{L}*',
-		'pratiquant\\p{L}*',
-		'croyant\\p{L}*',
-		'athée',
-		'homosexuel\\p{L}*',
-		'lesbienne',
-		'bisexuel\\p{L}*',
-		'transgenre',
-		'syndiqué\\p{L}*',
-		'communiste',
-		'socialiste',
-		'immigré\\p{L}*'
-	].join('|')
-);
-const ARTICLE_9 = new RegExp(
-	`${ATTRIBUTION}.*${SPECIAL_CATEGORY}|${SPECIAL_CATEGORY}.*${ATTRIBUTION}`,
-	'u'
-);
+const ATTRIBUTION =
+	/(?<![\p{L}\p{M}\p{N}])(?:you(?:'re| are| were| may be| might be| could be| must be| seem(?: to be)?| appear(?: to be)?| have| suffer from| practi[cs]e| belong to| vote)|your (?:health condition|illness|pregnancy|religion|faith|sexual orientation|sexuality|politics|ethnicity|diagnosis)|vous (?:etes|etes|etiez|semblez|paraissez|pourriez etre|devez etre|avez|souffrez|pratiquez|votez)|tu es|votre (?:maladie|grossesse|religion|foi|orientation|sexualite|origine))(?![\p{L}\p{M}\p{N}])/u;
+const SPECIAL_CATEGORY =
+	/(?<![\p{L}\p{M}\p{N}])(?:ill|sick|unwell|pregnant|expecting a (?:baby|child)|diabet\p{L}*|depress\p{L}*|cancer|disab\p{L}*|illness|disease|addict\p{L}*|alcoholic|hiv|catholic|muslim|jewish|christian|protestant|buddhist|hindu|religious|practi[cs]ing|believer|atheist|gay|lesbian|bisexual|homosexual|transgender|queer|left-wing|right-wing|communist|socialist|union member|unioni[sz]ed|ethnic\p{L}*|immigrant|malade|enceinte|diabetique|depressi\p{L}*|deprimee?|handicap\p{L}*|alcoolique|seropositi\p{L}*|catholique|musulman\p{L}*|juif|juive|chretien\p{L}*|bouddhiste|hindou\p{L}*|religieu\p{L}*|pratiquant\p{L}*|croyant\p{L}*|athee|homosexuel\p{L}*|lesbienne|bisexuel\p{L}*|transgenre|syndique\p{L}*|communiste|socialiste|immigre\p{L}*)(?![\p{L}\p{M}\p{N}])/u;
 
 /**
  * (d) Abuse. The hostile model of attacker 2 writes whatever it likes, and nothing else screens this
  * side. A small lexicon on purpose: « nul » is absent because it also means zero in French.
  */
-const ABUSIVE = new RegExp(
-	word(
-		[
-			'idiot\\p{L}*',
-			'stupid\\p{L}*',
-			'moron\\p{L}*',
-			'dumb\\p{L}*',
-			'loser\\p{L}*',
-			'pathetic',
-			'worthless',
-			'imbecile\\p{L}*',
-			'cretin\\p{L}*',
-			'fuck\\p{L}*',
-			'shit\\p{L}*',
-			'bitch\\p{L}*',
-			'bastard\\p{L}*',
-			'crétin\\p{L}*',
-			'imbécile\\p{L}*',
-			'abruti\\p{L}*',
-			'débile\\p{L}*',
-			'connard\\p{L}*',
-			'connasse\\p{L}*',
-			'conne',
-			'salaud\\p{L}*',
-			'salope\\p{L}*',
-			'merde\\p{L}*',
-			'putain\\p{L}*'
-		].join('|')
-	),
-	'u'
-);
+const ABUSIVE =
+	/(?<![\p{L}\p{M}\p{N}])(?:idiot\p{L}*|stupid\p{L}*|moron\p{L}*|dumb\p{L}*|loser\p{L}*|pathetic|worthless|imbecile\p{L}*|cretin\p{L}*|fuck\p{L}*|shit\p{L}*|bitch\p{L}*|bastard\p{L}*|cretin\p{L}*|imbecile\p{L}*|abruti\p{L}*|debile\p{L}*|connard\p{L}*|connasse\p{L}*|conne|salaud\p{L}*|salope\p{L}*|merde\p{L}*|putain\p{L}*)(?![\p{L}\p{M}\p{N}])/u;
 
 /** A link or an address: a scheme, `www.`, an e-mail, or a bare domain under a common TLD. */
-const URL_OR_EMAIL = new RegExp(
-	[
-		'[a-z][a-z0-9+.-]*://',
-		'www\\.',
-		'[\\p{L}\\p{N}._%+-]+@[\\p{L}\\p{N}-]+(?:\\.[\\p{L}\\p{N}-]+)+',
-		`(?<![\\p{L}\\p{N}@.])[\\p{L}\\p{N}-]+\\.(?:com|net|org|fr|io|co|eu|info|biz|be|ch|de|uk|app|dev|xyz|me|ai|ly|gg|tv|us|ca|es|it|nl)(?![\\p{L}\\p{N}])`
-	].join('|'),
-	'u'
-);
+const URL_OR_EMAIL =
+	/[a-z][a-z0-9+.-]*:\/\/|www\.|[\p{L}\p{N}._%+-]+@[\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)+|(?<![\p{L}\p{N}@.])[\p{L}\p{N}-]+\.(?:com|net|org|fr|io|co|eu|info|biz|be|ch|de|uk|app|dev|xyz|me|ai|ly|gg|tv|us|ca|es|it|nl)(?![\p{L}\p{N}])/u;
 
 /** (c) Forty characters or more of the request repeated back: the system prompt, or the payload. */
 export const ECHO_WINDOW = 40;
@@ -248,8 +77,10 @@ export function sentencesOf(text: string): string[] {
  */
 export function policyBreach(lowered: string, request: string): PolicyRule | null {
 	const sentences = sentencesOf(lowered);
-	if (sentences.some((sentence) => REGULATED.test(sentence))) return 'regulated';
-	if (sentences.some((sentence) => ARTICLE_9.test(sentence))) return 'article9';
+	const both = (left: RegExp, right: RegExp) => (sentence: string) =>
+		left.test(sentence) && right.test(sentence);
+	if (sentences.some(both(ACQUIRE, PRODUCT))) return 'regulated';
+	if (sentences.some(both(ATTRIBUTION, SPECIAL_CATEGORY))) return 'article9';
 	if (ABUSIVE.test(lowered)) return 'abusive';
 	if (URL_OR_EMAIL.test(lowered)) return 'url-email';
 	for (let start = 0; start + ECHO_WINDOW <= lowered.length; start += 1) {

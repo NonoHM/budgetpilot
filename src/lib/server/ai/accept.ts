@@ -100,27 +100,58 @@ const SENTENCE_PUNCTUATION = new Set([
 
 /** Any numeric character, in any script, that NFKC left: digits, Tamil or Ethiopic numbers. */
 const NUMERIC = /\p{N}/u;
-const WHOLE_WORD = (body: string) => `(?<![\\p{L}\\p{M}])(?:${body})(?![\\p{L}\\p{M}])`;
-const byLength = (left: string, right: string) => right.length - left.length;
+/** Words, for the word-by-word checks: anything that is not a letter or a mark separates them. */
+const WORD_SEPARATOR = /[^\p{L}\p{M}]+/u;
+const NUMBER_ROOTS = [...new Set(LANGUAGES.flatMap((language) => language.numberRoots))];
+const QUANTITY_WORDS = LANGUAGES.flatMap((language) => language.quantityWords);
+const QUANTITY_ENDINGS = LANGUAGES.flatMap((language) => language.quantityEndings);
+/** Endings that keep a number word a number: « tenfold », « tenth », « hundredths ». */
+const NUMBER_SUFFIXES = ['fold', 'ths', 'th'];
+
+/** Whether `word` is one or more number roots written together: « fortyfive », « dixsept ». */
+function composesFromRoots(word: string): boolean {
+	const reached = Array.from({ length: word.length + 1 }, (_, index) => index === 0);
+	for (let index = 0; index < word.length; index += 1) {
+		if (!reached[index]) continue;
+		for (const root of NUMBER_ROOTS) {
+			if (word.startsWith(root, index)) reached[index + root.length] = true;
+		}
+	}
+	return reached[word.length];
+}
+
+/** A number word: roots written together, then an optional plural, then an optional suffix. */
+function isNumberWord(word: string): boolean {
+	const stems = [
+		word,
+		...NUMBER_SUFFIXES.filter((suffix) => word.length > suffix.length && word.endsWith(suffix)).map(
+			(suffix) => word.slice(0, -suffix.length)
+		)
+	];
+	return stems.some(
+		(stem) =>
+			composesFromRoots(stem) || (stem.endsWith('s') && composesFromRoots(stem.slice(0, -1)))
+	);
+}
+
 /**
- * A word that states a quantity, in any language the card speaks: one built from number roots
- * (with a plural and the endings that keep it a number), a listed quantity word, a word with a
- * quantity ending, or the percent sign. « One » and « un » are not roots: they are also articles,
- * and « one of your smaller lines » is a ruled must-show. « First » and « second » are ranks.
+ * Whether the text states a quantity in words, in any language the card speaks: a number word, a
+ * listed quantity word or phrase, a word with a quantity ending. « One » and « un » are not roots:
+ * they are also articles, and « one of your smaller lines » is a ruled must-show. « First » and
+ * « second » are ranks.
  */
-const QUANTITY_WORD = new RegExp(
-	[
-		'%',
-		WHOLE_WORD(
-			`(?:${LANGUAGES.flatMap((language) => language.numberRoots)
-				.sort(byLength)
-				.join('|')})+s?(?:fold|th|ths)?`
-		),
-		WHOLE_WORD(LANGUAGES.flatMap((language) => language.quantityWords).join('|')),
-		...LANGUAGES.flatMap((language) => language.quantityEndings).map(WHOLE_WORD)
-	].join('|'),
-	'u'
-);
+function statesQuantityInWords(text: string): boolean {
+	const words = text.split(WORD_SEPARATOR).filter((word) => word !== '');
+	const padded = ` ${words.join(' ')} `;
+	return (
+		words.some(isNumberWord) ||
+		QUANTITY_WORDS.some((quantity) => padded.includes(` ${quantity} `)) ||
+		words.some((word) =>
+			QUANTITY_ENDINGS.some((ending) => word.length > ending.length && word.endsWith(ending))
+		)
+	);
+}
+
 /**
  * Upper-case runs of the letters that read as digits or as a Roman numeral, as written: « IOO »
  * reads as 100 in a sans-serif font, « XII » as 12.
@@ -129,7 +160,12 @@ const DIGIT_SHAPED = /(?<![\p{L}\p{M}])[IOVXLCDM]{2,}(?![\p{L}\p{M}])/u;
 
 /** Whether the statement states a quantity: a numeric character, a quantity word, a digit shape. */
 function statesQuantity(shown: string, text: string): boolean {
-	return NUMERIC.test(text) || QUANTITY_WORD.test(text) || DIGIT_SHAPED.test(shown);
+	return (
+		NUMERIC.test(text) ||
+		text.includes('%') ||
+		statesQuantityInWords(text) ||
+		DIGIT_SHAPED.test(shown)
+	);
 }
 
 /** Whether every character of the shown statement is on the list above. */

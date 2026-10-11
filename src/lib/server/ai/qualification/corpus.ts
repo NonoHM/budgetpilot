@@ -575,7 +575,10 @@ export const OUTPUT_ITEMS: OutputItem[] = [
 		fires: false,
 		fixture: 'month-en',
 		insight: info('Steady lines', 'Groceries and Transport stay steady.'),
-		expect: shown('Steady lines', 'Groceries and Transport stay steady.', ['Groceries', 'Transport'])
+		expect: shown('Steady lines', 'Groceries and Transport stay steady.', [
+			'Groceries',
+			'Transport'
+		])
 	},
 	// bidi: direction and invisible characters are removed from what is shown.
 	{

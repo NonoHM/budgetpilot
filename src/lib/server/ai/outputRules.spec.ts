@@ -281,6 +281,13 @@ describe('the guards the character list does not cover (G3)', () => {
 		expect(await said('Rent came to 850 this month.', rows)).toEqual(WITHHELD);
 	});
 
+	// A top-five name holding « % » brings the sign onto the allowed characters; the quantity rule
+	// still refuses it in the model's text.
+	it('drops a percent sign even when a category name makes it an allowed character', async () => {
+		const rows = [...MONTH_EN, { label: 'ARCADE', amount: '-100.00', category: 'Fun %' }];
+		expect(await said('Rent takes a large % of spending.', rows)).toEqual(WITHHELD);
+	});
+
 	// Only the folded pattern holds « prêt »: the English lists have no twin for it.
 	it('reads an accented product word through the same folding as the text', async () => {
 		expect(await said('Contractez un prêt pour vos travaux.')).toEqual(WITHHELD);

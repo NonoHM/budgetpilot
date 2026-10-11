@@ -14,8 +14,9 @@ import type { ResponseLocale } from '$lib/server/insights/prompt';
  * holds letters drawn like digits (U+01BC looks like 5) and letters that break a word without
  * changing how it reads (a dotless i), which a contradiction pass found one by one.
  *
- * Words are written folded, the way `normalizeForMatch` leaves the text they are matched against:
- * no accents, lower case.
+ * Plain words, never patterns: `accept.ts` compares them word by word and builds no regex from them
+ * (ASVS v5.0.0-1.2.9). Written folded, the way `normalizeForMatch` leaves the text they are matched
+ * against: no accents, lower case.
  */
 export interface CardLanguage {
 	/** Every letter a statement may use, in both cases. Nothing else of the script. */
@@ -25,9 +26,9 @@ export interface CardLanguage {
 	 * and the suffixes `fold`, `th` and `ieth`, so a word made of them states a number.
 	 */
 	numberRoots: string[];
-	/** Whole words that state a quantity, a ratio, a fraction or a currency. */
+	/** Whole words, or phrases of whole words, that state a quantity, a ratio or a currency. */
 	quantityWords: string[];
-	/** Patterns over a whole word, for a class of words the language marks by its ending. */
+	/** Word endings that mark a quantity in the language, as a class (the French ordinals). */
 	quantityEndings: string[];
 }
 
@@ -76,33 +77,55 @@ export const CARD_LANGUAGES = {
 			'halves',
 			'twice',
 			'thrice',
-			'quarters?',
-			'doubled?',
+			'quarter',
+			'quarters',
+			'double',
+			'doubled',
 			'doubles',
-			'tripled?',
+			'triple',
+			'tripled',
 			'triples',
-			'quadrupled?',
-			'quintupled?',
+			'quadruple',
+			'quadrupled',
+			'quintuple',
+			'quintupled',
 			'percent',
 			'per cent',
-			'thirds?',
-			'fifths?',
-			'eighths?',
-			'ninths?',
-			'twelfths?',
-			'twentieths?',
-			'thirtieths?',
-			'fortieths?',
-			'fiftieths?',
-			'sixtieths?',
-			'seventieths?',
-			'eightieths?',
-			'ninetieths?',
-			'euros?',
+			'third',
+			'thirds',
+			'fifth',
+			'fifths',
+			'eighth',
+			'eighths',
+			'ninth',
+			'ninths',
+			'twelfth',
+			'twelfths',
+			'twentieth',
+			'twentieths',
+			'thirtieth',
+			'thirtieths',
+			'fortieth',
+			'fortieths',
+			'fiftieth',
+			'fiftieths',
+			'sixtieth',
+			'sixtieths',
+			'seventieth',
+			'seventieths',
+			'eightieth',
+			'eightieths',
+			'ninetieth',
+			'ninetieths',
+			'euro',
+			'euros',
 			'eur',
-			'cents?',
-			'dollars?',
-			'pounds?',
+			'cent',
+			'cents',
+			'dollar',
+			'dollars',
+			'pound',
+			'pounds',
 			'usd',
 			'gbp',
 			'chf'
@@ -148,17 +171,21 @@ export const CARD_LANGUAGES = {
 		quantityWords: [
 			'moitie',
 			'demi',
-			'quarts?',
+			'quart',
+			'quarts',
 			'tiers',
 			'double',
 			'triple',
-			'pour ?cent',
+			'pour cent',
 			'pourcent',
-			'centimes?',
-			'euros?',
-			'francs?'
+			'centime',
+			'centimes',
+			'euro',
+			'euros',
+			'franc',
+			'francs'
 		],
 		// Every ordinal after « second » ends in « ième »: « deuxième », « dixième », « énième ».
-		quantityEndings: ['\\p{L}*iemes?']
+		quantityEndings: ['ieme', 'iemes']
 	}
 } satisfies Record<ResponseLocale, CardLanguage>;
