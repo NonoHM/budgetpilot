@@ -97,7 +97,6 @@ const FACTS: {
 } = {
 	// No category strictly larger: two tied at the top are both the top category.
 	top_category: (category, facts) =>
-		category.amountCents > 0 &&
 		facts.categories.every((other) => other.amountCents <= category.amountCents),
 	no_budget: (category) => category.budget === 'none',
 	over_budget: (category) => category.budget === 'over_budget',
@@ -113,7 +112,8 @@ const FACTS: {
 	// income in the app, which says nothing about what they earned.
 	spent_more_than_earned: (facts) =>
 		facts.incomeCents > 0 && facts.expenseCents > facts.incomeCents,
-	spent_less_than_earned: (facts) => facts.incomeCents > 0 && facts.expenseCents < facts.incomeCents
+	// No `income > 0` here: expenses are never negative, so below income already means income.
+	spent_less_than_earned: (facts) => facts.expenseCents < facts.incomeCents
 };
 
 function holds(
@@ -147,7 +147,8 @@ export function acceptPicks(picks: ModelPick[], facts: AdviceFacts): AiStatement
 	const shown = new Map<string, AiStatement>();
 	for (const pick of picks) {
 		const statement = holds(pick.kind, pick.category, facts);
-		if (statement && !shown.has(statement.id)) shown.set(statement.id, statement);
+		// Keyed by id: a repeated pick keeps its first place, once.
+		if (statement) shown.set(statement.id, statement);
 	}
 	return shown.size === 0 ? null : [...shown.values()];
 }
