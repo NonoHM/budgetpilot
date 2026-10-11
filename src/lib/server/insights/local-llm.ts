@@ -6,7 +6,7 @@ import { fetchWithRedirectGuard } from '$lib/server/net/redirectGuard';
 import { readIntegerSetting } from '$lib/server/env/readSetting';
 import { SETTINGS } from '$lib/server/env/settings';
 import { localLlmJsonSchema, localLlmNumPredict, localLlmResponseSchema } from './schema';
-import type { BudgetInsight, LocalLlmFailureCode, LocalLlmResult } from './types';
+import type { LocalLlmFailureCode, LocalLlmResult } from './types';
 
 const DEFAULT_BASE_URL = 'http://127.0.0.1:11434';
 /**
@@ -52,8 +52,7 @@ export function isLocalLlmEnabled(env: NodeJS.ProcessEnv = process.env): boolean
 /** One shape for every giving-up path, so a code can never be omitted where `unavailable` is set. */
 function unavailable(code: LocalLlmFailureCode, noWork = false): LocalLlmResult {
 	return {
-		summary: '',
-		insights: [],
+		picks: [],
 		unavailable: true,
 		failureCode: code,
 		...(noWork ? { notCharged: true as const } : {})
@@ -297,18 +296,9 @@ function parseLocalLlmContent(content: string, truncated: boolean): LocalLlmResu
 	// Half 2 of the rule stated beside `unreadable`: a schema-valid answer is kept whatever stopped
 	// the generation, so `truncated` is deliberately not read from here on.
 
-	// As the model wrote it. What reaches the card is decided in ONE place, `ai/accept.ts`, which
-	// cleans the text (markdown included) before it checks it, so the check reads what is shown.
-	const insights: BudgetInsight[] = parsed.data.insights.map((item, index) => ({
-		id: `local-llm-${index + 1}`,
-		title: item.title,
-		message: item.message,
-		severity: item.severity,
-		category: item.category,
-		source: 'local-llm'
-	}));
-
-	return { summary: parsed.data.summary, insights };
+	// Picks only: closed lists, no words (#996). Which of them reach the card is decided in ONE place,
+	// `ai/statements.ts`, against the figures the prompt was built from.
+	return { picks: parsed.data.picks };
 }
 
 function getAllowedHosts(env: NodeJS.ProcessEnv): string[] {

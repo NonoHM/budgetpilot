@@ -7,6 +7,7 @@
 	import type { DashboardInsights } from '$lib/server/dashboard/insights';
 	import type { LocalLlmFailureCode } from '$lib/domain/failureCodes';
 	import type { LocalAiAdvice } from '$lib/server/insights/types';
+	import type { AiStatementKind } from '$lib/domain/aiStatements';
 	import Badge from '$lib/components/ui/Badge.svelte';
 	import TapLink from '$lib/components/ui/TapLink.svelte';
 	import * as m from '$lib/paraglide/messages';
@@ -62,9 +63,7 @@
 	let outcome = $state<LocalAiAdvice | 'pending' | null>(null);
 	let inFlight: AbortController | null = null;
 	const resolved = $derived<LocalAiAdvice | null>(outcome === 'pending' ? null : outcome);
-	const aiItems = $derived(
-		(resolved?.insights ?? []).filter((item) => item.source === 'local-llm')
-	);
+	const aiItems = $derived(resolved?.statements ?? []);
 	const showAiAdviceCard = $derived(aiItems.length > 0);
 	// Advice wins over a contradictory `unavailable`, so the two cards are never both shown.
 	const showAiUnavailableCard = $derived(resolved?.unavailable === true && !showAiAdviceCard);
@@ -178,6 +177,52 @@
 			response_withheld: m.dashboard_insights_ai_response_withheld_title()
 		};
 		return titles[code];
+	}
+
+	/**
+	 * THE WORDS OF EACH AI STATEMENT (#996). The model picks a kind; the server keeps it only where
+	 * the period's figures make it true; this card writes the sentence, in the page's language. No
+	 * text of the answer is rendered: the category is named in the figure row, isolated in `<bdi>`,
+	 * so no sentence has to agree with a name the member typed.
+	 *
+	 * A `Record` over every kind, so a kind added without its sentence stops `npm run check`.
+	 */
+	function aiStatementText(kind: AiStatementKind): { title: string; message: string } {
+		const text: Record<AiStatementKind, () => { title: string; message: string }> = {
+			top_category: () => ({
+				title: m.dashboard_insights_ai_kind_top_category_title(),
+				message: m.dashboard_insights_ai_kind_top_category_message()
+			}),
+			no_budget: () => ({
+				title: m.dashboard_insights_ai_kind_no_budget_title(),
+				message: m.dashboard_insights_ai_kind_no_budget_message()
+			}),
+			over_budget: () => ({
+				title: m.dashboard_insights_ai_kind_over_budget_title(),
+				message: m.dashboard_insights_ai_kind_over_budget_message()
+			}),
+			near_limit: () => ({
+				title: m.dashboard_insights_ai_kind_near_limit_title(),
+				message: m.dashboard_insights_ai_kind_near_limit_message()
+			}),
+			recurring: () => ({
+				title: m.dashboard_insights_ai_kind_recurring_title(),
+				message: m.dashboard_insights_ai_kind_recurring_message()
+			}),
+			spending_up: () => ({
+				title: m.dashboard_insights_ai_kind_spending_up_title(),
+				message: m.dashboard_insights_ai_kind_spending_up_message()
+			}),
+			spent_more_than_earned: () => ({
+				title: m.dashboard_insights_ai_kind_spent_more_than_earned_title(),
+				message: m.dashboard_insights_ai_kind_spent_more_than_earned_message()
+			}),
+			spent_less_than_earned: () => ({
+				title: m.dashboard_insights_ai_kind_spent_less_than_earned_title(),
+				message: m.dashboard_insights_ai_kind_spent_less_than_earned_message()
+			})
+		};
+		return text[kind]();
 	}
 
 	function aiFailureReason(code: LocalLlmFailureCode, retryInMinutes?: number): string {
@@ -481,7 +526,9 @@
 							<Badge tone="neutral">{m.dashboard_insights_ai_badge()}</Badge>
 						</span>
 						<span class="min-w-0 flex-1 truncate text-sm font-semibold text-zinc-900">
-							{aiOpen ? m.dashboard_insights_ai_advice_title() : aiItems[0].title}
+							{aiOpen
+								? m.dashboard_insights_ai_advice_title()
+								: aiStatementText(aiItems[0].kind).title}
 						</span>
 						<svg
 							class="ml-auto h-4 w-4 shrink-0 text-zinc-400 transition-transform duration-150"
@@ -500,9 +547,9 @@
 						</svg>
 					</button>
 					<!-- `data-ai-generated`: the machine-readable mark of EU AI Act Art. 50(2), beside the
-					     visible badge. Each figure is the app's, from the payload (G3, #831), never the
-					     model's; the name is isolated so a direction character in it cannot reorder the
-					     amount beside it. -->
+					     visible badge. Each sentence is the card's and each figure the app's (#996); the
+					     model only picked which. The name is isolated so a direction character in it cannot
+					     reorder the amount beside it. -->
 					<div
 						id="dashboard-ai-advice-content"
 						data-ai-generated="true"
@@ -510,8 +557,15 @@
 					>
 						{#each aiItems as item (item.id)}
 							<div>
-								<div class="text-sm font-medium text-zinc-900">{item.title}</div>
-								<p class="text-xs text-zinc-600">{item.message}</p>
+								<div
+									class="text-sm font-medium text-zinc-900"
+									data-testid="dashboard-ai-statement-title"
+								>
+									{aiStatementText(item.kind).title}
+								</div>
+								<p class="text-xs text-zinc-600" data-testid="dashboard-ai-statement-message">
+									{aiStatementText(item.kind).message}
+								</p>
 								{#if item.figures?.length}
 									<dl class="mt-1 space-y-0.5 text-xs">
 										{#each item.figures as figure (figure.category)}

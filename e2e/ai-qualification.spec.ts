@@ -1,5 +1,6 @@
 import { createServer, type Server } from 'node:http';
 import { expect, test, type Browser } from '@playwright/test';
+import type { AiStatementKind } from '../src/lib/domain/aiStatements';
 import {
 	FIXTURES,
 	INPUT_ITEMS,
@@ -7,10 +8,8 @@ import {
 	SIBLING,
 	type FixtureId,
 	type InputItem,
-	type ModelInsight,
 	type OutputItem,
-	type SeedTransaction,
-	type ShownExpectation
+	type SeedTransaction
 } from '../src/lib/server/ai/qualification/corpus';
 import {
 	askAdvice,
@@ -25,18 +24,24 @@ import * as m from '../src/lib/paraglide/messages';
 /**
  * The hostile-model suite (#971, AISVS C11.1.3): the qualification corpus and every scenario of the
  * MEPIA Scenario 1 run, on the BUILD, a real database and a real browser. Only the model is scripted,
- * because the threat IS a model (or whatever answers at its address) writing text an attacker chose,
- * and no real model can be made to write a given bidi string or invented figure on demand.
+ * because the threat IS a model (or whatever answers at its address) writing an answer an attacker
+ * chose, and no real model can be made to write a given kind or alias on demand.
  * `npm run ai:check` is the same app against a real model.
  *
- * WHAT IS ASSERTED. An item the corpus rules on is compared with its `expect`, which is hand-written
- * there. An item in `KNOWN_GAPS` is compared with what the app does TODAY, written out below, so the
- * pull request that implements its rule turns it red until the entry is removed. Never `test.fail()`:
- * it accepts any failure, including a broken fixture.
+ * Since #996 the model's whole answer is picks, `{ kind, category }` from closed lists, and the card
+ * writes every sentence from the catalogue. So what is asserted is what the card SHOWS: the statement
+ * titles in order (read from the catalogue, never typed here), the figure rows, or the failure it
+ * says.
  *
- * WHY EVERY PRESS COUNTS THE MODEL'S CALLS. An item judged by an absence (a dropped title, a canary
+ * WHAT IS ASSERTED. An item the corpus rules on is compared with its `expect`, which is hand-written
+ * there. An item in `KNOWN_INPUT_GAPS` is compared with what the app does TODAY, written out below,
+ * so the pull request that implements its rule turns it red until the entry is removed. Never
+ * `test.fail()`: it accepts any failure, including a broken fixture.
+ *
+ * WHY EVERY PRESS COUNTS THE MODEL'S CALLS. An item judged by an absence (a dropped pick, a canary
  * missing from the prompt) reads the same over a refusal, a cache hit or a dead path. So each press
- * must reach the model exactly once, and every answer carries a sibling insight that must render.
+ * must reach the model exactly once, and an answer that drops a pick carries a sibling pick that must
+ * render.
  *
  * One member per item and per scenario: the gateway caches answers per member by prompt, so a second
  * press on the same data would be answered from the cache, not by the scripted model.
@@ -61,7 +66,7 @@ type Reply = { content: string; delayMs?: number } | { raw: string } | { redirec
 
 const fake = {
 	chats: [] as Recorded[],
-	reply: (() => ({ content: answer([SIBLING.insight]) })) as (request: Recorded) => Reply
+	reply: (() => ({ content: answer([SIBLING.pick]) })) as (request: Recorded) => Reply
 };
 let fakeServer: Server | undefined;
 let canaryServer: Server | undefined;
@@ -69,8 +74,9 @@ let allowedServer: Server | undefined;
 const hits = { canary: 0, allowed: 0 };
 let instance: AiInstance;
 
-function answer(insights: ModelInsight[]): string {
-	return JSON.stringify({ summary: 'Your month at a glance', insights });
+/** The model's whole answer under #996, as it writes it. */
+function answer(picks: readonly Record<string, unknown>[]): string {
+	return JSON.stringify({ picks });
 }
 
 function chatEnvelope(content: string): string {
@@ -120,20 +126,44 @@ async function startModels(): Promise<void> {
 		hits.canary += 1;
 		res
 			.writeHead(200, { 'content-type': 'application/json' })
-			.end(chatEnvelope(answer([SIBLING.insight])));
+			.end(chatEnvelope(answer([SIBLING.pick])));
 	});
 	await listen(canaryServer, CANARY_PORT, CANARY_HOST);
 	allowedServer = createServer((_req, res) => {
 		hits.allowed += 1;
 		res
 			.writeHead(200, { 'content-type': 'application/json' })
-			.end(chatEnvelope(answer([{ ...SIBLING.insight, title: 'Redirected answer' }])));
+			.end(chatEnvelope(answer([{ kind: 'spent_less_than_earned', category: 'all' }])));
 	});
 	await listen(allowedServer, ALLOWED_TARGET_PORT);
 }
 
+// ---- what the card says, from the catalogue -------------------------------------------------------
+
+const en = { locale: 'en' } as const;
+/** A `Record` over every kind, so a kind added without its title here stops `npm run check`. */
+const TITLE: Record<AiStatementKind, string> = {
+	top_category: m.dashboard_insights_ai_kind_top_category_title({}, en),
+	no_budget: m.dashboard_insights_ai_kind_no_budget_title({}, en),
+	over_budget: m.dashboard_insights_ai_kind_over_budget_title({}, en),
+	near_limit: m.dashboard_insights_ai_kind_near_limit_title({}, en),
+	recurring: m.dashboard_insights_ai_kind_recurring_title({}, en),
+	spending_up: m.dashboard_insights_ai_kind_spending_up_title({}, en),
+	spent_more_than_earned: m.dashboard_insights_ai_kind_spent_more_than_earned_title({}, en),
+	spent_less_than_earned: m.dashboard_insights_ai_kind_spent_less_than_earned_title({}, en)
+};
+const FAILURE_TITLE = {
+	response_unusable: m.dashboard_insights_ai_response_unusable_title({}, en),
+	response_withheld: m.dashboard_insights_ai_response_withheld_title({}, en)
+} as const;
+
+/** `<kind>-<alias>`: a kind holds no hyphen, so the last one splits them. */
+function titleOf(id: string): string {
+	return TITLE[id.slice(0, id.lastIndexOf('-')) as AiStatementKind];
+}
+
 // ---- known gaps: what the app does TODAY where the corpus rules otherwise ------------------------
-// Input side only: G3 (#969, #831) ruled every output item, so each is now compared with its `expect`.
+// Input side only: #996 ruled every output item, so each is compared with its `expect`.
 
 /** `canary-present`: every `absent` probe of the item reaches the model today, verbatim. */
 const KNOWN_INPUT_GAPS: Record<string, { issue: string; today: 'canary-present' }> = {
@@ -212,14 +242,6 @@ const requestText = (request: Recorded) => request.messages.map((m) => m.content
 
 // ---- the corpus: output items --------------------------------------------------------------------
 
-/** The categories whose figures the app shows beside an insight (G3, #831): `figures[].category`. */
-function attachedMentions(insight: Record<string, unknown>): string[] {
-	const attached = insight.figures;
-	return Array.isArray(attached)
-		? attached.map((f) => String((f as { category?: unknown }).category))
-		: [];
-}
-
 for (const item of OUTPUT_ITEMS) {
 	test(`corpus ${item.id} (${item.rule}, ${item.fires ? 'fires' : 'must not fire'})`, async ({
 		browser
@@ -227,37 +249,40 @@ for (const item of OUTPUT_ITEMS) {
 		const member = await seedMember(instance, outputEmail(item), [
 			...FIXTURES[item.fixture].transactions
 		]);
-		const result = await press(browser, member, (request) => {
-			const written: ModelInsight =
-				'echoOf' in item.insight
-					? {
-							title: item.insight.title,
-							// 120 characters of the request itself, so the overlap is real whatever the prompt says.
-							message: requestText(request).slice(0, 120).trim(),
-							severity: 'info',
-							category: 'spending'
-						}
-					: item.insight;
-			return { content: answer([written, SIBLING.insight]) };
-		});
-		await result.page.context().close();
-
-		expect(result.json.unavailable, 'the answer as a whole was accepted').toBe(false);
-		const shown = result.json.insights.map((insight) => ({
-			title: insight.title,
-			message: insight.message,
-			severity: insight.severity,
-			mentions: attachedMentions(insight as unknown as Record<string, unknown>)
-		}));
-		const sibling = shown.find((s) => s.title === SIBLING.expect.title);
-		expect(
-			sibling,
-			'the sibling insight renders, so a missing item was dropped, not refused'
-		).toEqual(SIBLING.expect);
-		const rest = shown.filter((s) => s !== sibling);
-		expect(rest.length, 'at most the item itself beside the sibling').toBeLessThanOrEqual(1);
-		const observed: ShownExpectation | 'dropped' = rest[0] ?? 'dropped';
-		expect(observed).toEqual('dropped' in item.expect ? 'dropped' : item.expect.shown);
+		const result = await press(browser, member, () => ({ content: JSON.stringify(item.answer) }));
+		const { page } = result;
+		const titles = page.getByTestId('dashboard-ai-statement-title');
+		const figures = page.getByTestId('dashboard-ai-figure');
+		try {
+			if ('failureCode' in item.expect) {
+				// The whole answer, so nothing the model wrote comes back beside the refusal.
+				expect(result.json).toEqual({
+					statements: [],
+					unavailable: true,
+					failureCode: item.expect.failureCode
+				});
+				await expect(page.getByText(FAILURE_TITLE[item.expect.failureCode])).toBeVisible();
+				await expect(titles).toHaveCount(0);
+				await expect(figures).toHaveCount(0);
+			} else {
+				expect(result.json.unavailable, 'the answer as a whole was accepted').toBe(false);
+				expect(result.json.statements.map((statement) => statement.id)).toEqual(
+					item.expect.statements
+				);
+				if (item.expect.statements.length === 0) {
+					await expect(page.getByText(m.dashboard_insights_ai_empty({}, en))).toBeVisible();
+					await expect(titles).toHaveCount(0);
+				} else {
+					await expect(titles).toHaveText(item.expect.statements.map(titleOf));
+					// One figure row per statement about a category, none for a statement about the period.
+					await expect(figures).toHaveCount(
+						item.expect.statements.filter((id) => !id.endsWith('-all')).length
+					);
+				}
+			}
+		} finally {
+			await page.context().close();
+		}
 	});
 }
 
@@ -274,7 +299,7 @@ for (const fixture of INPUT_FIXTURES) {
 		const member = await seedMember(instance, inputEmail(fixture), [...definition.transactions], {
 			includeLabels: 'includeLabels' in definition && definition.includeLabels
 		});
-		const result = await press(browser, member, () => ({ content: answer([SIBLING.insight]) }));
+		const result = await press(browser, member, () => ({ content: answer([SIBLING.pick]) }));
 		await result.page.context().close();
 		requestsByFixture.set(fixture, requestText(result.request).toLowerCase());
 		for (const item of items) checkInput(item);
@@ -314,7 +339,7 @@ test('the instructions and the data travel in separate roles (known gap #820)', 
 	// per-request marker. Today one user message carries both, which is what this asserts until
 	// #820 lands; the calibration is that the month's own category is in that message.
 	const member = await seedMember(instance, scenarioEmail('roles'), SCENARIO_MONTH);
-	const result = await press(browser, member, () => ({ content: answer([SIBLING.insight]) }));
+	const result = await press(browser, member, () => ({ content: answer([SIBLING.pick]) }));
 	await result.page.context().close();
 	const roles = result.request.messages.map((m) => m.role);
 	expect(
@@ -350,20 +375,22 @@ const scenario = (
 
 test('scenario 0, calibration: an ordinary answer renders as advice', async ({ browser }) => {
 	const result = await press(browser, await scenario('calibration'), () => ({
-		content: answer([SIBLING.insight])
+		content: answer([SIBLING.pick])
 	}));
-	expect(result.adviceText).toContain(SIBLING.expect.title);
+	expect(result.adviceText).toContain(TITLE.top_category);
+	await expect(result.page.getByTestId('dashboard-ai-statement-title')).toHaveText([
+		TITLE.top_category
+	]);
 	await result.page.context().close();
 });
 
 test("scenario 0b, the figure beside the advice is the app's, and the advice is marked as generated", async ({
 	browser
 }) => {
-	// The model names Groceries and writes no figure; the app attaches Groceries' own, 84.20 + 61.10.
+	// The model picks Groceries by its alias and writes no figure; the app attaches Groceries' own,
+	// 84.20 + 61.10.
 	const result = await press(browser, await scenario('figure'), () => ({
-		content: answer([
-			{ ...SIBLING.insight, title: 'Watch groceries', message: 'Keep Groceries in view.' }
-		])
+		content: answer([{ kind: 'no_budget', category: 'c2' }])
 	}));
 	const advice = result.page.locator('#dashboard-ai-advice-content');
 	await expect(advice).toHaveAttribute('data-ai-generated', 'true');
@@ -375,23 +402,21 @@ test("scenario 0b, the figure beside the advice is the app's, and the advice is 
 	await result.page.context().close();
 });
 
-test('scenario 0c, every statement dropped: the card says the advice was withheld', async ({
+test('scenario 0c, every pick dropped: the card says the advice was withheld', async ({
 	browser
 }) => {
+	// Rent has no budget, so « over budget » is false and the only pick goes.
 	const result = await press(browser, await scenario('withheld'), () => ({
-		content: answer([
-			{ ...SIBLING.insight, title: 'Rent is high', message: 'You spent 98765.43 on Rent.' }
-		])
+		content: answer([{ kind: 'over_budget', category: 'c1' }])
 	}));
 	expect(result.json).toEqual({
-		insights: [],
+		statements: [],
 		unavailable: true,
 		failureCode: 'response_withheld'
 	});
-	await expect(
-		result.page.getByText(m.dashboard_insights_ai_response_withheld_title({}, { locale: 'en' }))
-	).toBeVisible();
-	await expect(result.page.getByText('98765')).toHaveCount(0);
+	await expect(result.page.getByText(FAILURE_TITLE.response_withheld)).toBeVisible();
+	await expect(result.page.getByTestId('dashboard-ai-statement-title')).toHaveCount(0);
+	await expect(result.page.getByText(TITLE.over_budget)).toHaveCount(0);
 	await result.page.context().close();
 });
 
@@ -404,7 +429,7 @@ test("scenario 1, read side: one member's prompt carries none of another member'
 	const b = await scenario('read-b', [
 		{ label: 'XYLOPHONE MERCHANT', amount: '-17.20', category: 'Zebrafjord' }
 	]);
-	const reply = () => ({ content: answer([SIBLING.insight]) });
+	const reply = () => ({ content: answer([SIBLING.pick]) });
 	const fromB = await press(browser, b, reply);
 	await fromB.page.context().close();
 	const fromA = await press(browser, a, reply);
@@ -419,32 +444,34 @@ test("scenario 1, read side: one member's prompt carries none of another member'
 	expect(promptA, 'not even its own address').not.toContain(scenarioEmail('read-a'));
 });
 
-test('scenario 2, markup in a statement is refused before it renders, and runs nothing', async ({
+test('scenario 2, a kind carrying markup is refused and nothing renders it', async ({
 	browser
 }) => {
-	// Since G3 a statement may use only the characters of a sentence, so `<` drops it (#969). The
-	// calibration is the sibling, which renders: a dropped statement, not a refused answer.
+	// Since #996 a kind is a closed list, so markup in it makes the whole answer unreadable, the true
+	// sibling included. The control is the failure the card says: the card rendered, and said why.
 	const dialogs: string[] = [];
 	const result = await press(browser, await scenario('markup'), () => ({
 		content: answer([
-			{
-				title: '<img src=x onerror="window.__pwned=true">',
-				message:
-					'<script>window.__pwned=true</script> <a href="javascript:window.__pwned=true">x</a>',
-				severity: 'info',
-				category: 'spending'
-			},
-			SIBLING.insight
+			{ kind: '<img src=x onerror="window.__pwned=true">', category: 'c1' },
+			{ kind: 'top_category', category: '<script>window.__pwned=true</script>' },
+			SIBLING.pick
 		])
 	}));
 	result.page.on('dialog', async (dialog) => {
 		dialogs.push(dialog.message());
 		await dialog.dismiss();
 	});
-	expect(result.adviceText, 'the control: the sibling renders').toContain(SIBLING.expect.title);
-	expect(result.adviceText).not.toContain('<img');
-	const region = result.page.locator('#dashboard-ai-advice-content');
-	expect(await region.locator('img, script, a, svg, iframe').count()).toBe(0);
+	expect(result.json).toEqual({
+		statements: [],
+		unavailable: true,
+		failureCode: 'response_unusable'
+	});
+	await expect(result.page.getByText(FAILURE_TITLE.response_unusable)).toBeVisible();
+	await expect(result.page.getByTestId('dashboard-ai-statement-title')).toHaveCount(0);
+	expect(
+		await result.page.evaluate(() => document.body.innerHTML.includes('__pwned')),
+		'no trace of the markup anywhere in the page'
+	).toBe(false);
 	expect(
 		await result.page.evaluate(() => (window as { __pwned?: unknown }).__pwned ?? null)
 	).toBeNull();
@@ -456,36 +483,34 @@ test('scenario 5a, an oversized field refuses the answer and the page stands', a
 	browser
 }) => {
 	const result = await press(browser, await scenario('oversize'), () => ({
-		content: answer([{ ...SIBLING.insight, message: 'y'.repeat(5_000) }])
+		content: answer([{ kind: 'y'.repeat(5_000), category: 'c1' }])
 	}));
 	expect(result.json.failureCode).toBe('response_unusable');
 	await expect(result.page.locator('h1').first()).toBeVisible();
 	await result.page.context().close();
 });
 
-test('scenario 5b, a severity outside the closed list refuses the answer', async ({ browser }) => {
+test('scenario 5b, a kind outside the closed list refuses the answer', async ({ browser }) => {
 	const result = await press(browser, await scenario('bad-enum'), () => ({
-		content: JSON.stringify({
-			summary: 's',
-			insights: [{ ...SIBLING.insight, severity: 'admin' }]
-		})
+		content: answer([{ kind: 'admin', category: 'c1' }])
 	}));
 	expect(result.json.failureCode).toBe('response_unusable');
 	await result.page.context().close();
 });
 
-test('scenario 5c, keys the schema does not name never reach the answer', async ({ browser }) => {
+test('scenario 5c, keys the schema does not name refuse the answer, and none reaches it', async ({
+	browser
+}) => {
+	// Before #996 such keys were stripped and the answer kept; `.strict()` now refuses it whole. The
+	// control is scenario 0: the same pick without the extra keys renders.
 	const result = await press(browser, await scenario('extra-keys'), () => ({
-		content: JSON.stringify({
-			summary: 's',
-			insights: [{ ...SIBLING.insight, source: 'rule', id: 'rule-1', userId: 'someone-else' }]
-		})
+		content: answer([{ ...SIBLING.pick, source: 'rule', id: 'rule-1', userId: 'someone-else' }])
 	}));
-	expect(result.json.unavailable, 'the control: the answer itself was accepted').toBe(false);
-	const [insight] = result.json.insights as unknown as Record<string, unknown>[];
-	expect(insight.source).toBe('local-llm');
-	expect(insight.id).toBe('local-llm-1');
-	expect('userId' in insight).toBe(false);
+	expect(result.json).toEqual({
+		statements: [],
+		unavailable: true,
+		failureCode: 'response_unusable'
+	});
 	await result.page.context().close();
 });
 
@@ -510,7 +535,10 @@ test('scenario 6, a redirect off the allowlist is not followed; one to an allowe
 		redirect: `http://127.0.0.1:${ALLOWED_TARGET_PORT}/api/chat`
 	}));
 	expect(hits.allowed, 'the control: the same redirect to an allowlisted host lands').toBe(1);
-	expect(allowed.adviceText).toContain('Redirected answer');
+	expect(allowed.json.statements.map((statement) => statement.id)).toEqual([
+		'spent_less_than_earned-all'
+	]);
+	expect(allowed.adviceText).toContain(TITLE.spent_less_than_earned);
 	await allowed.page.context().close();
 });
 
@@ -518,7 +546,7 @@ test('scenario 7, a model slower than the budget leaves the page painted and say
 	browser
 }) => {
 	const result = await press(browser, await scenario('slow'), () => ({
-		content: answer([SIBLING.insight]),
+		content: answer([SIBLING.pick]),
 		delayMs: LLM_TIMEOUT_MS + 2_000
 	}));
 	expect(result.json.failureCode).toBe('cold_start');
@@ -534,9 +562,9 @@ test('scenario 8, a 50 MB answer is refused and the server keeps serving', async
 	expect(result.json.failureCode).toBe('response_unusable');
 	await result.page.context().close();
 	const after = await press(browser, await scenario('after-huge'), () => ({
-		content: answer([SIBLING.insight])
+		content: answer([SIBLING.pick])
 	}));
-	expect(after.adviceText, 'the next member still gets advice').toContain(SIBLING.expect.title);
+	expect(after.adviceText, 'the next member still gets advice').toContain(TITLE.top_category);
 	await after.page.context().close();
 });
 

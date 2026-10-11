@@ -30,26 +30,20 @@ vi.mock('$lib/server/insights/local-llm', async (importOriginal) => ({
 const { createGateway, prepareAdvice } = await import('./gateway');
 
 const ENV = { LLM_ENABLED: 'true', LLM_MODEL: 'qwen2.5:0.5b' } as NodeJS.ProcessEnv;
-const ACCEPTED: LocalLlmResult = {
-	summary: 's',
-	insights: [
-		{
-			id: 'local-llm-1',
-			title: 'T',
-			message: 'M',
-			severity: 'info',
-			category: 'spending',
-			source: 'local-llm'
-		}
-	]
-};
-/** What the gateway answers once `accept.ts` has read it: no category named, so no figure. */
+const ACCEPTED: LocalLlmResult = { picks: [{ kind: 'top_category', category: 'c1' }] };
+/** What the gateway answers once `statements.ts` has checked the pick: true, with the app's figure. */
 const ADVICE = {
-	insights: ACCEPTED.insights.map((insight) => ({ ...insight, figures: [] })),
+	statements: [
+		{
+			id: 'top_category-c1',
+			kind: 'top_category',
+			figures: [{ category: 'Logement', amountCents: 120_000 }]
+		}
+	],
 	unavailable: false
 };
 /** A request nobody is waiting for: the card returns to its idle face and may ask again. */
-const NOTHING = { insights: [], unavailable: false, cancelled: true };
+const NOTHING = { statements: [], unavailable: false, cancelled: true };
 
 const transactions: Transaction[] = [
 	{
@@ -79,7 +73,7 @@ function periodData(fixture: Transaction[] = transactions) {
 	};
 }
 const prepared = (includeLabels = false, env = ENV) =>
-	prepareAdvice({ periodData: periodData(), includeLabels, env, locale: 'en' });
+	prepareAdvice({ periodData: periodData(), includeLabels, env });
 
 function fresh(options: { queueDepth?: number; hourlyQuota?: number } = {}) {
 	const admission = createAdmission({
@@ -94,18 +88,15 @@ const open = () => new AbortController().signal;
 describe('prepareAdvice (#535)', () => {
 	// The key follows exactly what the model would receive, versus a key that misses a change and
 	// serves advice about other data.
-	it('gives the same key for the same input, and another when data, labels, locale or model change', () => {
+	it('gives the same key for the same input, and another when data, labels or model change', () => {
 		const base = prepared().key;
 		expect(prepared().key).toBe(base);
 		expect(prepared(true).key).not.toBe(base);
 		expect(prepared(false, { ...ENV, LLM_MODEL: 'other:1b' }).key).not.toBe(base);
-		expect(
-			prepareAdvice({ periodData: periodData(), includeLabels: false, env: ENV, locale: 'fr' }).key
-		).not.toBe(base);
 		const moreData = periodData([...transactions, { ...transactions[0], id: 'second' }]);
-		expect(
-			prepareAdvice({ periodData: moreData, includeLabels: false, env: ENV, locale: 'en' }).key
-		).not.toBe(base);
+		expect(prepareAdvice({ periodData: moreData, includeLabels: false, env: ENV }).key).not.toBe(
+			base
+		);
 	});
 
 	// The key is a digest, versus the prompt (and the labels in it) shipped to the page as a key.
@@ -149,13 +140,12 @@ describe('generateAdvice (#535)', () => {
 		const { gateway } = fresh();
 		await ask(gateway);
 		llm.probeLocalLlm.mockResolvedValueOnce({
-			summary: '',
-			insights: [],
+			picks: [],
 			unavailable: true,
 			failureCode: 'unreachable'
 		});
 		expect(await ask(gateway)).toEqual({
-			insights: [],
+			statements: [],
 			unavailable: true,
 			failureCode: 'unreachable'
 		});
@@ -207,7 +197,7 @@ describe('generateAdvice (#535)', () => {
 		await ask(gateway, 'u1', open(), prepared(true));
 		t = 3_600_000 - 61_000;
 		expect(await ask(gateway)).toEqual({
-			insights: [],
+			statements: [],
 			unavailable: true,
 			failureCode: 'quota_reached',
 			retryInMinutes: 2
@@ -226,8 +216,7 @@ describe('generateAdvice (#535)', () => {
 	it('does not cache an unavailable answer', async () => {
 		const { gateway } = fresh();
 		llm.requestLocalBudgetInsights.mockResolvedValueOnce({
-			summary: '',
-			insights: [],
+			picks: [],
 			unavailable: true,
 			failureCode: 'cold_start'
 		});
@@ -239,7 +228,7 @@ describe('generateAdvice (#535)', () => {
 	it('answers a busy refusal as unavailable with that code', async () => {
 		const { gateway, admission } = fresh({ queueDepth: 0 });
 		await admission.acquire('other', open(), admission.epoch('other'));
-		expect(await ask(gateway)).toEqual({ insights: [], unavailable: true, failureCode: 'busy' });
+		expect(await ask(gateway)).toEqual({ statements: [], unavailable: true, failureCode: 'busy' });
 	});
 
 	// Rev 1 F3: an aborted fetch raises AbortError, which the model client reads as `cold_start`.
@@ -296,8 +285,7 @@ describe('generateAdvice (#535)', () => {
 	it('a failure the model call marks as no work is not charged to the quota', async () => {
 		const { gateway } = fresh({ hourlyQuota: 1 });
 		llm.requestLocalBudgetInsights.mockResolvedValueOnce({
-			summary: '',
-			insights: [],
+			picks: [],
 			unavailable: true,
 			failureCode: 'busy',
 			notCharged: true
@@ -313,8 +301,7 @@ describe('generateAdvice (#535)', () => {
 		async (code) => {
 			const { gateway } = fresh({ hourlyQuota: 1 });
 			llm.requestLocalBudgetInsights.mockResolvedValueOnce({
-				summary: '',
-				insights: [],
+				picks: [],
 				unavailable: true,
 				failureCode: code
 			});
@@ -327,13 +314,12 @@ describe('generateAdvice (#535)', () => {
 	it('does not pass the no-work mark to the page', async () => {
 		const { gateway } = fresh();
 		llm.requestLocalBudgetInsights.mockResolvedValueOnce({
-			summary: '',
-			insights: [],
+			picks: [],
 			unavailable: true,
 			failureCode: 'busy',
 			notCharged: true
 		});
-		expect(await ask(gateway)).toEqual({ insights: [], unavailable: true, failureCode: 'busy' });
+		expect(await ask(gateway)).toEqual({ statements: [], unavailable: true, failureCode: 'busy' });
 	});
 
 	// Narrow pass F2: refused at the limit while this member's own generation still runs, the answer
@@ -342,7 +328,7 @@ describe('generateAdvice (#535)', () => {
 		const { gateway, admission } = fresh({ hourlyQuota: 1 });
 		await admission.acquire('u1', open(), admission.epoch('u1'));
 		expect(await ask(gateway)).toEqual({
-			insights: [],
+			statements: [],
 			unavailable: true,
 			failureCode: 'quota_reached'
 		});

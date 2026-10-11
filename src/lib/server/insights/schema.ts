@@ -1,26 +1,31 @@
 import { z } from 'zod';
+import {
+	AI_MAX_PICKS,
+	AI_PICK_TARGETS,
+	AI_STATEMENT_KINDS,
+	type AiStatementKind
+} from '$lib/domain/aiStatements';
 
-export const insightSeveritySchema = z.enum(['info', 'warning', 'critical']);
-
-export const insightCategorySchema = z.enum([
-	'budget',
-	'spending',
-	'income',
-	'recurring',
-	'anomaly'
-]);
-
-export const budgetInsightSchema = z.object({
-	title: z.string().max(80),
-	message: z.string().max(240),
-	severity: insightSeveritySchema,
-	category: insightCategorySchema
-});
-
-export const localLlmResponseSchema = z.object({
-	summary: z.string().max(160),
-	insights: z.array(budgetInsightSchema).max(5)
-});
+/**
+ * THE MODEL'S WHOLE ANSWER (#996): up to three picks, each a kind and a target from closed lists.
+ * There is no string field the model fills freely, so nothing it writes can be shown. `.strict()` at
+ * every level: a field the schema does not name (a `title`, a `summary`) refuses the answer instead
+ * of being carried along unread.
+ */
+export const localLlmResponseSchema = z
+	.object({
+		picks: z
+			.array(
+				z
+					.object({
+						kind: z.enum(AI_STATEMENT_KINDS as [AiStatementKind, ...AiStatementKind[]]),
+						category: z.enum(AI_PICK_TARGETS)
+					})
+					.strict()
+			)
+			.max(AI_MAX_PICKS)
+	})
+	.strict();
 
 export type LocalLlmResponse = z.infer<typeof localLlmResponseSchema>;
 
@@ -28,8 +33,8 @@ export type LocalLlmResponse = z.infer<typeof localLlmResponseSchema>;
  * The worst-case serialised length the grammar above permits, in characters.
  *
  * WHY THIS IS COMPUTABLE AT ALL, and it is the property the fix rests on: nothing in
- * `localLlmJsonSchema` is unbounded. Every string carries `maxLength`, both enums are closed sets,
- * and `insights` carries `maxItems`. So the largest response the model is ALLOWED to produce is a
+ * `localLlmJsonSchema` is unbounded. Every string is a closed enum (#996) and `picks` carries
+ * `maxItems`. So the largest response the model is ALLOWED to produce is a
  * constant, and a generation ceiling set above it can never truncate.
  *
  * Derived by walking the schema OBJECT rather than by restating its numbers. That is the whole
@@ -46,6 +51,7 @@ const ESCAPE_FACTOR = 1.1;
 
 type JsonSchemaNode = {
 	readonly type: string;
+	readonly additionalProperties?: boolean;
 	readonly maxLength?: number;
 	readonly enum?: readonly string[];
 	readonly maxItems?: number;
@@ -121,27 +127,30 @@ export function localLlmNumPredict(): number {
 	return Math.ceil(maxSerializedResponseChars() / CHARS_PER_TOKEN_FLOOR) + HEADROOM_TOKENS;
 }
 
+/**
+ * The same answer as a JSON schema, handed to Ollama as `format`, which compiles it into a grammar:
+ * an honest model cannot write anything else. It is the same object for every member (aliases are
+ * positions, never names), so the grammar is static. `additionalProperties: false` mirrors
+ * `.strict()` above; the zod schema is still what decides, because a hostile model is not bound by
+ * any grammar.
+ */
 export const localLlmJsonSchema = {
 	type: 'object',
 	properties: {
-		summary: { type: 'string', maxLength: 160 },
-		insights: {
+		picks: {
 			type: 'array',
-			maxItems: 5,
+			maxItems: AI_MAX_PICKS,
 			items: {
 				type: 'object',
 				properties: {
-					title: { type: 'string', maxLength: 80 },
-					message: { type: 'string', maxLength: 240 },
-					severity: { type: 'string', enum: ['info', 'warning', 'critical'] },
-					category: {
-						type: 'string',
-						enum: ['budget', 'spending', 'income', 'recurring', 'anomaly']
-					}
+					kind: { type: 'string', enum: AI_STATEMENT_KINDS },
+					category: { type: 'string', enum: AI_PICK_TARGETS }
 				},
-				required: ['title', 'message', 'severity', 'category']
+				required: ['kind', 'category'],
+				additionalProperties: false
 			}
 		}
 	},
-	required: ['summary', 'insights']
+	required: ['picks'],
+	additionalProperties: false
 } as const;

@@ -32,6 +32,9 @@ function mockOllamaFetch(
 	});
 }
 
+/** A schema-valid answer (#996): one pick, so a test can tell it from the empty failure shape. */
+const VALID_ANSWER = { picks: [{ kind: 'spending_up', category: 'all' }] };
+
 describe('requestLocalBudgetInsights', () => {
 	it('refuse une URL LLM non locale sans appeler fetch', async () => {
 		expect.assertions(2);
@@ -94,12 +97,12 @@ describe('requestLocalBudgetInsights', () => {
 		});
 
 		expect(result?.unavailable).toBe(true);
-		expect(result?.insights).toEqual([]);
+		expect(result?.picks).toEqual([]);
 
 		fetchMock.mockRestore();
 	});
 
-	it('retourne unavailable quand le JSON est syntaxiquement valide mais hors schéma (title manquant)', async () => {
+	it('retourne unavailable quand le JSON est syntaxiquement valide mais hors schéma (category manquante)', async () => {
 		expect.assertions(2);
 
 		const fetchMock = mockOllamaFetch(
@@ -108,8 +111,7 @@ describe('requestLocalBudgetInsights', () => {
 					JSON.stringify({
 						message: {
 							content: JSON.stringify({
-								summary: 'ok',
-								insights: [{ message: 'sans titre', severity: 'info', category: 'budget' }]
+								picks: [{ kind: 'over_budget' }]
 							})
 						}
 					}),
@@ -123,12 +125,12 @@ describe('requestLocalBudgetInsights', () => {
 		});
 
 		expect(result?.unavailable).toBe(true);
-		expect(result?.insights).toEqual([]);
+		expect(result?.picks).toEqual([]);
 
 		fetchMock.mockRestore();
 	});
 
-	it('retourne unavailable quand un champ dépasse la longueur maximale autorisée', async () => {
+	it('retourne unavailable quand la réponse dépasse le nombre de choix autorisé', async () => {
 		expect.assertions(1);
 
 		const fetchMock = mockOllamaFetch(
@@ -136,7 +138,7 @@ describe('requestLocalBudgetInsights', () => {
 				new Response(
 					JSON.stringify({
 						message: {
-							content: JSON.stringify({ summary: 'x'.repeat(161), insights: [] })
+							content: JSON.stringify({ picks: Array(4).fill(VALID_ANSWER.picks[0]) })
 						}
 					}),
 					{ status: 200 }
@@ -178,7 +180,7 @@ describe('requestLocalBudgetInsights', () => {
 				new Response(
 					JSON.stringify({
 						message: {
-							content: JSON.stringify({ summary: 'ok', insights: [] })
+							content: JSON.stringify(VALID_ANSWER)
 						}
 					}),
 					{ status: 200 }
@@ -195,7 +197,7 @@ describe('requestLocalBudgetInsights', () => {
 			'http://host.docker.internal:11434/api/chat',
 			expect.objectContaining({ method: 'POST' })
 		);
-		expect(result?.summary).toBe('ok');
+		expect(result?.picks).toEqual(VALID_ANSWER.picks);
 
 		fetchMock.mockRestore();
 	});
@@ -257,7 +259,7 @@ describe('requestLocalBudgetInsights', () => {
 			async () =>
 				new Response(
 					JSON.stringify({
-						message: { content: JSON.stringify({ summary: 'ok', insights: [] }) }
+						message: { content: JSON.stringify(VALID_ANSWER) }
 					}),
 					{ status: 200 }
 				)
@@ -297,7 +299,7 @@ describe('requestLocalBudgetInsights', () => {
 			async () =>
 				new Response(
 					JSON.stringify({
-						message: { content: JSON.stringify({ summary: 'ok', insights: [] }) }
+						message: { content: JSON.stringify(VALID_ANSWER) }
 					}),
 					{ status: 200 }
 				)
@@ -313,7 +315,7 @@ describe('requestLocalBudgetInsights', () => {
 			'https://vps.example.com:11434/api/chat',
 			expect.objectContaining({ method: 'POST' })
 		);
-		expect(result?.summary).toBe('ok');
+		expect(result?.picks).toEqual(VALID_ANSWER.picks);
 
 		fetchMock.mockRestore();
 	});
@@ -342,7 +344,7 @@ describe('requestLocalBudgetInsights', () => {
 			async () =>
 				new Response(
 					JSON.stringify({
-						message: { content: JSON.stringify({ summary: 'ok', insights: [] }) }
+						message: { content: JSON.stringify(VALID_ANSWER) }
 					}),
 					{ status: 200 }
 				)
@@ -359,7 +361,7 @@ describe('requestLocalBudgetInsights', () => {
 			'http://ollama:11434/api/chat',
 			expect.objectContaining({ method: 'POST' })
 		);
-		expect(result?.summary).toBe('ok');
+		expect(result?.picks).toEqual(VALID_ANSWER.picks);
 
 		fetchMock.mockRestore();
 	});
@@ -372,7 +374,7 @@ describe('requestLocalBudgetInsights', () => {
 				new Response(
 					JSON.stringify({
 						message: {
-							content: JSON.stringify({ summary: 'ok', insights: [] })
+							content: JSON.stringify(VALID_ANSWER)
 						}
 					}),
 					{ status: 200 }
@@ -388,7 +390,7 @@ describe('requestLocalBudgetInsights', () => {
 			'http://127.0.0.1:11434/api/chat',
 			expect.objectContaining({ method: 'POST' })
 		);
-		expect(result?.summary).toBe('ok');
+		expect(result?.picks).toEqual(VALID_ANSWER.picks);
 
 		fetchMock.mockRestore();
 	});
@@ -710,7 +712,7 @@ describe('requestLocalBudgetInsights failure codes', () => {
 			async () =>
 				new Response(
 					JSON.stringify({
-						message: { content: '{"summary":"Vos dépenses","insights":[{"title":"Aliment' },
+						message: { content: '{"picks":[{"kind":"over_bud' },
 						done_reason: 'length'
 					}),
 					{ status: 200 }
@@ -736,7 +738,7 @@ describe('requestLocalBudgetInsights failure codes', () => {
 			async () =>
 				new Response(
 					JSON.stringify({
-						message: { content: '{"summary":"Vos dépenses","insights":[{"title":"Aliment' },
+						message: { content: '{"picks":[{"kind":"over_bud' },
 						done_reason: 'stop'
 					}),
 					{ status: 200 }
@@ -772,17 +774,7 @@ describe('requestLocalBudgetInsights failure codes', () => {
 				new Response(
 					JSON.stringify({
 						message: {
-							content: JSON.stringify({
-								summary: 'Vos dépenses ont augmenté',
-								insights: [
-									{
-										title: 'Alimentation en hausse',
-										message: 'Vous avez dépensé davantage quen juin.',
-										severity: 'warning',
-										category: 'spending'
-									}
-								]
-							})
+							content: JSON.stringify(VALID_ANSWER)
 						},
 						done_reason: 'length'
 					}),
@@ -794,7 +786,7 @@ describe('requestLocalBudgetInsights failure codes', () => {
 
 			expect(result?.failureCode).toBeUndefined();
 			expect(result?.unavailable).toBeUndefined();
-			expect(result?.insights).toHaveLength(1);
+			expect(result?.picks).toEqual(VALID_ANSWER.picks);
 		} finally {
 			fetchMock.mockRestore();
 		}
@@ -807,7 +799,7 @@ describe('requestLocalBudgetInsights failure codes', () => {
 			async () =>
 				new Response(
 					JSON.stringify({
-						message: { content: JSON.stringify({ summary: 'ok', insights: [] }) }
+						message: { content: JSON.stringify(VALID_ANSWER) }
 					}),
 					{ status: 200 }
 				)
@@ -815,7 +807,7 @@ describe('requestLocalBudgetInsights failure codes', () => {
 		try {
 			const result = await requestLocalBudgetInsights('prompt agrégé', baseEnv);
 
-			expect(result?.summary).toBe('ok');
+			expect(result?.picks).toEqual(VALID_ANSWER.picks);
 			expect(result?.unavailable).toBeUndefined();
 			expect(result?.failureCode).toBeUndefined();
 		} finally {
@@ -855,7 +847,7 @@ describe('requestLocalBudgetInsights generation request', () => {
 			captured = typeof init.body === 'string' ? init.body : null;
 			return new Response(
 				JSON.stringify({
-					message: { content: JSON.stringify({ summary: 'ok', insights: [] }) },
+					message: { content: JSON.stringify(VALID_ANSWER) },
 					done_reason: 'stop'
 				}),
 				{ status: 200 }

@@ -3,10 +3,10 @@ import type { CategoryBudgetSummary, MonthlyBudgetSummary } from '$lib/domain/bu
 import type { TransactionSummary, BudgetInsight, InsightSeverity } from './types';
 
 /**
- * The severity a category's budget status earns on the insights cards. ONE mapping for this card
- * and the AI card (G3, #969): the AI card takes its severity from the categories a statement names,
- * through this, so it can never outrank what this card says about the same category. Critical is
- * kept for the period as a whole (a negative balance, expenses above income).
+ * The severity a category's budget status earns on the rules card. The AI card used it until #996,
+ * which took severity off the AI card altogether; this function and its card have no production
+ * caller (#1004). Critical is kept for the period as a whole (a negative balance, expenses above
+ * income).
  */
 export function severityForBudgetStatus(
 	status: CategoryBudgetSummary['status'] | null

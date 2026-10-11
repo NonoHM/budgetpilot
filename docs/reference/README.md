@@ -38,7 +38,7 @@ Rules, limits and exact values. Look things up here; the pages in
   your imports go into, and what Settings cannot do.
 - **[What the AI advice requires of a model](./ai-model.md)**: the four
   things a model has to do for the dashboard card to carry advice, where the
-  1060-token ceiling comes from, and the four things this does not promise.
+  199-token ceiling comes from, and the four things this does not promise.
 - **[AISVS map of the AI path](./aisvs-map.md)**: every Level 1 and 2
   requirement of OWASP AISVS 1.0 with its verdict, evidence and issue, how
   the repository is developed with an AI assistant, and the OWASP LLM Top 10,

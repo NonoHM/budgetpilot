@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
  * for a refused knock. The gateway and the reads are faked so their call counts are the measure.
  */
 const gateway = vi.hoisted(() => ({
-	generateAdvice: vi.fn(async () => ({ insights: [], unavailable: false })),
+	generateAdvice: vi.fn(async () => ({ statements: [], unavailable: false })),
 	prepareAdvice: vi.fn(() => ({ key: 'a'.repeat(64), prompt: 'p' })),
 	adviceEpoch: vi.fn(() => 7)
 }));
@@ -178,7 +178,7 @@ describe('POST /insights/advice (#535)', () => {
 		gateway.generateAdvice.mockImplementationOnce(
 			() =>
 				new Promise((resolve) => {
-					release = () => resolve({ insights: [], unavailable: false });
+					release = () => resolve({ statements: [], unavailable: false });
 				})
 		);
 		const response = await call({});
@@ -204,11 +204,15 @@ describe('POST /insights/advice (#535)', () => {
 
 	it('returns what the gateway answered, as JSON', async () => {
 		gateway.generateAdvice.mockResolvedValueOnce({
-			insights: [],
+			statements: [],
 			unavailable: true,
 			failureCode: 'busy'
 		} as never);
 		const response = await call({});
-		expect(await response.json()).toEqual({ insights: [], unavailable: true, failureCode: 'busy' });
+		expect(await response.json()).toEqual({
+			statements: [],
+			unavailable: true,
+			failureCode: 'busy'
+		});
 	});
 });

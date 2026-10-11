@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { buildBudgetInsightsPrompt, toPromptPayload } from './prompt';
 import type { AssertPromptSafe, TransactionSummary } from './types';
+import { AI_STATEMENT_KINDS } from '$lib/domain/aiStatements';
+import { adviceFacts } from '$lib/server/ai/statements';
 
 const summary: TransactionSummary = {
 	period: '2026-06',
@@ -32,6 +34,9 @@ const summary: TransactionSummary = {
 		balanceDeltaCents: -15_000
 	}
 };
+
+/** The facts the prompt is built with, read from the same summary, as `prepareAdvice` does. */
+const facts = adviceFacts(summary, { budgetsKnown: true, summaries: [], expenseCategories: [] });
 
 describe('toPromptPayload', () => {
 	it('converts every *Cents field to euros and drops the suffix', () => {
@@ -112,7 +117,7 @@ describe('toPromptPayload', () => {
 
 describe('buildBudgetInsightsPrompt', () => {
 	it('never leaks a raw cents amount into the prompt', () => {
-		const prompt = buildBudgetInsightsPrompt(summary, { locale: 'en' });
+		const prompt = buildBudgetInsightsPrompt(summary, { facts });
 
 		// The exact figures that produced "245000 - 151487 = 93513 dollars" in real output.
 		expect(prompt).not.toContain('245000');
@@ -122,64 +127,70 @@ describe('buildBudgetInsightsPrompt', () => {
 	});
 
 	it('states the currency both in the instructions and in the payload', () => {
-		const prompt = buildBudgetInsightsPrompt(summary, { locale: 'en' });
+		const prompt = buildBudgetInsightsPrompt(summary, { facts });
 
 		expect(prompt).toContain('euros (EUR)');
 		expect(prompt).toContain('"currency":"EUR"');
 	});
 
 	it('carries the converted amounts', () => {
-		const prompt = buildBudgetInsightsPrompt(summary, { locale: 'en' });
+		const prompt = buildBudgetInsightsPrompt(summary, { facts });
 
 		expect(prompt).toContain('"income":2450');
 		expect(prompt).toContain('"expense":1514.87');
 	});
 
-	it('asks for the reply in the caller’s locale', () => {
-		expect(buildBudgetInsightsPrompt(summary, { locale: 'fr' })).toContain('Reply in French.');
-		expect(buildBudgetInsightsPrompt(summary, { locale: 'en' })).toContain('Reply in English.');
+	// #996: the model writes no language, so the prompt asks for picks and lists every kind; the
+	// response-language line is gone with the text it governed.
+	it('asks for picks of the listed kinds, and for no language', () => {
+		const prompt = buildBudgetInsightsPrompt(summary, { facts });
+		expect(prompt).toContain('{"picks": [{"kind": "over_budget", "category": "c2"}]}');
+		for (const kind of AI_STATEMENT_KINDS) expect(prompt).toContain(`- ${kind}: `);
+		expect(prompt).not.toMatch(/Reply in/);
 	});
 
-	it('falls back to English for an unknown locale', () => {
-		expect(buildBudgetInsightsPrompt(summary, { locale: 'de' })).toContain('Reply in English.');
+	it('names each top category by its alias, with its budget status where budgets are known', () => {
+		const known = buildBudgetInsightsPrompt(summary, { facts });
+		expect(known).toContain('"alias":"c1","category":"Logement"');
+		expect(known).toContain('"budgetStatus":"none"');
+		const unknown = buildBudgetInsightsPrompt(summary, {
+			facts: adviceFacts(summary, { budgetsKnown: false, summaries: [], expenseCategories: [] })
+		});
+		expect(unknown).toContain('"alias":"c1","category":"Logement"');
+		expect(unknown).not.toContain('"budgetStatus"');
 	});
 });
 
 /**
- * #216: the data-description sentence must match whether labels are actually shared, and it must do
- * so INDEPENDENTLY of the reply-language branch — the conditional lives one line above the payload
- * and could easily be entangled with the locale. Running both locales separates "the includeLabels
- * branch works" from "it works only in English"; a break that tied the sentence to the locale would
- * pass a single-locale test and fail here.
+ * #216: the data-description sentence must match whether labels are actually shared. The prompt
+ * has no locale branch since #996 (the model writes no language), so one run per label setting.
  *
  * These assert on the SOURCE function directly; the payload actually delivered to the model is
  * captured end-to-end in assembly.spec.ts, which is the only thing that proves prepareAdvice threads
  * the flag through at all.
  */
-describe('buildBudgetInsightsPrompt data-description sentence, both locales (#216)', () => {
+describe('buildBudgetInsightsPrompt data-description sentence (#216)', () => {
 	const AGGREGATED = 'Aggregated data, no raw transactions';
 	const WITH_LABELS = 'Aggregated data plus shortened labels of some expenses';
 
-	for (const locale of ['en', 'fr']) {
-		it(`says aggregated-only when labels are off (${locale})`, () => {
-			const prompt = buildBudgetInsightsPrompt(summary, { includeLabels: false, locale });
+	it('says aggregated-only when labels are off', () => {
+		const prompt = buildBudgetInsightsPrompt(summary, { includeLabels: false, facts });
 
-			expect(prompt).toContain(AGGREGATED);
-			expect(prompt).not.toContain(WITH_LABELS);
-		});
+		expect(prompt).toContain(AGGREGATED);
+		expect(prompt).not.toContain(WITH_LABELS);
+	});
 
-		it(`says labels-are-included when labels are on (${locale})`, () => {
-			const prompt = buildBudgetInsightsPrompt(summary, { includeLabels: true, locale });
+	it('says labels-are-included when labels are on', () => {
+		const prompt = buildBudgetInsightsPrompt(summary, { includeLabels: true, facts });
 
-			expect(prompt).toContain(WITH_LABELS);
-			// The two sentences share the "Aggregated data" stem, so the off-phrase's absence is the
-			// real discriminator: without it, a sentence carrying both would pass the line above.
-			expect(prompt).not.toContain(AGGREGATED);
-		});
-	}
+		expect(prompt).toContain(WITH_LABELS);
+		// The two sentences share the "Aggregated data" stem, so the off-phrase's absence is the
+		// real discriminator: without it, a sentence carrying both would pass the line above.
+		expect(prompt).not.toContain(AGGREGATED);
+	});
 
 	it('omitting includeLabels defaults to the safe aggregated-only claim', () => {
-		const prompt = buildBudgetInsightsPrompt(summary, { locale: 'en' });
+		const prompt = buildBudgetInsightsPrompt(summary, { facts });
 
 		expect(prompt).toContain(AGGREGATED);
 		expect(prompt).not.toContain(WITH_LABELS);
@@ -209,7 +220,7 @@ describe('the account fields that must never reach the local model', () => {
 			largestExpenses: [{ ...summary.largestExpenses[0], discriminant: '4417' }]
 		} as unknown as TransactionSummary;
 
-		expect(() => buildBudgetInsightsPrompt(leaked)).toThrow(/discriminant/i);
+		expect(() => buildBudgetInsightsPrompt(leaked, { facts })).toThrow(/discriminant/i);
 	});
 
 	it('does not name the fragment in the refusal, because an error message travels', () => {
@@ -226,7 +237,7 @@ describe('the account fields that must never reach the local model', () => {
 		} as unknown as TransactionSummary;
 
 		try {
-			buildBudgetInsightsPrompt(leaked);
+			buildBudgetInsightsPrompt(leaked, { facts });
 		} catch (error) {
 			const message = (error as Error).message;
 			// The KEY is named, so a developer can find the field.
@@ -243,7 +254,7 @@ describe('the account fields that must never reach the local model', () => {
 		// SEPARATES: « the prompt was built and carries no forbidden key » FROM « the builder
 		// returned nothing, so of course it carries no forbidden key ». The control string is the
 		// only thing that tells those two apart.
-		const prompt = buildBudgetInsightsPrompt(summary);
+		const prompt = buildBudgetInsightsPrompt(summary, { facts });
 		// THE CONTROL. Without it, "no fragment in the prompt" is equally true of a builder that
 		// returned an empty string, and an empty result would read as a clean pass.
 		expect(prompt).toContain('"period":"2026-06"');
