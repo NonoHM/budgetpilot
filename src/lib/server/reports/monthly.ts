@@ -27,9 +27,8 @@ export interface AnonymizedExpense {
 	 * above are still the PARENT's — OD-3, unchanged by this field — so a répartie entry here reads
 	 * "this 80,00 € Alimentation purchase was split" rather than re-ranking or re-labelling the row
 	 * from its parts. What this field adds is the ANSWER to "into what": the same breakdown
-	 * `splitIndicatorOf` gives the transaction list, reused rather than restated, and reaching the
-	 * local-model prompt automatically (`toPromptPayload` walks it like any other nested object; see
-	 * `server/insights/summary.ts`). It carries no `note` — `SplitIndicator` has none to carry.
+	 * `splitIndicatorOf` gives the transaction list, reused rather than restated. It carries no
+	 * `note` — `SplitIndicator` has none to carry.
 	 */
 	splitIndicator: SplitIndicator | null;
 }

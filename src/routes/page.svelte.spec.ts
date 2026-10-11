@@ -124,13 +124,10 @@ function buildData(
 		month: '2026-07',
 		period,
 		budgetSummaryAvailable: true,
-		periodQuery: 'period=this-month',
 		transactions,
 		budgets,
 		summary: EMPTY_SUMMARY,
 		natureAnalysis: EMPTY_NATURE_ANALYSIS,
-		aiAdviceKey: null,
-		aiAllowed: false,
 		recentTransactions: transactions
 			.slice(0, 10)
 			.map((transaction) => ({ ...transaction, splitIndicator: null })),

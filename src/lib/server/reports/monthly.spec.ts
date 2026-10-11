@@ -201,7 +201,8 @@ describe('buildPeriodReport', () => {
 	it('carries no tag data, so tag names can never reach the AI prompt payload', () => {
 		expect.assertions(3);
 
-		// buildPeriodReport feeds server/insights/summary.ts, which builds the Ollama prompt. A tag
+		// buildPeriodReport fed the Ollama prompt until the advice left (#1010); any prompt built from
+		// it again inherits this guard. A tag
 		// name is free text a user wrote about their own life: "Vacances Portugal 2026" is a life
 		// event, where a category name is a taxonomy term. This asserts the ABSENCE structurally,
 		// so a future chantier that adds tags to /reports goes red here rather than silently

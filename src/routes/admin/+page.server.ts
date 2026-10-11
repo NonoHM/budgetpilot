@@ -1,4 +1,3 @@
-import { forgetAdvice } from '$lib/server/ai/gateway';
 import { fail, type Actions } from '@sveltejs/kit';
 import * as m from '$lib/paraglide/messages';
 import {
@@ -109,9 +108,6 @@ export const actions: Actions = {
 			await tx.transaction.deleteMany({ where: { userId: targetUserId } });
 			await tx.user.delete({ where: { id: targetUserId } });
 		});
-		// #535: the deleted account's cached advice and any running generation end with it.
-		forgetAdvice(targetUserId);
-
 		return { deleteSuccess: m.admin_delete_success() };
 	},
 	resetPassword: async ({ cookies, getClientAddress, locals, request }) => {

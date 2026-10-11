@@ -23,14 +23,12 @@ function baseData(overrides: Partial<PageData> = {}): PageData {
 		mfa: { status: 'disabled' },
 		security: {
 			authMode: 'locale',
-			llmEnabled: false,
 			runtime: 'local',
 			version: '1.2.3',
 			latestSessionCreatedAt: null
 		},
 		sessions: [],
 		tags: [],
-		aiSettings: { insightsEnabled: false, includeLabels: false, llmGloballyEnabled: false },
 		columnMappings: [],
 		// The Comptes section reads these four. Present and empty rather than absent: the page reads
 		// `data.accounts.length`, so an omitted key is a render crash rather than an empty section,

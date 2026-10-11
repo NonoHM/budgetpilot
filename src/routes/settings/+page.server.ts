@@ -1,4 +1,3 @@
-import { forgetAdvice } from '$lib/server/ai/gateway';
 import { existsSync } from 'node:fs';
 import { APP_VERSION } from '$lib/server/appVersion';
 import { fail, redirect, type Actions } from '@sveltejs/kit';
@@ -79,9 +78,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 			where: { id: user.id },
 			select: {
 				email: true,
-				role: true,
-				aiInsightsEnabled: true,
-				aiIncludeLabels: true
+				role: true
 			}
 		}),
 		prisma.session.findMany({
@@ -157,7 +154,6 @@ export const load: PageServerLoad = async ({ locals }) => {
 		},
 		security: {
 			authMode: 'locale',
-			llmEnabled: process.env.LLM_ENABLED === 'true',
 			runtime: detectRuntime(),
 			version: APP_VERSION,
 			latestSessionCreatedAt: latestSession?.createdAt ?? null
@@ -178,12 +174,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 		// `accounts.some((row) => row.generic)`, which would be a second expression of one rule.
 		accountsInvitation: invitationApplies(accountRows),
 		accountNameMaxLength: MAX_ACCOUNT_NAME_LENGTH,
-		linkableNetWorthAccounts,
-		aiSettings: {
-			insightsEnabled: account.aiInsightsEnabled,
-			includeLabels: account.aiIncludeLabels,
-			llmGloballyEnabled: process.env.LLM_ENABLED === 'true'
-		}
+		linkableNetWorthAccounts
 	};
 };
 
@@ -331,9 +322,6 @@ export const actions: Actions = {
 				where: { id: user.id }
 			});
 		});
-		// #535: the account's cached advice and any running generation end with it.
-		forgetAdvice(user.id);
-
 		clearSessionCookie(cookies);
 		throw redirect(303, '/login');
 	},
@@ -431,35 +419,6 @@ export const actions: Actions = {
 		return {
 			restoreSuccess: m.settings_success_restored()
 		};
-	},
-	updateAiInsightsEnabled: async ({ locals, request }) => {
-		const user = requireUser(locals.user);
-		const formData = await request.formData();
-		const enabled = getFormValue(formData, 'enabled') === 'true';
-
-		await prisma.user.update({
-			where: { id: user.id },
-			data: { aiInsightsEnabled: enabled }
-		});
-		// #535: AFTER the write, so a request that read the old switch in between is refused by
-		// admission (its epoch moved) and cached advice ends with the consent that produced it.
-		forgetAdvice(user.id);
-
-		return { aiSettingsSuccess: true };
-	},
-	updateAiIncludeLabels: async ({ locals, request }) => {
-		const user = requireUser(locals.user);
-		const formData = await request.formData();
-		const enabled = getFormValue(formData, 'enabled') === 'true';
-
-		await prisma.user.update({
-			where: { id: user.id },
-			data: { aiIncludeLabels: enabled }
-		});
-		// #535: same reason as above; advice built with labels is not kept after they are withdrawn.
-		forgetAdvice(user.id);
-
-		return { aiSettingsSuccess: true };
 	},
 	// Persists nothing: the secret is only written to DB after confirmation via a
 	// valid code (confirmTotpSetup), to never activate a secret that was mis-scanned.

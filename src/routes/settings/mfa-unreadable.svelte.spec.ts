@@ -21,14 +21,12 @@ function baseData(status: 'disabled' | 'enabled' | 'unreadable'): PageData {
 		mfa: { status },
 		security: {
 			authMode: 'locale',
-			llmEnabled: false,
 			runtime: 'local',
 			version: '1.2.3',
 			latestSessionCreatedAt: null
 		},
 		sessions: [],
 		tags: [],
-		aiSettings: { insightsEnabled: false, includeLabels: false, llmGloballyEnabled: false },
 		columnMappings: [],
 		accounts: [],
 		accountsInvitation: false,

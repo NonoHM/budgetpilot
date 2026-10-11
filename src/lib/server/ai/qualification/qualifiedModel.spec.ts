@@ -31,14 +31,11 @@ function read(relativePath: string): string {
 const COPIES: { file: string; pattern: RegExp }[] = [
 	{ file: '.env.example', pattern: /^LLM_MODEL=(\S+)\s*$/m },
 	{ file: 'docker-compose.ai.yml', pattern: /LLM_MODEL: \$\{LLM_MODEL:-([^}]+)\}/ },
-	{ file: 'docs/ai-insights.md', pattern: /exec ollama ollama pull (\S+)/ },
-	{ file: 'docs/ai-insights.md', pattern: /They default to\s+`([^`]+)`/ },
 	{ file: 'docs/reference/ai-model.md', pattern: /exec ollama ollama show (\S+)/ },
 	{
 		file: 'docs/reference/ai-model.md',
-		pattern: /^## The qualified default[\s\S]*?^\| `([^`]+)` +\|/m
+		pattern: /^## The default model[\s\S]*?^\| `([^`]+)` +\|/m
 	},
-	{ file: 'docs/ai-insights.md', pattern: /not installed until you pull\s+`([^`]+)`/ },
 	{ file: 'docs/configuration-reference.md', pattern: /^\| `LLM_MODEL` +\|[^|]*\| (\S+) +\|/m }
 ];
 
@@ -60,19 +57,17 @@ describe('the qualified default model', () => {
 	});
 
 	it('is the digest the reference page prints beside it', () => {
-		const row = /^## The qualified default[\s\S]*?^\| `[^`]+` +\| \S+ +\| `([0-9a-f]{12})`/m.exec(
+		const row = /^## The default model[\s\S]*?^\| `[^`]+` +\| \S+ +\| `([0-9a-f]{12})`/m.exec(
 			read('docs/reference/ai-model.md')
 		);
-		expect(row, 'the qualified-default table names a digest').not.toBeNull();
+		expect(row, 'the default-model table names a digest').not.toBeNull();
 		expect(qualified.digest.startsWith(row![1])).toBe(true);
 	});
 
-	it('was qualified on the Ollama release the overlay and the weekly check both run', () => {
+	it('was qualified on the Ollama release the overlay runs', () => {
+		// The weekly re-qualification was the second witness; it left with `ai:check` (#1010).
 		const overlay = /image: ollama\/ollama:(\S+)/.exec(read('docker-compose.ai.yml'));
-		const workflow = /OLLAMA_TAG: '([^']+)'/.exec(read('.github/workflows/ai-check.yml'));
 		expect(overlay, 'the overlay names an Ollama tag').not.toBeNull();
-		expect(workflow, 'the weekly check names an Ollama tag').not.toBeNull();
 		expect(overlay![1]).toBe(qualified.ollama);
-		expect(workflow![1]).toBe(qualified.ollama);
 	});
 });

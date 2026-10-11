@@ -1,4 +1,9 @@
-# Optional local-AI overlay. Combine with either base compose file:
+# Optional local-AI overlay. In 1.3 the app makes NO model call (decision record
+# #1009, #1010): the dashboard advice was removed and the connection is kept for
+# the next feature. Adding this overlay therefore starts an Ollama nothing asks;
+# it stays so that feature runs on it unchanged. See docs/reference/ai-model.md.
+#
+# Combine with either base compose file:
 #   docker compose -f docker-compose.yml -f docker-compose.ai.yml up -d --build
 #   docker compose -f docker-compose.prebuilt.yml -f docker-compose.ai.yml up -d
 #
@@ -21,7 +26,7 @@
 # container running, a model downloaded, and the app ignoring all of it
 # because .env still said LLM_ENABLED=false, with nothing explaining why.
 # .env's own LLM_ENABLED still governs the setups that don't use this overlay
-# (bare metal, `npm run dev`). See docs/ai-insights.md.
+# (bare metal, `npm run dev`). See docs/reference/ai-model.md.
 services:
   budgetpilot:
     depends_on:
@@ -71,7 +76,7 @@ services:
       # search, which this app never uses.
       #
       # Not affected: `ollama pull` still reaches the model registry, because the operator
-      # asked for it. This is NOT network isolation; see docs/ai-insights.md.
+      # asked for it. This is NOT network isolation; see docs/reference/ai-model.md.
       OLLAMA_NO_CLOUD: '1'
     volumes:
       - ollama_data:/root/.ollama

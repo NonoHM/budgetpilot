@@ -116,8 +116,6 @@ const rateLimit = vi.hoisted(() => ({
 
 vi.mock('node:fs', () => fs);
 vi.mock('$lib/server/db', () => ({ prisma: db.prisma }));
-const aiGateway = vi.hoisted(() => ({ forgetAdvice: vi.fn() }));
-vi.mock('$lib/server/ai/gateway', () => aiGateway);
 vi.mock('$lib/server/backup/import', () => backupImport);
 vi.mock('$lib/server/tags/service', () => tagsService);
 vi.mock('$lib/server/auth/rateLimit', () => rateLimit);
@@ -266,29 +264,6 @@ describe('/settings', () => {
 		expect(JSON.stringify(result)).not.toContain('passwordHash');
 	});
 
-	it('expose les préférences IA de l’utilisateur courant et l’état global du LLM', async () => {
-		expect.assertions(1);
-
-		vi.stubEnv('LLM_ENABLED', 'true');
-		db.prisma.user.findUniqueOrThrow.mockResolvedValue({
-			email: 'user-a@example.test',
-			role: 'USER',
-			aiInsightsEnabled: false,
-			aiIncludeLabels: true
-		});
-		db.prisma.session.findMany.mockResolvedValue([]);
-
-		const result = (await load(buildLoadEvent({ token: 'session-courante' }) as never)) as {
-			aiSettings: { insightsEnabled: boolean; includeLabels: boolean; llmGloballyEnabled: boolean };
-		};
-
-		expect(result.aiSettings).toEqual({
-			insightsEnabled: false,
-			includeLabels: true,
-			llmGloballyEnabled: true
-		});
-	});
-
 	it('expose les indicateurs de sécurité et marque les sessions qui ne sont plus actives pour l UI', async () => {
 		expect.assertions(3);
 
@@ -318,7 +293,6 @@ describe('/settings', () => {
 		const result = (await load(buildLoadEvent({ token: 'session-courante' }) as never)) as {
 			security: {
 				authMode: string;
-				llmEnabled: boolean;
 				runtime: string;
 				latestSessionCreatedAt: Date | null;
 			};
@@ -332,7 +306,6 @@ describe('/settings', () => {
 
 		expect(result.security).toEqual({
 			authMode: 'locale',
-			llmEnabled: true,
 			runtime: 'docker',
 			// The build's own version, from package.json through a Vite define. Asserted by shape
 			// rather than by a literal: pinning the number here would redden on every release and be
@@ -588,7 +561,7 @@ describe('/settings', () => {
 		}
 
 		it('supprime le compte après phrase + mot de passe corrects (TOTP désactivé)', async () => {
-			expect.assertions(9);
+			expect.assertions(8);
 
 			const passwordHash = await hashPassword('mot-de-passe-long');
 			db.prisma.user.findUnique.mockResolvedValue({
@@ -621,8 +594,6 @@ describe('/settings', () => {
 
 			expect(tx.session.deleteMany).toHaveBeenCalledWith({ where: { userId: 'user-a' } });
 			expect(tx.user.delete).toHaveBeenCalledWith({ where: { id: 'user-a' } });
-			// #535: the account's cached advice and any running generation end with it.
-			expect(aiGateway.forgetAdvice).toHaveBeenCalledWith('user-a');
 			// Transactions BEFORE the user — see the same assertion in admin/page.server.spec.ts. A
 			// bare user.delete relies on a cascade ORDER the engine chooses, and TransactionSplit is
 			// RESTRICT on Category, so on PostgreSQL a user who has ever split a transaction could
@@ -836,94 +807,6 @@ describe('/settings', () => {
 
 			expect(result.status).toBe(400);
 			expect(rateLimit.recordReauthAttempt).toHaveBeenCalledWith('session-a', '203.0.113.10');
-		});
-	});
-
-	describe('updateAiInsightsEnabled / updateAiIncludeLabels', () => {
-		it('active/désactive les conseils IA uniquement pour l’utilisateur courant', async () => {
-			expect.assertions(3);
-
-			db.prisma.user.update.mockResolvedValue({ id: 'user-a' });
-
-			const result = await runAction('updateAiInsightsEnabled', {
-				token: 'session-courante',
-				input: { enabled: 'true' }
-			});
-
-			expect(result).toEqual({ aiSettingsSuccess: true });
-			expect(db.prisma.user.update).toHaveBeenCalledWith({
-				where: { id: 'user-a' },
-				data: { aiInsightsEnabled: true }
-			});
-			expect(JSON.stringify(db.prisma.user.update.mock.calls[0][0])).not.toContain('user-b');
-		});
-
-		it('persiste la désactivation des conseils IA', async () => {
-			expect.assertions(1);
-
-			db.prisma.user.update.mockResolvedValue({ id: 'user-a' });
-
-			await runAction('updateAiInsightsEnabled', {
-				token: 'session-courante',
-				input: { enabled: 'false' }
-			});
-
-			expect(db.prisma.user.update).toHaveBeenCalledWith({
-				where: { id: 'user-a' },
-				data: { aiInsightsEnabled: false }
-			});
-		});
-
-		it('active/désactive l’inclusion des libellés uniquement pour l’utilisateur courant', async () => {
-			expect.assertions(3);
-
-			db.prisma.user.update.mockResolvedValue({ id: 'user-a' });
-
-			const result = await runAction('updateAiIncludeLabels', {
-				token: 'session-courante',
-				input: { enabled: 'true' }
-			});
-
-			expect(result).toEqual({ aiSettingsSuccess: true });
-			expect(db.prisma.user.update).toHaveBeenCalledWith({
-				where: { id: 'user-a' },
-				data: { aiIncludeLabels: true }
-			});
-			expect(JSON.stringify(db.prisma.user.update.mock.calls[0][0])).not.toContain('user-b');
-		});
-
-		// #535: changing either switch reaches the gateway AFTER the write, so cached advice and a
-		// running generation end with the consent that produced them. Before the write, a request
-		// reading the switches in between would generate under the old answer and nothing would
-		// cancel it.
-		it.each([
-			['updateAiInsightsEnabled', 'false'],
-			['updateAiInsightsEnabled', 'true'],
-			['updateAiIncludeLabels', 'false'],
-			['updateAiIncludeLabels', 'true']
-		] as const)('%s (%s) forgets the member advice after the write', async (action, enabled) => {
-			db.prisma.user.update.mockResolvedValue({ id: 'user-a' });
-			await runAction(action, { token: 'session-courante', input: { enabled } });
-			expect(aiGateway.forgetAdvice).toHaveBeenCalledWith('user-a');
-			expect(aiGateway.forgetAdvice.mock.invocationCallOrder[0]).toBeGreaterThan(
-				db.prisma.user.update.mock.invocationCallOrder[0]
-			);
-		});
-
-		it('ne fait jamais de mise à jour sans passer par l’id du user connecté (pas de userId client)', async () => {
-			expect.assertions(1);
-
-			db.prisma.user.update.mockResolvedValue({ id: 'user-a' });
-
-			await runAction('updateAiIncludeLabels', {
-				token: 'session-courante',
-				input: { enabled: 'false', userId: 'user-b' }
-			});
-
-			expect(db.prisma.user.update).toHaveBeenCalledWith({
-				where: { id: 'user-a' },
-				data: { aiIncludeLabels: false }
-			});
 		});
 	});
 
@@ -2160,9 +2043,7 @@ describe('#904: settings with a stored secret that does not decrypt', () => {
 	async function mfaFor(factor: { totpEnabled: boolean; totpSecretEncrypted: string | null }) {
 		db.prisma.user.findUniqueOrThrow.mockResolvedValue({
 			email: 'user-a@example.test',
-			role: 'USER',
-			aiInsightsEnabled: false,
-			aiIncludeLabels: false
+			role: 'USER'
 		});
 		// The factor columns are read by `readFactorState`, not by the load's own select.
 		db.prisma.user.findUnique.mockResolvedValue(factor);

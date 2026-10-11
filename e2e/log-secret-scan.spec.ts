@@ -572,8 +572,10 @@ async function exerciseAuthPaths(): Promise<void> {
 			BEGIN SELECT json_extract('{}', NEW.email); END`)
 	);
 	try {
-		const forced = await admin.post('/settings?/updateAiInsightsEnabled', {
-			form: { enabled: 'true' },
+		// Any action that updates the User row reaches the trigger; this one needs no input. It was the
+		// AI switch until that action left with the advice (#1010).
+		const forced = await admin.post('/categories?/dismissRenamePrompt', {
+			form: {},
 			maxRedirects: 0
 		});
 		const forcedBody = (await forced.json()) as { type: string; error?: { errorId?: string } };

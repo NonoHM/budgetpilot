@@ -125,8 +125,10 @@ async function knock(page: Page): Promise<Doors> {
 	const data = await (await request.get('/settings/__data.json', { maxRedirects: 0 })).text();
 	const exported = await request.get('/settings/export', { maxRedirects: 0 });
 	const exportedBody = await exported.text();
-	const action = await request.post('/settings?/updateAiInsightsEnabled', {
-		form: { enabled: 'false' },
+	// A write to the member's own User row that answers `success` while the session is live: the
+	// door this probe needs. It was the AI switch until that action left with the advice (#1010).
+	const action = await request.post('/categories?/dismissRenamePrompt', {
+		form: {},
 		headers: { Accept: 'application/json' },
 		maxRedirects: 0
 	});
