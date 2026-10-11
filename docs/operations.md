@@ -529,11 +529,11 @@ the opposite of what you want and is no longer ignored. If you set it
 because you're on a plain-HTTP LAN, it now works as documented and login
 stops bouncing you back to the login page.
 
-**The AI overlay forces `LLM_ENABLED=true`.** If you run
-`-f docker-compose.ai.yml` while your `.env` says `LLM_ENABLED=false`,
-expecting no LLM at all, drop the overlay from your command instead. Adding
-it is now the opt-in. Nothing is sent anywhere without a user also enabling
-AI advice on their own account.
+**Since 1.3, nothing calls the model** (decision record
+[#1009](https://github.com/NonoHM/budgetpilot/issues/1009)). If your command
+still has `-f docker-compose.ai.yml`, drop it: the overlay starts an Ollama
+that no feature asks anything. See
+[the local model connection](./reference/ai-model.md).
 
 To pin a version instead of tracking `latest`, set it in `.env`:
 

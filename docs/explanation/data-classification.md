@@ -183,18 +183,13 @@ The backup selects named columns, so a secret column cannot be added by accident
 `providerSessionId`. The CSV passes every field through a formula guard
 (`src/lib/server/csv/formulaGuard.ts`). The backup is plaintext JSON (#834).
 
-**The model.** The payload is built from `TransactionSummary` (`src/lib/server/insights/types.ts`)
-and sent only to the host on `LLM_ALLOWED_HOSTS`, `localhost` by default
-(`src/lib/server/insights/local-llm.ts`). Nine identifier-shaped keys are refused at run time, and
-the same nine are refused at compile time (`KEYS_REFUSED_IN_PROMPT` in `prompt.ts`,
-`ForbiddenPromptKey` in `types.ts`). Without opt-in, `largestExpenses` and `recurringPayments`
-labels are replaced by a fixed placeholder, and `flaggedCategoryLabels` is not sent (`summary.ts`).
-With opt-in, all three lists carry labels that crossed `anonymizeMerchant` (letters only, 28
-characters; `largestExpenses` and `recurringPayments` then append the category name), so no digit
-of an account number survives, while a name written in a label does
-([#819](https://github.com/NonoHM/budgetpilot/issues/819)). Category names, which the user types or
-an import column supplies, travel in both modes under the names given
-([#851](https://github.com/NonoHM/budgetpilot/issues/851)); `docs/ai-insights.md` says so.
+**The model.** Release 1.3 sends nothing to a model: the dashboard advice was removed
+([#1010](https://github.com/NonoHM/budgetpilot/issues/1010), decision record
+[#1009](https://github.com/NonoHM/budgetpilot/issues/1009)). The connection
+(`src/lib/server/insights/local-llm.ts`) is kept with no caller, and sends only what a caller hands
+it, to the host on `LLM_ALLOWED_HOSTS`, `localhost` by default. The payload builder and its refusal
+of identifier-shaped keys left with the advice; the next caller builds and classifies its own
+payload ([#1016](https://github.com/NonoHM/budgetpilot/issues/1016)).
 
 **Deletion.** There are two doors. `deleteAccount` (`src/routes/settings/+page.server.ts`) and the
 admin `deleteUser` (`src/routes/admin/+page.server.ts`) each remove the user's sessions and
@@ -210,8 +205,8 @@ being unknown: each has an issue.
 | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | No authentication, authorization or control-bypass event is written: the writer, the field allowlist, the log pseudonym and the subnet label exist, the events do not.                                    | Personal, Pseudonymous | [#250](https://github.com/NonoHM/budgetpilot/issues/250)                                                                                                                     |
 | The stored security event table (180 days default, 365 ceiling) does not exist (R2, R8).                                                                                                                  | Pseudonymous           | #841, the 1.4 event table                                                                                                                                                    |
-| With labels on, a person's name written in a label, such as a transfer's counterparty, reaches the model; the cleaner removes digits, not names.                                                          | Personal               | [#963](https://github.com/NonoHM/budgetpilot/issues/963)                                                                                                                     |
-| With labels off, the prompt tells the model « no raw transactions » while it receives five expenses and recurring dates without their labels.                                                             | Financial              | [#962](https://github.com/NonoHM/budgetpilot/issues/962)                                                                                                                     |
+| Not reachable in 1.3, which sends nothing to a model (#1010): a person's name written in a label reached the model with labels on; the cleaner removed digits, not names.                                 | Personal               | [#963](https://github.com/NonoHM/budgetpilot/issues/963)                                                                                                                     |
+| Not reachable in 1.3 (#1010): with labels off, the removed prompt told the model « no raw transactions » while it received five expenses and recurring dates.                                             | Financial              | [#962](https://github.com/NonoHM/budgetpilot/issues/962)                                                                                                                     |
 | The invitation token travels in a URL query string.                                                                                                                                                       | Secret                 | [#825](https://github.com/NonoHM/budgetpilot/issues/825)                                                                                                                     |
 | Caddy's error log, which the access-log filter in `Caddyfile.example` does not reach, writes the full `uri` with its query string and the `Referer` header of a request the upstream failed to answer.    | Financial, Personal    | [#900](https://github.com/NonoHM/budgetpilot/issues/900)                                                                                                                     |
 | A failing migration at boot may print a user's values.                                                                                                                                                    | Financial              | [#846](https://github.com/NonoHM/budgetpilot/issues/846)                                                                                                                     |
@@ -292,24 +287,10 @@ Six readings the table needs.
 
 ### What reaches the model
 
-The prompt carries 32 leaf fields, counted in `TransactionSummary` and the types it names
-(`src/lib/server/insights/types.ts`, `src/lib/server/reports/monthly.ts`,
-`src/lib/domain/allocation.ts`), plus the fixed system prompt in `prompt.ts`. Monetary fields lose
-their `Cents` suffix on the way out (`toPromptPayload`).
-
-| Group                         | Fields                                                                                                                                                                | Level     |
-| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------- |
-| Envelope (6)                  | `currency`, `period`, `income`, `expense`, `balance`, `transactionCount`                                                                                              | Financial |
-| `topCategories[]` (4)         | `category`, `amount`, `transactionCount`, `percentageOfExpenses`                                                                                                      | Financial |
-| `largestExpenses[]` (9)       | `label`, `amount`, `category`, and the split indicator: `dominantCategory`, `dominantNature`, `otherCategoryCount`, `partCount`, `parts[].category`, `parts[].amount` | Financial |
-| `recurringPayments[]` (7)     | `label`, `amount`, `totalAmount`, `count`, `category`, `lastDate`, `confidence`                                                                                       | Financial |
-| `previousMonth` (4)           | `month`, `incomeDelta`, `expenseDelta`, `balanceDelta`                                                                                                                | Financial |
-| `flaggedCategoryLabels[]` (2) | `category`, `labels`                                                                                                                                                  | Financial |
-
-Besides the payload, each request sends the model name, the fixed system prompt, a JSON schema for
-the reply and two options (`src/lib/server/insights/local-llm.ts`), and a reachability probe to
-`/api/version`. `label` is the placeholder `Expense` or `Recurring payment` unless the user opted in.
-No Secret, Personal, Pseudonymous or Operational column is in the payload.
+Nothing, in 1.3. The prompt of the removed advice carried 32 leaf fields, all Financial, with no
+Secret, Personal, Pseudonymous or Operational column; its table is in this page's history at the
+commit before [#1010](https://github.com/NonoHM/budgetpilot/issues/1010). A feature that calls the
+model again classifies its own payload here, in the same pull request.
 
 ### What reaches an export
 
@@ -362,22 +343,22 @@ the real address) beside a commented `ip_mask` block that masks it. Its error lo
 The sweep for outbound HTTP found two production callers of `fetchWithRedirectGuard`
 (`src/lib/server/net/redirectGuard.ts`) and three call sites: the Enable Banking client
 (`src/lib/server/banking/enablebanking/http.ts`) and, in `local-llm.ts`, the reachability probe and
-the Ollama client. Both refuse a host that is not on their allowlist and a redirect to one
+the Ollama client, which have no caller in 1.3 (#1010). Both refuse a host that is not on their allowlist and a redirect to one
 (`BANK_SYNC_ALLOWED_HOSTS`, `LLM_ALLOWED_HOSTS`). The three client-side `fetch` calls (`src/lib/import/createAccountRequest.ts`,
 `src/routes/import/+page.svelte`, `src/routes/import/columns/+page.svelte`) post to the
 application's own origin.
 
-| Destination    | Request                           | Fields sent                                                                                             | Levels                           |
-| -------------- | --------------------------------- | ------------------------------------------------------------------------------------------------------- | -------------------------------- |
-| Enable Banking | `GET /aspsps`                     | `country`                                                                                               | Operational                      |
-| Enable Banking | `POST /auth`                      | `valid_until`, the bank's `name` and `country`, a random `state`, `redirect_url`, `psu_type`            | Financial, Secret, Operational   |
-| Enable Banking | `POST /sessions`                  | the one-time authorisation `code`                                                                       | Secret                           |
-| Enable Banking | `GET /sessions/{id}`              | the session id, in the path                                                                             | Personal                         |
-| Enable Banking | `GET /accounts/{id}/transactions` | the provider account id in the path, `date_from`, `date_to`, `continuation_key`                         | Personal, Financial, Operational |
-| Enable Banking | `GET /accounts/{id}/balances`     | the provider account id, in the path                                                                    | Personal                         |
-| Enable Banking | every request                     | `Authorization: Bearer`, an RS256 JWT signed by the application with `kid`, `iss`, `aud`, `iat`, `exp`  | Secret                           |
-| Ollama         | `GET /api/version`                | nothing: no body and no query string                                                                    | none                             |
-| Ollama         | `POST /api/chat`                  | the prompt payload above, the model name, the JSON schema of the reply, `temperature` and `num_predict` | Financial, Operational           |
+| Destination    | Request                           | Fields sent                                                                                                    | Levels                           |
+| -------------- | --------------------------------- | -------------------------------------------------------------------------------------------------------------- | -------------------------------- |
+| Enable Banking | `GET /aspsps`                     | `country`                                                                                                      | Operational                      |
+| Enable Banking | `POST /auth`                      | `valid_until`, the bank's `name` and `country`, a random `state`, `redirect_url`, `psu_type`                   | Financial, Secret, Operational   |
+| Enable Banking | `POST /sessions`                  | the one-time authorisation `code`                                                                              | Secret                           |
+| Enable Banking | `GET /sessions/{id}`              | the session id, in the path                                                                                    | Personal                         |
+| Enable Banking | `GET /accounts/{id}/transactions` | the provider account id in the path, `date_from`, `date_to`, `continuation_key`                                | Personal, Financial, Operational |
+| Enable Banking | `GET /accounts/{id}/balances`     | the provider account id, in the path                                                                           | Personal                         |
+| Enable Banking | every request                     | `Authorization: Bearer`, an RS256 JWT signed by the application with `kid`, `iss`, `aud`, `iat`, `exp`         | Secret                           |
+| Ollama         | `GET /api/version`                | nothing: no body and no query string                                                                           | none                             |
+| Ollama         | `POST /api/chat`                  | a caller's prompt, the model name, the caller's JSON schema, `temperature` and `num_predict`; no caller in 1.3 | none in 1.3                      |
 
 The Enable Banking requests carry Secret values the application or the bank issued for the flow
 (the signed token, the code and the `state`), Personal identifiers the bank issued (the session id
@@ -412,8 +393,9 @@ read 2026-10-02):
 Article 25(2) adds that "by default, only personal data which are necessary for each specific
 purpose of the processing are processed", and that the obligation applies to "the amount of
 personal data collected, the extent of their processing, the period of their storage and their
-accessibility". The opt-in for labels (`User.aiIncludeLabels`, default false, `prisma/schema.prisma`)
-is that default.
+accessibility". The opt-in for labels (the column `aiIncludeLabels`, default false, field `deprecatedAiIncludeLabels` in `prisma/schema.prisma`)
+was that default while the advice existed; 1.3 sends nothing to a model, and the column is kept only
+so a rollback to 1.2 finds it (#1011 drops it).
 
 For logs, the CNIL's recommendation on logging (Deliberation 2021-122 of 14 October 2021,
 `https://www.cnil.fr/sites/default/files/atoms/files/recommandation_-_journalisation.pdf`, read

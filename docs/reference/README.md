@@ -36,9 +36,9 @@ Rules, limits and exact values. Look things up here; the pages in
 - **[Account settings](./account.md)**: the password rules, the session
   lifetime, where the language preference lives, the rules for the accounts
   your imports go into, and what Settings cannot do.
-- **[What the AI advice requires of a model](./ai-model.md)**: the four
-  things a model has to do for the dashboard card to carry advice, where the
-  199-token ceiling comes from, and the four things this does not promise.
+- **[The local model connection](./ai-model.md)**: what 1.3 keeps of the
+  connection to Ollama with no feature calling it, what it asks of a model,
+  and the pinned default.
 - **[AISVS map of the AI path](./aisvs-map.md)**: every Level 1 and 2
   requirement of OWASP AISVS 1.0 with its verdict, evidence and issue, how
   the repository is developed with an AI assistant, and the OWASP LLM Top 10,
