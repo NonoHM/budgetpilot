@@ -46,6 +46,38 @@ a remote host and this summary travels to that server, which is
 allowed but is a decision you're making deliberately. Remote hosts are
 required to be `https://`, plain HTTP is refused.
 
+## What the card shows
+
+The model writes the sentences. The app checks each one before it reaches the
+card, and drops any sentence that fails a check.
+
+- **Figures come from the app.** When a sentence names one of your categories,
+  the card shows that category's total for the period below the sentence. The
+  total is read from your data, never from the model.
+- **The model writes no number.** A sentence with a number in it is dropped,
+  even when the number is right: digits in any script, a number word in
+  English or French (« ninety-nine », « septante », « tenfold », « a third »,
+  « dixième »), a currency word, capital letters shaped like digits or a Roman
+  numeral (« IOO », « XII »), or a percent sign. The figures you see come from the app only.
+- **Only the characters of a sentence.** A sentence may use the letters of
+  English and French, ordinary punctuation and the characters of your own
+  category names. Anything else drops it: symbols, emoji, currency signs,
+  markup, and letters that only look like English or French ones.
+- **The severity colour is the app's.** It is a warning when a category the
+  sentence names is over budget, and plain otherwise. The model's own choice is
+  ignored.
+- **Some statements are never shown**: a recommendation to buy a financial
+  product (an ETF, crypto, a loan, an insurance), a guess about your health,
+  religion or other sensitive trait, insults, a link or an e-mail address, and
+  any sentence that repeats 40 characters or more of the request.
+- **Invisible and direction-changing characters are removed** from the
+  sentences and from the category names shown beside them.
+
+What is not checked: whether a word such as « up » or « down » is true
+(#993), and a recommendation or a guess about you worded in a way the rules do
+not list (#996). The page marks the advice with
+`data-ai-generated="true"` so tools can tell it is generated.
+
 ## Setup with Docker
 
 You need the `ollama` container plus the model. Nothing to change in `.env`:
@@ -244,22 +276,24 @@ they reset when it restarts.
 If AI is disabled there's no card and no error, because a disabled optional
 feature shouldn't nag you. That silence is deliberate and is not a fault.
 
-When the card does appear and carries no advice, it names which of eight things
+When the card does appear and carries no advice, it names which of nine things
 happened. Read the card first: it tells you which of the steps below to skip.
 
-| The card says                  | What happened                                                                           | What to do                                                                                      |
-| ------------------------------ | --------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| The assistant is starting      | Ollama accepted the connection and was still loading the model when the budget ran out. | Close and reopen the card in a moment. If it repeats every time, raise `LLM_TIMEOUT_MS`.        |
-| The assistant is not reachable | Nothing answered at `LLM_BASE_URL` inside the connect budget.                           | Check the service is up: `docker compose ... logs ollama`.                                      |
-| The address was refused        | `LLM_BASE_URL` is outside the host allowlist, so it was never contacted.                | Check `LLM_BASE_URL` against `LLM_ALLOWED_HOSTS` and `LLM_HTTP_PERMITTED_HOSTS`.                |
-| The model is not installed     | Ollama is running and does not have the model it was asked for.                         | Pull it, and check `LLM_MODEL` matches the pulled tag exactly.                                  |
-| The answer was unreadable      | A generation finished and could not be parsed.                                          | Usually clears on the next analysis. A larger model makes it rarer.                             |
-| The answer was cut short       | The generation ran out of room before it finished, so the JSON stops mid-object.        | Pull a different model, and check it against [what a model has to do](./reference/ai-model.md). |
-| The AI is busy                 | Other analyses fill the waiting room, or Ollama's own queue is full.                    | Close and reopen the card in a minute. If it happens often, raise `BP_LLM_QUEUE_DEPTH`.         |
-| Hourly limit reached           | This account started `BP_LLM_USER_HOURLY` analyses in the last hour.                    | Wait the minutes the card gives, or raise `BP_LLM_USER_HOURLY`.                                 |
+| The card says                  | What happened                                                                                         | What to do                                                                                                         |
+| ------------------------------ | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| The assistant is starting      | Ollama accepted the connection and was still loading the model when the budget ran out.               | Close and reopen the card in a moment. If it repeats every time, raise `LLM_TIMEOUT_MS`.                           |
+| The assistant is not reachable | Nothing answered at `LLM_BASE_URL` inside the connect budget.                                         | Check the service is up: `docker compose ... logs ollama`.                                                         |
+| The address was refused        | `LLM_BASE_URL` is outside the host allowlist, so it was never contacted.                              | Check `LLM_BASE_URL` against `LLM_ALLOWED_HOSTS` and `LLM_HTTP_PERMITTED_HOSTS`.                                   |
+| The model is not installed     | Ollama is running and does not have the model it was asked for.                                       | Pull it, and check `LLM_MODEL` matches the pulled tag exactly.                                                     |
+| The answer was unreadable      | A generation finished and could not be parsed.                                                        | Usually clears on the next analysis. A larger model makes it rarer.                                                |
+| The answer was cut short       | The generation ran out of room before it finished, so the JSON stops mid-object.                      | Pull a different model, and check it against [what a model has to do](./reference/ai-model.md).                    |
+| The AI is busy                 | Other analyses fill the waiting room, or Ollama's own queue is full.                                  | Close and reopen the card in a minute. If it happens often, raise `BP_LLM_QUEUE_DEPTH`.                            |
+| Hourly limit reached           | This account started `BP_LLM_USER_HOURLY` analyses in the last hour.                                  | Wait the minutes the card gives, or raise `BP_LLM_USER_HOURLY`.                                                    |
+| Advice not shown               | The model answered, and every sentence failed a check in [What the card shows](#what-the-card-shows). | Ask again later. If it happens often, try another model against [what a model has to do](./reference/ai-model.md). |
 
-The first and the last two clear on their own. The other five wait for you,
-which is why the card does not tell you to try again later for all eight.
+The first, the busy state and the hourly limit clear on their own, and « Advice
+not shown » often does on the next analysis. The other five wait for you,
+which is why the card does not tell you to try again later for all nine.
 
 If the card never appears at all, work through these in order:
 
