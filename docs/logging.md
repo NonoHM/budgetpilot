@@ -803,15 +803,26 @@ member reached a page only an admin may use. A missing row, another account's ro
 their own in a state the action refuses are one value on purpose: the person gets the same answer
 for all three, and a log that told them apart would say more than the page does. An identifier
 refused for its shape with an answer of its own writes nothing here; one answered like a missing
-row writes this line. One line per request, however many identifiers it carried. No client
+row writes this line. One line per refused reference, never one per identifier in a list: a request
+carrying two kinds of reference that both fail writes two. No client
 pseudonym and no subnet: those are on the authentication events only. An admin acting on an
 account or an invitation that does not exist is not refused an authorization, and writes nothing.
 
-Two lists of identifiers write nothing when they drop one: the transactions a rule is created from
-in focus mode, and the transactions a recurring bill is anchored on. The page built both lists, the
-action answers success with the identifiers it kept, and a dropped one is almost always a
-transaction that changed since the page loaded. An identifier of another account dropped there is
-therefore not recorded, which is why `SECURITY.md` counts `v5.0.0-16.3.2` as partly met.
+Five paths write nothing although they can meet an identifier that is not the person's:
+
+- the transactions a rule is created from in focus mode, and the transactions a recurring bill is
+  anchored on: the page built both lists, the action answers success with the identifiers it kept,
+  and a dropped one is almost always a transaction that changed since the page loaded;
+- the selected transaction of the transactions page (`?selected=`): it is the page's own state, and
+  the page asks for the transaction it has just deleted after every delete from the panel;
+- the filters of the transactions page and its export (`?ids=`, `?importBatch=`, `?tag=`): a filter
+  narrows the list and refuses nothing;
+- undoing a bulk tag: the tag is never looked up, and the removal reaches only the person's own
+  transactions.
+
+None of them reaches another account's data, because each reads or writes under the person's
+account only. An identifier of another account met there is still not recorded, which is why
+`SECURITY.md` counts `v5.0.0-16.3.2` as partly met.
 
 ### `authz_admin`
 

@@ -2646,13 +2646,15 @@ describe('L4a: refused references on /transactions write one authz_fail line', (
 		}
 	});
 
-	// A silent site: the load answers nothing for a foreign `?selected=`, so the line is the only
-	// trace. Separates « logged » from « dropped silently » (today); the detail panel stays closed.
-	it('load with ?selected= a foreign id: one authz_fail transaction, and no detail panel', async () => {
+	// `?selected=` is the panel's own state, not a refusal: the page re-runs this load with the id of
+	// the transaction it just deleted after every panel delete, so a line here was written on each
+	// ordinary delete (code contradiction pass on L4a). Separates « the panel state writes nothing »
+	// from « every stale selection reads as an account trying identifiers it does not hold ».
+	it('load with ?selected= a foreign or deleted id writes no authz_fail, and no detail panel', async () => {
 		const data = await runLoad('/transactions?selected=transaction-foreign');
 		expect({ selected: data.selectedTransaction, lines: authzFails() }).toEqual({
 			selected: null,
-			lines: refused('transaction')
+			lines: []
 		});
 	});
 

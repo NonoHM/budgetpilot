@@ -177,11 +177,9 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		})
 	]);
 
-	// The panel simply stays closed, so the line is the only trace of a selection that did not
-	// resolve. A malformed id gets that same answer and the same line; no selection writes none.
-	if ((url.searchParams.get('selected') ?? '').trim() !== '' && !selectedTransaction) {
-		logReferenceRefused(user.id, 'transaction');
-	}
+	// No authz_fail for a `?selected=` that resolves to nothing: it is the panel's own state, and the
+	// page re-runs this load with the id it just deleted after every panel delete, so a line here
+	// would be written on each ordinary delete (L4a, code contradiction pass). The panel stays closed.
 
 	// #161: a rule whose target no longer resolves to a Category is PAUSED, and this page has to
 	// know it even though it writes nothing.

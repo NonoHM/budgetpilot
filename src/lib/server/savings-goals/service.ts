@@ -282,9 +282,12 @@ async function validateInput(
 	if (linked) {
 		netWorthAccountId = normalizeId(input.netWorthAccountId ?? '');
 		if (!netWorthAccountId) {
-			// A malformed or absent id gets the answer an unknown account gets, so the same line: the
-			// log is exactly as distinguishable as the answer (L4a design rule 3).
-			logReferenceRefused(userId, 'net_worth_account');
+			// A malformed id gets the answer an unknown account gets, so the same line: the log is
+			// exactly as distinguishable as the answer (L4a design rule 3). An absent one is no
+			// reference at all (the picker has no native `required`), so it writes nothing.
+			if ((input.netWorthAccountId ?? '').trim() !== '') {
+				logReferenceRefused(userId, 'net_worth_account');
+			}
 			throw error(400, m.savings_goal_error_invalid_account());
 		}
 

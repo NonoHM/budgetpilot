@@ -40,9 +40,10 @@ vi.mock('$lib/server/logging', async (importOriginal) => ({
 }));
 
 const { load, actions } = await import('./+page.server');
-const { deleteSavingsGoal: realDeleteSavingsGoal } = await vi.importActual<
-	typeof import('$lib/server/savings-goals/service')
->('$lib/server/savings-goals/service');
+const { deleteSavingsGoal: realDeleteSavingsGoal, createSavingsGoal: realCreateSavingsGoal } =
+	await vi.importActual<typeof import('$lib/server/savings-goals/service')>(
+		'$lib/server/savings-goals/service'
+	);
 const { ATTRIBUTE: A, EVENT: E } = await import('$lib/server/logging/names');
 const { logUserPseudonym } = await import('$lib/server/logging/pseudonym');
 const m = await import('$lib/paraglide/messages');
@@ -546,6 +547,33 @@ describe('L4a: a refused savings goal delete writes one authz_fail line, malform
 
 	it('delete with a foreign goal id: the same line and the same 404', async () => {
 		expect(await deleteGoal('goal-foreign')).toEqual(refusedGoal);
+	});
+
+	// The account picker is a combobox with no native `required`, so « linked » submitted with no
+	// account sends no id at all. Separates « no reference sent, no line » from « a line for an id
+	// nobody posted » (code contradiction pass on L4a); a malformed id still gets the line.
+	it('create linked with no account sent writes no authz_fail; a malformed one writes the line', async () => {
+		savingsGoalsService.createSavingsGoal.mockImplementation(realCreateSavingsGoal);
+		const fields = { name: 'Vacances', targetAmount: '1000', trackingMode: 'linked' };
+		const absent = (await actions.createSavingsGoal(buildEvent(fields) as never)) as {
+			status?: number;
+		};
+		const absentLines = authzFails().length;
+		const malformed = (await actions.createSavingsGoal(
+			buildEvent({ ...fields, netWorthAccountId: '!!' }) as never
+		)) as { status?: number };
+		expect({
+			absent: absent.status,
+			absentLines,
+			malformed: malformed.status,
+			malformedLines: authzFails().map((line) => line.attributes[A.authzReference])
+		}).toEqual({
+			absent: 400,
+			absentLines: 0,
+			malformed: 400,
+			malformedLines: ['net_worth_account']
+		});
+		savingsGoalsService.createSavingsGoal.mockReset();
 	});
 
 	// Negative: green today. Red if the call moves above the count check (logs every delete).
