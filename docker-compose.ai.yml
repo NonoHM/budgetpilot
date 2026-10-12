@@ -151,8 +151,8 @@ services:
   #
   # It ALWAYS exits 0, and says so on stderr when it could not hand everything over. Measured:
   # when it failed, Compose stopped every start still pending, so on the proxy stack Caddy stayed
-  # created and the site was down with the app running. Ollama then refuses to start on its own,
-  # in its own log, and nothing else is held by it.
+  # created and the site was down with the app running. Ollama may then refuse to start, or fail
+  # later on a write, in its own log; nothing else is held by it.
   #
   # Runs as root with the two capabilities this needs and nothing else: CHOWN to change an
   # owner, DAC_READ_SEARCH to descend into a directory 65532 made private (measured: without

@@ -367,7 +367,13 @@ curl -O https://raw.githubusercontent.com/NonoHM/budgetpilot/main/docker-compose
 `docker compose up -d` hands the existing volume to Ollama's new user, and the
 models you pulled are still listed. If it could not hand every file over, the
 `ollama-volume-owner` container's log says so, and the rest of the stack starts
-anyway.
+anyway. To read that log, and then to hand the volume over by hand with the
+stack stopped (`docker volume ls` names the volume, ending in `_ollama_data`):
+
+```bash
+docker compose -f docker-compose.prebuilt.yml -f docker-compose.ai.yml logs ollama-volume-owner
+docker run --rm -v <that volume>:/v --entrypoint chown ollama/ollama:0.32.5 -R 65532:65532 /v
+```
 
 **If you mount your own host directory at `/root/.ollama`** in an override
 file, change the target to `/var/lib/ollama/.ollama`, and give the directory to
@@ -378,7 +384,9 @@ sudo chown -R 65532:65532 /path/to/your/ollama
 ```
 
 An Ollama installed on the host that shares that directory can then no longer
-write to it.
+write to it. If you instead redefined the `ollama_data` volume itself as a host
+directory (`driver_opts` with `o: bind`), the overlay hands that directory over
+on each `up`, with the same effect on a host Ollama.
 
 Ollama's memory is also limited, to `6g` (6 GiB) by default; the default model
 peaked at 3.3 GB. If you use a larger model, set `BP_OLLAMA_MEM_LIMIT` before

@@ -113,8 +113,9 @@ otherwise make on its own
 ([#1024](https://github.com/NonoHM/budgetpilot/issues/1024)).
 
 To change a bound, set it in `.env` and run `docker compose up -d` again with
-the same files. `0` removes the memory bound and `-1` the process bound; nothing
-refuses either value.
+the same files. Compose does not check either value: `0` removes the memory
+bound and `-1` the process bound, and nothing warns about it
+([#1026](https://github.com/NonoHM/budgetpilot/issues/1026)).
 
 ## Checking whether a model reasons
 
