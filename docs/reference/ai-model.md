@@ -130,6 +130,36 @@ is refused before the model is asked anything:
 The list is read again after the answer. If the digest changed while the model
 was generating, the answer is refused as `model_mismatch`.
 
+## Halting every model call
+
+An administrator halts and resumes every member's model calls from the admin
+page ([Halting AI for everyone](../using/admin.md#halting-ai-for-everyone)),
+with no restart. While halted, the connection answers `halted`:
+
+| When the halt lands                                           | What the connection does                                                                     |
+| ------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| Before a call starts                                          | Refuses it before opening any socket. Marked as no work done.                                |
+| During the probe or the model list read before the generation | Aborts the request in progress. Marked as no work done.                                      |
+| During the generation, or the model list read after it        | Aborts the request in progress and withholds any answer. Counted as work, since it was sent. |
+
+`probeLocalLlm` answers `halted` too, so a caller that checks reachability
+before serving something it kept is told the same thing.
+
+- **Stored.** The halt is one row in the `InferenceHalt` table: when it was set
+  and by which account. It survives a restart. Deleting that account keeps the
+  halt and clears the account.
+- **Read on every call.** A read of that row that fails refuses the call, so
+  an unreachable database does not lift the halt.
+- **Independent of `LLM_ENABLED`.** A call runs only when `LLM_ENABLED=true`
+  and no halt is set. `LLM_ENABLED` is read at each call from the environment,
+  so changing it needs a restart; the halt does not.
+- **Logged.** `budgetpilot.ai.inference_halted` and
+  `budgetpilot.ai.inference_resumed`, both at `WARN` and neither a security
+  event, so no value of `BP_LOG_LEVEL` or `BP_SECURITY_LOG` drops them
+  ([log events](../logging.md#budgetpilotaiinference_halted)). A second halt
+  while halted writes nothing; a resume refused for a wrong password writes
+  `budgetpilot.authn.reauth_fail` instead.
+
 ## How much the connection reads
 
 The connection stops reading an answer at a bound it derives from the caller's
@@ -284,6 +314,13 @@ switch off.
 - **No format allow-list and no scan of a pulled model.** The connection reads
   the format the server lists (`gguf` on 0.32.5) and refuses none
   ([#1032](https://github.com/NonoHM/budgetpilot/issues/1032)).
+- **A halt reaches one server process.** A call already running is aborted in
+  the process that received the halt. The app runs as one process, so that is
+  every call; a second process would refuse its next call and not abort its
+  running one.
+- **No measurement that Ollama stops generating on an abort.** The connection
+  closes its request, which a test server sees. Whether Ollama then stops the
+  generation on its side was not measured.
 - **No warning for a machine named without a dot.** A host listed in
   `LLM_HTTP_PERMITTED_HOSTS` with a single-label name is taken to be a container
   on this machine.

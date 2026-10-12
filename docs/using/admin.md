@@ -67,7 +67,34 @@ yourself instead of sending a link.
 Use an invitation when the person should choose their own password. Use this
 when they should not, or cannot.
 
+## Halting AI for everyone
+
+The **AI** section, at the bottom of the page, says whether AI can run on
+this instance. **Running** means it can. **Halted** means every request to
+the AI model is refused, for every member, until an administrator resumes it.
+
+To halt AI, press **Halt AI**.
+
+It takes effect at once: a request the model is answering is stopped, and new
+ones are refused. The page then shows who halted it and when. It stays halted
+after the server restarts, and after the account that halted it is deleted.
+
+To resume AI, follow these steps:
+
+1. Press **Resume AI**.
+2. Type your password, and your two-factor code if you use one.
+3. Press **Resume AI**.
+
+Halting asks for no password, so you can act quickly. Resuming asks for it,
+because it turns AI back on for everyone.
+
+If AI is off in the instance's configuration, the section says so. A halt you
+set then still applies once AI is turned on. Each halt and each resume is
+written to the server log.
+
 ---
 
 For registration modes, the bootstrap token, and the settings behind all of
-this, see [configuration](../configuration.md#who-can-create-an-account).
+this, see [configuration](../configuration.md#who-can-create-an-account). For
+what a halt does to the model connection, see
+[the local model connection](../reference/ai-model.md#halting-every-model-call).
