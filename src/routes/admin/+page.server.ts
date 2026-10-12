@@ -122,7 +122,7 @@ export const actions: Actions = {
 			await tx.transaction.deleteMany({ where: { userId: targetUserId } });
 			await tx.user.delete({ where: { id: targetUserId } });
 		});
-		logAdminAction(admin.id, 'delete_user', targetUserId);
+		logAdminAction(admin.id, 'delete_user', target.id);
 		return { deleteSuccess: m.admin_delete_success() };
 	},
 	resetPassword: async ({ cookies, getClientAddress, locals, request }) => {
@@ -162,7 +162,7 @@ export const actions: Actions = {
 			await endPendingSignIns(tx, targetUserId);
 			await tx.session.deleteMany({ where: { userId: targetUserId } });
 		});
-		logAdminAction(admin.id, 'reset_password', targetUserId);
+		logAdminAction(admin.id, 'reset_password', target.id);
 
 		return {
 			resetTargetUserId: targetUserId,

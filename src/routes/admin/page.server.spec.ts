@@ -923,6 +923,27 @@ describe('L4a: authorization events on /admin', () => {
 			});
 		});
 
+		// The MySQL collation (`utf8mb4_unicode_ci`, PAD SPACE) finds `user-b` for `USER-B `, and the
+		// fake answers any non-admin id with the target row the same way. Separates « the line names
+		// the account acted on » from « the line names what the admin typed », which on MySQL let a
+		// re-authenticated admin choose a target that matched none of that account's lines (code
+		// contradiction pass on L4a).
+		it('deleteUser and resetPassword name the row found, not the posted spelling of its id', async () => {
+			accountsAre({ id: 'user-b', email: 'user-b@example.test' });
+			tx.session.deleteMany.mockResolvedValue({ count: 0 });
+			tx.transaction.deleteMany.mockResolvedValue({ count: 0 });
+			tx.user.delete.mockResolvedValue({ id: 'user-b' });
+			tx.user.update.mockResolvedValue({ id: 'user-b' });
+
+			await runDeleteUser({ targetUserId: 'USER-B ', currentPassword: ADMIN_PASSWORD }, ADMIN);
+			const deleteLines = authzLines();
+			await runResetPassword({ targetUserId: 'USER-B ', currentPassword: ADMIN_PASSWORD }, ADMIN);
+			expect({ deleteLines, resetLine: authzLines().slice(deleteLines.length) }).toEqual({
+				deleteLines: [adminLine('delete_user', 'user-b')],
+				resetLine: [adminLine('reset_password', 'user-b')]
+			});
+		});
+
 		// Separates « the invitation actions name no target » from a line that always carries one.
 		it('createInvitation that succeeds: one authz_admin create_invitation with no target attribute', async () => {
 			invitations.createInvitation.mockResolvedValue({
