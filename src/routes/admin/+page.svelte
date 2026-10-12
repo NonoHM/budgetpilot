@@ -83,10 +83,14 @@
 		<div class="flex items-center gap-2">
 			<h2 class="text-lg font-semibold tracking-normal">{m.admin_ai_heading()}</h2>
 			<span role="status">
+				<!-- Three states: halted wins; otherwise « Running » only when AI is configured, or the
+				     badge would contradict the sentence below it (found on the walk). -->
 				{#if data.inferenceHalt}
 					<Badge tone="warning">{m.admin_ai_state_halted()}</Badge>
-				{:else}
+				{:else if data.aiConfigured}
 					<Badge tone="success">{m.admin_ai_state_running()}</Badge>
+				{:else}
+					<Badge tone="neutral">{m.admin_ai_state_off()}</Badge>
 				{/if}
 			</span>
 		</div>

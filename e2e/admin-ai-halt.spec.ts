@@ -9,6 +9,9 @@ import * as m from '../src/lib/paraglide/messages';
  * with the password. The engine's side (the abort, the restart, the log lines) is
  * `src/lib/server/ai/inferenceHalt.db-smoke.ts`; this is whether a person can do it.
  *
+ * The suite's server runs with `LLM_ENABLED` off (`.env.test`), so the badge reads « Off » before
+ * the halt and after the resume: the walk found « Running » there, above a sentence saying AI is off.
+ *
  * Ends resumed, because the suite shares one database (`e2e/` runs `workers: 1`): a halt left behind
  * would be the next spec's starting state.
  */
@@ -18,7 +21,8 @@ const resume = new RegExp(`^${m.admin_ai_resume()}$`);
 
 /** The state badge, and not the success banner beside it, which is also a `status` (brick 8). */
 function state(page: import('@playwright/test').Page) {
-	const either = `^\\s*(${m.admin_ai_state_running()}|${m.admin_ai_state_halted()})\\s*$`;
+	const any = [m.admin_ai_state_running(), m.admin_ai_state_halted(), m.admin_ai_state_off()];
+	const either = `^\\s*(${any.join('|')})\\s*$`;
 	return page
 		.getByRole('status')
 		.filter({ visible: true })
@@ -46,7 +50,7 @@ for (const viewport of [
 			page
 		}) => {
 			await page.goto('/admin');
-			await expect(state(page)).toHaveText(m.admin_ai_state_running());
+			await expect(state(page)).toHaveText(m.admin_ai_state_off());
 
 			const haltButton = page.getByRole('button', { name: halt });
 			await haltButton.scrollIntoViewIfNeeded();
@@ -85,7 +89,7 @@ for (const viewport of [
 			await dialog.getByRole('button', { name: resume }).click();
 
 			await expect(onScreen(page, m.admin_ai_resumed_notice())).toBeVisible();
-			await expect(state(page)).toHaveText(m.admin_ai_state_running());
+			await expect(state(page)).toHaveText(m.admin_ai_state_off());
 		});
 	});
 }

@@ -140,6 +140,7 @@
 	"admin_ai_heading": "AI",
 	"admin_ai_state_running": "Running",
 	"admin_ai_state_halted": "Halted",
+	"admin_ai_state_off": "Off",
 	"admin_ai_running_body": "Halting stops the call in progress and refuses new ones for every member until an admin resumes.",
 	"admin_ai_not_configured": "AI is off in this instance's configuration. A halt set here still applies once it is turned on.",
 	"admin_ai_halted_by": "Halted by {email} on {date}.",
