@@ -1,8 +1,21 @@
-import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import type { AddressInfo } from 'node:net';
+import type { ServerResponse } from 'node:http';
 import { afterEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { requestLocalModel, type LocalModelRequest } from './local-llm';
+import {
+	DIGEST,
+	MODEL,
+	chat,
+	closeFakeHosts,
+	envFor,
+	fakeHost,
+	stringRequest,
+	tags,
+	tagsBody,
+	version,
+	type FakeHost,
+	type Route
+} from './fakeModelHost.fixture';
 
 /**
  * #967: what the transport READS from the model host, measured on a real socket.
@@ -20,70 +33,8 @@ const HOSTILE_BYTES = 64 * MIB;
 /** Kernel send and receive buffers on loopback stay well under this; the whole body does not. */
 const READ_MARGIN = 16 * MIB;
 
-/** The digest `/api/tags` reports for the model the fake host serves. 64 hex, as Ollama prints it. */
-const DIGEST = 'a8b0c51577010a738c3a6f8f2d5e3a1f4c1e0b9d8a7f6e5d4c3b2a1908172635';
-const MODEL = 'qwen2.5:0.5b';
+afterEach(closeFakeHosts);
 
-type Route = (req: IncomingMessage, res: ServerResponse) => void | Promise<void>;
-
-interface FakeHost {
-	baseUrl: string;
-	/** Body bytes the server managed to hand to the socket, per path. */
-	bytesAccepted: Record<string, number>;
-	/** How many requests reached each path. */
-	hits: Record<string, number>;
-	close: () => Promise<void>;
-}
-
-const hosts: FakeHost[] = [];
-afterEach(async () => {
-	await Promise.all(hosts.splice(0).map((host) => host.close()));
-});
-
-function tagsBody(entries: { name: string; digest: string; format?: string }[]) {
-	return JSON.stringify({
-		models: entries.map((entry) => ({
-			name: entry.name,
-			model: entry.name,
-			modified_at: '2026-08-30T10:00:00Z',
-			size: 397_000_000,
-			digest: entry.digest,
-			details: { parent_model: '', format: entry.format ?? 'gguf', family: 'qwen2' },
-			capabilities: ['completion']
-		}))
-	});
-}
-
-/** An honest chat envelope around `content`, serialised the way Ollama's Go encoder does. */
-function chatBody(content: string) {
-	return goJson({
-		model: MODEL,
-		created_at: '2026-10-12T10:00:00Z',
-		message: { role: 'assistant', content },
-		done_reason: 'stop',
-		done: true,
-		total_duration: 1_234_567_890,
-		load_duration: 123_456_789,
-		prompt_eval_count: 123,
-		prompt_eval_duration: 12_345_678,
-		eval_count: 45,
-		eval_duration: 1_234_567
-	});
-}
-
-/**
- * `JSON.stringify` plus what Go's `encoding/json` adds and JavaScript's does not: `<`, `>` and `&`
- * become `<`, `>`, `&`, six bytes for one character. Measured on Ollama 0.32.5: a `<`
- * inside `message.content` arrived as `<`.
- */
-function goJson(value: unknown) {
-	return JSON.stringify(value)
-		.replaceAll('<', '\\u003c')
-		.replaceAll('>', '\\u003e')
-		.replaceAll('&', '\\u0026');
-}
-
-/** Writes `total` bytes of a JSON string body, honouring backpressure, and counts what was taken. */
 async function streamHostileJson(
 	res: ServerResponse,
 	total: number,
@@ -133,81 +84,10 @@ async function streamHostileJson(
 	res.end();
 }
 
-async function fakeHost(routes: Record<string, Route>): Promise<FakeHost> {
-	const bytesAccepted: Record<string, number> = {};
-	const hits: Record<string, number> = {};
-	const server = createServer((req, res) => {
-		const path = new URL(req.url ?? '/', 'http://x').pathname;
-		hits[path] = (hits[path] ?? 0) + 1;
-		const route = routes[path];
-		if (!route) {
-			res.writeHead(404).end();
-			return;
-		}
-		// Every route reads its request body first, so a POST never races its own answer.
-		req.resume();
-		req.on('end', () => void route(req, res));
-	});
-	await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-	const { port } = server.address() as AddressInfo;
-	const host: FakeHost = {
-		baseUrl: `http://127.0.0.1:${port}`,
-		bytesAccepted,
-		hits,
-		close: () =>
-			new Promise<void>((resolve) => {
-				server.closeAllConnections();
-				server.close(() => resolve());
-			})
-	};
-	hosts.push(host);
-	return host;
-}
-
 const counterFor = (host: () => FakeHost, path: string) => (n: number) => {
 	const accepted = host().bytesAccepted;
 	accepted[path] = (accepted[path] ?? 0) + n;
 };
-
-const version: Route = (_req, res) => {
-	res.writeHead(200, { 'Content-Type': 'application/json' }).end('{"version":"0.32.5"}');
-};
-const tags =
-	(body = tagsBody([{ name: MODEL, digest: DIGEST }])): Route =>
-	(_req, res) => {
-		res.writeHead(200, { 'Content-Type': 'application/json' }).end(body);
-	};
-const chat =
-	(content: string): Route =>
-	(_req, res) => {
-		res.writeHead(200, { 'Content-Type': 'application/json' }).end(chatBody(content));
-	};
-
-function envFor(host: FakeHost, extra: Record<string, string> = {}) {
-	return {
-		LLM_ENABLED: 'true',
-		LLM_PROVIDER: 'ollama',
-		LLM_BASE_URL: host.baseUrl,
-		LLM_MODEL: MODEL,
-		...extra
-	};
-}
-
-/** A caller's request: one string of at most `maxLength` characters. */
-function stringRequest(maxLength: number): LocalModelRequest<{ text: string }> {
-	return {
-		prompt: 'p',
-		format: {
-			type: 'object',
-			properties: { text: { type: 'string', maxLength } },
-			required: ['text']
-		},
-		// Deliberately looser than the format: the bound under test is the transport's, so the
-		// caller's own validation must not be what refuses.
-		schema: z.object({ text: z.string() }),
-		numPredict: 64
-	};
-}
 
 describe("the answer is read within a bound derived from the caller's schema (#967)", () => {
 	// Separates a transport that reads whatever the host sends (today: all 64 MiB, the measured
