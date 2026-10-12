@@ -718,7 +718,7 @@ Severity INFO.
 
 `budgetpilot.authn.action` is the action the person confirmed: `revokeSession`,
 `revokeOtherSessions`, `changePassword`, `deleteAccount`, `disableTotp`, `confirmTotpSetup`,
-`restoreData`, `deleteUser` or `resetPassword`.
+`restoreData`, `deleteUser`, `resetPassword` or `liftInferenceHalt` (resuming AI on the admin page).
 
 ### `budgetpilot.authn.reauth_fail`
 

@@ -143,8 +143,15 @@ export async function probeLocalLlm(
 ): Promise<LocalLlmResult<never> | null> {
 	// A halted instance answers as halted rather than reachable (#986, design pass F6c): a caller
 	// that serves something it kept would otherwise go on serving it while inference is halted.
-	if (await isInferenceHalted()) return unavailable('halted', true);
-	return probeModelHost(env);
+	// Registered before the read, like the door, so a halt during the probe's socket counts too.
+	const halt = enterInference();
+	try {
+		if (await isInferenceHalted()) return unavailable('halted', true);
+		const reached = await probeModelHost(env, halt.signal);
+		return halt.signal.aborted ? unavailable('halted', true) : reached;
+	} finally {
+		halt.leave();
+	}
 }
 
 /** The reachability half of `probeLocalLlm`, which the door calls after its own halt read. */
@@ -523,6 +530,11 @@ export async function requestLocalModel<T>(
 					num_predict: request.numPredict
 				}
 			});
+			// A halt landing after the body was read and before the client resolved aborts nothing,
+			// and the checks below would name the answer instead (code pass, item 4). Charged: the
+			// generation ran. No deterministic test reaches that window; the line is kept because it
+			// is real, not because a break reddens.
+			if (halt.signal.aborted) return unavailable('halted');
 			// `done_reason` has always been on this response and nothing read it. It is the one field that
 			// separates "the ceiling cut the answer off" from "the model produced something unreadable",
 			// which are the same broken JSON string and opposite advice to the person reading the card.

@@ -36,20 +36,22 @@ const running = new Set<AbortController>();
  * commits. An insert on the primary key waits for that commit on all three engines instead.
  */
 export async function haltInference(userId: string): Promise<boolean> {
-	let created: boolean;
 	try {
 		await prisma.inferenceHalt.create({
 			data: { id: INFERENCE_HALT_ID, haltedAt: new Date(), haltedById: userId }
 		});
-		created = true;
+		return true;
 	} catch (caught) {
 		if (!isUniqueConstraintViolation(caught)) throw caught;
-		created = false;
+		return false;
+	} finally {
+		// In a `finally`, so a write that fails (a read-only disk, a deadlock, the halting admin
+		// deleted mid-request) still stops what is running; the admin is shown the error, and new
+		// calls are refused only once a halt is written (code pass, item 1). Whether created or
+		// found, nothing registered keeps running: a call that slipped in between an earlier halt's
+		// abort and this one is stopped too.
+		for (const controller of running) controller.abort();
 	}
-	// Whether created or found, the instance is halted now, so nothing registered may keep running:
-	// a call that slipped in between an earlier halt's abort and this one is stopped too.
-	for (const controller of running) controller.abort();
-	return created;
 }
 
 /**

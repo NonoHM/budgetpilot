@@ -180,6 +180,56 @@ describe('the rest of the door while halted (#986)', () => {
 	});
 });
 
+describe('the abort does not depend on the write (#986, code pass item 1)', () => {
+	afterEach(() => {
+		db.prisma.inferenceHalt.create.mockReset();
+		db.prisma.inferenceHalt.create.mockImplementation(async () => ({}));
+	});
+
+	// Separates a halt that stops the running call whatever its write does from one whose failed
+	// write (a read-only disk, a deadlock, the halting admin deleted mid-request) skips the abort and
+	// hands the answer over: the admin is shown an error, and the generation must still stop.
+	it('aborts the running call even when the halt cannot be written', async () => {
+		db.prisma.inferenceHalt.findUnique.mockResolvedValueOnce(null);
+		db.prisma.inferenceHalt.create.mockRejectedValueOnce(
+			new Error('attempt to write a readonly database')
+		);
+		const host = await fakeHost({
+			'/api/version': version,
+			'/api/tags': tags(),
+			// Never answers on its own: only an abort ends this generation.
+			'/api/chat': () => {}
+		});
+
+		const pending = requestLocalModel(stringRequest(10), envFor(host, { LLM_TIMEOUT_MS: '30000' }));
+		await vi.waitFor(() => expect(host.hits['/api/chat']).toBe(1));
+		const written = await haltInference('admin-readonly').then(
+			() => 'written',
+			(caught: Error) => caught.message
+		);
+
+		expect({ written, result: await pending }).toEqual({
+			written: 'attempt to write a readonly database',
+			result: { unavailable: true, failureCode: 'halted' }
+		});
+	});
+});
+
+describe('the probe on its own while a halt lands (#986, code pass item 5)', () => {
+	// Separates a probe that registers like the door (a halt during its socket answers halted) from
+	// one that only reads the row first (the same halt answers reachable).
+	it('answers halted when the halt lands during the probe socket', async () => {
+		db.prisma.inferenceHalt.findUnique.mockResolvedValueOnce(null);
+		const host = await fakeHost({ '/api/version': () => {} });
+
+		const pending = probeLocalLlm(envFor(host, { LLM_CONNECT_TIMEOUT_MS: '30000' }));
+		await vi.waitFor(() => expect(host.hits['/api/version']).toBe(1));
+		await haltInference('admin-during-standalone-probe');
+
+		expect(await pending).toEqual({ unavailable: true, failureCode: 'halted', notCharged: true });
+	});
+});
+
 describe('the kill-switch events survive every log level (#986, design pass F1)', () => {
 	// Through the real writer at `warn`, the strictest `BP_LOG_LEVEL` accepts: the level filter is
 	// what a mocked `log` never runs. Separates a release logged at WARN from one at INFO, which an
