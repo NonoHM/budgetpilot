@@ -262,7 +262,7 @@ const CHAT_ENVELOPE_BYTES = 2048;
  * The model list is the one body whose size the request cannot derive: it grows with the models the
  * operator pulled. One entry measured 410 bytes on 0.32.5, so 1 MiB lists about 2500 models.
  */
-const MODEL_LIST_MAX_BYTES = 1024 * 1024;
+export const MODEL_LIST_MAX_BYTES = 1024 * 1024;
 
 type JsonSchemaNode = {
 	type?: unknown;

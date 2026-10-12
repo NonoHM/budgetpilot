@@ -13,6 +13,11 @@ const qualified = JSON.parse(
 const baseUrl = (process.env.LLM_BASE_URL ?? 'http://127.0.0.1:11434').replace(/\/+$/, '');
 const model = process.env.LLM_MODEL ?? qualified.tag;
 const shouldPull = process.argv.includes('--pull');
+// The app's `MODEL_LIST_MAX_BYTES` (`src/lib/server/insights/local-llm.ts`), which this script cannot
+// import; `ensureOllamaScript.spec.ts` tests the boundary at the app's value, so the copies cannot drift.
+const MODEL_LIST_MAX_BYTES = 1024 * 1024;
+// The redirect statuses `fetch` would follow (`src/lib/server/net/redirectGuard.ts`).
+const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 
 const ollamaAvailable = await hasOllamaCommand();
 if (!ollamaAvailable) {
@@ -22,14 +27,36 @@ if (!ollamaAvailable) {
 	process.exit(0);
 }
 
-const serverAvailable = await hasOllamaServer();
-if (!serverAvailable) {
+const list = await readModelList();
+if (list.kind === 'unreachable') {
 	console.log(`Ollama ne répond pas sur ${baseUrl}. Lance "ollama serve" puis relance si besoin.`);
 	process.exit(0);
 }
+if (list.kind === 'redirect') {
+	console.log(
+		`Ollama sur ${baseUrl} répond par une redirection (HTTP ${list.status}), que ce script ne suit pas. Vérifie LLM_BASE_URL.`
+	);
+	process.exit(0);
+}
+if (list.kind === 'status') {
+	console.log(`Ollama sur ${baseUrl} répond HTTP ${list.status}. Vérifie LLM_BASE_URL.`);
+	process.exit(0);
+}
+// Neither outcome below says the model is absent, so neither may start a 2.5 GB pull (#994).
+if (list.kind === 'too-large') {
+	console.log(
+		`La liste des modèles d'Ollama sur ${baseUrl} dépasse ${MODEL_LIST_MAX_BYTES} octets : ce script ne la lit pas. Vérifie le modèle avec "ollama list".`
+	);
+	process.exit(0);
+}
+if (list.kind === 'unreadable') {
+	console.log(
+		`Ollama sur ${baseUrl} a répondu, mais sa liste des modèles est illisible : ce script ne télécharge rien. Vérifie le modèle avec "ollama list".`
+	);
+	process.exit(0);
+}
 
-const modelAvailable = await hasModel(model);
-if (modelAvailable) {
+if (list.names.includes(model)) {
 	console.log(`Modèle Ollama disponible : ${model}`);
 	process.exit(0);
 }
@@ -44,10 +71,13 @@ try {
 	// Streamed, with no timeout: the qualified default is a 2.5 GB download (#971). A bound sized for
 	// one link kills the pull on a slower one, and execFile's output buffer fills on the progress
 	// lines. The operator asked for it with --pull, sees the progress, and can stop it.
+	// `error` is a pull that never started (EACCES, ENOENT), which emits no `exit` (#994).
 	await new Promise((resolve, reject) =>
-		spawn('ollama', ['pull', model], { stdio: 'inherit' }).on('exit', (code) =>
-			code === 0 ? resolve() : reject(new Error(`ollama pull exited with ${code}`))
-		)
+		spawn('ollama', ['pull', model], { stdio: 'inherit' })
+			.on('error', reject)
+			.on('exit', (code) =>
+				code === 0 ? resolve() : reject(new Error(`ollama pull exited with ${code}`))
+			)
 	);
 	console.log(`Modèle Ollama prêt : ${model}`);
 } catch {
@@ -65,23 +95,42 @@ async function hasOllamaCommand() {
 	}
 }
 
-async function hasOllamaServer() {
+/**
+ * The model list, read the way the app reads it since #967: no redirect followed, and the body
+ * counted as it streams and dropped past `MODEL_LIST_MAX_BYTES`, whatever length the host declared.
+ * The 3 s budget covers the body too, so a host that stalls mid-list is `unreadable`, not absent.
+ */
+async function readModelList() {
+	const signal = AbortSignal.timeout(3_000);
+	let response;
 	try {
-		const response = await fetch(`${baseUrl}/api/tags`, { signal: AbortSignal.timeout(3_000) });
-		return response.ok;
+		response = await fetch(`${baseUrl}/api/tags`, { redirect: 'manual', signal });
 	} catch {
-		return false;
+		return { kind: 'unreachable' };
 	}
-}
-
-async function hasModel(modelName) {
+	if (REDIRECT_STATUSES.has(response.status) || !response.ok) {
+		await response.body?.cancel().catch(() => {});
+		const kind = REDIRECT_STATUSES.has(response.status) ? 'redirect' : 'status';
+		return { kind, status: response.status };
+	}
 	try {
-		const response = await fetch(`${baseUrl}/api/tags`, { signal: AbortSignal.timeout(3_000) });
-		if (!response.ok) return false;
-
-		const data = await response.json();
-		return Array.isArray(data.models) && data.models.some((item) => item.name === modelName);
+		const chunks = [];
+		let read = 0;
+		if (response.body) {
+			for await (const chunk of response.body) {
+				read += chunk.byteLength;
+				// Leaving the loop cancels the stream, so the socket stops at the cap.
+				if (read > MODEL_LIST_MAX_BYTES) return { kind: 'too-large' };
+				chunks.push(chunk);
+			}
+		}
+		// A body that is not JSON, or whose `models` is not an array, throws into `unreadable`. One entry
+		// without a string `name` makes the whole list unreadable, as the app's `modelListSchema` reads it.
+		const data = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+		const names = data.models.map((item) => item?.name);
+		if (!names.every((name) => typeof name === 'string')) return { kind: 'unreadable' };
+		return { kind: 'list', names };
 	} catch {
-		return false;
+		return { kind: 'unreadable' };
 	}
 }
