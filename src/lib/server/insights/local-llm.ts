@@ -102,7 +102,7 @@ async function probeLocalLlmReachable(
 		const response = await fetchWithRedirectGuard(
 			`${baseUrl}/api/version`,
 			{ method: 'GET', signal: AbortSignal.timeout(connectTimeoutMs) },
-			{ isRedirectTargetAllowed: (target) => getLocalBaseUrl(target.href, env) !== null }
+			NO_REDIRECT
 		);
 		// Nothing here reads the body, so it is cancelled rather than bounded: zero bytes read is the
 		// tightest bound, and a declared length is no reason to call a listening host unreachable.
@@ -176,6 +176,16 @@ export async function probeLocalLlm(
 		: unavailable('unreachable', true);
 }
 
+/**
+ * THE MODEL HOST GETS NO REDIRECT (#967; #215 allowed one to an allowlisted host). Ollama answers its
+ * endpoints directly and never redirects, and a followed redirect breaks the one thing the model list
+ * is read for: a 307 from `/api/chat` to another port of an allowlisted host carries the prompt to a
+ * server whose model nobody listed, while the answer comes back under the first server's digest
+ * (contradiction pass on the final code). So every request to the host refuses every 3xx, which also
+ * keeps the data on the base URL's host and nowhere else on the allowlist.
+ */
+const NO_REDIRECT = { isRedirectTargetAllowed: () => false };
+
 /** Raised by the capped reader: the model host sent more than the bound its request earned. */
 class ModelHostResponseTooLarge extends Error {
 	override name = 'ModelHostResponseTooLarge';
@@ -201,12 +211,9 @@ async function fetchModelHost(
 	url: string,
 	init: RequestInit,
 	maxBytes: number,
-	env: NodeJS.ProcessEnv,
 	overflow: { hit: boolean }
 ): Promise<Response> {
-	const response = await fetchWithRedirectGuard(url, init, {
-		isRedirectTargetAllowed: (target) => getLocalBaseUrl(target.href, env) !== null
-	});
+	const response = await fetchWithRedirectGuard(url, init, NO_REDIRECT);
 	if (response.body === null) return response;
 	let read = 0;
 	const capped = response.body.pipeThrough(
@@ -278,7 +285,7 @@ function maxGrammarChars(node: JsonSchemaNode): number {
 	const space = GRAMMAR_SPACE_CHARS;
 	if (node.type === 'string') {
 		if (Array.isArray(node.enum)) {
-			return Math.max(...node.enum.map((member) => JSON.stringify(String(member)).length)) + space;
+			return Math.max(...node.enum.map((member) => JSON.stringify(member).length)) + space;
 		}
 		if (typeof node.maxLength !== 'number') {
 			throw new Error('answerByteBound: a string node needs maxLength or enum');
@@ -298,6 +305,11 @@ function maxGrammarChars(node: JsonSchemaNode): number {
 	if (node.type === 'object') {
 		if (node.additionalProperties !== undefined && node.additionalProperties !== false) {
 			throw new Error('answerByteBound: an object node open to extra keys has no bound');
+		}
+		// llama.cpp closes an object only when it names `properties` or `additionalProperties`: a
+		// bare `{type: 'object'}` compiles to its generic rule, which admits any object.
+		if (node.properties === undefined && node.additionalProperties !== false) {
+			throw new Error('answerByteBound: an object node with no properties admits any object');
 		}
 		const entries = Object.entries((node.properties ?? {}) as Record<string, JsonSchemaNode>);
 		// Each `"key"` space `:` space value; `,` space between entries; `{` space and `}` space around.
@@ -366,7 +378,6 @@ async function readModelIdentity(
 			`${baseUrl}/api/tags`,
 			{ method: 'GET', signal: signal ? AbortSignal.any([budget, signal]) : budget },
 			MODEL_LIST_MAX_BYTES,
-			env,
 			overflow
 		);
 		text = await response.text();
@@ -471,7 +482,6 @@ export async function requestLocalModel<T>(
 						: AbortSignal.timeout(timeoutMs)
 				},
 				answerBound,
-				env,
 				overflow
 			)
 	});
@@ -604,13 +614,13 @@ function getHttpPermittedHosts(env: NodeJS.ProcessEnv): string[] {
 }
 
 /**
- * Every host the connection may reach that is not on this machine (#967, ANSSI-PA-102 R34), in
- * allowlist order; empty when the connection is off or its base URL is refused, because nothing is
- * then sent anywhere. Startup names each, because whatever a feature sends the model leaves this
+ * The model host, when it is not on this machine and the connection would send to it (#967,
+ * ANSSI-PA-102 R34); `null` when the connection is off or its base URL is refused, because nothing
+ * is then sent anywhere. Startup names it, because whatever a feature sends the model leaves this
  * machine for it.
  *
- * Every ALLOWLISTED host is judged, not only the base URL's: a redirect reaches any of them
- * (`isRedirectTargetAllowed` above), with the request body.
+ * Only the base URL's host is judged: the model host gets no redirect (`NO_REDIRECT`), so no other
+ * allowlisted host is ever sent anything.
  *
  * « This machine » is the loopback names, `host.docker.internal`, and a SINGLE-LABEL name the
  * operator declares internal in `LLM_HTTP_PERMITTED_HOSTS`, which is how the AI overlay declares its
@@ -618,14 +628,16 @@ function getHttpPermittedHosts(env: NodeJS.ProcessEnv): string[] {
  * is still named: a declaration that plain http is acceptable is not proof the host is local. The
  * known limit is a single-label name for another machine, which is taken at the operator's word.
  */
-export function remoteModelHosts(env: Record<string, string | undefined>): string[] {
-	if (!isLocalLlmEnabled(env)) return [];
-	if (getLocalBaseUrl(env.LLM_BASE_URL ?? DEFAULT_BASE_URL, env) === null) return [];
-	const declared = getHttpPermittedHosts(env);
-	const onThisMachine = (host: string) =>
+export function remoteModelHost(env: Record<string, string | undefined>): string | null {
+	if (!isLocalLlmEnabled(env)) return null;
+	const baseUrl = getLocalBaseUrl(env.LLM_BASE_URL ?? DEFAULT_BASE_URL, env);
+	if (baseUrl === null) return null;
+	const host = new URL(baseUrl).hostname;
+	const declared = getHttpPermittedHosts(env).includes(host);
+	const onThisMachine =
 		DEFAULT_HTTP_PERMITTED_HOSTS.includes(host) ||
-		(declared.includes(host) && !host.includes('.') && !host.includes(':'));
-	return [...new Set(getAllowedHosts(env))].filter((host) => !onThisMachine(host));
+		(declared && !host.includes('.') && !host.includes(':'));
+	return onThisMachine ? null : host;
 }
 
 function getLocalBaseUrl(value: string, env: NodeJS.ProcessEnv): string | null {

@@ -804,9 +804,8 @@ describe('startupEvents', () => {
 		});
 
 		// The contradiction pass on the design note: a declaration in LLM_HTTP_PERMITTED_HOSTS is not
-		// proof a host is on this machine, and a redirect reaches any allowlisted host, not only the
-		// base URL's. Each case separates a warning that judges what can be REACHED from one that
-		// judges what was typed into LLM_BASE_URL.
+		// proof a host is on this machine. Separates a warning that judges where the host IS from one
+		// that takes the declaration at its word.
 		it.each([
 			[
 				'a network address declared for plain http',
@@ -818,15 +817,6 @@ describe('startupEvents', () => {
 					LLM_HTTP_PERMITTED_HOSTS: '192.168.1.20'
 				},
 				['192.168.1.20']
-			],
-			[
-				'an allowlisted host a redirect can reach, beside a loopback base URL',
-				{
-					...base,
-					LLM_ENABLED: 'true',
-					LLM_ALLOWED_HOSTS: 'localhost,127.0.0.1,[::1],models.example.test'
-				},
-				['models.example.test']
 			]
 		])('is named for %s', async (_label, env, named) => {
 			const { startupEvents } = await import('./hooks.server');
@@ -860,7 +850,17 @@ describe('startupEvents', () => {
 				}
 			],
 			// Refused by the allowlist, so nothing is ever sent there: the refusal is the report.
-			['a base URL the allowlist refuses', { ...remote, LLM_ALLOWED_HOSTS: '' }]
+			['a base URL the allowlist refuses', { ...remote, LLM_ALLOWED_HOSTS: '' }],
+			// The model host gets no redirect (#967), so an allowlisted host other than the base URL's
+			// is sent nothing.
+			[
+				"an allowlisted host other than the base URL's",
+				{
+					...base,
+					LLM_ENABLED: 'true',
+					LLM_ALLOWED_HOSTS: 'localhost,127.0.0.1,[::1],models.example.test'
+				}
+			]
 		])('is not named when %s', async (_label, env) => {
 			const { startupEvents } = await import('./hooks.server');
 			const events = startupEvents(env, facts);

@@ -645,3 +645,72 @@ describe('model host edges found before coding (#967)', () => {
 		expect(host.hits['/api/chat']).toBe(1);
 	});
 });
+
+/** The contradiction pass on the final code (2026-10-12), one test per finding taken. */
+describe('model host edges found after coding (#967)', () => {
+	const answer = JSON.stringify({ text: 'ok' });
+
+	// A redirect to another port of an allowlisted host used to be followed with the prompt, while
+	// the model list came from the first: the answer then carried a digest of a model that did not
+	// write it. Ollama never redirects, so the model host gets none. Separates « the digest names
+	// the server that answered » from « it names the server first asked ».
+	it.each(['/api/chat', '/api/tags'])(
+		'follows no redirect on %s, even to an allowlisted host',
+		async (path) => {
+			const other = await fakeHost({
+				'/api/version': version,
+				'/api/tags': tags(),
+				'/api/chat': chat(answer)
+			});
+			const routes: Record<string, Route> = {
+				'/api/version': version,
+				'/api/tags': tags(),
+				'/api/chat': chat(answer)
+			};
+			routes[path] = (_req, res) => {
+				res.writeHead(307, { Location: `${other.baseUrl}${path}` }).end();
+			};
+			const host = await fakeHost(routes);
+			const result = await requestLocalModel(stringRequest(10), envFor(host));
+			expect(result?.value).toBeUndefined();
+			expect(other.hits).toEqual({});
+		}
+	);
+
+	// llama.cpp closes an object only when it names `properties` or `additionalProperties`; a bare
+	// `{type: 'object'}` admits any object. Separates a throw for an unboundable format from a bound
+	// of a few dozen characters that refuses every honest answer.
+	it('refuses to send an object with no properties, which admits any object', async () => {
+		const host = await fakeHost({ '/api/version': version, '/api/tags': tags() });
+		const request = {
+			...stringRequest(10),
+			format: { type: 'object', properties: { text: { type: 'object' } } }
+		};
+		await expect(requestLocalModel(request, envFor(host))).rejects.toThrow(/properties/);
+		expect(host.hits).toEqual({});
+	});
+
+	// An enum member is written as its JSON. Counted as `String(member)`, an object member is
+	// « [object Object] », fifteen characters whatever it holds. Separates the member's serialised
+	// length from that.
+	it('bounds an enum member by its JSON, not by its string form', async () => {
+		const member = { note: 'x'.repeat(3_000) };
+		const request: LocalModelRequest<unknown> = {
+			prompt: 'p',
+			format: {
+				type: 'object',
+				properties: { text: { type: 'string', enum: [member] } },
+				required: ['text']
+			},
+			schema: z.unknown(),
+			numPredict: 64
+		};
+		const host = await fakeHost({
+			'/api/version': version,
+			'/api/tags': tags(),
+			'/api/chat': chat(JSON.stringify({ text: member }))
+		});
+		const result = await requestLocalModel(request, envFor(host));
+		expect(result?.value).toEqual({ text: member });
+	});
+});

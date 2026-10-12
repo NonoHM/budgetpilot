@@ -144,10 +144,10 @@ each generation reads no body.
 
 ## A model server on another machine
 
-At start, the app writes a `budgetpilot.config.model_host_remote` warning for
-each host in `LLM_ALLOWED_HOSTS` that is not on this machine, while
-`LLM_ENABLED=true`. A redirect can reach any of those hosts, so each one counts.
-A host counts as this machine when it is `localhost`, `127.0.0.1`, `[::1]`,
+At start, the app writes a `budgetpilot.config.model_host_remote` warning when
+the host in `LLM_BASE_URL` is not on this machine, while `LLM_ENABLED=true`. The
+connection follows no redirect from the model server, so no other host receives
+anything. A host counts as this machine when it is `localhost`, `127.0.0.1`, `[::1]`,
 `host.docker.internal`, or a name without a dot listed in
 `LLM_HTTP_PERMITTED_HOSTS`, which is how the AI overlay declares its `ollama`
 container. The overlay therefore writes no warning. An address or a dotted name
@@ -275,11 +275,12 @@ switch off.
   refuses.
 - **Nothing about a model that ignores `think: false`.** No model measured here
   does. One that did would reason anyway and could overrun the caller's
-  ceiling.
+  ceiling, and its reasoning text would count against the read bound, so its
+  answer would likely be refused as `response_unusable`.
 - **No host check beyond the allowlist.** `LLM_ALLOWED_HOSTS` and
-  `LLM_HTTP_PERMITTED_HOSTS` decide where the connection may go, and every
-  redirect is checked against the same list. They do not authenticate the
-  model server, and neither does the digest pin.
+  `LLM_HTTP_PERMITTED_HOSTS` decide where the connection may go, and the
+  connection follows no redirect. They do not authenticate the model server,
+  and neither does the digest pin.
 - **No format allow-list and no scan of a pulled model.** The connection reads
   the format the server lists (`gguf` on 0.32.5) and refuses none
   ([#1032](https://github.com/NonoHM/budgetpilot/issues/1032)).

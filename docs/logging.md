@@ -536,9 +536,9 @@ Severity WARN.
 
 Written only while `LLM_ENABLED=true` and the address is one the host
 allowlist accepts. A host counts as this machine when it is `localhost`,
-`127.0.0.1`, `[::1]`, `host.docker.internal`, or listed in
+`127.0.0.1`, `[::1]`, `host.docker.internal`, or a name without a dot listed in
 `LLM_HTTP_PERMITTED_HOSTS`, which is how the AI overlay declares its `ollama`
-container. A machine on your network listed there is not reported.
+container. An address or a dotted name listed there is still reported.
 
 ### `budgetpilot.request.failed`
 
