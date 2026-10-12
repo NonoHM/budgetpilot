@@ -807,6 +807,12 @@ row writes this line. One line per request, however many identifiers it carried.
 pseudonym and no subnet: those are on the authentication events only. An admin acting on an
 account or an invitation that does not exist is not refused an authorization, and writes nothing.
 
+Two lists of identifiers write nothing when they drop one: the transactions a rule is created from
+in focus mode, and the transactions a recurring bill is anchored on. The page built both lists, the
+action answers success with the identifiers it kept, and a dropped one is almost always a
+transaction that changed since the page loaded. An identifier of another account dropped there is
+therefore not recorded, which is why `SECURITY.md` counts `v5.0.0-16.3.2` as partly met.
+
 ### `authz_admin`
 
 Severity WARN.
