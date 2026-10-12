@@ -7,7 +7,7 @@
 #   docker compose -f docker-compose.yml -f docker-compose.ai.yml up -d --build
 #   docker compose -f docker-compose.prebuilt.yml -f docker-compose.ai.yml up -d
 #
-# Adds a self-hosted Ollama service on the internal Compose network and points
+# Adds a self-hosted Ollama service that only the app can reach, and points
 # the app at it. Ollama runs on the CPU here, which works on any machine and is
 # slower. Have an NVIDIA GPU and nvidia-container-toolkit? Add one more overlay
 # on top and it will be used:
@@ -29,8 +29,15 @@
 # (bare metal, `npm run dev`). See docs/reference/ai-model.md.
 services:
   budgetpilot:
-    depends_on:
-      - ollama
+    # No depends_on on ollama, deliberately. With one, a failed volume step below leaves the app
+    # created and never started (measured; `required: false` does not change that, it covers an
+    # absent service, not a failed one). In 1.3 the app makes no model call, and when one exists
+    # it probes Ollama on each request, so it needs no start order: Ollama must not hold it down.
+    # `default` stays listed: naming any network replaces the implicit one, and the app reaches
+    # the internet (bank sync) and Caddy through it. `ai` is the only way to Ollama.
+    networks:
+      - default
+      - ai
     environment:
       LLM_ENABLED: 'true'
       LLM_PROVIDER: ${LLM_PROVIDER:-ollama}
@@ -62,7 +69,43 @@ services:
   ollama:
     image: ollama/ollama:0.32.5
     container_name: budgetpilot_ollama
+    # The sandbox (#821, AISVS 1.0 C4.1.1). The image declares no USER, so it ran as root with
+    # the default capability set and a writable root filesystem. Ollama needs none of that: it
+    # writes only its volume and /tmp. Measured on 0.32.5 on the CPU, on a volume the previous
+    # overlay wrote: the model it held is listed and answers, a new model pulls, CapEff is zero,
+    # NoNewPrivs is 1. The GPU overlay was not measured (#821's pull request says why).
+    user: '65532:65532'
+    depends_on:
+      ollama-volume-owner:
+        condition: service_completed_successfully
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    # Bounds for the container, not for a request: a model that leaks or a runaway runner takes
+    # this container down, not the host the database shares. The default fits the default model
+    # with margin (its measured peak is in docs/reference/ai-model.md); a larger model needs a
+    # larger value in .env, and is otherwise killed while it loads (measured: phi4-mini under 2g).
+    # 0 removes the memory bound and -1 the process bound; nothing refuses either.
+    mem_limit: ${BP_OLLAMA_MEM_LIMIT:-6g}
+    # Equal to mem_limit, so the bound holds with swap on the host: Docker otherwise lets the
+    # container use as much swap again.
+    memswap_limit: ${BP_OLLAMA_MEM_LIMIT:-6g}
+    pids_limit: ${BP_OLLAMA_PIDS_LIMIT:-512}
+    # `ai` reaches the app and nothing else, and is internal: Caddy and the databases are not on
+    # it and can no longer resolve or reach this API, which has no authentication. Ollama is
+    # alone on `ollama_egress`, which is how `ollama pull` still reaches the model registry
+    # (owner's ruling on #821: cut inbound, keep pull).
+    networks:
+      - ai
+      - ollama_egress
     environment:
+      # The image's user has no home; this one puts HOME/.ollama on the volume below, which is
+      # where the server keeps its key pair and, by default, its models.
+      HOME: /var/lib/ollama
       # Without this, 0.32.5 calls ollama.com at start-up and again on a timer of a few
       # minutes (the model catalogue and a recommendations list), which no setting of ours
       # asked for: AGENTS.md promises no mandatory external calls. Measured on a network
@@ -76,10 +119,21 @@ services:
       # search, which this app never uses.
       #
       # Not affected: `ollama pull` still reaches the model registry, because the operator
-      # asked for it. This is NOT network isolation; see docs/reference/ai-model.md.
+      # asked for it, through `ollama_egress` below; see docs/reference/ai-model.md.
       OLLAMA_NO_CLOUD: '1'
+      # Pinned rather than left to the image: a debug log carries prompts, and a prompt carries a
+      # member's figures. The other three restate 0.32.5's defaults except the queue (512), so an
+      # upstream change of default does not change this service: one generation at a time, and
+      # a short queue refused rather than held.
+      OLLAMA_DEBUG: 'false'
+      OLLAMA_NUM_PARALLEL: '1'
+      OLLAMA_MAX_QUEUE: '4'
+      OLLAMA_KEEP_ALIVE: 5m
     volumes:
-      - ollama_data:/root/.ollama
+      # The same volume as before #821, mounted where HOME puts it. It used to sit at
+      # /root/.ollama, which uid 65532 cannot traverse (the image's /root is mode 700). Its
+      # contents are laid out as before, so models already pulled are found.
+      - ollama_data:/var/lib/ollama/.ollama
     restart: unless-stopped
     # Same size bound as the app service; see docker-compose.yml.
     logging:
@@ -87,6 +141,57 @@ services:
       options:
         max-size: '10m'
         max-file: '5'
+
+  # Hands the volume to uid 65532 before Ollama starts, then exits; it runs on each
+  # `docker compose up`. A volume written by the overlay before #821 is owned by root, and
+  # Ollama refuses to start on it (`could not create directory ... permission denied`).
+  # Only entries not owned by 65532 are selected, so on a volume already handed over it changes
+  # nothing, and Ollama's own files (a pull in progress included) are never touched.
+  # `-ignore_readdir_race` lets the walk pass an entry that vanished under it.
+  #
+  # It ALWAYS exits 0, and says so on stderr when it could not hand everything over. Measured:
+  # when it failed, Compose stopped every start still pending, so on the proxy stack Caddy stayed
+  # created and the site was down with the app running. Ollama may then refuse to start, or fail
+  # later on a write, in its own log; nothing else is held by it.
+  #
+  # Runs as root with the two capabilities this needs and nothing else: CHOWN to change an
+  # owner, DAC_READ_SEARCH to descend into a directory 65532 made private (measured: without
+  # it, find stops there). No network. `-h` changes a symbolic link, never what it points to.
+  ollama-volume-owner:
+    # The same image as ollama, so nothing else is pulled; the compose check asserts they match.
+    image: ollama/ollama:0.32.5
+    entrypoint:
+      - sh
+      - -c
+      - >-
+        find /var/lib/ollama/.ollama -ignore_readdir_race \( ! -user 65532 -o ! -group 65532 \)
+        -exec chown -h 65532:65532 {} + || echo 'ollama-volume-owner: some files in the
+        Ollama volume could not be given to uid 65532, so Ollama may not start; see
+        docs/operations.md, Before you upgrade to 1.3.0' >&2
+    user: '0:0'
+    read_only: true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_READ_SEARCH
+    security_opt:
+      - no-new-privileges:true
+    network_mode: none
+    volumes:
+      - ollama_data:/var/lib/ollama/.ollama
+    restart: 'no'
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '5'
+
+networks:
+  # No gateway: what is on it talks to what is on it, and only the app and Ollama are.
+  ai:
+    internal: true
+  ollama_egress:
 
 volumes:
   ollama_data:

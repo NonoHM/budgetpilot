@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# A full BudgetPilot stack, built from the working tree, on an isolated Docker network, seeded and
+# A full BudgetPilot stack, built from the working tree, on its own Docker networks, seeded and
 # waiting in a browser. One command, Ctrl-C to remove it.
 #
 #   ./scripts/test-env.sh              build, boot, seed, print the URL, wait
@@ -77,7 +77,12 @@ PROTECTED_PROJECT=budgetpilot-test
 
 APP_CONTAINER="$PROJECT-app"
 OLLAMA_CONTAINER="$PROJECT-ollama"
+# The one-shot volume step of docker-compose.ai.yml (#821). It has no container_name, so Compose
+# names it <project>-<service>-1, and the long-lived instance's cannot collide with it.
+VOLUME_OWNER_CONTAINER="$PROJECT-ollama-volume-owner-1"
 NETWORK="${PROJECT}_default"
+# The two networks docker-compose.ai.yml adds: the app and Ollama on one, Ollama's egress on the other.
+AI_NETWORKS=("${PROJECT}_ai" "${PROJECT}_ollama_egress")
 # Compose names a volume <project>_<key>, and these two keys come from docker-compose.yml and
 # docker-compose.ai.yml. Written out in full because every check against them is an exact match.
 DATA_VOLUME="${PROJECT}_budgetpilot_data"
@@ -205,7 +210,7 @@ usage_text() {
 		              the final report still print. Combine with --no-wait for scripts.
 		  --help      This text.
 
-		Default run: builds the image, starts the app plus Ollama on an isolated network
+		Default run: builds the image, starts the app plus Ollama on their own networks
 		as Compose project '$PROJECT', seeds an account with example data, prints
 		http://127.0.0.1:$DEFAULT_PORT and waits. Ctrl-C removes everything it created.
 
@@ -419,7 +424,7 @@ teardown_stack() {
 	fi
 	# Belt and braces: if the overlay is gone the compose call above is skipped, so name the
 	# containers directly. Exact names, never a filter that could widen.
-	"${DETACH[@]}" docker rm -f "$APP_CONTAINER" "$OLLAMA_CONTAINER" >/dev/null 2>&1 || true
+	"${DETACH[@]}" docker rm -f "$APP_CONTAINER" "$OLLAMA_CONTAINER" "$VOLUME_OWNER_CONTAINER" >/dev/null 2>&1 || true
 
 	while IFS= read -r vol; do
 		[ -n "$vol" ] || continue
@@ -427,7 +432,7 @@ teardown_stack() {
 		"${DETACH[@]}" docker volume rm -f "$vol" >/dev/null 2>&1 || true
 	done < <(removable_volumes)
 
-	"${DETACH[@]}" docker network rm "$NETWORK" >/dev/null 2>&1 || true
+	"${DETACH[@]}" docker network rm "$NETWORK" "${AI_NETWORKS[@]}" >/dev/null 2>&1 || true
 }
 
 # The calibration the whole teardown rests on: a teardown that removed nothing and one that

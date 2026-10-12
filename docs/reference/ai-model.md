@@ -70,6 +70,53 @@ The weekly re-qualification and `npm run ai:check` were removed with the
 advice. A qualification belongs to a task, and the next caller defines a new
 one.
 
+## The Ollama container
+
+`docker-compose.ai.yml` runs Ollama with the same restrictions as the app
+([What the container is allowed to do](../operations.md#what-the-container-is-allowed-to-do)),
+plus a fixed user, two bounds and its own networks
+([#821](https://github.com/NonoHM/budgetpilot/issues/821)):
+
+| Setting                                   | What it means                                                                                |
+| ----------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `user: '65532:65532'`                     | Ollama runs as an unprivileged user, not as root                                             |
+| `read_only: true`, `tmpfs: [/tmp]`        | It writes only its model volume and `/tmp`                                                   |
+| `cap_drop: [ALL]`                         | No Linux capabilities                                                                        |
+| `security_opt: [no-new-privileges:true]`  | Nothing inside can gain more privileges than it started with                                 |
+| `mem_limit`, from `BP_OLLAMA_MEM_LIMIT`   | The most memory it may use; default `6g`                                                     |
+| `pids_limit`, from `BP_OLLAMA_PIDS_LIMIT` | The most processes and threads it may run; default `512`                                     |
+| `networks: [ai, ollama_egress]`           | The app reaches it on `ai`; no other container does. `ollama_egress` lets `ollama pull` work |
+
+The model volume is mounted at `/var/lib/ollama/.ollama`. A short service,
+`ollama-volume-owner`, runs before Ollama on each `docker compose up`: it hands
+any file not yet owned by that user over to it, then exits. It has no network
+and only the two capabilities it needs to change an owner.
+
+**Memory.** Measured on the CPU with the default model, `phi4-mini:3.8b`, and
+Ollama's default context, 4096 tokens on that host: one answer peaked at 3.3 GB. Under a
+2 GB limit the same model was stopped while it loaded, and the request failed
+with `llama-server process has terminated: signal: killed`. A larger model
+needs a larger `BP_OLLAMA_MEM_LIMIT` in `.env`. The measurement on a GPU, where
+the weights sit in the card's memory, was not made.
+
+**Processes.** The same answer peaked at 60 processes and threads on a 16-core
+host, the only host measured. If a host with many more cores refuses to start a
+model, raise `BP_OLLAMA_PIDS_LIMIT`.
+
+**Who can reach it.** Ollama's API has no authentication. No other container
+of the stack shares a network with it except the app: a reverse proxy or a
+database container added by the other overlays cannot resolve its name or reach
+its address. The host itself can reach its address, as it can any container's.
+Ollama keeps a route to the internet, through `ollama_egress`, so that
+`ollama pull` works as before; `OLLAMA_NO_CLOUD=1` stops the calls it would
+otherwise make on its own
+([#1024](https://github.com/NonoHM/budgetpilot/issues/1024)).
+
+To change a bound, set it in `.env` and run `docker compose up -d` again with
+the same files. Compose does not check either value: `0` removes the memory
+bound and `-1` the process bound, and nothing warns about it
+([#1026](https://github.com/NonoHM/budgetpilot/issues/1026)).
+
 ## Checking whether a model reasons
 
 Once a model is pulled, Ollama reports what it can do:
