@@ -61,8 +61,9 @@ to know the field ignores it without an error.
 
 It was qualified for the dashboard advice that 1.3 removed
 ([#971](https://github.com/NonoHM/budgetpilot/issues/971)). The pin stays
-because `npm run setup:llm` and the Compose overlay pull it, and because the
-next caller starts from a known build rather than from a tag. The full digest
+because `npm run setup:llm` pulls it and the Compose overlay names it as the
+default, and because the next caller starts from a known build rather than from
+a tag. The full digest
 is in `src/lib/server/ai/qualification/qualified-model.json`, the one place the
 default is written; `qualifiedModel.spec.ts` holds every copy of the tag to it.
 
@@ -119,47 +120,58 @@ bound and `-1` the process bound, and nothing warns about it
 
 ## Running Ollama without internet access
 
-Once the models you need are on the volume, `docker-compose.ai.offline.yml`
-makes Ollama's internet network internal, so Ollama has no route out of the
-stack and its own calls to ollama.com fail. The app still reaches it. The
-overlay sets one network key, `internal`, rather than a YAML tag an older
-Compose could ignore, and placing it before or after `docker-compose.ai.yml`
-gave the same result; these steps put it last, and step 3 checks it worked.
+Once your models are downloaded, `docker-compose.ai.offline.yml` cuts Ollama
+off from the internet. The app still reaches it, and models already downloaded
+keep answering; only `ollama pull` stops working while the file is in use.
 
-1. With the stack running, pull the models you need, if you have not already:
+Every command below is a plain `docker compose`, reading your list of Compose
+files from `COMPOSE_FILE`, as described at the top of
+[Running it day to day](../operations.md). Set it to the files you use today,
+for example on the prebuilt image:
+
+```bash
+export COMPOSE_FILE=docker-compose.prebuilt.yml:docker-compose.ai.yml
+```
+
+On a source checkout, start with `docker-compose.yml`. Add
+`:docker-compose.ai.gpu.yml`, a proxy or a database overlay if you use them.
+
+1. Download the models you need, if you have not already. The default is the
+   one `LLM_MODEL` names, `phi4-mini:3.8b` unless you changed it:
 
    ```bash
-   docker compose -f docker-compose.yml -f docker-compose.ai.yml \
-     exec ollama ollama pull phi4-mini:3.8b
+   docker compose exec ollama ollama pull phi4-mini:3.8b
    ```
 
-2. Add the offline overlay to the command you use, and start the stack again:
-
-   ```bash
-   docker compose -f docker-compose.yml -f docker-compose.ai.yml \
-     -f docker-compose.ai.offline.yml up -d
-   ```
-
-   On the prebuilt image, use `docker-compose.prebuilt.yml` in place of
-   `docker-compose.yml`, and download the overlay next to it first:
+2. On the prebuilt image, download the offline file next to your other Compose
+   files (a source checkout already has it):
 
    ```bash
    curl -O https://raw.githubusercontent.com/NonoHM/budgetpilot/main/docker-compose.ai.offline.yml
    ```
 
-3. Check that Ollama is offline by asking it for a model that does not exist:
+3. Add it at the end of your list, and start the stack again:
 
    ```bash
-   docker compose -f docker-compose.yml -f docker-compose.ai.yml \
-     -f docker-compose.ai.offline.yml exec ollama ollama pull budgetpilot-offline-check
+   export COMPOSE_FILE=$COMPOSE_FILE:docker-compose.ai.offline.yml
+   docker compose up -d
    ```
 
-   Offline, the error names a failed lookup: `lookup registry.ollama.ai ...
-server misbehaving`. If it says `file does not exist` instead, Ollama reached
-   the registry, and the overlay is not in effect.
+4. Check that Ollama is offline by asking it for a model that does not exist:
 
-Models already pulled keep answering. To pull another model, run your usual
-command without the overlay, pull, then add it back.
+   ```bash
+   docker compose exec ollama ollama pull budgetpilot-offline-check
+   ```
+
+   Offline, the error names a failed lookup:
+   `lookup registry.ollama.ai ... server misbehaving`. If it says
+   `file does not exist` instead, Ollama reached the internet: check that
+   `echo $COMPOSE_FILE` ends with `docker-compose.ai.offline.yml`, then run
+   `docker compose up -d` again.
+
+To download another model later, take `:docker-compose.ai.offline.yml` off the
+end of `COMPOSE_FILE`, run `docker compose up -d`, pull the model, then add the
+file back and run `docker compose up -d` again.
 
 ## Checking whether a model reasons
 

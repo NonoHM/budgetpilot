@@ -6,7 +6,8 @@ For what to change and why, read [Configuration](configuration.md) first.
 <!-- Generated from src/lib/server/env/settings.ts. Do not edit by hand: change the registry, then run
      npx vitest run src/lib/server/env/settingsReference.spec.ts -u -->
 
-Set these in the `.env` file next to your compose file, then restart. A whole number is written in the
+Set these in the `.env` file next to your compose file, then run `docker compose up -d`: a plain restart keeps
+the values the container started with. A whole number is written in the
 digits 0 to 9 only: `0x10`, `1e3`, `12.0` and `1_000` are refused rather than read as a number you did
 not write. An empty value is the same as leaving the variable out.
 
