@@ -15,7 +15,9 @@ The log records how the server is running. For example:
 - an error the server did not expect, with the reference the error page showed you;
 - a step of your own work that failed, such as an import that could not be saved or a bank balance
   that could not be fetched;
-- a sign-in, a sign-out or a registration, as the next section describes.
+- a sign-in, a sign-out or a registration, as the next section describes;
+- a request the server refused because it named something your account cannot use, and an action
+  an admin carried out, as the section after it describes.
 
 If you report a problem, the reference on the error page lets the person who runs the instance find
 the matching line.
@@ -71,6 +73,20 @@ scrambled forms instead, made with a secret key that only the instance holds:
 
 Anyone without the key cannot turn these back into your address or your account. The person who
 runs the instance holds the key, so they can.
+
+## Refused requests and admin actions
+
+When you ask for a transaction, a rule, an account or anything else that does not exist, or that is
+not yours, the log records that a request was refused and what kind of thing it named, for example
+« a transaction ». It never records which one. A link you kept after deleting something, or a page
+left open in another tab, writes the same line, so one line on its own means nothing.
+
+The log also records when a member opens a page only an admin may use, and every action an admin
+carries out on accounts and invitations: deleting an account, resetting its password, creating an
+account, creating or cancelling an invitation. When the action concerns an account, the line holds
+the scrambled form of that account beside the admin's.
+
+These lines hold the scrambled form of your account, and never your IP address in any form.
 
 ## How long it is kept
 
