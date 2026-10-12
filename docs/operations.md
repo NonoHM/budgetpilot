@@ -355,63 +355,94 @@ in again. To change the figure, set
 [Configuration](configuration.md#passwords-and-sessions).
 
 **If you run the AI overlay (`docker-compose.ai.yml`)**, the extra Compose file
-that adds Ollama: 1.3.0 runs Ollama as an unprivileged user, with memory and
-process limits, where no container but the app can reach it.
+that adds Ollama: in 1.3.0 Ollama runs as an unprivileged user, with memory and
+process limits, and no container but the app can reach it.
 
-First decide whether you still need it. No feature of 1.3 calls the model
-([the local model connection](reference/ai-model.md)). If you do not need it,
-stop Ollama with the files you use today, then upgrade as usual without the
-overlay:
+Before you start:
 
-```bash
-docker compose -f docker-compose.prebuilt.yml -f docker-compose.ai.yml down
-```
+- **Write your list of Compose files into `.env`**, so that every command
+  below, in any terminal, uses all of them. Add one line, naming the files you
+  use today in the order you use them, for example:
 
-(On a source checkout, `docker-compose.yml` in place of
-`docker-compose.prebuilt.yml`.) `down` keeps the downloaded models in the
-volume whose name ends in `_ollama_data`; `docker volume rm` it to free the
-space.
+  ```dotenv
+  COMPOSE_FILE=docker-compose.prebuilt.yml:docker-compose.ai.yml
+  ```
 
-To keep it:
+  On a source checkout, start with `docker-compose.yml`. Add
+  `docker-compose.ai.gpu.yml`, `docker-compose.proxy.yml`,
+  `docker-compose.postgres.yml` or `docker-compose.mysql.yml` if you use them.
+  If you have a `docker-compose.override.yml`, name it last: once
+  `COMPOSE_FILE` is set, Compose no longer loads it by itself. On Windows, also
+  add `COMPOSE_PATH_SEPARATOR=:`, since Compose otherwise splits the list on
+  `;`. If you ever ran `export COMPOSE_FILE=...` in this terminal, run
+  `unset COMPOSE_FILE`: an exported value wins over `.env`.
 
-1. Name every Compose file you use in `COMPOSE_FILE`, the overlay included, so
-   that no command below can leave one out. Keep the order you already use:
+- **If an override file mounts your own directory at `/root/.ollama`**, change
+  its target to `/var/lib/ollama/.ollama` and give the directory to Ollama's new
+  user, uid 65532. Only the overlay's own volume is handed over for you:
+
+  ```bash
+  sudo chown -R 65532:65532 /path/to/your/ollama
+  ```
+
+  An Ollama installed on the host that shares that directory can then no longer
+  write to it. The same applies, on every `up`, to a host directory you set as
+  the `ollama_data` volume itself (`driver_opts` with `o: bind`).
+
+- **With an NVIDIA GPU** (`docker-compose.ai.gpu.yml`): the new limits were not
+  tested on a GPU
+  ([#1024](https://github.com/NonoHM/budgetpilot/issues/1024)). If Ollama does
+  not start after the upgrade, take the GPU file out of `COMPOSE_FILE`, run
+  `docker compose up -d`, and say so on that issue.
+
+Then decide whether you still need Ollama. No feature of 1.3 calls the model;
+see [the local model connection](reference/ai-model.md).
+
+**To stop using it**, keeping your data:
+
+1. With `docker-compose.ai.yml` still in `COMPOSE_FILE`, stop the stack. This
+   stops the app too, for a moment:
 
    ```bash
-   export COMPOSE_FILE=docker-compose.prebuilt.yml:docker-compose.ai.yml
+   docker compose down
    ```
 
-   On a source checkout, start with `docker-compose.yml`. Add
-   `:docker-compose.ai.gpu.yml`, a proxy or a database overlay if you use them.
+2. Remove `:docker-compose.ai.yml`, and `:docker-compose.ai.gpu.yml` or
+   `:docker-compose.ai.offline.yml` if present, from the `COMPOSE_FILE` line.
+3. Upgrade as above. `docker compose ps` then lists no `ollama`.
 
-2. Get the new files. On a source checkout, `git pull` brings them. On the
+The downloaded models stay in the volume whose name ends in `_ollama_data`, so
+adding the overlay back finds them. To free the space instead, remove that
+volume with `docker volume rm` and the image with
+`docker image rm ollama/ollama:0.32.5`. The `LLM_*` lines in `.env` can stay: 1.3 still checks them at start, and
+calls no model.
+
+**To keep it:**
+
+1. Get the new files. On a source checkout, `git pull` brings them. On the
    prebuilt image, keep a copy of the old ones, then download the new ones
-   (`docker compose pull` fetches images, never these files):
+   (`docker compose pull` fetches images, never these files; `-f` makes `curl`
+   stop on an error instead of saving it as the file):
 
    ```bash
    cp docker-compose.ai.yml docker-compose.ai.yml.before-1.3
    cp docker-compose.prebuilt.yml docker-compose.prebuilt.yml.before-1.3
-   curl -O https://raw.githubusercontent.com/NonoHM/budgetpilot/main/docker-compose.ai.yml
-   curl -O https://raw.githubusercontent.com/NonoHM/budgetpilot/main/docker-compose.prebuilt.yml
+   curl -fO https://raw.githubusercontent.com/NonoHM/budgetpilot/main/docker-compose.ai.yml
+   curl -fO https://raw.githubusercontent.com/NonoHM/budgetpilot/main/docker-compose.prebuilt.yml
    ```
 
    `docker-compose.ai.gpu.yml` has not changed and can stay.
 
-3. If you use a model larger than the default, raise the memory limit first,
+2. If you use a model larger than the default, raise the memory limit first,
    or Ollama is stopped while it loads the model. Add a line to `.env`, for
-   example:
+   example `BP_OLLAMA_MEM_LIMIT=10g`. The default, `6g`, fits the default
+   model, which peaked at 3.3 GB.
 
-   ```dotenv
-   BP_OLLAMA_MEM_LIMIT=10g
-   ```
-
-   The default, `6g`, fits the default model, which peaked at 3.3 GB.
-
-4. Upgrade as above: `docker compose pull`, then `docker compose up -d` (on a
+3. Upgrade as above: `docker compose pull`, then `docker compose up -d` (on a
    source checkout, `docker compose up -d --build`). The first `up` hands the
-   existing model volume to Ollama's new user, uid 65532.
+   existing model volume to Ollama's new user.
 
-5. Check it worked:
+4. Check it worked:
 
    ```bash
    docker compose logs ollama-volume-owner   # prints nothing when every file was handed over
@@ -430,22 +461,11 @@ docker run --rm -v <that volume>:/v --entrypoint chown ollama/ollama:0.32.5 -R 6
 docker compose up -d
 ```
 
-To go back, restore the `.before-1.3` copies and the previous
-`BUDGETPILOT_VERSION`, then run `docker compose up -d`. The new limits were not
-tested with the GPU overlay
-([#1024](https://github.com/NonoHM/budgetpilot/issues/1024)).
+If `ollama list` is empty, your models are somewhere Ollama no longer looks:
+see the override-file point under « Before you start ».
 
-**If you mount your own host directory at `/root/.ollama`** in an override
-file, change the target to `/var/lib/ollama/.ollama` and give the directory to
-the new user, since only the overlay's own volume is handed over:
-
-```bash
-sudo chown -R 65532:65532 /path/to/your/ollama
-```
-
-An Ollama installed on the host that shares that directory can then no longer
-write to it. The same happens, on every `up`, to a host directory you set as
-the `ollama_data` volume itself (`driver_opts` with `o: bind`).
+To go back, rename the `.before-1.3` copies to their original names, set
+`BUDGETPILOT_VERSION` back, and run `docker compose up -d`.
 
 1.3.0 also adds `BP_STRICT_SECRET_FILES`, off by default, which makes the
 startup check on `.env` and the bank-signing key refuse rather than warn:
@@ -624,10 +644,10 @@ because you're on a plain-HTTP LAN, it now works as documented and login
 stops bouncing you back to the login page.
 
 **Since 1.3, nothing calls the model** (decision record
-[#1009](https://github.com/NonoHM/budgetpilot/issues/1009)). If your command
-still has `-f docker-compose.ai.yml`, drop it: the overlay starts an Ollama
-that no feature asks anything. See
-[the local model connection](./reference/ai-model.md).
+[#1009](https://github.com/NonoHM/budgetpilot/issues/1009)). To stop running
+Ollama, follow « To stop using it » under
+[Before you upgrade to 1.3.0](#before-you-upgrade-to-130): leaving out the
+`-f` flag alone does not stop the Ollama already running.
 
 To pin a version instead of tracking `latest`, set it in `.env`:
 

@@ -125,16 +125,14 @@ off from the internet. The app still reaches it, and models already downloaded
 keep answering; only `ollama pull` stops working while the file is in use.
 
 Every command below is a plain `docker compose`, reading your list of Compose
-files from `COMPOSE_FILE`, as described at the top of
-[Running it day to day](../operations.md). Set it to the files you use today,
-for example on the prebuilt image:
+files from the `COMPOSE_FILE` line in `.env`. If you have not written that line
+yet, see « Before you start » under
+[Before you upgrade to 1.3.0](../operations.md#before-you-upgrade-to-130); on
+the prebuilt image it reads, for example:
 
-```bash
-export COMPOSE_FILE=docker-compose.prebuilt.yml:docker-compose.ai.yml
+```dotenv
+COMPOSE_FILE=docker-compose.prebuilt.yml:docker-compose.ai.yml
 ```
-
-On a source checkout, start with `docker-compose.yml`. Add
-`:docker-compose.ai.gpu.yml`, a proxy or a database overlay if you use them.
 
 1. Download the models you need, if you have not already. The default is the
    one `LLM_MODEL` names, `phi4-mini:3.8b` unless you changed it:
@@ -147,13 +145,13 @@ On a source checkout, start with `docker-compose.yml`. Add
    files (a source checkout already has it):
 
    ```bash
-   curl -O https://raw.githubusercontent.com/NonoHM/budgetpilot/main/docker-compose.ai.offline.yml
+   curl -fO https://raw.githubusercontent.com/NonoHM/budgetpilot/main/docker-compose.ai.offline.yml
    ```
 
-3. Add it at the end of your list, and start the stack again:
+3. Add `:docker-compose.ai.offline.yml` at the end of the `COMPOSE_FILE` line
+   in `.env`, then start the stack again:
 
    ```bash
-   export COMPOSE_FILE=$COMPOSE_FILE:docker-compose.ai.offline.yml
    docker compose up -d
    ```
 
@@ -165,22 +163,24 @@ On a source checkout, start with `docker-compose.yml`. Add
 
    Offline, the error names a failed lookup:
    `lookup registry.ollama.ai ... server misbehaving`. If it says
-   `file does not exist` instead, Ollama reached the internet: check that
-   `echo $COMPOSE_FILE` ends with `docker-compose.ai.offline.yml`, then run
-   `docker compose up -d` again.
+   `file does not exist` instead, Ollama reached the internet: check the
+   `COMPOSE_FILE` line, then run `docker compose down` and
+   `docker compose up -d`, and check again. If the command cannot reach Ollama
+   at all, `docker compose ps` shows whether it is running.
 
-To download another model later, take `:docker-compose.ai.offline.yml` off the
-end of `COMPOSE_FILE`, run `docker compose up -d`, pull the model, then add the
-file back and run `docker compose up -d` again.
+To download another model later, remove `:docker-compose.ai.offline.yml` from
+the line, run `docker compose up -d`, pull the model, then put the file back,
+run `docker compose up -d`, and repeat the check in step 4.
 
 ## Checking whether a model reasons
 
 Once a model is pulled, Ollama reports what it can do:
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.ai.yml \
-  exec ollama ollama show phi4-mini:3.8b
+docker compose exec ollama ollama show phi4-mini:3.8b
 ```
+
+(This reads your files from the `COMPOSE_FILE` line in `.env`, as above.)
 
 A `thinking` capability means the model reasons, and the connection sends
 `think: false` to switch it off. The absence of one means there was nothing to
