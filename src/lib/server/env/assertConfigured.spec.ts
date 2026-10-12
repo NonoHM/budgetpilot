@@ -232,7 +232,7 @@ const { assertDatabaseConfigured } = await import('$lib/server/database/bootChec
 const { assertForwardingConfigSafe } = await import('$lib/server/net/clientAddress');
 const { assertLoggingConfigured } = await import('$lib/server/logging');
 const { assertSecretFilesSafe } = await import('./secretFiles');
-const { assertLlmModelDigestConfigured } = await import('$lib/server/insights/local-llm');
+const { assertLlmModelDigestConfigured } = await import('$lib/server/insights/modelHostConfig');
 const NOT_OPERATOR_BOUNDS = new Map<unknown, string>([
 	[assertDatabaseConfigured, 'a connection string and an engine name'],
 	[assertEncryptionKeyConfigured, 'a secret key'],

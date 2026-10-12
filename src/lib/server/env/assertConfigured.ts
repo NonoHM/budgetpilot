@@ -26,7 +26,7 @@ import {
 	assertSessionLifetimeConfigured
 } from '$lib/server/env/readSetting';
 import { assertSecretFilesSafe } from '$lib/server/env/secretFiles';
-import { assertLlmModelDigestConfigured } from '$lib/server/insights/local-llm';
+import { assertLlmModelDigestConfigured } from '$lib/server/insights/modelHostConfig';
 
 type Check = [name: string, run: () => void | Promise<void>];
 

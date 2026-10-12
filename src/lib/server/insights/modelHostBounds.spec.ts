@@ -218,8 +218,7 @@ describe("the answer is read within a bound derived from the caller's schema (#9
 		['chunked, no declared length', false],
 		['a declared Content-Length', true]
 	])('stops reading a hostile answer far above the bound (%s)', async (_label, declareLength) => {
-		let host!: FakeHost;
-		host = await fakeHost({
+		const host: FakeHost = await fakeHost({
 			'/api/version': version,
 			'/api/tags': tags(),
 			'/api/chat': (_req, res) =>
@@ -239,8 +238,7 @@ describe("the answer is read within a bound derived from the caller's schema (#9
 	});
 
 	it('names the refusal as an unusable answer the model was charged for', async () => {
-		let host!: FakeHost;
-		host = await fakeHost({
+		const host: FakeHost = await fakeHost({
 			'/api/version': version,
 			'/api/tags': tags(),
 			'/api/chat': (_req, res) =>
@@ -400,14 +398,15 @@ describe('the model is named by digest (#967)', () => {
 		['a body that is not JSON', 'not json'],
 		['a digest that is not 64 hex characters', 'bad digest']
 	])('refuses to generate when the model list is unreadable: %s', async (_label, kind) => {
-		let host!: FakeHost;
+		// The route needs the host it belongs to, which exists only once the route is registered.
+		const box = {} as { host: FakeHost };
 		const tagsRoute: Route =
 			kind === 'oversized'
 				? (_req, res) =>
 						streamHostileJson(
 							res,
 							HOSTILE_BYTES,
-							counterFor(() => host, '/api/tags'),
+							counterFor(() => box.host, '/api/tags'),
 							false
 						)
 				: kind === 'not json'
@@ -415,11 +414,11 @@ describe('the model is named by digest (#967)', () => {
 							res.writeHead(200).end('<html>proxy error</html>');
 						}
 					: tags(tagsBody([{ name: MODEL, digest: 'abc123' }]));
-		host = await fakeHost({
+		const host = (box.host = await fakeHost({
 			'/api/version': version,
 			'/api/tags': tagsRoute,
 			'/api/chat': chat(answer)
-		});
+		}));
 		const result = await requestLocalModel(stringRequest(10), envFor(host));
 		expect(result).toEqual({
 			unavailable: true,
@@ -435,7 +434,7 @@ describe('BP_LLM_MODEL_DIGEST at boot (#967)', () => {
 	// Through the collector, so the refusal is read as it reaches the operator's report, which keeps
 	// a check's message only when it was thrown as an OperatorFacingError (#816).
 	async function reportFor(value: string | undefined) {
-		const { assertLlmModelDigestConfigured } = await import('./local-llm');
+		const { assertLlmModelDigestConfigured } = await import('./modelHostConfig');
 		const { collectEnvironmentProblems } = await import('$lib/server/env/assertConfigured');
 		const previous = process.env.BP_LLM_MODEL_DIGEST;
 		if (value === undefined) delete process.env.BP_LLM_MODEL_DIGEST;
@@ -539,8 +538,7 @@ describe('model host edges found before coding (#967)', () => {
 	// oversized 404 used to read as « model not pulled ». Separates the bound's reading from the
 	// status's.
 	it('names an oversized error answer as unusable, not as the status it carried', async () => {
-		let host!: FakeHost;
-		host = await fakeHost({
+		const host: FakeHost = await fakeHost({
 			'/api/version': version,
 			'/api/tags': tags(),
 			'/api/chat': (_req, res) => {
