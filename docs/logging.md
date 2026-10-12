@@ -803,16 +803,18 @@ member reached a page only an admin may use. A missing row, another account's ro
 their own in a state the action refuses are one value on purpose: the person gets the same answer
 for all three, and a log that told them apart would say more than the page does. An identifier
 refused for its shape with an answer of its own writes nothing here; one answered like a missing
-row writes this line. One line per refused reference, never one per identifier in a list: a request
-carrying two kinds of reference that both fail writes two. No client
+row writes this line. At most one line per refused reference, never one per identifier in a list. Most
+actions stop at their first refusal and write one line; the column designation screen can refuse
+its batch and its account in one request and writes two. No client
 pseudonym and no subnet: those are on the authentication events only. An admin acting on an
 account or an invitation that does not exist is not refused an authorization, and writes nothing.
 
 Five paths write nothing although they can meet an identifier that is not the person's:
 
 - the transactions a rule is created from in focus mode, and the transactions a recurring bill is
-  anchored on: the page built both lists, the action answers success with the identifiers it kept,
-  and a dropped one is almost always a transaction that changed since the page loaded;
+  anchored on: the page built both lists, the action goes on with the identifiers it kept (the bill
+  is refused when none is left), and a dropped one is almost always a transaction that changed since
+  the page loaded;
 - the selected transaction of the transactions page (`?selected=`): it is the page's own state, and
   the page asks for the transaction it has just deleted after every delete from the panel;
 - the filters of the transactions page and its export (`?ids=`, `?importBatch=`, `?tag=`): a filter
