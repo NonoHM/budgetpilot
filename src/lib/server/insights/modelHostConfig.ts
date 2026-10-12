@@ -15,7 +15,7 @@ export const DEFAULT_BASE_URL = 'http://127.0.0.1:11434';
 const DEFAULT_ALLOWED_HOSTS = ['localhost', '127.0.0.1', '[::1]'];
 // host.docker.internal refers to the host machine itself from inside a Docker container:
 // it isn't a remote server, so http: remains acceptable (Ollama doesn't serve TLS there).
-export const DEFAULT_HTTP_PERMITTED_HOSTS = [...DEFAULT_ALLOWED_HOSTS, 'host.docker.internal'];
+const DEFAULT_HTTP_PERMITTED_HOSTS = [...DEFAULT_ALLOWED_HOSTS, 'host.docker.internal'];
 
 export function isLocalLlmEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
 	return env.LLM_ENABLED === 'true' && (env.LLM_PROVIDER ?? 'ollama') === 'ollama';

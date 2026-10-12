@@ -102,7 +102,7 @@ Each is an operator choice or a protocol fact, recorded here so that none passes
   boot (`src/hooks.server.ts`).
 - The prompt travels over plain http to `localhost`, `127.0.0.1`, `[::1]` and `host.docker.internal`,
   and to any host added to `LLM_HTTP_PERMITTED_HOSTS`. Every other allowlisted host must use https
-  (`getLocalBaseUrl`, `src/lib/server/insights/local-llm.ts`).
+  (`getLocalBaseUrl`, `src/lib/server/insights/modelHostConfig.ts`).
 - The bank consent callback carries the one-time `code` and the `state` in its query string, as an
   OAuth-style flow does (`src/routes/imports/bank-connections/callback/+server.ts`). The application
   never logs them, and `Caddyfile.example` removes the query string from the request URI and from

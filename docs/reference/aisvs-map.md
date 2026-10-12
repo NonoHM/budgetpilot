@@ -27,8 +27,9 @@ moves a row edits that row in the same pull request; nothing else re-derives a v
 ## What was assessed
 
 **The AI path of 1.3, defined by what ships:** the connection in
-`src/lib/server/insights/local-llm.ts` (host allowlist, redirect guard, reachability probe and the
-transport `requestLocalModel`), which nothing calls; `src/lib/server/ai/admission.ts`, a library
+`src/lib/server/insights/local-llm.ts` (the redirect refusal, the reachability probe, the model-list
+read and the transport `requestLocalModel`), which nothing calls, and its configuration in
+`src/lib/server/insights/modelHostConfig.ts` (the switch, the host allowlist and the digest pin); `src/lib/server/ai/admission.ts`, a library
 with no caller; the `LLM_*` and `BP_LLM_*` settings, checked at start and read by no feature; the
 ESLint rule that refuses any import of the transport under `src/` (`modelDoor.spec.ts`);
 `scripts/ensure-ollama.mjs` (`npm run setup:llm`, `npm run dev:ai`); the model pin
