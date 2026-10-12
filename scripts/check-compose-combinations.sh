@@ -80,6 +80,7 @@ trap cleanup EXIT INT TERM
 #   docker-compose.prebuilt.yml            README.md, docs/getting-started.md
 #   + docker-compose.ai.yml                docs/reference/ai-model.md
 #   + docker-compose.ai.gpu.yml            docs/reference/ai-model.md
+#   + docker-compose.ai.offline.yml        docs/reference/ai-model.md
 #   + docker-compose.proxy.yml             docs/reverse-proxy.md
 #   + both                                 docs/reverse-proxy.md
 #   + docker-compose.keys.yml              docs/bank-sync.md
@@ -104,6 +105,10 @@ COMBINATIONS=(
 	"docker-compose.prebuilt.yml docker-compose.ai.yml"
 	"docker-compose.yml docker-compose.ai.yml docker-compose.ai.gpu.yml"
 	"docker-compose.prebuilt.yml docker-compose.ai.yml docker-compose.ai.gpu.yml"
+	"docker-compose.yml docker-compose.ai.yml docker-compose.ai.offline.yml"
+	"docker-compose.prebuilt.yml docker-compose.ai.yml docker-compose.ai.offline.yml"
+	"docker-compose.yml docker-compose.ai.yml docker-compose.ai.gpu.yml docker-compose.ai.offline.yml"
+	"docker-compose.prebuilt.yml docker-compose.ai.yml docker-compose.ai.gpu.yml docker-compose.ai.offline.yml"
 	"docker-compose.yml docker-compose.proxy.yml"
 	"docker-compose.prebuilt.yml docker-compose.proxy.yml"
 	"docker-compose.yml docker-compose.keys.yml"
@@ -490,6 +495,12 @@ for combination in "${COMBINATIONS[@]}"; do
 	*) continue ;;
 	esac
 	ai_stacks_read=$((ai_stacks_read + 1))
+	# docker-compose.ai.offline.yml makes `ollama_egress` internal, so Ollama has no route out; on every
+	# other AI stack that network keeps its route, which is what lets `ollama pull` work by default.
+	case " $combination " in
+	*" docker-compose.ai.offline.yml "*) offline=true ;;
+	*) offline=false ;;
+	esac
 	args=()
 	for file in $combination; do
 		args+=(-f "$file")
@@ -499,7 +510,7 @@ for combination in "${COMBINATIONS[@]}"; do
 		failed=1
 		continue
 	fi
-	problems=$(jq -r --arg owner_cmd "$OLLAMA_OWNER_COMMAND" '
+	problems=$(jq -r --arg owner_cmd "$OLLAMA_OWNER_COMMAND" --argjson offline "$offline" '
 		.services as $s | ($s.ollama // {}) as $o | ($s["ollama-volume-owner"] // {}) as $v |
 		($o.environment.HOME // "") as $home |
 		def mount_target(svc): [(svc.volumes // [])[] | select(.source == "ollama_data") | .target][0] // "";
@@ -527,6 +538,7 @@ for combination in "${COMBINATIONS[@]}"; do
 		  (if ($s.budgetpilot.depends_on // {}) | has("ollama") then "the app depends on ollama, so a failed ollama-volume-owner leaves the app created and never started" else empty end),
 		  (if $home == "" or mount_target($o) != ($home + "/.ollama") then "ollama_data is mounted at \"\(mount_target($o))\" with HOME \"\($home)\"; it must be HOME/.ollama, or the volume layout (key pair, models) changes and pulled models are orphaned" else empty end),
 		  (if (($o.networks // {}) | keys) != ["ai", "ollama_egress"] then "ollama is on networks \(($o.networks // {}) | keys), expected exactly [ai, ollama_egress]" else empty end),
+		  (if ($project_networks.ollama_egress.internal // false) != $offline then "network ollama_egress internal is \($project_networks.ollama_egress.internal // false), expected \($offline) (\(if $offline then "the offline overlay must leave Ollama no route out" else "the default keeps the route ollama pull uses" end))" else empty end),
 		  (if ($project_networks.ai.internal // false) != true then "network ai is not internal" else empty end),
 		  (if on("ai") != ["budgetpilot", "ollama"] then "network ai holds \(on("ai")), expected exactly [budgetpilot, ollama]" else empty end),
 		  (if on("ollama_egress") != ["ollama"] then "network ollama_egress holds \(on("ollama_egress")), expected exactly [ollama]" else empty end),

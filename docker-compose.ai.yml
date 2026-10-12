@@ -14,6 +14,9 @@
 #   docker compose -f docker-compose.yml -f docker-compose.ai.yml \
 #     -f docker-compose.ai.gpu.yml up -d --build
 #
+# Want Ollama with no internet access once your models are pulled? Add
+# docker-compose.ai.offline.yml last; see that file and docs/reference/ai-model.md.
+#
 # The GPU reservation lives in that separate file rather than here because a
 # device reservation no host can satisfy is not a slow stack, it is a stack that
 # refuses to start: `up` fails on the ollama service with "could not select
