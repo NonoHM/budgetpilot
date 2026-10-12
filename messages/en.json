@@ -138,7 +138,7 @@
 	"admin_invitation_revoked": "Invitation revoked.",
 	"admin_invitations_empty": "No pending invitations.",
 	"admin_ai_heading": "AI",
-	"admin_ai_state_running": "Running",
+	"admin_ai_state_running": "Enabled",
 	"admin_ai_state_halted": "Halted",
 	"admin_ai_state_off": "Off",
 	"admin_ai_running_body": "Halting stops the call in progress and refuses new ones for every member until an admin resumes.",

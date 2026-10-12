@@ -81,8 +81,10 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		},
 		invitations,
 		inferenceHalt,
-		// Whether AI is configured at all (`LLM_ENABLED`): the section says so, and the halt still
-		// applies the day it is turned on.
+		// Whether the connection is turned on in the configuration (`LLM_ENABLED=true` and the
+		// `ollama` provider): the badge reads « Enabled » or « Off » from it, and the halt applies
+		// either way. Not whether a call would succeed: an address the allowlist refuses still reads
+		// « Enabled », which is why the badge does not say « Running ».
 		aiConfigured: isLocalLlmEnabled()
 	};
 };

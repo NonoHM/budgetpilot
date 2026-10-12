@@ -70,8 +70,9 @@ when they should not, or cannot.
 ## Halting AI for everyone
 
 The **AI** section, at the bottom of the page, says whether AI can run on
-this instance. **Running** means it can. **Halted** means every request to
-the AI model is refused, for every member, until an administrator resumes it.
+this instance. **Enabled** means it is turned on. **Off** means it is turned
+off in the instance's configuration. **Halted** means every request to the AI
+model is refused, for every member, until an administrator resumes it.
 
 To halt AI, press **Halt AI**.
 

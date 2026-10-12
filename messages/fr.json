@@ -138,7 +138,7 @@
 	"admin_invitation_revoked": "Invitation révoquée.",
 	"admin_invitations_empty": "Aucune invitation en attente.",
 	"admin_ai_heading": "IA",
-	"admin_ai_state_running": "Active",
+	"admin_ai_state_running": "Activée",
 	"admin_ai_state_halted": "Arrêtée",
 	"admin_ai_state_off": "Désactivée",
 	"admin_ai_running_body": "L'arrêt interrompt l'appel en cours et refuse les suivants pour tous les membres, jusqu'à la reprise par un administrateur.",
