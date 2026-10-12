@@ -1,10 +1,4 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-
-// L4a: a refused reference or role writes `authz_fail`, whose user pseudonym is an HMAC keyed by this
-// secret, and CI runs the unit suite with none (a local .env hides that).
-vi.hoisted(() => {
-	process.env.RATE_LIMIT_HASH_SECRET ??= 'a1'.repeat(32);
-});
 import * as m from '$lib/paraglide/messages';
 
 /**
