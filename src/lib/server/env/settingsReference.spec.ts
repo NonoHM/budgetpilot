@@ -35,7 +35,7 @@ describe('docs/configuration-reference.md', () => {
 		const page = renderSettingsReference();
 		const missing = Object.keys(SETTINGS).filter((name) => !page.includes(`| \`${name}\` |`));
 		expect({ settings: Object.keys(SETTINGS).length, missing }).toStrictEqual({
-			settings: 48,
+			settings: 50,
 			missing: []
 		});
 	});

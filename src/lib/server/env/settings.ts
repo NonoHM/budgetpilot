@@ -637,6 +637,27 @@ export const SETTINGS = {
 			'How many analyses one account may start in an hour. No feature reads it in 1.3 (#1009); kept for the next one.',
 		page: 'reference/ai-model.md'
 	},
+	BP_OLLAMA_MEM_LIMIT: {
+		kind: 'text',
+		tier: 'advanced',
+		group: 'AI connection',
+		readBy: 'compose',
+		format: 'a Docker memory size, such as 6g; 0 removes the bound',
+		default: '6g',
+		summary:
+			'The most memory the Ollama container of the AI overlay may use. A model larger than this is stopped while it loads.',
+		page: 'reference/ai-model.md'
+	},
+	BP_OLLAMA_PIDS_LIMIT: {
+		kind: 'text',
+		tier: 'advanced',
+		group: 'AI connection',
+		readBy: 'compose',
+		format: 'a whole number of processes and threads; -1 removes the bound',
+		default: '512',
+		summary: 'The most processes and threads the Ollama container of the AI overlay may run.',
+		page: 'reference/ai-model.md'
+	},
 
 	// ── Logging ─────────────────────────────────────────────────────────────────────────────────
 	BP_LOG_LEVEL: {

@@ -353,6 +353,38 @@ in again. To change the figure, set
 `BP_SESSION_IDLE_TIMEOUT_HOURS`, described in
 [Configuration](configuration.md#passwords-and-sessions).
 
+**If you run the AI overlay (`docker-compose.ai.yml`)**, Ollama no longer runs
+as root, and its model volume moves inside the container from `/root/.ollama`
+to `/var/lib/ollama/.ollama`. The change is in the overlay file itself, so first
+get the new one. If you installed from the prebuilt image, download it again
+next to `docker-compose.prebuilt.yml`:
+
+```bash
+curl -O https://raw.githubusercontent.com/NonoHM/budgetpilot/main/docker-compose.ai.yml
+```
+
+`docker compose pull` does not do this. Then upgrade as usual: the first
+`docker compose up -d` hands the existing volume to Ollama's new user, and the
+models you pulled are still listed. If it could not hand every file over, the
+`ollama-volume-owner` container's log says so, and the rest of the stack starts
+anyway.
+
+**If you mount your own host directory at `/root/.ollama`** in an override
+file, change the target to `/var/lib/ollama/.ollama`, and give the directory to
+the new user yourself, since only the overlay's own volume is handed over:
+
+```bash
+sudo chown -R 65532:65532 /path/to/your/ollama
+```
+
+An Ollama installed on the host that shares that directory can then no longer
+write to it.
+
+Ollama's memory is also limited, to `6g` (6 GiB) by default; the default model
+peaked at 3.3 GB. If you use a larger model, set `BP_OLLAMA_MEM_LIMIT` before
+upgrading, as described in
+[the local model connection](reference/ai-model.md#the-ollama-container).
+
 1.3.0 also adds `BP_STRICT_SECRET_FILES`, off by default, which makes the
 startup check on `.env` and the bank-signing key refuse rather than warn:
 [Refusing to start on an exposed secret file](configuration.md#refusing-to-start-on-an-exposed-secret-file).

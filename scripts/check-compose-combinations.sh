@@ -460,6 +460,108 @@ for base in docker-compose.yml docker-compose.prebuilt.yml; do
 	done
 done
 
+# The Ollama sandbox (#821, AISVS 1.0 C4.1.1). Every key below merges, renders and starts just as
+# well without it, and a dropped one leaves a root process with the default capability set, a
+# writable root filesystem, or an unauthenticated API that Caddy and the databases can reach.
+# Asserted on every documented stack carrying the AI overlay, on the merged project.
+#
+# Configuration only, like the app's block above. That the kernel then enforces it (uid 65532,
+# CapEff zero, NoNewPrivs 1, a write to /etc refused), that a volume written by the previous
+# overlay still lists its models and answers an inference, and that a container on the default
+# network cannot reach Ollama while one on `ai` can, was measured on running stacks on the CPU (the
+# GPU overlay was not measured, #1024); the commands are in the pull request that added this.
+echo
+echo "--- ollama sandbox ---"
+
+# Every key a rendered service may carry, and nothing else: an allow-list rather than a list of the
+# keys known to be dangerous (devices, sysctls, group_add, oom_kill_disable, cgroup, extra
+# volumes, ...), because the next escape hatch Compose grows would not be on such a list.
+# `command`, `entrypoint` and `networks` appear because Compose renders them; `deploy` is the GPU
+# overlay's device reservation; `container_name` is set by the overlay itself.
+OLLAMA_KEYS='["cap_drop","command","container_name","deploy","depends_on","entrypoint","environment","image","logging","mem_limit","memswap_limit","networks","pids_limit","read_only","restart","security_opt","tmpfs","user","volumes"]'
+OLLAMA_OWNER_KEYS='["cap_add","cap_drop","command","entrypoint","image","logging","network_mode","read_only","restart","security_opt","user","volumes"]'
+# The one command the volume step may run, as Compose renders it. Its `|| echo` is the point, not
+# a swallowed error: see the comment on ollama-volume-owner in docker-compose.ai.yml.
+OLLAMA_OWNER_COMMAND="find /var/lib/ollama/.ollama -ignore_readdir_race \\( ! -user 65532 -o ! -group 65532 \\) -exec chown -h 65532:65532 {} + || echo 'ollama-volume-owner: some files in the Ollama volume could not be given to uid 65532, so Ollama may not start; see docs/operations.md, Before you upgrade to 1.3.0' >&2"
+ai_stacks_read=0
+for combination in "${COMBINATIONS[@]}"; do
+	case " $combination " in
+	*" docker-compose.ai.yml "*) ;;
+	*) continue ;;
+	esac
+	ai_stacks_read=$((ai_stacks_read + 1))
+	args=()
+	for file in $combination; do
+		args+=(-f "$file")
+	done
+	if ! project=$(docker compose --env-file /dev/null "${args[@]}" config --format json 2>/dev/null); then
+		echo "FAIL: $combination could not be rendered (see the combination above for the reason)" >&2
+		failed=1
+		continue
+	fi
+	problems=$(jq -r --arg owner_cmd "$OLLAMA_OWNER_COMMAND" '
+		.services as $s | ($s.ollama // {}) as $o | ($s["ollama-volume-owner"] // {}) as $v |
+		($o.environment.HOME // "") as $home |
+		def mount_target(svc): [(svc.volumes // [])[] | select(.source == "ollama_data") | .target][0] // "";
+		def only(xs; want): ((xs // []) | sort) == (want | sort);
+		def on(net): [$s | to_entries[] | select((.value.networks // {}) | has(net)) | .key] | sort;
+		[
+		  (if $o.user != "65532:65532" then "ollama runs as \"\($o.user // "the image default, root")\", expected 65532:65532" else empty end),
+		  (if only($o.cap_drop; ["ALL"]) | not then "ollama drops \($o.cap_drop // []), expected exactly [ALL]" else empty end),
+		  (if ($o.cap_add // []) | length > 0 then "ollama adds capabilities \($o.cap_add)" else empty end),
+		  (if only($o.security_opt; ["no-new-privileges:true"]) | not then "ollama security_opt is \($o.security_opt // []), expected exactly [no-new-privileges:true]" else empty end),
+		  (if $o.read_only != true then "ollama root filesystem is writable" else empty end),
+		  (if only($o.tmpfs; ["/tmp"]) | not then "ollama tmpfs is \($o.tmpfs // []), expected exactly [/tmp]" else empty end),
+		  (if ($o.privileged // false) then "ollama runs privileged" else empty end),
+		  (if (($o.pids_limit // 0) | tonumber) != 512 then "ollama pids_limit is \($o.pids_limit // "unset"), expected the default 512" else empty end),
+		  (if (($o.mem_limit // 0) | tonumber) != 6442450944 then "ollama mem_limit is \($o.mem_limit // "unset"), expected the default 6g" else empty end),
+		  (if $o.memswap_limit != $o.mem_limit then "ollama memswap_limit \($o.memswap_limit // "unset") differs from mem_limit, so swap extends the memory bound" else empty end),
+		  (if $o.environment.OLLAMA_DEBUG != "false" then "OLLAMA_DEBUG is \"\($o.environment.OLLAMA_DEBUG // "unset")\", expected false (debug logs carry prompts)" else empty end),
+		  (if $o.environment.OLLAMA_NUM_PARALLEL != "1" then "OLLAMA_NUM_PARALLEL is not 1" else empty end),
+		  (if $o.environment.OLLAMA_MAX_QUEUE != "4" then "OLLAMA_MAX_QUEUE is not 4" else empty end),
+		  (if $o.environment.OLLAMA_KEEP_ALIVE != "5m" then "OLLAMA_KEEP_ALIVE is not 5m" else empty end),
+		  (if ($o.ports // []) | length > 0 then "ollama publishes \(($o.ports // []) | length) port(s): its API has no authentication" else empty end),
+		  (if [$o.pid, $o.ipc, $o.userns_mode, $o.network_mode, $v.pid, $v.ipc, $v.userns_mode] | any(. == "host") then "ollama or ollama-volume-owner shares a host namespace" else empty end),
+		  (if [$s[] | (.network_mode // "") | select(startswith("service:") or startswith("container:"))] | length > 0 then "a service shares the network namespace of another container, outside the networks asserted here" else empty end),
+		  (if ($project_networks.ai.external // false) or ($project_networks.ollama_egress.external // false) then "network ai or ollama_egress is external, so other containers may share it" else empty end),
+		  (if ($s.budgetpilot.depends_on // {}) | has("ollama") then "the app depends on ollama, so a failed ollama-volume-owner leaves the app created and never started" else empty end),
+		  (if $home == "" or mount_target($o) != ($home + "/.ollama") then "ollama_data is mounted at \"\(mount_target($o))\" with HOME \"\($home)\"; it must be HOME/.ollama, or the volume layout (key pair, models) changes and pulled models are orphaned" else empty end),
+		  (if (($o.networks // {}) | keys) != ["ai", "ollama_egress"] then "ollama is on networks \(($o.networks // {}) | keys), expected exactly [ai, ollama_egress]" else empty end),
+		  (if ($project_networks.ai.internal // false) != true then "network ai is not internal" else empty end),
+		  (if on("ai") != ["budgetpilot", "ollama"] then "network ai holds \(on("ai")), expected exactly [budgetpilot, ollama]" else empty end),
+		  (if on("ollama_egress") != ["ollama"] then "network ollama_egress holds \(on("ollama_egress")), expected exactly [ollama]" else empty end),
+		  (if (($s.budgetpilot.networks // {}) | has("default")) | not then "the app left the default network" else empty end),
+		  (if $o.depends_on["ollama-volume-owner"].condition != "service_completed_successfully" then "ollama does not wait for ollama-volume-owner to complete" else empty end),
+		  (if $v.image != $o.image then "ollama-volume-owner runs \"\($v.image // "nothing")\", not the ollama image" else empty end),
+		  (if mount_target($v) == "" or mount_target($v) != mount_target($o) then "ollama-volume-owner mounts ollama_data at \"\(mount_target($v))\", not where ollama does" else empty end),
+		  (if (($v.entrypoint // []) + ($v.command // [])) != ["sh", "-c", $owner_cmd] then "ollama-volume-owner runs \(($v.entrypoint // []) + ($v.command // [])), expected the find that hands the volume to 65532 and always exits 0" else empty end),
+		  (if (($o | keys) - $ollama_keys) | length > 0 then "ollama carries keys outside its allow-list: \(($o | keys) - $ollama_keys)" else empty end),
+		  (if (($v | keys) - $owner_keys) | length > 0 then "ollama-volume-owner carries keys outside its allow-list: \(($v | keys) - $owner_keys)" else empty end),
+		  (if [($o.volumes // [])[] | .source] != ["ollama_data"] then "ollama mounts \([($o.volumes // [])[] | .source]), expected only ollama_data" else empty end),
+		  (if [($v.volumes // [])[] | .source] != ["ollama_data"] then "ollama-volume-owner mounts \([($v.volumes // [])[] | .source]), expected only ollama_data" else empty end),
+		  (if ($v.privileged // false) then "ollama-volume-owner runs privileged" else empty end),
+		  (if only($v.cap_drop; ["ALL"]) | not then "ollama-volume-owner drops \($v.cap_drop // []), expected exactly [ALL]" else empty end),
+		  (if only($v.cap_add; ["CHOWN", "DAC_READ_SEARCH"]) | not then "ollama-volume-owner adds \($v.cap_add // []), expected exactly [CHOWN, DAC_READ_SEARCH]" else empty end),
+		  (if only($v.security_opt; ["no-new-privileges:true"]) | not then "ollama-volume-owner security_opt is \($v.security_opt // [])" else empty end),
+		  (if $v.read_only != true then "ollama-volume-owner root filesystem is writable" else empty end),
+		  (if $v.network_mode != "none" then "ollama-volume-owner has a network (\($v.network_mode // "default"))" else empty end),
+		  (if $v.restart != "no" then "ollama-volume-owner restarts (\($v.restart // "unset"))" else empty end)
+		] | join("; ")' --argjson ollama_keys "$OLLAMA_KEYS" --argjson owner_keys "$OLLAMA_OWNER_KEYS" --argjson project_networks "$(jq '.networks // {}' <<<"$project")" <<<"$project")
+	if [ -n "$problems" ]; then
+		echo "FAIL: $combination: $problems" >&2
+		failed=1
+		continue
+	fi
+	echo "ok:   $combination (ollama as 65532, no capability, read-only, limits, reachable only from the app)"
+done
+# A filter that matched no combination would print nothing above and pass.
+if [ "$ai_stacks_read" = 0 ]; then
+	echo "FAIL: the ollama sandbox section read no stack carrying docker-compose.ai.yml" >&2
+	failed=1
+else
+	echo "read $ai_stacks_read stacks carrying docker-compose.ai.yml"
+fi
+
 # The example Caddyfile's access-log filter. Each line is a promise the docs make, and deleting
 # one still produces a Caddyfile that Caddy accepts and a proxy that starts. Matched as UNCOMMENTED
 # lines only (the pattern is anchored after indentation, so a mention in a comment does not count,
