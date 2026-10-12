@@ -1,0 +1,23 @@
+# Optional: Ollama with no internet access. Goes on top of docker-compose.ai.yml (and
+# docker-compose.ai.gpu.yml, if you use it), never instead of it:
+#   docker compose -f docker-compose.yml -f docker-compose.ai.yml \
+#     -f docker-compose.ai.offline.yml up -d --build
+#   docker compose -f docker-compose.prebuilt.yml -f docker-compose.ai.yml \
+#     -f docker-compose.ai.offline.yml up -d
+#
+# docker-compose.ai.yml puts Ollama on two networks: `ai`, which only the app shares and which
+# has no route out, and `ollama_egress`, which exists so that `ollama pull` can reach the model
+# registry. This file makes `ollama_egress` internal too, so Ollama has no route out of the
+# stack: the app still reaches it on `ai`, and Ollama's own calls to ollama.com fail (#1024).
+#
+# Why the network and not Ollama's list of networks: replacing a service's list needs the
+# `!override` tag, which an older Compose ignores without a word, leaving the list merged and
+# Ollama online. A network's `internal` key merges like any other key, on any Compose v2 and
+# whichever file comes first.
+#
+# The cost is `ollama pull`, which fails while this file is in the stack. Pull first, then add
+# this file; to pull another model later, run `up -d` once without it, pull, and add it back.
+# Models already on the volume keep working. See docs/reference/ai-model.md.
+networks:
+  ollama_egress:
+    internal: true

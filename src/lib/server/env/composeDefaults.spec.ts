@@ -63,7 +63,7 @@ describe('Compose-read settings', () => {
 			withDefault: WITH_DEFAULT,
 			withoutDefault: WITHOUT_DEFAULT
 		}).toStrictEqual({
-			files: 8,
+			files: 9,
 			withDefault: ['APP_PORT', 'BP_OLLAMA_MEM_LIMIT', 'BP_OLLAMA_PIDS_LIMIT'],
 			withoutDefault: ['DATABASE_PASSWORD']
 		});

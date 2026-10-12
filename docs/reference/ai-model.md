@@ -107,15 +107,59 @@ model, raise `BP_OLLAMA_PIDS_LIMIT`.
 of the stack shares a network with it except the app: a reverse proxy or a
 database container added by the other overlays cannot resolve its name or reach
 its address. The host itself can reach its address, as it can any container's.
-Ollama keeps a route to the internet, through `ollama_egress`, so that
-`ollama pull` works as before; `OLLAMA_NO_CLOUD=1` stops the calls it would
-otherwise make on its own
-([#1024](https://github.com/NonoHM/budgetpilot/issues/1024)).
+By default Ollama keeps a route to the internet, through `ollama_egress`, so
+that `ollama pull` works as before; `OLLAMA_NO_CLOUD=1` stops the calls it
+would otherwise make on its own. To take that route away once your models are
+pulled, see [Running Ollama without internet access](#running-ollama-without-internet-access).
 
 To change a bound, set it in `.env` and run `docker compose up -d` again with
 the same files. Compose does not check either value: `0` removes the memory
 bound and `-1` the process bound, and nothing warns about it
 ([#1026](https://github.com/NonoHM/budgetpilot/issues/1026)).
+
+## Running Ollama without internet access
+
+Once the models you need are on the volume, `docker-compose.ai.offline.yml`
+makes Ollama's internet network internal, so Ollama has no route out of the
+stack and its own calls to ollama.com fail. The app still reaches it. The
+overlay sets one network key, `internal`, rather than a YAML tag an older
+Compose could ignore, and placing it before or after `docker-compose.ai.yml`
+gave the same result; these steps put it last, and step 3 checks it worked.
+
+1. With the stack running, pull the models you need, if you have not already:
+
+   ```bash
+   docker compose -f docker-compose.yml -f docker-compose.ai.yml \
+     exec ollama ollama pull phi4-mini:3.8b
+   ```
+
+2. Add the offline overlay to the command you use, and start the stack again:
+
+   ```bash
+   docker compose -f docker-compose.yml -f docker-compose.ai.yml \
+     -f docker-compose.ai.offline.yml up -d
+   ```
+
+   On the prebuilt image, use `docker-compose.prebuilt.yml` in place of
+   `docker-compose.yml`, and download the overlay next to it first:
+
+   ```bash
+   curl -O https://raw.githubusercontent.com/NonoHM/budgetpilot/main/docker-compose.ai.offline.yml
+   ```
+
+3. Check that Ollama is offline by asking it for a model that does not exist:
+
+   ```bash
+   docker compose -f docker-compose.yml -f docker-compose.ai.yml \
+     -f docker-compose.ai.offline.yml exec ollama ollama pull budgetpilot-offline-check
+   ```
+
+   Offline, the error names a failed lookup: `lookup registry.ollama.ai ...
+server misbehaving`. If it says `file does not exist` instead, Ollama reached
+   the registry, and the overlay is not in effect.
+
+Models already pulled keep answering. To pull another model, run your usual
+command without the overlay, pull, then add it back.
 
 ## Checking whether a model reasons
 

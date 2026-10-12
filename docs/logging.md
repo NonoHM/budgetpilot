@@ -128,8 +128,8 @@ collector on another machine.
 
 The application writes standard output and cannot delete what the container runtime keeps. Every
 service the shipped Compose files start is set to Docker's `json-file` driver keeping at most five
-files of 10 MB (`docker-compose.keys.yml` and `docker-compose.ai.gpu.yml` only extend a service
-another file defines, and inherit its setting), which bounds the log by SIZE, not by age: the driver has no option that deletes by
+files of 10 MB (`docker-compose.keys.yml`, `docker-compose.ai.gpu.yml` and `docker-compose.ai.offline.yml` only
+extend a service another file defines, and inherit its setting), which bounds the log by SIZE, not by age: the driver has no option that deletes by
 age. To change the bound, set `logging:` in your own Compose override.
 
 If you ship the log to a collector, set the retention there. The CNIL's recommendation on logging
