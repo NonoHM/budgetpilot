@@ -240,6 +240,7 @@ line does not carry is absent, not empty.
 | `budgetpilot.config.direction`                | Whether the operator raised or lowered the bound.                                                              | string  | `raised`, `lowered`                                                                                                                         | `"raised"`                                                           | Operational    |
 | `budgetpilot.config.below_honest_minimum`     | Whether the value is below the smallest value that still works for a normal user.                              | boolean | `true`, `false`                                                                                                                             | `false`                                                              | Operational    |
 | `budgetpilot.config.file_mode`                | The permission bits of `.env`, in octal.                                                                       | string  | three octal digits                                                                                                                          | `"644"`                                                              | Operational    |
+| `budgetpilot.config.model_host`               | The host name in `LLM_BASE_URL`, which the operator wrote.                                                     | string  | a host name                                                                                                                                 | `"models.example.test"`                                              | Operational    |
 | `budgetpilot.monitor`                         | Which monitoring is switched off.                                                                              | string  | always `security_log`                                                                                                                       | `"security_log"`                                                     | Operational    |
 | `budgetpilot.backfill.name`                   | Which one-time boot upgrade of stored data is running.                                                         | string  | `name_keys`, `dedupe_key_hashes`, `dedupe_key_recompute`, `statement_accounts`                                                              | `"name_keys"`                                                        | Operational    |
 | `budgetpilot.backfill.stage`                  | The step of that upgrade.                                                                                      | string  | `keys`, `accounts_named`, `batches_filed`                                                                                                   | `"keys"`                                                             | Operational    |
@@ -314,6 +315,7 @@ below asks nothing.
 | `budgetpilot.config.bound_changed`            | Nothing to do if you changed the bound on purpose. `docs/configuration.md` says what each direction costs; `below_honest_minimum: true` means the value is too low for normal use.                                                                                                                                                                                                 |
 | `budgetpilot.config.log_level_changed`        | Nothing to do if you set `BP_LOG_LEVEL` on purpose. At `warn`, the informational lines, such as the page-not-found ones, are not written.                                                                                                                                                                                                                                          |
 | `budgetpilot.config.env_file_exposed`         | Run `chmod 600 .env` in the directory the app starts from. Until then, any other account on this machine can read the secrets in it, and with a write bit set, change them.                                                                                                                                                                                                        |
+| `budgetpilot.config.model_host_remote`        | Nothing to do if you chose to run the model on that host. Otherwise point `LLM_BASE_URL` at a model server on this machine: until then, whatever a feature sends the model leaves it.                                                                                                                                                                                              |
 | `budgetpilot.request.failed`                  | A visitor met an error page. Find this line with the reference they were shown (the tutorial shows how), read the error class and code, and fix the cause. During a flood, look for a `budgetpilot.log.suppressed` line in the same minute.                                                                                                                                        |
 | `authn_login_fail`                            | Nothing to do for one line. Many from one `budgetpilot.client.pseudonym` or one subnet label in a few minutes is password guessing: block that client on the web server ([Ban an address after failed sign-ins](./ban-failed-sign-ins.md)). Many `wrong_password` for one user pseudonym from many clients is an attack on that account: tell its owner.                           |
 | `excess_rate_limit_exceeded`                  | The rate limiter already refused the attempt. Read `budgetpilot.ratelimit.counter`: `address` points at the client, `subject` at an account or session someone else is attacking.                                                                                                                                                                                                  |
@@ -521,6 +523,22 @@ It reads only the `.env` in the working directory, not `.env.local` or a file
 passed with `--env-file`. Under WSL on `/mnt/c` (drvfs mounted without the
 `metadata` option), `chmod` has no effect and the line keeps the mode it found:
 keep the install in the Linux filesystem.
+
+### `budgetpilot.config.model_host_remote`
+
+Severity WARN.
+
+> LLM_BASE_URL names a model server that is not on this machine, so whatever a feature sends the model leaves this machine for that host. Nothing to do if you chose that host; otherwise point LLM_BASE_URL at a local server.
+
+| Attribute                       | Level       |
+| ------------------------------- | ----------- |
+| `budgetpilot.config.model_host` | Operational |
+
+Written only while `LLM_ENABLED=true` and the address is one the host
+allowlist accepts. A host counts as this machine when it is `localhost`,
+`127.0.0.1`, `[::1]`, `host.docker.internal`, or a name without a dot listed in
+`LLM_HTTP_PERMITTED_HOSTS`, which is how the AI overlay declares its `ollama`
+container. An address or a dotted name listed there is still reported.
 
 ### `budgetpilot.request.failed`
 

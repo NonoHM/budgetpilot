@@ -1,6 +1,30 @@
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
-import { probeLocalLlm, requestLocalModel, type LocalModelRequest } from './local-llm';
+import {
+	localLlmModel,
+	probeLocalLlm,
+	requestLocalModel,
+	type LocalModelRequest
+} from './local-llm';
+
+/**
+ * Since #967 a generation reads the host's model list before and after the chat, so every mock
+ * answers `/api/tags` with the models these cases ask for: the default, as the code names it, and
+ * the reasoning model the `think` case names.
+ */
+const LISTED_DIGEST = 'b'.repeat(64);
+function listsTheModel() {
+	return new Response(
+		JSON.stringify({
+			models: [localLlmModel({}), 'qwen3.5:4b-q8_0'].map((name) => ({
+				name,
+				digest: LISTED_DIGEST,
+				details: { format: 'gguf' }
+			}))
+		}),
+		{ status: 200 }
+	);
+}
 
 /**
  * One generation is TWO requests since #524: a connect probe on `/api/version`, then the generation
@@ -29,6 +53,7 @@ function mockOllamaFetch(
 				: input instanceof URL
 					? input.href
 					: (input as Request).url;
+		if (url.endsWith('/api/tags')) return Promise.resolve(listsTheModel());
 		return url.endsWith('/api/version') ? probe() : chat((init ?? {}) as RequestInit);
 	});
 }
@@ -43,7 +68,24 @@ const PICKS = z
 		picks: z.array(z.object({ kind: z.string(), category: z.string() }).strict()).max(3)
 	})
 	.strict();
-const FORMAT = { type: 'object', properties: { picks: { type: 'array', maxItems: 3 } } };
+const FORMAT = {
+	type: 'object',
+	properties: {
+		picks: {
+			type: 'array',
+			maxItems: 3,
+			items: {
+				type: 'object',
+				properties: {
+					kind: { type: 'string', maxLength: 40 },
+					category: { type: 'string', maxLength: 40 }
+				},
+				additionalProperties: false
+			}
+		}
+	},
+	additionalProperties: false
+};
 const NUM_PREDICT = 199;
 const REQUEST: LocalModelRequest<z.infer<typeof PICKS>> = {
 	prompt: 'prompt agrégé',
@@ -89,8 +131,9 @@ describe('requestLocalModel', () => {
 		});
 
 		expect(result?.unavailable).toBe(true);
-		// Only the first (allowlisted) hop ran; the internal target was never requested.
-		expect(fetchMock).toHaveBeenCalledTimes(1);
+		// Two hops, both to the base URL: the probe, which reads a redirect as an answer, and the
+		// model list, which refuses it (#967). Neither followed it.
+		expect(fetchMock).toHaveBeenCalledTimes(2);
 		expect(fetchMock.mock.calls.map((call) => String(call[0]))).not.toContain(
 			'http://127.0.0.2:9998/latest/meta-data/'
 		);
@@ -444,6 +487,7 @@ describe('requestLocalModel failure codes', () => {
 						? input.href
 						: (input as Request).url;
 			const requestInit = (init ?? {}) as RequestInit;
+			if (url.endsWith('/api/tags')) return Promise.resolve(listsTheModel());
 			return url.endsWith('/api/version') ? probe(requestInit) : chat(requestInit);
 		});
 	}

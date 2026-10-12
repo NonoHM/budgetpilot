@@ -36,6 +36,7 @@ import {
 import { logDeadSession } from '$lib/server/logging/authn';
 import { ATTRIBUTE as A, EVENT as E } from '$lib/server/logging/names';
 import { describeLogSettings } from '$lib/server/logging/settings';
+import { remoteModelHost } from '$lib/server/insights/modelHostConfig';
 
 // Before `init` can fail, which is the boot half of #816: Node's own printer would otherwise write a
 // failing backfill's nested database message, which can quote a user's transaction. Not in dev, whose
@@ -146,6 +147,10 @@ export function startupEvents(
 			event: E.configEnvFileExposed,
 			attributes: { [A.configFileMode]: facts.exposedEnvFileMode }
 		});
+	}
+	const modelHost = remoteModelHost(env);
+	if (modelHost !== null) {
+		events.push({ event: E.configModelHostRemote, attributes: { [A.configModelHost]: modelHost } });
 	}
 	return events;
 }

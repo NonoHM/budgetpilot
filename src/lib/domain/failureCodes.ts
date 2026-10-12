@@ -45,6 +45,16 @@
  * - `busy`: the model is occupied. `local-llm.ts` catch on an HTTP 503, which is Ollama's own queue
  *   full (#535). A sentence for it never says WHO is generating (ANSSI-PA-102 R17).
  *
+ * Three more since #967, each read from the host's model list before any generation, so each has
+ * its own advice:
+ *
+ * - `model_mismatch`: `BP_LLM_MODEL_DIGEST` is set and the model listed under `LLM_MODEL` has another
+ *   digest, before the generation or after it. Re-pin after a deliberate pull, or restore the model.
+ * - `model_unidentified`: the model list could not be read (over its bound, not JSON, or a digest
+ *   that is not one), so which model would answer is unknown. Check what answers at `LLM_BASE_URL`.
+ * - `model_remote`: the host lists the model as forwarded to another machine (an Ollama `-cloud`
+ *   tag), which would send the prompt to a host no allowlist names. Pull a local model.
+ *
  * THE LAST TWO OF THE FIRST SIX LOOK LIKE ONE STATE AND NEED OPPOSITE ADVICE, which is why they are two codes.
  * Truncation is OUR fault: the ceiling was too small, and the answer is to raise a budget. An
  * unparseable answer is the model's: the answer is to try a different model. One sentence for both
@@ -61,7 +71,10 @@ export type LocalLlmFailureCode =
 	| 'model_unavailable'
 	| 'response_unusable'
 	| 'response_truncated'
-	| 'busy';
+	| 'busy'
+	| 'model_mismatch'
+	| 'model_unidentified'
+	| 'model_remote';
 
 /**
  * Used when nothing recognised the error, and when a payload carries no code at all.
