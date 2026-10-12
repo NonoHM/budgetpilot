@@ -67,8 +67,7 @@ services:
       LLM_HTTP_PERMITTED_HOSTS: ${LLM_HTTP_PERMITTED_HOSTS:-},ollama
 
   ollama:
-    # The anchor is the one place the image is written; ollama-volume-owner reuses it.
-    image: &ollama-image ollama/ollama:0.32.5
+    image: ollama/ollama:0.32.5
     container_name: budgetpilot_ollama
     # The sandbox (#821, AISVS 1.0 C4.1.1). The image declares no USER, so it ran as root with
     # the default capability set and a writable root filesystem. Ollama needs none of that: it
@@ -159,7 +158,8 @@ services:
   # owner, DAC_READ_SEARCH to descend into a directory 65532 made private (measured: without
   # it, find stops there). No network. `-h` changes a symbolic link, never what it points to.
   ollama-volume-owner:
-    image: *ollama-image
+    # The same image as ollama, so nothing else is pulled; the compose check asserts they match.
+    image: ollama/ollama:0.32.5
     entrypoint:
       - sh
       - -c

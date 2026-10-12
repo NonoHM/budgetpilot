@@ -45,9 +45,13 @@ function composeDefaults(name: string): { where: string; value: string }[] {
 	);
 }
 
-const WITH_DEFAULT = COMPOSE_READ.filter(
-	(name) => SETTINGS[name as keyof typeof SETTINGS].default !== undefined
-);
+/** The registry default of a setting, or undefined when it has none (a required one). */
+function registryDefault(name: string): string | undefined {
+	const setting = SETTINGS[name as keyof typeof SETTINGS];
+	return 'default' in setting ? String(setting.default) : undefined;
+}
+
+const WITH_DEFAULT = COMPOSE_READ.filter((name) => registryDefault(name) !== undefined);
 const WITHOUT_DEFAULT = COMPOSE_READ.filter((name) => !WITH_DEFAULT.includes(name));
 
 describe('Compose-read settings', () => {
@@ -69,7 +73,7 @@ describe('Compose-read settings', () => {
 		'%s carries the registry default in every Compose file that reads it',
 		(name) => {
 			const found = composeDefaults(name);
-			const registry = String(SETTINGS[name as keyof typeof SETTINGS].default);
+			const registry = registryDefault(name);
 			expect(
 				found.length,
 				`${name} has no \${${name}:-...} default in any Compose file`
