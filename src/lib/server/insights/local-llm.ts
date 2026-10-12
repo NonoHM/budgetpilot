@@ -549,8 +549,8 @@ export async function requestLocalModel<T>(
 			// generation runs other weights under the first read's record. The generation ran, so charged.
 			const after = await readModelIdentity(baseUrl, model, env, callSignal);
 			// Charged: the generation ran. C9.6.1's « outputs » is why a complete answer is still not
-			// handed over. A halt landing after the chat answered aborts this read, so this one check
-			// also covers the moment between the two.
+			// handed over. A halt landing during this read is caught here; one landing just after the
+			// chat answered is caught by the check right after it.
 			if (halt.signal.aborted) return unavailable('halted');
 			if (typeof after === 'string') return unavailable(after);
 			if (after.digest !== before.digest) return unavailable('model_mismatch');

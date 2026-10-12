@@ -142,8 +142,8 @@ with no restart. While halted, the connection answers `halted`:
 | During the probe or the model list read before the generation | Aborts the request in progress. Marked as no work done.                                      |
 | During the generation, or the model list read after it        | Aborts the request in progress and withholds any answer. Counted as work, since it was sent. |
 
-`probeLocalLlm` answers `halted` too, so a caller that checks reachability
-before serving something it kept is told the same thing.
+`probeLocalLlm`, the reachability check, answers `halted` too. Nothing calls
+it in 1.3.
 
 - **Stored.** The halt is one row in the `InferenceHalt` table: when it was set
   and by which account. It survives a restart. Deleting that account keeps the

@@ -9,7 +9,8 @@ import { isUniqueConstraintViolation } from '$lib/server/database/upsert';
  * TWO HALVES, AND EACH COVERS WHAT THE OTHER CANNOT. The row (`InferenceHalt`) is the state: it
  * survives a restart, and every call reads it before opening a socket (`isInferenceHalted`). The
  * registry below is the immediacy: a call registers before it reads, and a halt aborts everything
- * registered once its row is written. A call that registered before the write is aborted; one that
+ * registered once it has tried to write its row, whether or not the write succeeded; only a written
+ * row refuses the calls that come after. A call that registered before the write is aborted; one that
  * registers after it reads the row. Register-then-read in the door and write-then-abort here are
  * what make those two cases cover every interleaving, and `inferenceHalt.spec.ts` lands a halt
  * inside the read to hold the door to it.
