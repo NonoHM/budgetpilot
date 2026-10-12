@@ -101,6 +101,8 @@ const COLUMNS: Record<string, Column> = {
 	'Invitation.usedAt': CLOCK,
 	'Invitation.revokedAt': CLOCK,
 	'Invitation.createdAt': CLOCK,
+	// Written by `haltInference` from `new Date()`, never by the column default (#986).
+	'InferenceHalt.haltedAt': CLOCK,
 	'Account.archivedAt': CLOCK,
 	'Account.createdAt': CLOCK,
 	'Account.updatedAt': CLOCK,
