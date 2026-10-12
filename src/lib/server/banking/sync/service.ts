@@ -21,6 +21,7 @@ import type {
 	BankConnector,
 	ConnectionContext
 } from '$lib/server/banking/connectors/types';
+import { logReferenceRefused } from '$lib/server/logging/authz';
 
 /**
  * Bank-sync orchestration: the ONLY layer that persists BankConnection /
@@ -227,7 +228,10 @@ export async function startBankAuthorization(
 			where: { id: input.renewConnectionId, userId: input.userId, provider: input.provider },
 			select: { aspspName: true, aspspCountry: true }
 		});
-		if (!existing?.aspspName || !existing.aspspCountry) throw new BankSyncError('not_found');
+		if (!existing?.aspspName || !existing.aspspCountry) {
+			logReferenceRefused(input.userId, 'bank_connection');
+			throw new BankSyncError('not_found');
+		}
 		aspspName = existing.aspspName;
 		aspspCountry = existing.aspspCountry;
 	}
@@ -282,8 +286,14 @@ export async function completeBankAuthorization(
 	const request = await prisma.bankAuthorizationRequest.findUnique({
 		where: { stateHash: hashState(state) }
 	});
-	// Bound to the initiating user: a state issued for another account is invalid here.
-	if (!request || request.userId !== input.userId) throw new BankSyncError('invalid_state');
+	// Bound to the initiating user: a state issued for another account is invalid here. A missing
+	// state and another user's are one line with the same attributes (#830: the owner compared after
+	// the fetch, never told apart); an expired or consumed state of the caller's own, below, is not
+	// an authorization failure and writes none (L4a).
+	if (!request || request.userId !== input.userId) {
+		logReferenceRefused(input.userId, 'bank_authorization');
+		throw new BankSyncError('invalid_state');
+	}
 
 	const currentTime = now();
 	if (request.expiresAt.getTime() <= currentTime.getTime()) {
@@ -501,7 +511,10 @@ export async function syncBankConnection(
 	const connection = await prisma.bankConnection.findFirst({
 		where: { id: input.connectionId, userId: input.userId }
 	});
-	if (!connection) throw new BankSyncError('not_found');
+	if (!connection) {
+		logReferenceRefused(input.userId, 'bank_connection');
+		throw new BankSyncError('not_found');
+	}
 	if (connection.status === 'revoked' || connection.status === 'expired') {
 		return { outcome: 'unavailable' };
 	}

@@ -14,8 +14,10 @@ import { EVENT } from './names';
  * WHAT IT READS: every tracked `.ts` and `.svelte` file under `src/` that is not a spec, through
  * `git ls-files`, which is what a fresh clone has. WHAT IT LOOKS FOR: the `EVENT` key or the wire
  * name of each event the registry marks `security: true`, which are the authentication
- * events and `crypt_decrypt_fail` (#904), which carries the user pseudonym too. The calibration is
- * the real constructor: `authn.ts` must be found by the same detector.
+ * events and `crypt_decrypt_fail` (#904), which carries the user pseudonym too. `authz_fail` is a
+ * security event as well, and is left out here: its one constructor is `authz.ts`, held by
+ * `authzConstructor.spec.ts`. The calibration is the real constructor: `authn.ts` must be found by
+ * the same detector.
  */
 
 const ROOT = process.cwd();
@@ -26,7 +28,7 @@ const ALLOWED = new Set([
 ]);
 
 const securityEvents = Object.entries(REGISTRY)
-	.filter(([, spec]) => spec.security)
+	.filter(([name, spec]) => spec.security && name !== EVENT.authzFail)
 	.map(([name]) => name);
 const keys = Object.entries(EVENT)
 	.filter(([, name]) => securityEvents.includes(name))

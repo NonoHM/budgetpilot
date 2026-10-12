@@ -155,6 +155,8 @@ export async function undoBulkTag(
 	// removed none of its links.
 	if (transactionIds.length === 0) return 0;
 
+	// No authz_fail (L4a): the tag is never looked up, and the delete is scoped by the transactions'
+	// owner, so another account's tag id removes nothing and there is no lookup to report.
 	const result = await prisma.transactionTag.deleteMany({
 		where: {
 			tagId,

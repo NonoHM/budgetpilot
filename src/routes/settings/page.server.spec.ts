@@ -1,5 +1,5 @@
 import { createCipheriv, randomBytes } from 'node:crypto';
-import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as m from '$lib/paraglide/messages';
 
 vi.hoisted(() => {
@@ -165,6 +165,8 @@ vi.mock('$lib/server/auth/reauth', async (importOriginal) => {
 const { commitWithRotatedToken, hashPassword, SESSION_COOKIE } = await import('$lib/server/auth');
 const reauth = await import('$lib/server/auth/reauth');
 const { actions, load } = await import('./+page.server');
+const { ATTRIBUTE: A, EVENT: E } = await import('$lib/server/logging/names');
+const { logUserPseudonym } = await import('$lib/server/logging/pseudonym');
 
 describe('/settings', () => {
 	beforeEach(() => {
@@ -2301,3 +2303,77 @@ async function runRestoreAction(formData: FormData) {
 		}
 	});
 }
+
+/**
+ * L4a: the account service answers a refused reference with a sentinel (`AccountWriteError
+ * ('not-found')`) that the route maps to 400, not 404, so no 404 gate can see this site. The REAL
+ * service runs here (this file never mocks it) against an `account` table scoped by the row's own
+ * userId. One `authz_fail` line naming the account, and the 400 the route answered before L4a.
+ */
+describe('L4a: a refused statement account rename writes one authz_fail line', () => {
+	const USER = { id: 'user-a', email: 'a@example.test', role: 'USER' as const };
+	const ACCOUNTS = [
+		{ id: 'acc-owned-0000001', userId: 'user-a' },
+		{ id: 'acc-foreign-000001', userId: 'user-b' }
+	];
+	const account = db.prisma.account as Record<string, unknown>;
+	type Line = { event: string; attributes: Record<string, unknown> };
+	const authzFails = () =>
+		logWriter.log.mock.calls
+			.map(([line]) => line as unknown as Line)
+			.filter((line) => line.event === E.authzFail);
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		db.prisma.account.findMany.mockResolvedValue([]);
+		// The rename's one write, modelled for its predicate and THROWING on any other.
+		account.updateMany = vi.fn(async ({ where }: { where: Record<string, unknown> }) => {
+			const keys = Object.keys(where).sort().join(',');
+			if (keys !== 'id,userId') throw new Error(`L4a account fake: unsupported where ${keys}`);
+			const found = ACCOUNTS.some((row) => row.id === where.id && row.userId === where.userId);
+			return { count: found ? 1 : 0 };
+		});
+	});
+
+	afterEach(() => {
+		delete account.updateMany;
+	});
+
+	async function rename(id: string) {
+		const body = new FormData();
+		body.set('id', id);
+		body.set('newName', 'Livret A');
+		return (await (actions.renameAccount as unknown as (event: unknown) => Promise<unknown>)({
+			locals: { user: USER },
+			request: new Request('http://localhost/settings', { method: 'POST', body })
+		})) as { status?: number; data?: unknown };
+	}
+
+	// Separates « the sentinel path logs the refused account » from « answers 400 silently » (today).
+	it('renameAccount on a foreign account id: one authz_fail account, and the same 400', async () => {
+		const result = await rename('acc-foreign-000001');
+		expect({ status: result.status, data: result.data, lines: authzFails() }).toEqual({
+			status: 400,
+			data: { accountsError: m.accounts_error_not_found() },
+			lines: [
+				{
+					event: E.authzFail,
+					attributes: {
+						[A.userPseudonym]: logUserPseudonym(USER.id),
+						[A.authzReason]: 'not_found_or_not_owned',
+						[A.authzReference]: 'account'
+					}
+				}
+			]
+		});
+	});
+
+	// Negative: green today. Red if the service logs before its count check, on every rename.
+	it('renameAccount on an owned account id writes no authz_fail', async () => {
+		const result = await rename('acc-owned-0000001');
+		expect({ result, lines: authzFails() }).toEqual({
+			result: { accountsSuccess: m.accounts_success_renamed() },
+			lines: []
+		});
+	});
+});

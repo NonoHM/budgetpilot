@@ -23,6 +23,7 @@ import {
 } from '$lib/server/categories/effectiveCount';
 import { planDefaultCategoryRenames } from '$lib/server/categories/renamePrompt';
 import type { PageServerLoad } from './$types';
+import { logReferenceRefused } from '$lib/server/logging/authz';
 
 export type CategoryRow = {
 	id: string;
@@ -162,7 +163,10 @@ export const actions: Actions = {
 			return fail(400, { error: m.categories_error_reserved_name() });
 
 		const cat = await prisma.category.findFirst({ where: { id, userId: user.id } });
-		if (!cat) return fail(404, { error: m.categories_error_not_found() });
+		if (!cat) {
+			logReferenceRefused(user.id, 'category');
+			return fail(404, { error: m.categories_error_not_found() });
+		}
 		if (cat.name === UNCLASSIFIED_CATEGORY) {
 			return fail(400, { error: m.categories_error_rename_unclassified() });
 		}
@@ -295,7 +299,10 @@ export const actions: Actions = {
 		if (!id) return fail(400, { error: m.categories_error_invalid() });
 
 		const cat = await prisma.category.findFirst({ where: { id, userId: user.id } });
-		if (!cat) return fail(404, { error: m.categories_error_not_found() });
+		if (!cat) {
+			logReferenceRefused(user.id, 'category');
+			return fail(404, { error: m.categories_error_not_found() });
+		}
 		if (cat.name === UNCLASSIFIED_CATEGORY) {
 			return fail(400, { error: m.categories_error_delete_unclassified() });
 		}
@@ -394,11 +401,16 @@ export const actions: Actions = {
 		const cat = await prisma.category.findFirst({
 			where: { userId: user.id, nameKey: computeNameKey(categoryName) }
 		});
-		if (!cat) return fail(404, { error: m.categories_error_not_found() });
+		if (!cat) {
+			logReferenceRefused(user.id, 'category');
+			return fail(404, { error: m.categories_error_not_found() });
+		}
 
 		if (!nature) {
-			if (mappingId) {
-				await deleteCategoryNatureMapping(user.id, mappingId);
+			// The answer is the same whether the mapping resolved or not, so the line is the only trace
+			// of one that did not; a malformed id gets that same answer and the same line (L4a).
+			if (mappingId && !(await deleteCategoryNatureMapping(user.id, mappingId))) {
+				logReferenceRefused(user.id, 'nature_mapping');
 			}
 			return { success: m.categories_success_nature_reset() };
 		}

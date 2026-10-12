@@ -142,7 +142,22 @@ const db = vi.hoisted(() => {
 
 vi.mock('$lib/server/db', () => ({ prisma: db.prisma }));
 
+// The L4a block reads the authorization lines this module writes.
+vi.hoisted(() => {
+	process.env.RATE_LIMIT_HASH_SECRET ??= 'a1'.repeat(32);
+});
+const logged = vi.hoisted(() => [] as unknown[]);
+vi.mock('$lib/server/logging', async (importOriginal) => ({
+	...(await importOriginal<typeof import('$lib/server/logging')>()),
+	log: (event: unknown) => {
+		logged.push(event);
+	}
+}));
+
 const { actions, load } = await import('./+page.server');
+const { ATTRIBUTE: A, EVENT: E } = await import('$lib/server/logging/names');
+const { logUserPseudonym } = await import('$lib/server/logging/pseudonym');
+const m = await import('$lib/paraglide/messages');
 const testUser = { id: 'user-a', email: 'a@example.test', role: 'USER' as const };
 
 interface RulesPageData {
@@ -316,3 +331,55 @@ async function runAction(name: keyof typeof actions, input: Record<string, strin
 		request: new Request('http://localhost/rules', { method: 'POST', body: formData })
 	})) as { status?: number; success?: string };
 }
+
+/**
+ * L4a: a rule id that fails its userId-scoped delete writes one `authz_fail` line naming the rule,
+ * and the answer is the 404 the route returned before L4a (contract invariant 1).
+ */
+describe('L4a: a refused rule delete writes one authz_fail line', () => {
+	type Line = { event: string; attributes: Record<string, unknown> };
+	const authzFails = () => (logged as Line[]).filter((line) => line.event === E.authzFail);
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		logged.length = 0;
+	});
+
+	// Separates « logged as a refused rule » from « refused silently » (today). user-b's rule survives.
+	it('delete on a foreign rule id: one authz_fail rule, the same 404, the rule kept', async () => {
+		const result = (await runAction('delete', { id: 'rule-user-b' })) as {
+			status?: number;
+			data?: unknown;
+		};
+		expect({
+			status: result.status,
+			data: result.data,
+			foreignKept: db.rules.some((rule) => rule.id === 'rule-user-b'),
+			lines: authzFails()
+		}).toEqual({
+			status: 404,
+			data: { error: m.rules_error_not_found() },
+			foreignKept: true,
+			lines: [
+				{
+					event: E.authzFail,
+					attributes: {
+						[A.userPseudonym]: logUserPseudonym(testUser.id),
+						[A.authzReason]: 'not_found_or_not_owned',
+						[A.authzReference]: 'rule'
+					}
+				}
+			]
+		});
+	});
+
+	// Negative: green today. Red if the call moves above the count check (logs every delete).
+	it('delete on an owned rule writes no authz_fail', async () => {
+		db.rules.push({ ...db.rules[0], id: 'rule-l4a-owned', userId: 'user-a' });
+		const result = await runAction('delete', { id: 'rule-l4a-owned' });
+		expect({ result, lines: authzFails() }).toEqual({
+			result: { success: m.rules_success_deleted() },
+			lines: []
+		});
+	});
+});

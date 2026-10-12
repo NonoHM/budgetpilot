@@ -8,6 +8,7 @@ import { deleteImportBatch } from '$lib/server/import/deleteBatch';
 import type { PageServerLoad } from './$types';
 import { displayAccountName } from '$lib/server/accounts/projection';
 import { IMPORTED_COUNT_SELECT, importedCountOf } from '$lib/server/import/importedCount';
+import { logReferenceRefused } from '$lib/server/logging/authz';
 
 export const load: PageServerLoad = async ({ locals, url }) => {
 	const user = requireUser(locals.user);
@@ -128,7 +129,10 @@ export const actions: Actions = {
 		} catch {
 			return fail(500, { error: m.imports_error_delete_failed() });
 		}
-		if (!deleted) return fail(404, { error: m.imports_error_not_found() });
+		if (!deleted) {
+			logReferenceRefused(user.id, 'import_batch');
+			return fail(404, { error: m.imports_error_not_found() });
+		}
 
 		throw redirect(303, '/imports?cancelled=1');
 	}

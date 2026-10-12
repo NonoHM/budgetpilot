@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CategorySpending } from '$lib/server/budget/dashboard';
 
 const db = vi.hoisted(() => ({
@@ -14,7 +14,19 @@ const db = vi.hoisted(() => ({
 
 vi.mock('$lib/server/db', () => ({ prisma: db.prisma }));
 
-const { spentCentsFor: realSpentCentsFor } = await vi.importActual<
+// The L4a block reads the authorization lines the route and the real service write.
+vi.hoisted(() => {
+	process.env.RATE_LIMIT_HASH_SECRET ??= 'a1'.repeat(32);
+});
+const logged = vi.hoisted(() => [] as unknown[]);
+vi.mock('$lib/server/logging', async (importOriginal) => ({
+	...(await importOriginal<typeof import('$lib/server/logging')>()),
+	log: (event: unknown) => {
+		logged.push(event);
+	}
+}));
+
+const { spentCentsFor: realSpentCentsFor, deleteBudget: realDeleteBudget } = await vi.importActual<
 	typeof import('$lib/server/budget/dashboard')
 >('$lib/server/budget/dashboard');
 
@@ -54,6 +66,9 @@ const budgetService = vi.hoisted(() => ({
 vi.mock('$lib/server/budget/dashboard', () => budgetService);
 
 const { actions, load } = await import('./+page.server');
+const { ATTRIBUTE: A, EVENT: E } = await import('$lib/server/logging/names');
+const { logUserPseudonym } = await import('$lib/server/logging/pseudonym');
+const m = await import('$lib/paraglide/messages');
 const testUser = { id: 'user-a', email: 'a@example.test', role: 'USER' as const };
 
 describe('/budgets', () => {
@@ -133,3 +148,101 @@ async function runAction(name: keyof typeof actions, input: Record<string, strin
 		request: new Request('http://localhost/budgets', { method: 'POST', body: formData })
 	})) as { status?: number; success?: string };
 }
+
+/**
+ * L4a: the service that throws `error(404)` is where the refusal is decided, so these tests run the
+ * REAL `deleteBudget` against a fake table scoped by userId, rather than the mock the rest of this
+ * file uses. One `authz_fail` line naming the budget, and the answer is the 404 the route returned
+ * before L4a (contract invariant 1).
+ */
+describe('L4a: a refused budget delete writes one authz_fail line', () => {
+	type Line = { event: string; attributes: Record<string, unknown> };
+	const authzFails = () => (logged as Line[]).filter((line) => line.event === E.authzFail);
+	const budgets = [
+		{ id: 'budget-a', userId: 'user-a' },
+		{ id: 'budget-foreign', userId: 'user-b' }
+	];
+	const table = db.prisma as unknown as Record<string, unknown>;
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		logged.length = 0;
+		// The hoisted mock is typed zero-arity; the real service takes (userId, budgetId).
+		budgetService.deleteBudget.mockImplementation(realDeleteBudget as never);
+		// Scoped by the row's own userId, and THROWING on any other predicate.
+		table.monthlyBudget = {
+			deleteMany: vi.fn(async ({ where }: { where: Record<string, unknown> }) => {
+				const keys = Object.keys(where).sort().join(',');
+				if (keys !== 'id,userId') throw new Error(`L4a budget fake: unsupported where ${keys}`);
+				const found = budgets.some((row) => row.id === where.id && row.userId === where.userId);
+				return { count: found ? 1 : 0 };
+			})
+		};
+	});
+
+	afterEach(() => {
+		budgetService.deleteBudget.mockReset();
+		budgetService.deleteBudget.mockImplementation(async () => undefined);
+		delete table.monthlyBudget;
+	});
+
+	const refusedBudget = () => [
+		{
+			event: E.authzFail,
+			attributes: {
+				[A.userPseudonym]: logUserPseudonym(testUser.id),
+				[A.authzReason]: 'not_found_or_not_owned',
+				[A.authzReference]: 'budget'
+			}
+		}
+	];
+
+	// Separates « logged as a refused budget » from « refused silently » (today).
+	it('delete on a foreign budget id: one authz_fail budget, and the same 404', async () => {
+		const result = (await runAction('delete', { id: 'budget-foreign' })) as {
+			status?: number;
+			data?: unknown;
+		};
+		expect({ status: result.status, data: result.data, lines: authzFails() }).toEqual({
+			status: 404,
+			data: { error: m.budgets_error_not_found() },
+			lines: refusedBudget()
+		});
+	});
+
+	it('delete on a budget id that does not exist: the same line and the same 404', async () => {
+		const result = (await runAction('delete', { id: 'budget-missing' })) as {
+			status?: number;
+			data?: unknown;
+		};
+		expect({ status: result.status, data: result.data, lines: authzFails() }).toEqual({
+			status: 404,
+			data: { error: m.budgets_error_not_found() },
+			lines: refusedBudget()
+		});
+	});
+
+	// Negative: green today. The log mirrors the answer (contract « When »): a malformed id refused
+	// by the shape check with an answer of its own (400, the misworded `invalid_amount`, #1044) is
+	// input validation and writes nothing here. Red if the shape-check branch logs.
+	it('delete on a malformed budget id: the 400 it answered before, and no authz_fail', async () => {
+		const result = (await runAction('delete', { id: 'bad!' })) as {
+			status?: number;
+			data?: unknown;
+		};
+		expect({ status: result.status, data: result.data, lines: authzFails() }).toEqual({
+			status: 400,
+			data: { error: m.budgets_error_invalid_amount() },
+			lines: []
+		});
+	});
+
+	// Negative: green today. Red if the call moves above the count check (logs every delete).
+	it('delete on an owned budget writes no authz_fail', async () => {
+		const result = await runAction('delete', { id: 'budget-a' });
+		expect({ result, lines: authzFails() }).toEqual({
+			result: { success: m.budgets_success_deleted() },
+			lines: []
+		});
+	});
+});

@@ -1,3 +1,4 @@
+import { env } from '$env/dynamic/private';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from '$lib/server/db';
 import { computeNameKey } from '$lib/server/naming/nameKey';
@@ -10,6 +11,10 @@ import {
 	linkNetWorthAccount,
 	renameStatementAccount
 } from './service';
+
+// L4a: a refused reference writes `authz_fail`, whose user pseudonym is keyed by this secret, and
+// the db-smoke `$env` is an empty stub on purpose (`vitest.db.env-stub.ts`), so the fixture is explicit.
+env.RATE_LIMIT_HASH_SECRET = 'e5'.repeat(32);
 
 /**
  * RENAME, ARCHIVE AND LINK ARE THREE NEW WRITE PATHS, AND THIS IS THE BATTERY THEY OWE.

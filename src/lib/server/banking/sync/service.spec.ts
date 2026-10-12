@@ -13,6 +13,8 @@ vi.hoisted(() => {
 	// $lib/server/crypto requires this at import time (see crypto.spec.ts for the pattern).
 	process.env.TOTP_ENCRYPTION_KEY ??=
 		'0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'.slice(0, 64);
+	// The log pseudonyms (L4a block below) derive their keys from it, and refuse anything but 64 hex.
+	process.env.RATE_LIMIT_HASH_SECRET ??= 'a1'.repeat(32);
 });
 
 const prismaMock = vi.hoisted(() => ({
@@ -61,6 +63,15 @@ vi.mock('$lib/server/db', () => ({ prisma: prismaMock }));
 vi.mock('$lib/server/import/persist', () => persistMock);
 vi.mock('$lib/server/net-worth/service', () => netWorthMock);
 
+// Every line the service writes, captured instead of printed; the L4a block reads it.
+const logged = vi.hoisted(() => [] as { event: string; attributes: Record<string, unknown> }[]);
+vi.mock('$lib/server/logging', async (importOriginal) => ({
+	...(await importOriginal<typeof import('$lib/server/logging')>()),
+	log: (event: { event: string; attributes: Record<string, unknown> }) => {
+		logged.push(event);
+	}
+}));
+
 const { encryptSecret, decryptSecret } = await import('$lib/server/crypto');
 const { EnableBankingApiError } = await import('$lib/server/banking/enablebanking/http');
 const {
@@ -73,6 +84,8 @@ const {
 	deleteBankConnection
 } = await import('./service');
 const { BANK_SYNC_CALLBACK_PATH } = await import('$lib/server/banking/config');
+const { ATTRIBUTE: A, EVENT: E } = await import('$lib/server/logging/names');
+const { logUserPseudonym } = await import('$lib/server/logging/pseudonym');
 import type { BankConnector } from '$lib/server/banking/connectors/types';
 
 const ENABLED_ENV = {
@@ -1599,5 +1612,108 @@ describe('BankSyncError', () => {
 		expect(error.code).toBe('unknown_bank');
 		expect(error.name).toBe('BankSyncError');
 		expect(error.message).toBe('Bank sync error: unknown_bank');
+	});
+});
+
+/**
+ * L4a, the bank callback (#830's site: the owner is compared after the fetch by state hash). A
+ * state that resolves to no row and a state owned by ANOTHER user are one refusal: one `authz_fail`
+ * with reference `bank_authorization`, the same attributes, and the same thrown
+ * `BankSyncError('invalid_state')`. An expired or consumed state of the caller's OWN is not an
+ * authorization failure and writes none (contract « When »).
+ */
+describe('L4a: completeBankAuthorization logs a missing or foreign state as one refused reference', () => {
+	const ownRequest = {
+		id: 'req-l4a',
+		userId: 'user-1',
+		provider: 'mock',
+		stateHash: createHash('sha256').update('raw-state').digest('hex'),
+		stateEncrypted: encryptSecret('raw-state'),
+		aspspName: 'Bank A',
+		aspspCountry: 'FR',
+		expiresAt: new Date(NOW.getTime() + 60_000),
+		consumedAt: null
+	};
+
+	beforeEach(() => {
+		logged.length = 0;
+	});
+
+	const messageOf = (thrown: string | { message: string }) =>
+		typeof thrown === 'string' ? thrown : thrown.message;
+
+	/** The thrown error as a caller sees it, and the authz_fail lines the call wrote. */
+	async function complete(row: Record<string, unknown> | null, consumedCount = 1) {
+		logged.length = 0;
+		// Reset, not queued once: a refusal before the consume leaves a queued answer behind, and
+		// the next call would read it instead of its own.
+		prismaMock.bankAuthorizationRequest.findUnique.mockReset().mockResolvedValue(row);
+		prismaMock.bankAuthorizationRequest.updateMany
+			.mockReset()
+			.mockResolvedValue({ count: consumedCount });
+		type Thrown = { isBankSyncError: boolean; code: string | undefined; message: string };
+		const thrown: Thrown | 'resolved' = await completeBankAuthorization(
+			{ userId: 'user-1', params: { state: 'raw-state', code: 'abc' } },
+			{ env: ENABLED_ENV, now: () => NOW }
+		).then(
+			() => 'resolved',
+			(caught: unknown) => ({
+				isBankSyncError: caught instanceof BankSyncError,
+				code: (caught as { code?: string }).code,
+				message: (caught as Error).message
+			})
+		);
+		return {
+			thrown,
+			lines: logged.filter((line) => line.event === E.authzFail).map((line) => line.attributes)
+		};
+	}
+
+	// Separates « both refusals are logged, identically » from « neither is » (today) and from « the
+	// foreign one is told apart » (a second lookup, or the owner put in a field).
+	it("a missing state and another user's state: one authz_fail bank_authorization each, deep-equal, same error", async () => {
+		const missing = await complete(null);
+		const foreign = await complete({ ...ownRequest, userId: 'someone-else' });
+		expect({ missing, foreign }).toEqual({
+			missing: {
+				thrown: {
+					isBankSyncError: true,
+					code: 'invalid_state',
+					message: messageOf(foreign.thrown)
+				},
+				lines: [
+					{
+						[A.userPseudonym]: logUserPseudonym('user-1'),
+						[A.authzReason]: 'not_found_or_not_owned',
+						[A.authzReference]: 'bank_authorization'
+					}
+				]
+			},
+			foreign: {
+				thrown: {
+					isBankSyncError: true,
+					code: 'invalid_state',
+					message: messageOf(missing.thrown)
+				},
+				lines: missing.lines
+			}
+		});
+	});
+
+	// Negative: green today. Red if the line is written for every invalid_state, rather than only
+	// where the ownership-scoped resolution returned nothing.
+	it("an expired or an already-consumed state of the caller's own writes no authz_fail", async () => {
+		const expired = await complete({ ...ownRequest, expiresAt: new Date(NOW.getTime() - 1) });
+		const consumed = await complete(ownRequest, 0);
+		expect({ expired, consumed }).toEqual({
+			expired: {
+				thrown: { isBankSyncError: true, code: 'invalid_state', message: expect.any(String) },
+				lines: []
+			},
+			consumed: {
+				thrown: { isBankSyncError: true, code: 'invalid_state', message: expect.any(String) },
+				lines: []
+			}
+		});
 	});
 });

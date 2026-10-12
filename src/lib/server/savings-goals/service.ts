@@ -11,6 +11,7 @@ import {
 import { parseNetWorthBalanceCents, type NetWorthAccountType } from '$lib/domain/netWorth';
 import { prisma } from '$lib/server/db';
 import { normalizeId } from '$lib/server/transactions/where';
+import { logReferenceRefused } from '$lib/server/logging/authz';
 
 const MAX_NAME_LENGTH = 120;
 const MAX_TARGET_AMOUNT_CENTS = 1_000_000_000;
@@ -125,13 +126,19 @@ export async function readSavingsGoalHistory(
 	goalId: string
 ): Promise<SavingsGoalHistoryPoint[]> {
 	const id = normalizeId(goalId);
-	if (!id) throw error(404, m.savings_goal_error_not_found());
+	if (!id) {
+		logReferenceRefused(userId, 'savings_goal');
+		throw error(404, m.savings_goal_error_not_found());
+	}
 
 	const goal = await prisma.savingsGoal.findFirst({
 		where: { id, userId, deletedAt: null },
 		select: { netWorthAccountId: true }
 	});
-	if (!goal) throw error(404, m.savings_goal_error_not_found());
+	if (!goal) {
+		logReferenceRefused(userId, 'savings_goal');
+		throw error(404, m.savings_goal_error_not_found());
+	}
 	if (!goal.netWorthAccountId) return [];
 
 	const snapshots = await prisma.netWorthSnapshot.findMany({
@@ -175,10 +182,16 @@ export async function updateSavingsGoal(
 	input: SaveSavingsGoalInput
 ): Promise<void> {
 	const id = normalizeId(goalId);
-	if (!id) throw error(404, m.savings_goal_error_not_found());
+	if (!id) {
+		logReferenceRefused(userId, 'savings_goal');
+		throw error(404, m.savings_goal_error_not_found());
+	}
 
 	const existing = await prisma.savingsGoal.findFirst({ where: { id, userId, deletedAt: null } });
-	if (!existing) throw error(404, m.savings_goal_error_not_found());
+	if (!existing) {
+		logReferenceRefused(userId, 'savings_goal');
+		throw error(404, m.savings_goal_error_not_found());
+	}
 
 	const parsed = await validateInput(userId, input);
 
@@ -200,13 +213,19 @@ export async function updateSavingsGoal(
 /** Soft delete, consistent with deleteNetWorthAccount. */
 export async function deleteSavingsGoal(userId: string, goalId: string): Promise<void> {
 	const id = normalizeId(goalId);
-	if (!id) throw error(404, m.savings_goal_error_not_found());
+	if (!id) {
+		logReferenceRefused(userId, 'savings_goal');
+		throw error(404, m.savings_goal_error_not_found());
+	}
 
 	const result = await prisma.savingsGoal.updateMany({
 		where: { id, userId, deletedAt: null },
 		data: { deletedAt: new Date() }
 	});
-	if (result.count === 0) throw error(404, m.savings_goal_error_not_found());
+	if (result.count === 0) {
+		logReferenceRefused(userId, 'savings_goal');
+		throw error(404, m.savings_goal_error_not_found());
+	}
 }
 
 /**
@@ -215,13 +234,19 @@ export async function deleteSavingsGoal(userId: string, goalId: string): Promise
  */
 export async function dismissReachedBanner(userId: string, goalId: string): Promise<void> {
 	const id = normalizeId(goalId);
-	if (!id) throw error(404, m.savings_goal_error_not_found());
+	if (!id) {
+		logReferenceRefused(userId, 'savings_goal');
+		throw error(404, m.savings_goal_error_not_found());
+	}
 
 	const result = await prisma.savingsGoal.updateMany({
 		where: { id, userId, deletedAt: null, reachedAt: { not: null } },
 		data: { reachedBannerDismissedAt: new Date() }
 	});
-	if (result.count === 0) throw error(404, m.savings_goal_error_not_found());
+	if (result.count === 0) {
+		logReferenceRefused(userId, 'savings_goal');
+		throw error(404, m.savings_goal_error_not_found());
+	}
 }
 
 async function validateInput(
@@ -256,13 +281,22 @@ async function validateInput(
 
 	if (linked) {
 		netWorthAccountId = normalizeId(input.netWorthAccountId ?? '');
-		if (!netWorthAccountId) throw error(400, m.savings_goal_error_invalid_account());
+		if (!netWorthAccountId) {
+			// A malformed id gets the answer an unknown account gets, so the same line: the log is
+			// exactly as distinguishable as the answer (L4a design rule 3). An absent one is no
+			// reference at all (the picker has no native `required`), so it writes nothing.
+			if ((input.netWorthAccountId ?? '').trim() !== '') {
+				logReferenceRefused(userId, 'net_worth_account');
+			}
+			throw error(400, m.savings_goal_error_invalid_account());
+		}
 
 		const account = await prisma.netWorthAccount.findFirst({
 			where: { id: netWorthAccountId, userId, deletedAt: null },
 			select: { type: true, balanceCents: true }
 		});
 		if (!account || !isSavingsGoalLinkableAccountType(account.type as NetWorthAccountType)) {
+			logReferenceRefused(userId, 'net_worth_account');
 			throw error(400, m.savings_goal_error_invalid_account());
 		}
 		currentAmountCents = account.balanceCents;

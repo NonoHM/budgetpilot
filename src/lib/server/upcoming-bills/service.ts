@@ -48,6 +48,7 @@ import {
 } from '$lib/server/backup/schema';
 import { prisma } from '$lib/server/db';
 import { normalizeId } from '$lib/server/transactions/where';
+import { logReferenceRefused } from '$lib/server/logging/authz';
 
 /**
  * Upcoming-bills server layer: reads the recurring flows out of the user's transactions, projects
@@ -643,6 +644,9 @@ export async function recordStreamAction(
 				.filter((id) => id.length > 0 && id.length <= MAX_ANCHOR_ID_CHARS)
 		)
 	].slice(-MAX_ANCHOR_IDS);
+	// No authz_fail here or on the empty `anchors` below (L4a design point 6): the page builds the
+	// anchor list from the user's own flows, so a dropped id is a transaction deleted since, not a
+	// refused reference.
 	if (requestedAnchors.length === 0) throw error(400, m.upcoming_bills_error_invalid_stream());
 
 	// Ownership, fail closed. The `userId` conjunct is the whole point of this query: without it a
@@ -765,10 +769,16 @@ export async function recordStreamAction(
 
 export async function undoStreamAction(userId: string, actionId: string): Promise<void> {
 	const id = normalizeId(actionId);
-	if (!id) throw error(404, m.upcoming_bills_error_not_found());
+	if (!id) {
+		logReferenceRefused(userId, 'bill_action');
+		throw error(404, m.upcoming_bills_error_not_found());
+	}
 
 	const result = await prisma.recurringStreamAction.deleteMany({ where: { id, userId } });
-	if (result.count === 0) throw error(404, m.upcoming_bills_error_not_found());
+	if (result.count === 0) {
+		logReferenceRefused(userId, 'bill_action');
+		throw error(404, m.upcoming_bills_error_not_found());
+	}
 }
 
 /**

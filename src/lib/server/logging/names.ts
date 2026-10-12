@@ -123,6 +123,13 @@ export const ATTRIBUTE = {
 	sessionReason: 'budgetpilot.session.reason',
 	cryptPurpose: 'budgetpilot.crypt.purpose',
 
+	// Authorization events (L4a). The target as a keyed hash under the same key as the actor's, so a
+	// target's later lines join.
+	authzReason: 'budgetpilot.authz.reason',
+	authzReference: 'budgetpilot.authz.reference',
+	adminAction: 'budgetpilot.admin.action',
+	targetUserPseudonym: 'budgetpilot.target.user_pseudonym',
+
 	// The container start, `boot.mjs`.
 	bootDirectory: 'budgetpilot.boot.directory',
 	bootUid: 'budgetpilot.boot.uid',
@@ -163,6 +170,10 @@ export const EVENT = {
 	authnReauthSuccess: 'budgetpilot.authn.reauth_success',
 	authnReauthFail: 'budgetpilot.authn.reauth_fail',
 	sessionInvalid: 'budgetpilot.session.invalid',
+
+	// OWASP Logging Vocabulary, authorization, without the user the vocabulary appends (L4a).
+	authzFail: 'authz_fail',
+	authzAdmin: 'authz_admin',
 
 	configOriginSet: 'budgetpilot.config.origin_set',
 	configOriginUnset: 'budgetpilot.config.origin_unset',

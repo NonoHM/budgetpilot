@@ -448,6 +448,14 @@ const sessionCookie = (setCookie: string | undefined) =>
 /** The canary that proves the capture is live. Read back out of the log, not merely sent. */
 const PATH_CANARY = 'canary-path-4d7b2e-do-not-remove';
 
+/**
+ * L4a: a well-formed rule id no row holds, posted by the admin to delete. The refusal must write one
+ * `authz_fail` naming the reference KIND, and the id itself must reach no line (contract invariant
+ * 3), so it is swept for with the identifiers. Shaped to pass `normalizeId`, so the lookup itself is
+ * what refuses it rather than the shape check.
+ */
+const FOREIGN_REFERENCE = 'clogscanforeignref0canary7e2';
+
 async function exerciseAuthPaths(): Promise<void> {
 	const action = async (
 		client: APIRequestContext,
@@ -566,6 +574,10 @@ async function exerciseAuthPaths(): Promise<void> {
 	outcomes['bank-callback'] = `${callback.status()} ${callback.headers()['location']}`;
 	minted.bankBearerTokens = [...bankStub.bearers];
 
+	// 7b. L4a: a reference that resolves under no account, posted by the signed-in admin. The rule
+	//     delete answers 404 for it (a `failure`), and writes the one authz_fail this probe counts.
+	await action(admin, 'authz-foreign-reference', '/rules?/delete', { id: FOREIGN_REFERENCE });
+
 	// 8. The forced 500, whose error message quotes the email (see the header for why json_extract).
 	sqlite((db) =>
 		db.exec(`CREATE TRIGGER logscan_force_500 BEFORE UPDATE ON "User"
@@ -679,6 +691,7 @@ test.describe('v5.0.0-16.2.5: no secret reaches the log', () => {
 			'bank-start': 'redirect',
 			'bank-start-location': 'stub-consent',
 			'bank-callback': '303 /imports/bank-connections?connected=1',
+			'authz-foreign-reference': 'failure',
 			'forced-500': '500 error',
 			'mfa-login-password': 'redirect',
 			'mfa-login-recovery-code': 'redirect',
@@ -978,6 +991,62 @@ test.describe('L3: the authentication events exist, and carry pseudonyms only', 
 	});
 });
 
+/**
+ * L4a: the authorization line the battery determines, asserted PRESENT before the identifier sweep
+ * above is believed about it. Step 7b is the only refused reference in the battery: one
+ * `authz_fail` with reason `not_found_or_not_owned` and reference `rule`, naming the admin by the
+ * pseudonym the admin's failed sign-ins carry. The wire values are the L4a contract's closed sets.
+ */
+test.describe('L4a: the authorization event exists, and carries the reference kind only', () => {
+	const named = (name: string) =>
+		parseLog(captured).lines.filter((l) => l[FIELD.eventName] === name);
+
+	test('calibration: every name this probe reads exists in names.ts', () => {
+		const names: Record<string, unknown> = {
+			'EVENT.authzFail': EVENT.authzFail,
+			'ATTRIBUTE.authzReason': ATTRIBUTE.authzReason,
+			'ATTRIBUTE.authzReference': ATTRIBUTE.authzReference
+		};
+		const missing = Object.entries(names)
+			.filter(([, value]) => typeof value !== 'string' || value === '')
+			.map(([name]) => name);
+		expect({ read: Object.keys(names).length, missing }).toEqual({ read: 3, missing: [] });
+	});
+
+	// Separates « the refused reference is recorded » from « refused silently », which is also what
+	// makes the identifier sweep read a line that could have carried the posted id.
+	test('the refused reference wrote one authz_fail for a rule, naming the admin by pseudonym', () => {
+		const adminPseudonym = parseLog(captured).lines.find(
+			(l) =>
+				l[FIELD.eventName] === EVENT.authnLoginFail && l[ATTRIBUTE.authnReason] === 'wrong_password'
+		)?.[ATTRIBUTE.userPseudonym];
+		const lines = named(EVENT.authzFail);
+		expect({
+			total: lines.length,
+			rule: lines.filter(
+				(l) =>
+					l[ATTRIBUTE.authzReason] === 'not_found_or_not_owned' &&
+					l[ATTRIBUTE.authzReference] === 'rule'
+			).length,
+			namesTheAdmin:
+				typeof adminPseudonym === 'string' &&
+				lines.length > 0 &&
+				lines.every((l) => l[ATTRIBUTE.userPseudonym] === adminPseudonym),
+			carriesNoClient: lines.every(
+				(l) =>
+					!Object.hasOwn(l, ATTRIBUTE.clientPseudonym) &&
+					!Object.hasOwn(l, ATTRIBUTE.clientSubnetPseudonym)
+			)
+		}).toEqual({ total: 1, rule: 1, namesTheAdmin: true, carriesNoClient: true });
+	});
+
+	// The posted id is a canary: present in the request, absent from every line. The identifier sweep
+	// above searches for it as well; this names the finding on its own.
+	test('the posted reference id appears in no line', () => {
+		expect(captured.includes(FOREIGN_REFERENCE)).toBe(false);
+	});
+});
+
 function configuredFoundIn(text: string): string[] {
 	return Object.entries(SECRETS)
 		.filter(([, value]) => text.includes(value))
@@ -996,7 +1065,8 @@ function identifierValues(): [string, string][] {
 		['clientAddress', CLIENT_ADDRESS],
 		['otherClientAddress', OTHER_CLIENT_ADDRESS],
 		['adminUserId', minted.adminUserId],
-		['memberUserId', minted.memberUserId]
+		['memberUserId', minted.memberUserId],
+		['foreignReference', FOREIGN_REFERENCE]
 	];
 }
 
@@ -1064,6 +1134,7 @@ test.describe('#876: the sign-in refusal header on the built server', () => {
 			'admin-reset': '200 absent',
 			'temporary-password-login': '200 absent',
 			'bank-start': '200 absent',
+			'authz-foreign-reference': '200 absent',
 			'mfa-login-password': '200 absent',
 			'mfa-login-recovery-code': '200 absent',
 			'login-fail-1': '200 refused',

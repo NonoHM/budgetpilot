@@ -141,6 +141,8 @@ export async function resolveTransactionScope(
 	const toParam = url.searchParams.get('to');
 	const { range, error: rangeError } = parseTransactionDateRange(fromParam, toParam);
 
+	// No authz_fail for an id here (L4a design point 6): a filter narrows a query already scoped by
+	// userId and refuses nothing, so another account's id simply matches no row.
 	const filters: ListFilters = {
 		query: normalizeSearch(url.searchParams.get('q')),
 		qMode: parseQueryMode(url.searchParams.get('qMode')),

@@ -23,6 +23,7 @@ import {
 	mapTransactionWithNature,
 	type CategoryNatureMappingRecord
 } from '$lib/server/transactions/nature';
+import { logReferenceRefused } from '$lib/server/logging/authz';
 
 const MANUAL_ACCOUNT_NAME = 'Compte manuel';
 const MONTH_PATTERN = /^\d{4}-\d{2}$/;
@@ -317,7 +318,10 @@ export async function deleteBudget(userId: string, budgetId: string): Promise<vo
 	const result = await prisma.monthlyBudget.deleteMany({
 		where: { id: budgetId, userId }
 	});
-	if (result.count === 0) throw error(404, m.budgets_error_not_found());
+	if (result.count === 0) {
+		logReferenceRefused(userId, 'budget');
+		throw error(404, m.budgets_error_not_found());
+	}
 }
 
 export async function updateBudget(
@@ -330,7 +334,10 @@ export async function updateBudget(
 	const existing = await prisma.monthlyBudget.findFirst({
 		where: { id: budgetId, userId }
 	});
-	if (!existing) throw error(404, m.budgets_error_not_found());
+	if (!existing) {
+		logReferenceRefused(userId, 'budget');
+		throw error(404, m.budgets_error_not_found());
+	}
 
 	const categoryName = normalizeBudgetCategoryName(input.category);
 	const amountCents = parseBudgetAmountCents(input.limit);

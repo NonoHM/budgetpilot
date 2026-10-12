@@ -1,3 +1,4 @@
+import { env } from '$env/dynamic/private';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { isHttpError } from '@sveltejs/kit';
 import { prisma } from '$lib/server/db';
@@ -5,6 +6,10 @@ import { computeNameKey } from '$lib/server/naming/nameKey';
 import { DEFAULT_DENOMINATION } from '$lib/domain/money';
 import { AccountWriteError, linkNetWorthAccount } from '$lib/server/accounts/service';
 import { linkBankAccountToNetWorth, setManualAccountNetWorthLink } from './service';
+
+// L4a: a refused reference writes `authz_fail`, whose user pseudonym is keyed by this secret, and
+// the db-smoke `$env` is an empty stub on purpose (`vitest.db.env-stub.ts`), so the fixture is explicit.
+env.RATE_LIMIT_HASH_SECRET = 'e5'.repeat(32);
 
 /**
  * D4 BELONGS TO THE COLUMN, NOT TO THE SCREEN THE WRITE CAME FROM.

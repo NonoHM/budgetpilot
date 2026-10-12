@@ -409,8 +409,11 @@ const db = vi.hoisted(() => {
 					return { count };
 				}),
 				deleteMany: vi.fn(async ({ where }) => {
+					// The row's OWN userId against the conjunct, so a foreign id is refused as the real
+					// engine refuses it. It compared the conjunct with a constant, which deleted
+					// `transaction-foreign` for user-a (found writing the L4a block below).
 					const index = transactions.findIndex(
-						(item) => item.id === where.id && where.userId === 'user-a'
+						(item) => item.id === where.id && item.userId === where.userId
 					);
 					if (index === -1) return { count: 0 };
 					transactions.splice(index, 1);
@@ -559,6 +562,19 @@ const categoryRules: Array<{
 
 vi.mock('$lib/server/db', () => ({ prisma: db.prisma }));
 
+// The L4a block at the foot of this file reads the authorization lines, so every line this module
+// writes lands here rather than on stdout; nothing else in the file reads it.
+vi.hoisted(() => {
+	process.env.RATE_LIMIT_HASH_SECRET ??= 'a1'.repeat(32);
+});
+const logged = vi.hoisted(() => [] as unknown[]);
+vi.mock('$lib/server/logging', async (importOriginal) => ({
+	...(await importOriginal<typeof import('$lib/server/logging')>()),
+	log: (event: unknown) => {
+		logged.push(event);
+	}
+}));
+
 // The service is mocked rather than exercised: it has its own spec and its own real-engine suite.
 // What is under test here is the ACTION's contract with it — how the form field is split, and how
 // each outcome maps to a status. Running the real service against the fake prisma would test the
@@ -591,6 +607,8 @@ vi.mock('$lib/server/tags/bulk', async (importOriginal) => {
 });
 
 const { applyKindSign } = await import('$lib/domain/transaction');
+const { ATTRIBUTE: A, EVENT: E } = await import('$lib/server/logging/names');
+const { logUserPseudonym } = await import('$lib/server/logging/pseudonym');
 const { actions, load } = await import('./+page.server');
 // Imported from its own module rather than from `+page.server`, and the move is the point: a page
 // server module may export only load/actions/prerender/csr/ssr/trailingSlash/config/entries, so
@@ -2551,5 +2569,104 @@ describe('projectAccountForDetail', () => {
 		});
 		expect(projected.displayName).toBe(m.accounts_generic_bucket());
 		expect(projected.showSource).toBe(true);
+	});
+});
+
+/**
+ * L4a: a client-supplied reference that fails its userId-scoped lookup writes one `authz_fail`
+ * line, at the point it fails, and the answer does not move (contract invariant 1). Each refusal
+ * test asserts the exact answer the route gave before L4a beside the line, and each kind has its
+ * negative: an owned reference writes no `authz_fail`.
+ */
+describe('L4a: refused references on /transactions write one authz_fail line', () => {
+	type Line = { event: string; attributes: Record<string, unknown> };
+	const authzFails = () => (logged as Line[]).filter((line) => line.event === E.authzFail);
+	const refused = (reference: string) => [
+		{
+			event: E.authzFail,
+			attributes: {
+				[A.userPseudonym]: logUserPseudonym(testUser.id),
+				[A.authzReason]: 'not_found_or_not_owned',
+				[A.authzReference]: reference
+			}
+		}
+	];
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		logged.length = 0;
+	});
+
+	// Separates « a foreign delete is logged as a refused transaction » from « refused silently »
+	// (today). The answer is the 404 the route returned before L4a, and user-b's row survives.
+	it('deleteTransaction on a foreign id: one authz_fail transaction, the same 404, the row kept', async () => {
+		const result = (await runDeleteTransaction({ transactionId: 'transaction-foreign' })) as {
+			status?: number;
+			data?: unknown;
+		};
+		expect({
+			status: result.status,
+			data: result.data,
+			foreignKept: db.transactions.some((t) => t.id === 'transaction-foreign'),
+			lines: authzFails()
+		}).toEqual({
+			status: 404,
+			data: { deleteError: m.transactions_error_transaction_not_found() },
+			foreignKept: true,
+			lines: refused('transaction')
+		});
+	});
+
+	it('deleteTransaction on an id that does not exist: the same line and the same 404', async () => {
+		const result = (await runDeleteTransaction({ transactionId: 'transaction-missing' })) as {
+			status?: number;
+			data?: unknown;
+		};
+		expect({ status: result.status, data: result.data, lines: authzFails() }).toEqual({
+			status: 404,
+			data: { deleteError: m.transactions_error_transaction_not_found() },
+			lines: refused('transaction')
+		});
+	});
+
+	// Negative: green today. Red if the call moves above the count check (logs every delete).
+	it('deleteTransaction on an owned id writes no authz_fail', async () => {
+		const index = db.transactions.findIndex((t) => t.id === 'transaction-7');
+		const row = db.transactions[index];
+		try {
+			const result = await runDeleteTransaction({ transactionId: 'transaction-7' });
+			expect({ result, lines: authzFails() }).toEqual({
+				result: { deleteSuccess: true },
+				lines: []
+			});
+		} finally {
+			// Later describes in this file count the fixture's rows.
+			if (!db.transactions.some((t) => t.id === 'transaction-7'))
+				db.transactions.splice(index, 0, row);
+		}
+	});
+
+	// `?selected=` is the panel's own state, not a refusal: the page re-runs this load with the id of
+	// the transaction it just deleted after every panel delete, so a line here was written on each
+	// ordinary delete (code contradiction pass on L4a). Separates « the panel state writes nothing »
+	// from « every stale selection reads as an account trying identifiers it does not hold ».
+	it('load with ?selected= a foreign or deleted id writes no authz_fail, and no detail panel', async () => {
+		const data = await runLoad('/transactions?selected=transaction-foreign');
+		expect({ selected: data.selectedTransaction, lines: authzFails() }).toEqual({
+			selected: null,
+			lines: []
+		});
+	});
+
+	// Negatives: green today. Red if the load logs whenever `selected` is present, or always.
+	it('load with ?selected= an owned id, or with no selection, writes no authz_fail', async () => {
+		const owned = await runLoad('/transactions?selected=transaction-1');
+		const ownedLines = authzFails().length;
+		await runLoad('/transactions');
+		expect({
+			ownedOpened: owned.selectedTransaction !== null,
+			ownedLines,
+			totalLines: authzFails().length
+		}).toEqual({ ownedOpened: true, ownedLines: 0, totalLines: 0 });
 	});
 });

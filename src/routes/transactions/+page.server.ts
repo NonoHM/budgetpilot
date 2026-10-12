@@ -64,6 +64,7 @@ import {
 	type FilteredTotals
 } from '$lib/server/transactions/totals';
 import type { PageServerLoad } from './$types';
+import { logReferenceRefused } from '$lib/server/logging/authz';
 
 /** The join row Prisma returns for the `tags` relation, before flattenTagLinks unwraps it. */
 interface TagLinkRow {
@@ -175,6 +176,10 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 			select: { id: true, name: true, colorToken: true }
 		})
 	]);
+
+	// No authz_fail for a `?selected=` that resolves to nothing: it is the panel's own state, and the
+	// page re-runs this load with the id it just deleted after every panel delete, so a line here
+	// would be written on each ordinary delete (L4a, code contradiction pass). The panel stays closed.
 
 	// #161: a rule whose target no longer resolves to a Category is PAUSED, and this page has to
 	// know it even though it writes nothing.
@@ -746,8 +751,10 @@ export const actions: Actions = {
 		// transaction under (id, userId) before writing anything, and returns 'not-found' for a
 		// forged id indistinguishably from one that never existed.
 		const outcome = await setTransactionTags(user.id, transactionId, names);
-		if (outcome === 'not-found')
+		if (outcome === 'not-found') {
+			logReferenceRefused(user.id, 'transaction');
 			return fail(404, { tagsError: m.transactions_error_transaction_not_found() });
+		}
 		if (outcome === 'too-many')
 			return fail(400, { tagsError: m.tags_error_too_many({ max: MAX_TAGS_PER_TRANSACTION }) });
 		return { tagsSuccess: true };
@@ -773,8 +780,10 @@ export const actions: Actions = {
 
 		if (getFormValue(formData, 'splitIntent') === 'clear') {
 			const cleared = await clearSplits(user.id, transactionId);
-			if (!cleared.ok)
+			if (!cleared.ok) {
+				logReferenceRefused(user.id, 'transaction');
 				return fail(404, { splitsError: m.transactions_error_transaction_not_found() });
+			}
 			return { splitsRemoved: true };
 		}
 
@@ -782,7 +791,10 @@ export const actions: Actions = {
 			where: { id: transactionId, userId: user.id },
 			select: { amountCents: true }
 		});
-		if (!parent) return fail(404, { splitsError: m.transactions_error_transaction_not_found() });
+		if (!parent) {
+			logReferenceRefused(user.id, 'transaction');
+			return fail(404, { splitsError: m.transactions_error_transaction_not_found() });
+		}
 
 		const categoryIds = formData.getAll('splitCategoryId').map(String);
 		const rawAmounts = formData.getAll('splitAmount').map(String);
@@ -820,6 +832,7 @@ export const actions: Actions = {
 		// message, which 1r calls a real degradation.
 		switch (outcome.reason) {
 			case 'not-found':
+				logReferenceRefused(user.id, 'transaction');
 				return fail(404, { splitsError: m.transactions_error_transaction_not_found() });
 			case 'count':
 				return fail(400, { splitsError: m.splits_error_count() });
@@ -864,7 +877,10 @@ export const actions: Actions = {
 			const cat = await prisma.category.findFirst({
 				where: { userId: user.id, nameKey: computeNameKey(categoryResult.value) }
 			});
-			if (!cat) return fail(400, { manualCategoryError: m.categories_error_invalid() });
+			if (!cat) {
+				logReferenceRefused(user.id, 'category');
+				return fail(400, { manualCategoryError: m.categories_error_invalid() });
+			}
 		}
 
 		// `splits: { none: {} }` is the protection, not the check below it: the parent's category is
@@ -879,6 +895,7 @@ export const actions: Actions = {
 		if (result.count === 0) {
 			if (await isSplitTransaction(user.id, transactionId))
 				return fail(400, { manualCategoryError: m.transactions_error_category_locked_by_split() });
+			logReferenceRefused(user.id, 'transaction');
 			return fail(404, { manualCategoryError: m.transactions_error_transaction_not_found() });
 		}
 		return { manualCategorySuccess: true };
@@ -898,8 +915,10 @@ export const actions: Actions = {
 			where: { id: transactionId, userId: user.id },
 			data: { natureManual: natureResult.value }
 		});
-		if (result.count === 0)
+		if (result.count === 0) {
+			logReferenceRefused(user.id, 'transaction');
 			return fail(404, { manualNatureError: m.transactions_error_transaction_not_found() });
+		}
 		return { manualNatureSuccess: true };
 	},
 
@@ -921,7 +940,10 @@ export const actions: Actions = {
 		const cat = await prisma.category.findFirst({
 			where: { userId: user.id, nameKey: computeNameKey(categoryResult.value) }
 		});
-		if (!cat) return fail(400, { acceptError: m.categories_error_invalid() });
+		if (!cat) {
+			logReferenceRefused(user.id, 'category');
+			return fail(400, { acceptError: m.categories_error_invalid() });
+		}
 
 		const natureResult = rawNature.trim()
 			? parseManualNature(rawNature)
@@ -941,6 +963,7 @@ export const actions: Actions = {
 		if (result.count === 0) {
 			if (await isSplitTransaction(user.id, transactionId))
 				return fail(400, { acceptError: m.transactions_error_category_locked_by_split() });
+			logReferenceRefused(user.id, 'transaction');
 			return fail(404, { acceptError: m.transactions_error_transaction_not_found() });
 		}
 		return { acceptSuccess: true };
@@ -974,8 +997,10 @@ export const actions: Actions = {
 			where: { id: transactionId, userId: user.id }
 		});
 
-		if (result.count === 0)
+		if (result.count === 0) {
+			logReferenceRefused(user.id, 'transaction');
 			return fail(404, { deleteError: m.transactions_error_transaction_not_found() });
+		}
 		return { deleteSuccess: true };
 	},
 
@@ -1004,6 +1029,8 @@ export const actions: Actions = {
 		// never other already-active rules (those only apply on import or via "Apply rules"/
 		// classifyAll, which remain the only mechanisms touching the full history). Reuses
 		// findMatchingCategoryRule as-is, no new matching logic.
+		// No authz_fail for an id dropped below (L4a design point 6): the page built this list from the
+		// user's own pile, so a drop is a row changed since, not a refused reference.
 		const focusRemainingIds = formData
 			.getAll('focusRemainingIds')
 			.map((value) => normalizeId(String(value)))

@@ -8,6 +8,7 @@ import {
 	MIN_SPLITS_PER_TRANSACTION,
 	normalizeSplitNote
 } from '$lib/domain/allocation';
+import { logReferenceRefused } from '$lib/server/logging/authz';
 
 /** One part as it arrives from a client. Everything here is untrusted. */
 export interface SplitInput {
@@ -133,6 +134,9 @@ export async function replaceSplits(
 			.filter((part) => !usable.has(part.categoryId))
 			.map((part) => part.position);
 		if (categoryPositions.length > 0) {
+			// One line per request, not per part. The sentinel is in it on purpose: its answer is the
+			// foreign one, so the log cannot tell them apart either (L4a design rule 3).
+			logReferenceRefused(userId, 'split_category');
 			return { ok: false, reason: 'category', positions: categoryPositions };
 		}
 

@@ -41,6 +41,7 @@ import { periodsOverlap } from '$lib/domain/periodOverlap';
 import type { ReplaceOutcome } from '$lib/import/completedImport.svelte';
 import type { ImportSummaryResult } from '$lib/domain/importSummary';
 import { readAccountDisplayName } from '$lib/server/accounts/service';
+import { logReferenceRefused } from '$lib/server/logging/authz';
 
 /**
  * The import the designation screen submits, and the ONE place its choices become facts.
@@ -277,6 +278,8 @@ export const actions: Actions = {
 						}
 					})
 				: null;
+		// Absent rather than refused, so this line is the only trace of an id that did not resolve.
+		if (replaceParam && !replacing) logReferenceRefused(user.id, 'import_batch');
 
 		/**
 		 * The statement this designation appears to repeat.
@@ -322,6 +325,11 @@ export const actions: Actions = {
 				accountId: asString(formData.get('accountId')) ?? ''
 			});
 		} catch (error) {
+			// The posted account did not resolve under this user. An archived one of their own has an
+			// answer of its own, and a failed read is not a lookup that found nothing (L4a rule 3).
+			if (error instanceof ImportBucketAccountError && error.reason === 'not-found') {
+				logReferenceRefused(user.id, 'account');
+			}
 			return fail(400, {
 				error:
 					error instanceof ImportBucketAccountError && error.reason === 'archived'

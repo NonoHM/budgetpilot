@@ -23,6 +23,7 @@ import { isBankSyncStartRateLimited, recordBankSyncStartAttempt } from '$lib/ser
 import { resolveClientAddress } from '$lib/server/net/clientAddress';
 import { normalizeId } from '$lib/server/transactions/where';
 import type { PageServerLoad } from './$types';
+import { logReferenceRefused } from '$lib/server/logging/authz';
 
 /** The only provider exposed in the UI (the mock connector stays test/demo-only). */
 const PROVIDER = 'enablebanking';
@@ -187,7 +188,10 @@ export const actions: Actions = {
 		if (!connectionId) return fail(400, { error: m.bank_connections_error_generic() });
 
 		const deleted = await deleteBankConnection(user.id, connectionId);
-		if (!deleted) return fail(404, { error: m.bank_connections_error_generic() });
+		if (!deleted) {
+			logReferenceRefused(user.id, 'bank_connection');
+			return fail(404, { error: m.bank_connections_error_generic() });
+		}
 		return { success: m.bank_connections_deleted_success() };
 	},
 

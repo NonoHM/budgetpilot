@@ -9,6 +9,7 @@ import type { DeadSessionReason } from '$lib/server/logging/events';
 import { readIntegerSetting } from '$lib/server/env/readSetting';
 import { SETTINGS } from '$lib/server/env/settings';
 import { normalizeEmail, validateEmail } from '$lib/server/auth/emailAddress';
+import { logRoleRefused } from '$lib/server/logging/authz';
 
 export const SESSION_COOKIE = 'budgetpilot_session';
 export const BACKFILL_USER_ID = 'local-backfill-user';
@@ -385,7 +386,12 @@ export function requireUser(user: AuthUser | null): AuthUser {
 
 export function requireAdmin(user: AuthUser | null): AuthUser {
 	const authUser = requireUser(user);
-	if (authUser.role !== 'ADMIN') throw error(403, m.admin_error_forbidden());
+	if (authUser.role !== 'ADMIN') {
+		// After the role check and after requireUser's redirect: a visitor with no session is not
+		// named, and an admin is not refused (L4a).
+		logRoleRefused(authUser.id);
+		throw error(403, m.admin_error_forbidden());
+	}
 	return authUser;
 }
 
