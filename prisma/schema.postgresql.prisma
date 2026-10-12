@@ -116,6 +116,7 @@ model User {
   bankAuthorizationRequests       BankAuthorizationRequest[]
   recurringStreamActions          RecurringStreamAction[]
   tags                            Tag[]
+  inferenceHalts                  InferenceHalt[]
 }
 
 model RecoveryCode {
@@ -159,6 +160,23 @@ model Session {
 
   @@index([userId])
   @@index([expiresAt])
+}
+
+/// The instance-wide AI kill switch (#986, AISVS 1.0 C9.6.1). A row present means every model call
+/// is refused, and the one already running was aborted when it was written. At most one row: `id` is
+/// always `INFERENCE_HALT_ID` (`src/lib/server/ai/inferenceHalt.ts`), the only writer, which creates
+/// it on a halt and deletes it on a lift. A fact about the present set by an admin, not derived from
+/// anything else, so it is stored; its history is the two log events, not this table.
+model InferenceHalt {
+  id          Int      @id
+  /// Written by the application, never by the column default: see the SQLite format note in the
+  /// `session_last_seen_at` migration.
+  haltedAt    DateTime @default(now())
+  /// SET NULL, never CASCADE: deleting the admin who halted must not switch inference back on.
+  haltedById  String?
+  haltedBy    User?    @relation(fields: [haltedById], references: [id], onDelete: SetNull)
+
+  @@index([haltedById])
 }
 
 model Invitation {
