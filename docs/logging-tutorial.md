@@ -29,14 +29,8 @@ You need:
   If it prints a version, you are set. If the command is not found, install `jq` with your
   system's package manager and run the check again.
 
-- A terminal in the folder that holds your `docker-compose.prebuilt.yml`. Tell Docker Compose which
-  file to use, so that every command below can be short:
-
-  ```bash
-  export COMPOSE_FILE=docker-compose.prebuilt.yml
-  ```
-
-  The setting lasts until you close the terminal.
+- A terminal in the folder that holds your Compose files and `.env`. The `COMPOSE_FILE` line in
+  `.env` names the files, so every command below can be short; see [your Compose files](operations.md#your-compose-files).
 
 The commands show the instance at `http://localhost:3000`, the address Getting started gives. If you
 changed `APP_PORT`, use your port.

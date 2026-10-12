@@ -9,7 +9,7 @@ actually want to change, and why.
 After editing `.env`, restart the app for it to take effect:
 
 ```bash
-docker compose up -d          # or: docker compose -f docker-compose.prebuilt.yml up -d
+docker compose up -d
 ```
 
 ## The three secrets

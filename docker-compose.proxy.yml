@@ -1,6 +1,9 @@
-# Optional HTTPS reverse proxy. Combine with either base compose file:
-#   docker compose -f docker-compose.yml -f docker-compose.proxy.yml up -d --build
-#   docker compose -f docker-compose.prebuilt.yml -f docker-compose.proxy.yml up -d
+# Optional HTTPS reverse proxy.
+# Add this file to the COMPOSE_FILE line in .env, after the base file, for example
+#   COMPOSE_FILE=docker-compose.prebuilt.yml:docker-compose.proxy.yml
+# (docker-compose.yml first on a source checkout, docker-compose.override.yml last
+# if you have one), then run `docker compose up -d`.
+# docs/operations.md « Your Compose files » explains the line.
 #
 # Only needed if you want a real domain with automatic HTTPS. A LAN-only
 # instance over plain http:// works without any of this: set
@@ -20,7 +23,7 @@ services:
     # internal Compose network, and it is the only way in.
     #
     # The `!reset` tag is load-bearing and must not be simplified to a plain
-    # `ports: []`. Compose merges sequences from several -f files by APPENDING,
+    # `ports: []`. Compose merges sequences from several Compose files by APPENDING,
     # so an empty list appends nothing and the base file's
     # "${APP_PORT:-3000}:3000" mapping silently survives: the app stays
     # published on 0.0.0.0 while the block below trusts a forwarded client

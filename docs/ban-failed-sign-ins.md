@@ -72,14 +72,21 @@ move the log there.
          - ./caddy-logs:/var/log/caddy
    ```
 
-3. Restart the stack with the extra file:
+3. Add the file you wrote to the `COMPOSE_FILE` line in `.env`, after the files already there
+   ([your Compose files](operations.md#your-compose-files)):
 
-   ```bash
-   docker compose -f docker-compose.prebuilt.yml -f docker-compose.proxy.yml -f docker-compose.caddy-log.yml up -d
+   ```dotenv
+   COMPOSE_FILE=docker-compose.prebuilt.yml:docker-compose.proxy.yml:docker-compose.caddy-log.yml
    ```
 
-   If you build the image yourself, replace `docker-compose.prebuilt.yml` with `docker-compose.yml`
-   and add `--build`.
+   Then restart the stack:
+
+   ```bash
+   docker compose up -d
+   ```
+
+   If you build the image yourself, the line starts with `docker-compose.yml` and the command ends
+   with `--build`. A `docker-compose.override.yml`, if you have one, stays last.
 
 4. Sign in once with a wrong password, then count the marked lines:
 
@@ -177,7 +184,7 @@ feeds CrowdSec's general web scenarios.
 2. Restart Caddy:
 
    ```bash
-   docker compose -f docker-compose.prebuilt.yml -f docker-compose.proxy.yml -f docker-compose.caddy-log.yml restart caddy
+   docker compose restart caddy
    ```
 
 3. Install the Caddy collection:

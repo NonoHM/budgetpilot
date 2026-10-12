@@ -23,7 +23,7 @@ import { LOCAL_LLM_ENV_DEFAULTS } from './local-llm';
  * WHY THE PREBUILT PATH IS THE ONE THAT BREAKS, since it is not obvious that a `${VAR:-default}`
  * ever applies. `docker compose` interpolates from the project's `.env`, so an operator who copied
  * `.env.example` gets its value and never sees the overlay's. The prebuilt flow does not copy it:
- * `docs/getting-started.md` writes a five-line `.env` carrying secrets, a version and a port, so
+ * the README's `.env` block writes secrets, a version, a port and the Compose file list, so
  * every LLM variable falls through to the overlay's default. That is the documented path, and it is
  * the one this test protects.
  */

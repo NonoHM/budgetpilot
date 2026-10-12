@@ -6,12 +6,8 @@ Recipes for the everyday log tasks. If you have never read the log, start with
 [Your first look at the logs](./logging-tutorial.md). The fields and events are in
 [Logs](./logging.md).
 
-The commands assume Docker Compose and a folder that holds your Compose file. Tell Compose which
-file to use once per terminal, so the commands stay short:
-
-```bash
-export COMPOSE_FILE=docker-compose.prebuilt.yml
-```
+The commands assume the folder that holds your Compose files and `.env`, whose `COMPOSE_FILE` line
+names them; see [your Compose files](operations.md#your-compose-files).
 
 The `jq` recipes need `jq`, a program that reads JSON. Install it with your system's package
 manager. A line of the log is a JSON object, and `jq -R 'fromjson? | ...'` reads each line as text,
@@ -352,10 +348,17 @@ started from a shipped Compose file, and the log grows without a bound.
    docker compose logs --no-log-prefix budgetpilot > budgetpilot-before-change.log
    ```
 
-1. Start the container with both files.
+1. Add `docker-compose.logging.yml` to the `COMPOSE_FILE` line in `.env`, after the files already
+   there, then start the container.
+
+   ```dotenv
+   COMPOSE_FILE=docker-compose.prebuilt.yml:docker-compose.logging.yml
+   ```
+
+   On a source checkout, the line starts with `docker-compose.yml`. A `docker-compose.override.yml`, if you have one, stays last.
 
    ```bash
-   docker compose -f docker-compose.prebuilt.yml -f docker-compose.logging.yml up -d
+   docker compose up -d
    ```
 
 1. Check what Docker now applies.
@@ -368,9 +371,8 @@ started from a shipped Compose file, and the log grows without a bound.
    {"Type":"json-file","Config":{"max-file":"3","max-size":"20m"}}
    ```
 
-Pass both `-f` options each time you run `docker compose` for this instance, or set
-`COMPOSE_FILE=docker-compose.prebuilt.yml:docker-compose.logging.yml`. With only the first file,
-Compose goes back to the shipped bound and recreates the container again.
+Keep `docker-compose.logging.yml` in that line. Without it, Compose goes back to the shipped bound
+and recreates the container again.
 
 ## Change the log level
 

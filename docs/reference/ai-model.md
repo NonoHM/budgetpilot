@@ -238,9 +238,9 @@ keep answering; only `ollama pull` stops working while the file is in use.
 
 Every command below is a plain `docker compose`, reading your list of Compose
 files from the `COMPOSE_FILE` line in `.env`. If you have not written that line
-yet, see « Before you start » under
-[Before you upgrade to 1.3.0](../operations.md#before-you-upgrade-to-130); on
-the prebuilt image it reads, for example:
+yet, see [your Compose files](../operations.md#your-compose-files). On the
+prebuilt image it reads, for example (`docker-compose.yml` comes first on a
+source checkout, and a `docker-compose.override.yml`, if you have one, last):
 
 ```dotenv
 COMPOSE_FILE=docker-compose.prebuilt.yml:docker-compose.ai.yml

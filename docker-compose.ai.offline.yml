@@ -1,9 +1,10 @@
 # Optional: Ollama with no internet access. Goes on top of docker-compose.ai.yml (and
-# docker-compose.ai.gpu.yml, if you use it), never instead of it:
-#   docker compose -f docker-compose.yml -f docker-compose.ai.yml \
-#     -f docker-compose.ai.offline.yml up -d --build
-#   docker compose -f docker-compose.prebuilt.yml -f docker-compose.ai.yml \
-#     -f docker-compose.ai.offline.yml up -d
+# docker-compose.ai.gpu.yml, if you use it), never instead of it. Add it to the COMPOSE_FILE
+# line in .env, after those, for example
+#   COMPOSE_FILE=docker-compose.prebuilt.yml:docker-compose.ai.yml:docker-compose.ai.offline.yml
+# (docker-compose.yml first on a source checkout, docker-compose.override.yml last
+# if you have one), then run `docker compose up -d`.
+# docs/operations.md « Your Compose files » explains the line.
 #
 # docker-compose.ai.yml puts Ollama on two networks: `ai`, which only the app shares and which
 # has no route out, and `ollama_egress`, which exists so that `ollama pull` can reach the model

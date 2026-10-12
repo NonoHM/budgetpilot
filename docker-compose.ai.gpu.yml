@@ -1,9 +1,10 @@
 # Optional NVIDIA GPU acceleration for the AI overlay. Always goes on top of
-# docker-compose.ai.yml, never instead of it:
-#   docker compose -f docker-compose.yml -f docker-compose.ai.yml \
-#     -f docker-compose.ai.gpu.yml up -d --build
-#   docker compose -f docker-compose.prebuilt.yml -f docker-compose.ai.yml \
-#     -f docker-compose.ai.gpu.yml up -d
+# docker-compose.ai.yml, never instead of it. Add it to the COMPOSE_FILE line in .env,
+# after docker-compose.ai.yml, for example
+#   COMPOSE_FILE=docker-compose.prebuilt.yml:docker-compose.ai.yml:docker-compose.ai.gpu.yml
+# (docker-compose.yml first on a source checkout, docker-compose.override.yml last
+# if you have one), then run `docker compose up -d`.
+# docs/operations.md « Your Compose files » explains the line.
 #
 # Requires an NVIDIA GPU and nvidia-container-toolkit installed on the host. If
 # either is missing, `up` fails on the ollama service with "could not select
