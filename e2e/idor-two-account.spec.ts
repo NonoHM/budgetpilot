@@ -684,9 +684,10 @@ test.describe('function-level access (v5.0.0-8.2.1)', () => {
 		).toEqual([]);
 
 		// The halt above was real (#986): the lift that followed it must have landed, or every later
-		// spec runs against a halted instance. Read on the page, as the admin sees it.
+		// spec runs against a halted instance. Read on the page, as the admin sees it: the suite runs
+		// with `LLM_ENABLED` off (`.env.test`), so a lifted halt reads « Off ».
 		const admin = await (await attacker.get('/admin')).text();
-		expect(admin).toContain(`>${m.admin_ai_state_running()}<`);
+		expect(admin).toContain(`>${m.admin_ai_state_off()}<`);
 	});
 
 	// A guard protects only what it inspects, and this list is the inspection. An admin action
