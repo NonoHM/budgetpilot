@@ -133,7 +133,8 @@ describe('R3 on #841, as data', () => {
 			confirmTotpSetup: 'password+new-secret-code',
 			restoreData: 'password+totp-when-enabled',
 			deleteUser: 'password+totp-when-enabled',
-			resetPassword: 'password+totp-when-enabled'
+			resetPassword: 'password+totp-when-enabled',
+			liftInferenceHalt: 'password+totp-when-enabled'
 		});
 	});
 });
@@ -973,14 +974,15 @@ describe('#904: a stored secret that does not decrypt', () => {
 		};
 	}
 
-	it('the table names six actions that ask the stored factor for a code', () => {
+	it('the table names seven actions that ask the stored factor for a code', () => {
 		expect(asksStoredCode).toEqual([
 			'changePassword',
 			'deleteAccount',
 			'disableTotp',
 			'restoreData',
 			'deleteUser',
-			'resetPassword'
+			'resetPassword',
+			'liftInferenceHalt'
 		]);
 	});
 

@@ -110,7 +110,10 @@ export const REAUTH_FACTORS = {
 	confirmTotpSetup: 'password+new-secret-code',
 	restoreData: 'password+totp-when-enabled',
 	deleteUser: 'password+totp-when-enabled',
-	resetPassword: 'password+totp-when-enabled'
+	resetPassword: 'password+totp-when-enabled',
+	// #986, owner ruling 2026-10-12: resuming AI turns a capability back on for every member, so a
+	// session alone is not enough. Halting asks for nothing: it only takes a capability away.
+	liftInferenceHalt: 'password+totp-when-enabled'
 } as const satisfies Record<string, ReauthFactors>;
 
 export type ReauthAction = keyof typeof REAUTH_FACTORS;

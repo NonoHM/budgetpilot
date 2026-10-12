@@ -42,6 +42,7 @@
 	let deleteTarget: (typeof data.users)[number] | null = $state(null);
 	let resetTarget: (typeof data.users)[number] | null = $state(null);
 	let revokeInviteTarget: (typeof data.invitations)[number] | null = $state(null);
+	let resumeOpen = $state(false);
 
 	function buildPageHref(page: number): string {
 		// Local scratch value, built and discarded within this function; never stored as reactive state.
@@ -75,6 +76,58 @@
 		}, 1500);
 	}
 </script>
+
+<!-- #986: the instance-wide AI kill switch. One snippet for both layouts, so the two cannot drift. -->
+{#snippet aiSection()}
+	<div class="space-y-3 border-t border-zinc-200 pt-4">
+		<div class="flex items-center gap-2">
+			<h2 class="text-lg font-semibold tracking-normal">{m.admin_ai_heading()}</h2>
+			<span role="status">
+				{#if data.inferenceHalt}
+					<Badge tone="warning">{m.admin_ai_state_halted()}</Badge>
+				{:else}
+					<Badge tone="success">{m.admin_ai_state_running()}</Badge>
+				{/if}
+			</span>
+		</div>
+
+		{#if form?.haltError}
+			<AlertBanner variant="error">{form.haltError}</AlertBanner>
+		{/if}
+		{#if form?.haltSuccess}
+			<AlertBanner variant="success">{form.haltSuccess}</AlertBanner>
+		{/if}
+
+		{#if data.inferenceHalt}
+			<p class="text-sm text-zinc-500">
+				{data.inferenceHalt.haltedByEmail
+					? m.admin_ai_halted_by({
+							email: data.inferenceHalt.haltedByEmail,
+							date: formatDateTime(data.inferenceHalt.haltedAt)
+						})
+					: m.admin_ai_halted_by_deleted({ date: formatDateTime(data.inferenceHalt.haltedAt) })}
+			</p>
+			<Button
+				type="button"
+				variant="secondary"
+				class="h-11 w-full !rounded-xl lg:h-auto lg:w-auto lg:!rounded-lg"
+				onclick={() => (resumeOpen = true)}>{m.admin_ai_resume()}</Button
+			>
+		{:else}
+			<p class="text-sm text-zinc-500">
+				{data.aiConfigured ? m.admin_ai_running_body() : m.admin_ai_not_configured()}
+			</p>
+			<form method="POST" action="?/haltInference">
+				<Button
+					type="submit"
+					variant="danger"
+					class="h-11 w-full !rounded-xl lg:h-auto lg:w-auto lg:!rounded-lg"
+					>{m.admin_ai_halt()}</Button
+				>
+			</form>
+		{/if}
+	</div>
+{/snippet}
 
 <svelte:head>
 	<title>{m.admin_page_title()}</title>
@@ -331,6 +384,8 @@
 				<p class="text-sm text-zinc-500">{m.admin_invitations_empty()}</p>
 			{/if}
 		</div>
+
+		{@render aiSection()}
 	</section>
 
 	<!-- ============ MOBILE (<lg) ============ -->
@@ -628,6 +683,8 @@
 				<p class="text-sm text-zinc-500">{m.admin_invitations_empty()}</p>
 			{/if}
 		</div>
+
+		{@render aiSection()}
 	</section>
 </main>
 
@@ -678,6 +735,18 @@
 				<ReauthFields asksCode={data.reauthAsksCode} idPrefix="admin-reset" />
 			</div>
 		{/if}
+	</ConfirmDialog>
+</form>
+
+<!-- Confirm resuming AI (#986): the admin's own secrets, like the two dialogs above. -->
+<form method="POST" action="?/liftInferenceHalt">
+	<ConfirmDialog
+		open={resumeOpen}
+		title={m.admin_ai_resume_confirm_title()}
+		confirmLabel={m.admin_ai_resume()}
+		onClose={() => (resumeOpen = false)}
+	>
+		<ReauthFields asksCode={data.reauthAsksCode} idPrefix="admin-ai-resume" />
 	</ConfirmDialog>
 </form>
 

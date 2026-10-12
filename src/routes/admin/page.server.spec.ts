@@ -10,6 +10,9 @@ const tx = vi.hoisted(() => ({
 	transaction: {
 		deleteMany: vi.fn()
 	},
+	inferenceHalt: {
+		deleteMany: vi.fn(async () => ({ count: 1 }))
+	},
 	user: {
 		delete: vi.fn(),
 		update: vi.fn()
@@ -25,6 +28,11 @@ const db = vi.hoisted(() => ({
 			// The step a valid code records (#818): accepted. The engine's answer is
 			// `totpSingleUse.db-smoke.ts`'s; here the re-authentication's outcome is what is tested.
 			updateMany: vi.fn(async () => ({ count: 1 }))
+		},
+		// The halt's read for the page (#986); its writes are on `tx`, its engine answers in
+		// `ai/inferenceHalt.db-smoke.ts`.
+		inferenceHalt: {
+			findUnique: vi.fn(async () => null)
 		},
 		$transaction: vi.fn(async (callback: (client: typeof tx) => Promise<unknown>) => callback(tx))
 	}
@@ -532,11 +540,15 @@ describe('/admin action revokeInvitation', () => {
  * only for a wrong factor), and the same calibration that makes « no write » able to fail.
  */
 describe('#229: the admin re-authenticates before acting on another account', () => {
-	type AdminReauthAction = 'deleteUser' | 'resetPassword';
-	const ACTIONS: AdminReauthAction[] = ['deleteUser', 'resetPassword'];
+	type AdminReauthAction = 'deleteUser' | 'resetPassword' | 'liftInferenceHalt';
+	const ACTIONS: AdminReauthAction[] = ['deleteUser', 'resetPassword', 'liftInferenceHalt'];
 	const REASONS = ['wrong-password', 'missing-password', 'missing-totp', 'wrong-totp'] as const;
 	const ROWS = ACTIONS.flatMap((action) => REASONS.map((reason) => [action, reason]));
-	const ERROR_KEY = { deleteUser: 'deleteError', resetPassword: 'resetError' } as const;
+	const ERROR_KEY = {
+		deleteUser: 'deleteError',
+		resetPassword: 'resetError',
+		liftInferenceHalt: 'haltError'
+	} as const;
 
 	let secret = '';
 	let secretEncrypted = '';
@@ -566,7 +578,13 @@ describe('#229: the admin re-authenticates before acting on another account', ()
 	}
 
 	function writes() {
-		return [tx.user.delete, tx.user.update, tx.session.deleteMany, tx.transaction.deleteMany];
+		return [
+			tx.user.delete,
+			tx.user.update,
+			tx.session.deleteMany,
+			tx.transaction.deleteMany,
+			tx.inferenceHalt.deleteMany
+		];
 	}
 
 	beforeAll(async () => {
@@ -707,6 +725,7 @@ async function invokeAction(
 			resetError?: string;
 			inviteError?: string;
 			revokeInviteError?: string;
+			haltError?: string;
 		};
 		deleteSuccess?: string;
 		resetTargetUserId?: string;
