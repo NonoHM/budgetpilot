@@ -413,7 +413,8 @@ Set the flag in `.env`:
 BANK_SYNC_ENABLED=true
 ```
 
-Then restart the stack.
+Then apply it with `docker compose up -d` (a plain `restart` keeps the old
+value).
 
 **To verify:** open **Imports > Bank connections**. You should see a connect
 form rather than a notice saying the feature is disabled.

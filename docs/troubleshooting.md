@@ -23,7 +23,8 @@ Error: RATE_LIMIT_HASH_SECRET is required (set it in your environment)
 ```
 
 or the same for `TOTP_ENCRYPTION_KEY`, that variable is empty or missing in
-`.env`. Generate a value, restart. The crash is deliberate: the app refuses
+`.env`. Generate a value, then run `docker compose up -d` (a plain `restart`
+keeps the empty value). The crash is deliberate: the app refuses
 to run with a security control switched off.
 
 ```bash
