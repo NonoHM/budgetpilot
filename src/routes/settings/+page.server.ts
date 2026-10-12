@@ -56,6 +56,7 @@ import {
 } from '$lib/server/accounts/service';
 import { readLinkableNetWorthAccounts } from '$lib/server/net-worth/service';
 import type { PageServerLoad } from './$types';
+import { logReferenceRefused } from '$lib/server/logging/authz';
 
 const BACKUP_MAX_BYTES = 20_000_000;
 
@@ -262,6 +263,7 @@ export const actions: Actions = {
 			select: { id: true }
 		});
 		if (!target) {
+			logReferenceRefused(user.id, 'session');
 			return fail(404, { sessionsError: m.settings_error_session_revoke_failed() });
 		}
 		if (target.id === user.sessionId) {
@@ -545,6 +547,7 @@ export const actions: Actions = {
 				// to another user: the service's updateMany({ id, userId }) already collapses both
 				// into one zero-count outcome, and this branch must not reintroduce a distinction it
 				// refused to make. See the security section of the tags design spec.
+				logReferenceRefused(user.id, 'tag');
 				return fail(404, { tagsError: m.tags_error_not_found() });
 		}
 	},
@@ -566,6 +569,7 @@ export const actions: Actions = {
 				return fail(400, { tagsError: m.tags_error_invalid_color() });
 			case 'not-found':
 				// Same generic message as renameTag's not-found branch, for the same reason.
+				logReferenceRefused(user.id, 'tag');
 				return fail(404, { tagsError: m.tags_error_not_found() });
 		}
 	},
@@ -579,6 +583,7 @@ export const actions: Actions = {
 		const result = await deleteTagService(user.id, id);
 		if (result === 'not-found') {
 			// Same generic message as renameTag's not-found branch, for the same reason.
+			logReferenceRefused(user.id, 'tag');
 			return fail(404, { tagsError: m.tags_error_not_found() });
 		}
 
@@ -612,7 +617,11 @@ export const actions: Actions = {
 		const user = requireUser(locals.user);
 		const formData = await request.formData();
 		const id = normalizeId(getFormValue(formData, 'id'));
-		if (!id) return fail(400, { accountsError: m.accounts_error_not_found() });
+		if (!id) {
+			// The answer `accountRefusal('not-found')` gives, so the same line (L4a design rule 3).
+			logReferenceRefused(user.id, 'account');
+			return fail(400, { accountsError: m.accounts_error_not_found() });
+		}
 
 		try {
 			await renameStatementAccount({
@@ -630,7 +639,11 @@ export const actions: Actions = {
 		const user = requireUser(locals.user);
 		const formData = await request.formData();
 		const id = normalizeId(getFormValue(formData, 'id'));
-		if (!id) return fail(400, { accountsError: m.accounts_error_not_found() });
+		if (!id) {
+			// The answer `accountRefusal('not-found')` gives, so the same line (L4a design rule 3).
+			logReferenceRefused(user.id, 'account');
+			return fail(400, { accountsError: m.accounts_error_not_found() });
+		}
 
 		// Positive: only the literal 'false' reactivates. An absent field archives, which is the
 		// direction a hand-crafted request must not be able to obtain by omission — same reading
@@ -650,7 +663,11 @@ export const actions: Actions = {
 		const user = requireUser(locals.user);
 		const formData = await request.formData();
 		const id = normalizeId(getFormValue(formData, 'id'));
-		if (!id) return fail(400, { accountsError: m.accounts_error_not_found() });
+		if (!id) {
+			// The answer `accountRefusal('not-found')` gives, so the same line (L4a design rule 3).
+			logReferenceRefused(user.id, 'account');
+			return fail(400, { accountsError: m.accounts_error_not_found() });
+		}
 
 		// An empty selection means « aucun » and clears the link. Normalised to null HERE so the
 		// service never has to decide what an empty string means about an object reference.
@@ -676,6 +693,7 @@ export const actions: Actions = {
 
 		const result = await deleteColumnMapping(user.id, id);
 		if (result === 'not-found') {
+			logReferenceRefused(user.id, 'column_mapping');
 			return fail(404, { columnMappingError: m.settings_mappings_error_not_found() });
 		}
 
@@ -696,6 +714,7 @@ export const actions: Actions = {
 		const id = normalizeId(getFormValue(formData, 'id'));
 		const result = id ? await forgetRememberedAccount(user.id, id) : 'not-found';
 		if (result === 'not-found') {
+			logReferenceRefused(user.id, 'remembered_account');
 			return fail(404, {
 				rememberedAccountError: m.settings_remembered_accounts_error_not_found()
 			});

@@ -6,6 +6,7 @@ import { computeNameKey } from '$lib/server/naming/nameKey';
 import { displayAccountName } from './projection';
 import { MAX_ACCOUNT_NAME_LENGTH } from '$lib/domain/account';
 import { writeNetWorthLink } from '$lib/server/net-worth/link';
+import { logReferenceRefused } from '$lib/server/logging/authz';
 
 /**
  * Creating and naming the accounts a statement can belong to.
@@ -276,7 +277,10 @@ export async function renameStatementAccount(input: {
 			where: { id: input.accountId, userId: input.userId },
 			data: { name, nameKey }
 		});
-		if (count === 0) throw new AccountWriteError('not-found');
+		if (count === 0) {
+			logReferenceRefused(input.userId, 'account');
+			throw new AccountWriteError('not-found');
+		}
 	} catch (caught) {
 		if (caught instanceof AccountWriteError) throw caught;
 		// `@@unique([userId, name, source])` is what decides a race the read above cannot see.
@@ -305,7 +309,10 @@ export async function archiveStatementAccount(input: {
 		where: { id: input.accountId, userId: input.userId },
 		data: { archivedAt: input.archived === false ? null : new Date() }
 	});
-	if (count === 0) throw new AccountWriteError('not-found');
+	if (count === 0) {
+		logReferenceRefused(input.userId, 'account');
+		throw new AccountWriteError('not-found');
+	}
 }
 
 /**
@@ -348,6 +355,8 @@ export async function linkNetWorthAccount(input: {
 		netWorthAccountId: input.netWorthAccountId,
 		bucket: 'any'
 	});
+	// Both refusals were logged at their lookup in `writeNetWorthLink`, which knows which of the two
+	// references failed; logging here too would write two lines for one request (L4a).
 	if (refusal === 'account-not-found') throw new AccountWriteError('not-found');
 	if (refusal === 'net-worth-not-found') throw new AccountWriteError('net-worth-not-found');
 	if (refusal === 'already-synced') throw new AccountWriteError('net-worth-already-synced');

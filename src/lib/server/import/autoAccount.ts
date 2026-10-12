@@ -10,6 +10,7 @@ import {
 import { resolveNamedAccount } from './sourceSignature';
 import { accountHoldingFragment, findDiscriminantColumn } from './discriminant';
 import type { ParsedCsvRow } from './types';
+import { logReferenceRefused } from '$lib/server/logging/authz';
 
 /**
  * Which account an AUTO-DETECTED statement lands in, decided with nothing on screen.
@@ -134,6 +135,9 @@ export async function decideAutoAccount(input: {
 			};
 		} catch (error) {
 			if (error instanceof ImportBucketAccountError) {
+				// The client's answer did not resolve under this user. An archived account of their own
+				// gets an answer of its own, so it writes nothing here (L4a design rule 3).
+				if (error.reason === 'not-found') logReferenceRefused(input.userId, 'account');
 				return { kind: 'refused', reason: error.reason };
 			}
 			throw error;
@@ -161,6 +165,8 @@ export async function decideAutoAccount(input: {
 			};
 		} catch (error) {
 			if (!(error instanceof ImportBucketAccountError)) throw error;
+			// No authz_fail: this id is one the server read from the user's own accounts a moment ago,
+			// not a client reference, so its absence is a race (L4a design rule 3).
 			// The named account no longer resolves (archived or gone between the two reads above,
 			// a race rather than the ordinary case): by-source bucketing decides below, exactly as
 			// it would have if rank 2 had found nothing.

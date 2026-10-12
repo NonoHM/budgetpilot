@@ -55,6 +55,7 @@ import type { PageServerLoad } from './$types';
 import { readAccountDisplayName } from '$lib/server/accounts/service';
 import { IMPORTED_COUNT_SELECT, importedCountOf } from '$lib/server/import/importedCount';
 import type { ImportSummaryResult } from '$lib/domain/importSummary';
+import { logReferenceRefused } from '$lib/server/logging/authz';
 
 /**
  * Sources an import CSV row can land on, based on the auto-detected profile (see
@@ -108,6 +109,12 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 					select: { id: true, createdAt: true, ...IMPORTED_COUNT_SELECT }
 				})
 			: null;
+	// Both fall through rather than refuse, so the line is the only trace of an id that did not
+	// resolve; the batch is looked up only once the correspondance resolved (L4a).
+	if (correctParam && !correcting) logReferenceRefused(user.id, 'column_mapping');
+	else if (correcting && batchParam && !correctingBatch) {
+		logReferenceRefused(user.id, 'import_batch');
+	}
 	// What the replacement destroys BEYOND the rows, so the control can name it and can stay SILENT
 	// when there is nothing to name. A warning about a loss that cannot occur is discounted every
 	// time after, and then it is not read on the one run where it was true, so the app answers the
@@ -281,6 +288,17 @@ export const actions: Actions = {
 						select: { id: true }
 					})
 				: null;
+		// The same two silent fall-throughs as the load, logged the same way (L4a).
+		if (typeof correctMappingId === 'string' && correctMappingId.length > 0 && !correcting) {
+			logReferenceRefused(user.id, 'column_mapping');
+		} else if (
+			correcting &&
+			typeof correctBatchId === 'string' &&
+			correctBatchId.length > 0 &&
+			!correctingBatch
+		) {
+			logReferenceRefused(user.id, 'import_batch');
+		}
 		// The wrong file, handed back. Refused rather than designated, and this is not fussiness: the
 		// screen would open, the user would designate, and the mapping written would be a NEW one
 		// under this file's fingerprint. Correct for the file they picked by mistake, and leaving the

@@ -2,6 +2,7 @@ import { prisma } from '$lib/server/db';
 import { isLinkableNetWorthAccountType, type NetWorthAccountType } from '$lib/domain/netWorth';
 import { wouldContestNetWorthLine, type NetWorthLinkRow } from '$lib/domain/netWorthLink';
 import { normalizeId } from '$lib/server/transactions/where';
+import { logReferenceRefused } from '$lib/server/logging/authz';
 
 /**
  * THE ONLY PLACE `Account.netWorthAccountId` IS SET TO A CHOSEN VALUE.
@@ -69,7 +70,10 @@ export async function writeNetWorthLink(
 	input: NetWorthLinkInput
 ): Promise<NetWorthLinkRefusal | null> {
 	const accountId = normalizeId(input.accountId);
-	if (!accountId) return 'account-not-found';
+	if (!accountId) {
+		logReferenceRefused(input.userId, 'account');
+		return 'account-not-found';
+	}
 
 	return prisma.$transaction(async (tx) => {
 		// FIRST OBJECT REFERENCE. `userId` is in the same where clause rather than checked after the
@@ -83,7 +87,10 @@ export async function writeNetWorthLink(
 			},
 			select: { id: true, bankConnectionId: true }
 		});
-		if (!bucket) return 'account-not-found';
+		if (!bucket) {
+			logReferenceRefused(input.userId, 'account');
+			return 'account-not-found';
+		}
 
 		if (input.netWorthAccountId !== null) {
 			// SECOND OBJECT REFERENCE, and it is a separate authorisation: a function validating one of
@@ -98,6 +105,7 @@ export async function writeNetWorthLink(
 				select: { id: true, type: true }
 			});
 			if (!target || !isLinkableNetWorthAccountType(target.type as NetWorthAccountType)) {
+				logReferenceRefused(input.userId, 'net_worth_account');
 				return 'net-worth-not-found';
 			}
 

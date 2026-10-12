@@ -306,7 +306,8 @@ export const handleError: HandleServerError = ({ error, status, message }) => {
 };
 
 // The log context first, before `handleAuth`, so every line a request writes carries its id
-// (#250). Kit's own origin check answers before any of these runs.
+// (#250). Kit's own origin check answers before any of these runs, so its cross-site 403 writes no
+// authz_fail: no hook sees it, and it refuses an origin rather than a reference or a role (L4b's).
 export const handle: Handle = sequence(
 	handleLogContext,
 	handleParaglide,

@@ -108,6 +108,7 @@ export const actions: Actions = {
 			where: { id: targetUserId },
 			select: { id: true }
 		});
+		// authz-exempt: admin power is unscoped by design, so a missing target is not an authorization failure (L4a)
 		if (!target) return fail(404, { deleteError: m.admin_error_user_not_found() });
 
 		// The ADMIN's session token is replaced in the same commit (#249).
@@ -140,6 +141,7 @@ export const actions: Actions = {
 			where: { id: targetUserId },
 			select: { id: true, email: true }
 		});
+		// authz-exempt: admin power is unscoped by design, so a missing target is not an authorization failure (L4a)
 		if (!target) return fail(404, { resetError: m.admin_error_user_not_found() });
 
 		const temporaryPassword = generateTemporaryPassword();
@@ -230,6 +232,7 @@ export const actions: Actions = {
 			return fail(400, { revokeInviteError: m.admin_error_invitation_not_found() });
 
 		const revoked = await revokeInvitation(invitationId);
+		// authz-exempt: admin power is unscoped by design, so a missing invitation is not an authorization failure (L4a)
 		if (!revoked) return fail(404, { revokeInviteError: m.admin_error_invitation_not_found() });
 
 		return { revokeInviteSuccess: m.admin_invitation_revoked() };

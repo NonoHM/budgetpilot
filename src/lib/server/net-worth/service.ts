@@ -15,6 +15,7 @@ import { normalizeId } from '$lib/server/transactions/where';
 import { computeNameKey } from '$lib/server/naming/nameKey';
 import { ensureManualAccount, findManualAccount } from '$lib/server/budget/dashboard';
 import { writeNetWorthLink } from './link';
+import { logReferenceRefused } from '$lib/server/logging/authz';
 
 const MAX_NAME_LENGTH = 120;
 
@@ -129,7 +130,10 @@ export async function updateNetWorthAccount(
 	accountId: string,
 	input: SaveNetWorthAccountInput
 ): Promise<void> {
-	if (!normalizeId(accountId)) throw error(404, m.net_worth_error_not_found());
+	if (!normalizeId(accountId)) {
+		logReferenceRefused(userId, 'net_worth_account');
+		throw error(404, m.net_worth_error_not_found());
+	}
 
 	const { name, type, balanceCents, capturedAt } = validateInput(input);
 
@@ -140,7 +144,10 @@ export async function updateNetWorthAccount(
 		const existing = await tx.netWorthAccount.findFirst({
 			where: { id: accountId, userId, deletedAt: null }
 		});
-		if (!existing) throw error(404, m.net_worth_error_not_found());
+		if (!existing) {
+			logReferenceRefused(userId, 'net_worth_account');
+			throw error(404, m.net_worth_error_not_found());
+		}
 
 		await assertNameAvailable(tx, userId, name, accountId);
 
@@ -203,14 +210,20 @@ export async function updateNetWorthAccount(
  * name/source instead of continuing to show a deleted net worth account's name.
  */
 export async function deleteNetWorthAccount(userId: string, accountId: string): Promise<void> {
-	if (!normalizeId(accountId)) throw error(404, m.net_worth_error_not_found());
+	if (!normalizeId(accountId)) {
+		logReferenceRefused(userId, 'net_worth_account');
+		throw error(404, m.net_worth_error_not_found());
+	}
 
 	await prisma.$transaction(async (tx) => {
 		const result = await tx.netWorthAccount.updateMany({
 			where: { id: accountId, userId, deletedAt: null },
 			data: { deletedAt: new Date() }
 		});
-		if (result.count === 0) throw error(404, m.net_worth_error_not_found());
+		if (result.count === 0) {
+			logReferenceRefused(userId, 'net_worth_account');
+			throw error(404, m.net_worth_error_not_found());
+		}
 
 		await tx.account.updateMany({
 			where: { userId, netWorthAccountId: accountId },
@@ -263,7 +276,10 @@ export async function setManualAccountNetWorthLink(
 			where: { id: netWorthAccountId, userId, deletedAt: null },
 			select: { id: true }
 		});
-		if (!target) throw error(404, m.net_worth_error_not_found());
+		if (!target) {
+			logReferenceRefused(userId, 'net_worth_account');
+			throw error(404, m.net_worth_error_not_found());
+		}
 	}
 
 	const account = await ensureManualAccount(userId);
@@ -302,6 +318,7 @@ export async function linkBankAccountToNetWorth(
 		bucket: 'bank-sync'
 	});
 	if (refusal === 'already-synced') throw error(409, m.net_worth_error_already_synced());
+	// authz-exempt: logged at the lookup in net-worth/link.ts, which knows account from net_worth_account (L4a design point 4)
 	if (refusal) throw error(404, m.net_worth_error_not_found());
 }
 

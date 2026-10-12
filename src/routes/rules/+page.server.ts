@@ -12,6 +12,7 @@ import { requireUser } from '$lib/server/auth';
 import { prisma } from '$lib/server/db';
 import { normalizeId } from '$lib/server/transactions/where';
 import type { PageServerLoad } from './$types';
+import { logReferenceRefused } from '$lib/server/logging/authz';
 
 export const load: PageServerLoad = async ({ locals, url }) => {
 	const user = requireUser(locals.user);
@@ -100,7 +101,10 @@ export const actions: Actions = {
 			where: { id, userId: user.id },
 			data: { enabled }
 		});
-		if (result.count === 0) return fail(404, { error: m.rules_error_not_found() });
+		if (result.count === 0) {
+			logReferenceRefused(user.id, 'rule');
+			return fail(404, { error: m.rules_error_not_found() });
+		}
 
 		return { success: enabled ? m.rules_success_enabled() : m.rules_success_disabled() };
 	},
@@ -113,7 +117,10 @@ export const actions: Actions = {
 		const result = await prisma.categoryRule.deleteMany({
 			where: { id, userId: user.id }
 		});
-		if (result.count === 0) return fail(404, { error: m.rules_error_not_found() });
+		if (result.count === 0) {
+			logReferenceRefused(user.id, 'rule');
+			return fail(404, { error: m.rules_error_not_found() });
+		}
 
 		return { success: m.rules_success_deleted() };
 	},
@@ -147,7 +154,10 @@ export const actions: Actions = {
 				defaultRuleKey: null
 			}
 		});
-		if (result.count === 0) return fail(404, { error: m.rules_error_not_found() });
+		if (result.count === 0) {
+			logReferenceRefused(user.id, 'rule');
+			return fail(404, { error: m.rules_error_not_found() });
+		}
 
 		return { success: m.rules_success_updated() };
 	},

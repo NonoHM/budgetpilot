@@ -5,6 +5,7 @@ import { recapDesignation } from '$lib/server/import/mapping/recap';
 import { formatCents } from '$lib/domain/budget';
 import { getLocale } from '$lib/paraglide/runtime';
 import type { PageServerLoad } from './$types';
+import { logReferenceRefused } from '$lib/server/logging/authz';
 
 /**
  * « Voir les colonnes »: the memorised correspondance an import was read through.
@@ -55,7 +56,10 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 	// One 404 for "no such batch" and for "that batch has no correspondance". The second is not a
 	// permission failure, but distinguishing them here would let a caller enumerate which of
 	// another user's ids exist, and there is nothing to gain by separating them.
-	if (!batch || !batch.columnMapping) error(404, 'Not found');
+	if (!batch || !batch.columnMapping) {
+		logReferenceRefused(user.id, 'import_batch');
+		error(404, 'Not found');
+	}
 
 	/**
 	 * ONE transaction of this batch, rendered per role.
