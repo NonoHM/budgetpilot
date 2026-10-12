@@ -41,6 +41,8 @@ The requirements a caller inherits. Each is a property of the code in
 | Honours a JSON schema passed as `format` | The caller's schema is sent on every request, and the answer is validated against it; anything else is refused.     |
 | Fits its answer in the caller's ceiling  | Sent as `num_predict`. The caller derives it from the largest answer its schema admits, never from a chosen number. |
 | Suppresses reasoning when told to        | `think: false` is sent on every request, to every model.                                                            |
+| Lists the model on `/api/tags`, locally  | Read before and after every generation, for the model's digest and format. See « Refusals before a generation ».    |
+| Answers within a byte bound              | The connection stops reading at a bound derived from the caller's schema. See « How much the connection reads ».    |
 
 The ceiling is the caller's because a fixed number outlives the schema it was
 sized for: a literal 512 cut every complete answer short until it was replaced
@@ -70,6 +72,86 @@ default is written; `qualifiedModel.spec.ts` holds every copy of the tag to it.
 The weekly re-qualification and `npm run ai:check` were removed with the
 advice. A qualification belongs to a task, and the next caller defines a new
 one.
+
+## Pinning the model by digest
+
+`LLM_MODEL` names a model by tag, and a tag is a pointer that a later pull can
+move. `BP_LLM_MODEL_DIGEST` pins the model itself: with it set, the connection
+refuses to generate with any model whose digest differs, even under the same
+name. It is optional and unset by default.
+
+The value is the full digest, 64 lowercase hexadecimal characters. Any other
+value stops the app at start with a message naming the variable. `ollama list`
+prints only the first 12 characters, so read the whole digest one of these
+ways:
+
+- With the AI overlay, from the directory holding `.env`:
+
+  ```bash
+  docker compose exec ollama sha256sum /var/lib/ollama/.ollama/models/manifests/registry.ollama.ai/library/phi4-mini/3.8b
+  ```
+
+  Replace `phi4-mini/3.8b` with your model's name and tag, separated by `/`.
+  The first word printed is the digest.
+
+- With Ollama on the same machine as the app:
+
+  ```bash
+  curl -s http://127.0.0.1:11434/api/tags | jq -r '.models[] | "\(.digest) \(.name)"'
+  ```
+
+Both print the same value: on Ollama 0.32.5 the digest `/api/tags` lists is the
+SHA-256 of the model's manifest file. Write it in `.env` as
+`BP_LLM_MODEL_DIGEST=<digest>`, then run `docker compose up -d`, because
+`docker compose restart` does not read an edited `.env`.
+
+After a pull you meant to make, read the digest again and update the line. Until
+you do, every generation is refused as `model_mismatch`, which is the pin doing
+its job.
+
+**The pin detects a swap. It does not authenticate the model server.** The
+digest is the one the server reports about itself, so a hostile server can
+report the pinned value. What it catches is an accidental or unreviewed pull
+under the same tag. No model signatures exist upstream to check instead.
+
+## Refusals before a generation
+
+Every generation first asks the model server which model it would use, on
+`/api/tags`, within the connect budget (`LLM_CONNECT_TIMEOUT_MS`). Each of these
+is refused before the model is asked anything:
+
+| Code                 | When                                                                                                                                  |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `model_unavailable`  | The server does not list `LLM_MODEL`. Names compare as Ollama prints them: `library/` dropped, `:latest` added to a name with no tag. |
+| `model_remote`       | The server lists the model as forwarded to another machine, as an Ollama `-cloud` tag is: the prompt would leave for ollama.com.      |
+| `model_unidentified` | The list cannot be read: larger than 1 MiB, not JSON, or a digest that is not 64 hexadecimal characters.                              |
+| `model_mismatch`     | `BP_LLM_MODEL_DIGEST` is set and the listed digest differs.                                                                           |
+
+The list is read again after the answer. If the digest changed while the model
+was generating, the answer is refused as `model_mismatch`.
+
+## How much the connection reads
+
+The connection stops reading an answer at a bound it derives from the caller's
+schema, and refuses the answer as `response_unusable` once the server sends
+more. Before [#967](https://github.com/NonoHM/budgetpilot/issues/967), a test
+server's 64 MiB answer was read to its last byte. The bound allows for the
+longest answer the schema admits, for the whitespace the model's grammar lets it
+add, and for the server's escaping of every character, so an honest answer is
+never cut. The model list is bounded at 1 MiB: one entry measured 410 bytes on
+Ollama 0.32.5, so about 2500 models fit. The probe on `/api/version` that opens
+each generation reads no body.
+
+## A model server on another machine
+
+At start, the app writes a `budgetpilot.config.model_host_remote` warning for
+each host in `LLM_ALLOWED_HOSTS` that is not on this machine, while
+`LLM_ENABLED=true`. A redirect can reach any of those hosts, so each one counts.
+A host counts as this machine when it is `localhost`, `127.0.0.1`, `[::1]`,
+`host.docker.internal`, or a name without a dot listed in
+`LLM_HTTP_PERMITTED_HOSTS`, which is how the AI overlay declares its `ollama`
+container. The overlay therefore writes no warning. An address or a dotted name
+is reported even when it is listed there.
 
 ## The Ollama container
 
@@ -197,7 +279,13 @@ switch off.
 - **No host check beyond the allowlist.** `LLM_ALLOWED_HOSTS` and
   `LLM_HTTP_PERMITTED_HOSTS` decide where the connection may go, and every
   redirect is checked against the same list. They do not authenticate the
-  model server.
+  model server, and neither does the digest pin.
+- **No format allow-list and no scan of a pulled model.** The connection reads
+  the format the server lists (`gguf` on 0.32.5) and refuses none
+  ([#1032](https://github.com/NonoHM/budgetpilot/issues/1032)).
+- **No warning for a machine named without a dot.** A host listed in
+  `LLM_HTTP_PERMITTED_HOSTS` with a single-label name is taken to be a container
+  on this machine.
 
 ## Related
 
