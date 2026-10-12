@@ -1,12 +1,12 @@
-# Optional private-key overlay for bank sync. Combine with either base compose file:
-#   docker compose -f docker-compose.yml -f docker-compose.keys.yml up -d --build
-#   docker compose -f docker-compose.prebuilt.yml -f docker-compose.keys.yml up -d
+# Optional private-key overlay for bank sync.
+# Add this file to the COMPOSE_FILE line in .env, after the base file, for example
+#   COMPOSE_FILE=docker-compose.prebuilt.yml:docker-compose.keys.yml
+# (docker-compose.yml first on a source checkout, docker-compose.override.yml last
+# if you have one), then run `docker compose up -d`.
+# docs/operations.md « Your Compose files » explains the line.
 #
 # Bank sync needs HTTPS, so in practice the proxy overlay is there too:
-#   docker compose -f docker-compose.prebuilt.yml -f docker-compose.proxy.yml \
-#     -f docker-compose.keys.yml up -d
-#   docker compose -f docker-compose.yml -f docker-compose.proxy.yml \
-#     -f docker-compose.keys.yml up -d --build
+#   COMPOSE_FILE=docker-compose.prebuilt.yml:docker-compose.proxy.yml:docker-compose.keys.yml
 #
 # Bank sync signs every API call with an RSA private key you generate yourself.
 # ENABLE_BANKING_PRIVATE_KEY_PATH is resolved INSIDE the container, so the file
@@ -23,7 +23,7 @@
 # directory for you, owned by root. Putting this in the base files would leave
 # an empty root-owned keys/ directory in the working directory of every operator
 # who never enables bank sync, which is most of them. Opting in by adding one
-# -f flag costs a flag and cannot surprise anyone.
+# name to the COMPOSE_FILE line costs a word and cannot surprise anyone.
 #
 # THE MOUNT IS READ-ONLY AND THAT IS NOT DECORATION. The app only ever reads
 # this file. :ro means a compromised container cannot rewrite the key it signs

@@ -1,6 +1,9 @@
-# Optional PostgreSQL overlay. Combine with either base compose file:
-#   docker compose -f docker-compose.yml -f docker-compose.postgres.yml up -d --build
-#   docker compose -f docker-compose.prebuilt.yml -f docker-compose.postgres.yml up -d
+# Optional PostgreSQL overlay.
+# Add this file to the COMPOSE_FILE line in .env, after the base file, for example
+#   COMPOSE_FILE=docker-compose.prebuilt.yml:docker-compose.postgres.yml
+# (docker-compose.yml first on a source checkout, docker-compose.override.yml last
+# if you have one), then run `docker compose up -d`.
+# docs/operations.md « Your Compose files » explains the line.
 #
 # Runs a PostgreSQL server on the internal Compose network and points the app at it.
 # You do not need this: SQLite is the default and the recommended setup, and this
@@ -13,8 +16,9 @@
 # PostgreSQL container running while .env still says sqlite and the app quietly
 # reads an empty file on the volume.
 #
-# Never stack this with docker-compose.mysql.yml. Both set DATABASE_URL; the last
-# -f wins, and you would be running one database server the app never opens.
+# Never stack this with docker-compose.mysql.yml. Both set DATABASE_URL; the file
+# listed last in COMPOSE_FILE wins, and you would be running one database server
+# the app never opens.
 #
 # DATABASE_PASSWORD comes from .env and has no default on purpose — Compose refuses
 # to start rather than handing you a database whose password is in a public file.
@@ -146,9 +150,8 @@ services:
 # `-v pw="$APP_DB_PASSWORD"`, Compose substituted its own empty value, and the app role was
 # created with a blank password. `\getenv` sidesteps the trap by never writing a `$` at all.
 # check-compose-combinations.sh asserts the script's shape; to read what a stack would really
-# get:
-#   docker compose -f docker-compose.yml -f docker-compose.postgres.yml config --format json |
-#     jq -r '.configs.postgres_least_privilege.content'
+# get, run `docker compose config --format json` in an install whose COMPOSE_FILE line lists
+# this file, and read `.configs.postgres_least_privilege.content` from the output.
 #
 # Needs Compose 2.23 or newer (`docker compose version`), which is when `configs: content:`
 # landed. That is below the 2.24 the proxy overlay already requires for `!reset`.

@@ -75,7 +75,7 @@ You need Docker with the Compose plugin (`docker compose version` should print v
 
 ```bash
 mkdir budgetpilot && cd budgetpilot
-curl -O https://raw.githubusercontent.com/NonoHM/budgetpilot/main/docker-compose.prebuilt.yml
+curl -fO https://raw.githubusercontent.com/NonoHM/budgetpilot/main/docker-compose.prebuilt.yml
 ```
 
 Create your `.env`. This block generates three secrets and looks up the current release for you. Paste it whole:
@@ -113,31 +113,33 @@ RATE_LIMIT_HASH_SECRET=$(openssl rand -hex 32)
 TOTP_ENCRYPTION_KEY=$(openssl rand -hex 32)
 BUDGETPILOT_VERSION=$BUDGETPILOT_VERSION
 APP_PORT=3000
+COMPOSE_PATH_SEPARATOR=:
 EOF
-  ) && echo "Wrote .env, pinned to BUDGETPILOT_VERSION=$BUDGETPILOT_VERSION."
+  ) && { [ -e docker-compose.yml ] || echo 'COMPOSE_FILE=docker-compose.prebuilt.yml' >> .env; } \
+    && echo "Wrote .env, pinned to BUDGETPILOT_VERSION=$BUDGETPILOT_VERSION."
 fi
 ```
 
-The block creates `.env` readable by your account only, because it holds the three secrets. If `.env` already has content, it writes nothing and says why.
+The block creates `.env` readable by your account only, because it holds the three secrets. If `.env` already has content, it writes nothing and says why. Its `COMPOSE_FILE` line names your Compose file, so every command after this one is plain `docker compose`. An overlay you add later goes on that line ([your Compose files](docs/operations.md#your-compose-files)).
 
 `BUDGETPILOT_VERSION` decides which image you run. Pin it and you know what you are on, and the app shows the same number in **Settings**. Leave it out and Docker quietly reuses whatever it downloaded last time, which is how people end up running a version they never chose.
 
-If the lookup cannot reach GitHub, no `.env` is written and the message tells you what to do instead. It will not fall back to an unpinned image behind your back. To upgrade later, change `BUDGETPILOT_VERSION` in `.env` to the new number, then run `docker compose -f docker-compose.prebuilt.yml pull` and `docker compose -f docker-compose.prebuilt.yml up -d`, as [updating](docs/operations.md#updating) describes. Never paste the block again: it refuses, because new secrets would lock out two-factor.
+If the lookup cannot reach GitHub, no `.env` is written and the message tells you what to do instead. It will not fall back to an unpinned image behind your back. To upgrade later, change `BUDGETPILOT_VERSION` in `.env` to the new number, then follow [updating](docs/operations.md#updating). Never paste the block again: it refuses, because new secrets would lock out two-factor.
 
 You will not find an `ORIGIN` line, on purpose. The compose file works it out from `APP_PORT`, so changing the port here is all you need. Set `ORIGIN` yourself only for a LAN address, a hostname, or a reverse proxy. See [configuration](docs/configuration.md).
 
 Pull the image, then start it:
 
 ```bash
-docker compose -f docker-compose.prebuilt.yml pull
-docker compose -f docker-compose.prebuilt.yml up -d
+docker compose pull
+docker compose up -d
 ```
 
 `up -d` starts what you already have; it does not fetch a new version. The `pull` is what makes the version above the one you actually run.
 
 Open **http://localhost:3000** and create your account. Registration is closed by default, so the form asks for a token: it's the `BOOTSTRAP_TOKEN` you just generated (`grep BOOTSTRAP_TOKEN .env`). The first account created becomes the admin. The interface follows your browser's language, French or English (any other language gets English), and you can change it in Settings.
 
-On Windows, run all of this from Git Bash or WSL. **Port 3000 already taken?** Change `APP_PORT` in `.env` to a free port, then `docker compose -f docker-compose.prebuilt.yml up -d` again, and open the new port. Nothing else to change. Want to run it from a source checkout instead? The [full walkthrough](docs/getting-started.md) covers that, plus running it without Docker.
+On Windows, run all of this from Git Bash or WSL. **Port 3000 already taken?** Change `APP_PORT` in `.env` to a free port, then `docker compose up -d` again, and open the new port. Nothing else to change. Want to run it from a source checkout instead? The [full walkthrough](docs/getting-started.md) covers that, plus running it without Docker.
 
 Reaching it from another device on your LAN takes two extra lines in `.env` (`ORIGIN` and `PUBLIC_INSTANCE=false`), and a real domain with automatic HTTPS takes an optional [Caddy overlay](docs/reverse-proxy.md).
 

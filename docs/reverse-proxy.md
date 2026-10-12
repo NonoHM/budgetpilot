@@ -83,15 +83,21 @@ behind TLS.
 
 ### 3. Start the stack with the overlay
 
-```bash
-docker compose -f docker-compose.yml -f docker-compose.proxy.yml up -d --build
+Add `docker-compose.proxy.yml` to the `COMPOSE_FILE` line in `.env`, after the
+files already there ([your Compose files](operations.md#your-compose-files)):
+
+```dotenv
+COMPOSE_FILE=docker-compose.prebuilt.yml:docker-compose.proxy.yml
 ```
 
-Published image instead:
+On a source checkout, the line starts with `docker-compose.yml` instead.
+A `docker-compose.override.yml`, if you have one, stays last. Then:
 
 ```bash
-docker compose -f docker-compose.prebuilt.yml -f docker-compose.proxy.yml up -d
+docker compose up -d
 ```
+
+(`docker compose up -d --build` on a source checkout.)
 
 The overlay also stops publishing the app's own port on the host, so Caddy
 becomes the only way in. Reaching the container directly on `APP_PORT` no
@@ -109,22 +115,16 @@ the header from anyone, and the app now refuses to boot if it is set. If you
 must run with the port published, an attacker on the trusted subnet could
 still forge the header, so keep the port closed.
 
-The AI overlay stacks on top if you use it, any order:
+The AI overlay stacks on top if you use it, any order. List it in the same line:
 
-```bash
-docker compose -f docker-compose.yml -f docker-compose.ai.yml -f docker-compose.proxy.yml up -d --build
-```
-
-Same stack on the prebuilt base:
-
-```bash
-docker compose -f docker-compose.prebuilt.yml -f docker-compose.ai.yml -f docker-compose.proxy.yml up -d
+```dotenv
+COMPOSE_FILE=docker-compose.prebuilt.yml:docker-compose.ai.yml:docker-compose.proxy.yml
 ```
 
 ### 4. Check the app's own port is really closed
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.proxy.yml ps
+docker compose ps
 ```
 
 The `budgetpilot` line must show **no** host port: only `3000/tcp`, with no
@@ -136,7 +136,7 @@ stack: your Compose is older than 2.24 and silently ignored the overlay's
 ### 5. Check the certificate
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.proxy.yml logs caddy
+docker compose logs caddy
 ```
 
 The first start takes a few seconds while Caddy talks to Let's Encrypt. A

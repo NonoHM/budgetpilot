@@ -60,8 +60,8 @@ Use the reverse proxy that ships with this repository. For the full setup, see
 
 1. Copy `Caddyfile.example` to `Caddyfile`.
 2. Replace the placeholder domain with yours.
-3. Start the stack with `docker-compose.proxy.yml` added to your compose
-   command.
+3. Add `docker-compose.proxy.yml` to the `COMPOSE_FILE` line in `.env`, then run
+   `docker compose up -d` ([your Compose files](operations.md#your-compose-files)).
 
 Caddy requests a Let's Encrypt certificate on its own. Ports 80 and 443 need to
 be reachable from the internet for that to work.
@@ -316,11 +316,18 @@ this.
    ENABLE_BANKING_PRIVATE_KEY_PATH=./keys/enablebanking.pem
    ```
 
-2. Add `docker-compose.keys.yml` to your compose command:
+2. Add `docker-compose.keys.yml` to the `COMPOSE_FILE` line in `.env`, after the files
+   already there ([your Compose files](operations.md#your-compose-files)):
+
+   ```dotenv
+   COMPOSE_FILE=docker-compose.prebuilt.yml:docker-compose.proxy.yml:docker-compose.keys.yml
+   ```
+
+   On a source checkout, the line starts with `docker-compose.yml`. A `docker-compose.override.yml`, if you have one, stays last.
+   Then run:
 
    ```bash
-   docker compose -f docker-compose.prebuilt.yml -f docker-compose.proxy.yml \
-     -f docker-compose.keys.yml up -d
+   docker compose up -d
    ```
 
 The overlay mounts `./keys` read-only at `/app/keys`. The container's working

@@ -2,10 +2,13 @@
 # to use if you just want BudgetPilot running and don't intend to work on the
 # code: no clone, no build, no Node.js needed.
 #
-#   docker compose -f docker-compose.prebuilt.yml up -d
+#   docker compose up -d
 #
 # It needs a .env next to it with at least the three secrets (BOOTSTRAP_TOKEN,
-# RATE_LIMIT_HASH_SECRET, TOTP_ENCRYPTION_KEY). See docs/getting-started.md.
+# RATE_LIMIT_HASH_SECRET, TOTP_ENCRYPTION_KEY) and the line
+#   COMPOSE_FILE=docker-compose.prebuilt.yml
+# which the README writes. docs/operations.md « Your Compose files » explains it.
+# See docs/getting-started.md.
 #
 # Working on the code instead? Use docker-compose.yml, which builds the image
 # from your checkout.

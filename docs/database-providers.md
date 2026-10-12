@@ -55,31 +55,24 @@ the same archive as a database backup.
 
 ### 2. Start the stack with the overlay
 
-PostgreSQL:
+Add the overlay to the `COMPOSE_FILE` line in `.env`, after the files already
+there ([your Compose files](operations.md#your-compose-files)).
+For PostgreSQL:
 
-```bash
-docker compose -f docker-compose.yml -f docker-compose.postgres.yml up -d --build
+```dotenv
+COMPOSE_FILE=docker-compose.prebuilt.yml:docker-compose.postgres.yml
 ```
 
-MySQL/MariaDB:
+For MySQL/MariaDB, name `docker-compose.mysql.yml` instead. On a source
+checkout the line starts with `docker-compose.yml`.
+A `docker-compose.override.yml`, if you have one, stays last. Then:
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.mysql.yml up -d --build
+docker compose up -d
 ```
 
-Running the published image instead of building from source? Swap the base
-file, everything else is identical:
-
-```bash
-docker compose -f docker-compose.prebuilt.yml -f docker-compose.postgres.yml up -d
-docker compose -f docker-compose.prebuilt.yml -f docker-compose.mysql.yml up -d
-```
-
-Save yourself the repetition for every later command:
-
-```bash
-export COMPOSE_FILE=docker-compose.yml:docker-compose.postgres.yml
-```
+(`docker compose up -d --build` on a source checkout.) Every later command is
+plain `docker compose` too, because the line names the files once.
 
 The overlay sets `DATABASE_PROVIDER` and `DATABASE_URL` itself, pointing at
 the server it starts. **Adding it is the switch**: you don't also edit
@@ -93,17 +86,17 @@ Migrations then run exactly as they do on SQLite.
 
 Two things the overlays deliberately do not do:
 
-- **Never stack both of them.** Both set `DATABASE_URL` and the last `-f`
-  wins, so you'd be paying for a database server the app never opens.
+- **Never stack both of them.** Both set `DATABASE_URL` and the file
+  listed last in `COMPOSE_FILE` wins, so you'd be paying for a database
+  server the app never opens.
 - **Neither publishes the database port on the host.** The app reaches the
   server over the Compose network, which is all it needs. See
   [Connecting a client](#connecting-a-client) for the times you need more.
 
 They stack with the AI and reverse-proxy overlays in any order:
 
-```bash
-docker compose -f docker-compose.yml -f docker-compose.postgres.yml \
-  -f docker-compose.ai.yml -f docker-compose.proxy.yml up -d --build
+```dotenv
+COMPOSE_FILE=docker-compose.prebuilt.yml:docker-compose.postgres.yml:docker-compose.ai.yml:docker-compose.proxy.yml
 ```
 
 ### The app's database account
@@ -280,8 +273,9 @@ docker compose exec mysql mariadb -u budgetpilot -p budgetpilot
 
 If you genuinely need a host-side client, such as a GUI tool or a backup
 agent that can't run in a container, publish the port to loopback only, in a
-`docker-compose.override.yml` next to the others (Compose picks that file up
-on its own, so it needs no `-f`):
+`docker-compose.override.yml` next to the others. Compose loads that file by
+itself only while `.env` has no `COMPOSE_FILE` line; with a line, list the
+override last:
 
 ```yaml
 services:

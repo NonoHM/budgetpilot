@@ -10,8 +10,6 @@ First reflex, always:
 docker compose logs budgetpilot
 ```
 
-(add `-f docker-compose.prebuilt.yml` if you run the published image)
-
 ---
 
 ## The container starts and immediately dies, over and over
@@ -137,6 +135,14 @@ env file /path/to/.env not found
 You're either in the wrong folder, or you never created `.env`. It has to
 live next to the compose file. See
 [getting started, step 2](./getting-started.md#2-create-your-env).
+
+On the published image, the `COMPOSE_FILE` line that names the compose file
+lives in `.env`, so without it Compose says
+`no configuration file provided: not found` instead. Restore `.env`, with
+that line, in the folder you installed in. Don't run the command from
+another folder: plain `docker compose` can pick up a compose file in a
+parent directory when the line is missing, and start something else.
+See [your Compose files](operations.md#your-compose-files).
 
 ## `npm install` fails while building bcrypt or better-sqlite3
 

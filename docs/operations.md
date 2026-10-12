@@ -3,15 +3,78 @@
 Updating, backing up, moving machines, shutting down. Everything here
 assumes Docker.
 
-If you run the published image, every `docker compose` command below needs
-`-f docker-compose.prebuilt.yml`. Save yourself the typing by setting this
-once per terminal:
+Every Compose command on this page is plain `docker compose`, run in the
+folder that holds your Compose files and `.env`. The next section is what makes that safe.
 
-```bash
-export COMPOSE_FILE=docker-compose.prebuilt.yml
+## Your Compose files
+
+An install is one base file plus the overlays you added: PostgreSQL or MySQL,
+the reverse proxy, the AI model, the bank-sync key. Compose has to read all of
+them on every command. If it reads only the base file, an upgrade recreates the
+app without your overlays: a PostgreSQL install comes back as an empty instance
+on SQLite, and the database container keeps running unused.
+
+So the list lives in one place, a line in `.env`:
+
+```dotenv
+COMPOSE_PATH_SEPARATOR=:
+COMPOSE_FILE=docker-compose.prebuilt.yml:docker-compose.postgres.yml:docker-compose.proxy.yml
 ```
 
-Then plain `docker compose ...` works as written.
+- **The base file comes first**: `docker-compose.prebuilt.yml` for the
+  published image, `docker-compose.yml` on a source checkout.
+- **Adding an overlay means adding it to this line**, then running
+  `docker compose up -d`. A file listed later wins where two set the same
+  thing.
+- **A `docker-compose.override.yml` goes last**, if you have one. Compose
+  loads it by itself only while there is no `COMPOSE_FILE` line, so the day
+  you write the line, it has to be in it.
+- **`COMPOSE_PATH_SEPARATOR=:`** makes the `:` work on Windows too, where
+  Compose otherwise expects `;`.
+
+The `.env` block in the README writes this line for the published image. A
+source checkout with no overlay needs none: Compose finds `docker-compose.yml`
+and the override file by itself.
+
+An install that predates the line can print it from its containers, which
+each record the files Compose read when it created them:
+
+```bash
+p=$(docker inspect budgetpilot --format '{{index .Config.Labels "com.docker.compose.project"}}')
+docker ps -a --filter "label=com.docker.compose.project=$p" --format '{{.Label "com.docker.compose.project.config_files"}}' | awk -F, '{print NF "\t" $0}' | sort -rn | cut -f2- | tr ',' '\n' | sed 's#.*[/\\]##' | awk 'NF && !seen[$0]++' | paste -sd: - | sed 's#^#COMPOSE_FILE=#'
+```
+
+It prints every file any of them was created from. If an update already ran
+with fewer files than you use, the line is short: add the missing ones
+yourself. Put the line in `.env`, with `COMPOSE_PATH_SEPARATOR=:` above it.
+
+### Check the list
+
+Before any command that recreates or deletes, such as an upgrade or an
+uninstall, run these three in the folder that holds `.env`:
+
+```bash
+grep COMPOSE_FILE .env
+env | grep COMPOSE_FILE || echo "exported: none"
+docker compose config --services
+```
+
+- **The first** must print one line, naming every Compose file you use,
+  including the ones you wrote yourself, such as a log or override file. A
+  source checkout with no overlay prints nothing, which is correct.
+- **The second** must print `exported: none`. Earlier versions of this page
+  said to export the variable, and an exported value beats `.env`: run
+  `unset COMPOSE_FILE`, and delete that line from your shell's startup file
+  (`~/.bashrc`, `~/.zshrc`, `~/.profile` or `~/.bash_profile`).
+- **The third** must print `budgetpilot`, plus one service per overlay that
+  adds one: `postgres` or `mysql` for the database, `caddy` for the proxy,
+  `ollama` and `ollama-volume-owner` for the AI model. If it prints a service
+  you do not recognise, stop: with no line and no Compose file in the folder,
+  Compose uses one from a parent folder, which belongs to another application.
+
+No command in this documentation puts `-f` before the subcommand, where it
+would replace the whole list. The `-f` in `docker compose logs -f` is another
+flag: it follows the log.
 
 ## Everyday commands
 
@@ -30,11 +93,19 @@ Ollama models. Nothing undoes it.
 
 ## Updating
 
-**Take a backup first.** Settings, then Export, which downloads a JSON file of
-your account. The rollback below needs it: migrations are not reversible, so
-if a release goes wrong the way back is the backup, not the old image. It
-takes a few seconds and it is the difference between a bad release costing you
-an afternoon and costing you your data.
+**Read the « Before you upgrade » section of every version you cross**, further
+down this page, before running anything here. Some ask for a change before the
+new image starts.
+
+**[Check the list](#check-the-list) of Compose files.** Updating with a
+partial list starts the app without your overlays.
+
+**Take a backup first**: a copy of the whole database, as
+[Backups](#backups) describes. The rollback below restores it: migrations are
+not reversible, so if a release goes wrong the way back is the backup, not the
+old image. The JSON export in Settings is no substitute, since it holds one
+account. It takes a few minutes and it is the difference between a bad release
+costing you an afternoon and costing you your data.
 
 **Make `.env` private, once.** An install set up before `.env` was created with
 mode 600 can still have one that every account on the machine can read, and it
@@ -54,12 +125,11 @@ If `.env` pins an exact version, such as `BUDGETPILOT_VERSION=1.2.3`, which is
 what the `.env` block in the README and getting started writes, change it to
 the new number from the
 [releases page](https://github.com/NonoHM/budgetpilot/releases/latest) first.
-Otherwise the pull fetches the same version again. Then, with the
-`COMPOSE_FILE` export from the top of this page or the `-f` flag:
+Otherwise the pull fetches the same version again. Then:
 
 ```bash
-docker compose -f docker-compose.prebuilt.yml pull
-docker compose -f docker-compose.prebuilt.yml up -d
+docker compose pull
+docker compose up -d
 ```
 
 `docker compose pull` follows whichever tag you pinned. On `latest` that
@@ -164,7 +234,7 @@ BUDGETPILOT_VERSION=0.11.0
 Then bring it back up:
 
 ```bash
-docker compose -f docker-compose.prebuilt.yml up -d
+docker compose up -d
 ```
 
 `docker compose ps` should show the container running. Leaving
@@ -360,22 +430,10 @@ process limits, and no container but the app can reach it.
 
 Before you start:
 
-- **Write your list of Compose files into `.env`**, so that every command
-  below, in any terminal, uses all of them. Add one line, naming the files you
-  use today in the order you use them, for example:
-
-  ```dotenv
-  COMPOSE_FILE=docker-compose.prebuilt.yml:docker-compose.ai.yml
-  ```
-
-  On a source checkout, start with `docker-compose.yml`. Add
-  `docker-compose.ai.gpu.yml`, `docker-compose.proxy.yml`,
-  `docker-compose.postgres.yml` or `docker-compose.mysql.yml` if you use them.
-  If you have a `docker-compose.override.yml`, name it last: once
-  `COMPOSE_FILE` is set, Compose no longer loads it by itself. On Windows, also
-  add `COMPOSE_PATH_SEPARATOR=:`, since Compose otherwise splits the list on
-  `;`. If you ever ran `export COMPOSE_FILE=...` in this terminal, run
-  `unset COMPOSE_FILE`: an exported value wins over `.env`.
+- **Write your list of Compose files into `.env`**, as
+  [your Compose files](#your-compose-files) describes, with
+  `docker-compose.ai.yml` in it, so that every command below uses all of
+  them.
 
 - **If an override file mounts your own directory at `/root/.ollama`**, change
   its target to `/var/lib/ollama/.ollama` and give the directory to Ollama's new
@@ -646,8 +704,8 @@ stops bouncing you back to the login page.
 **Since 1.3, nothing calls the model** (decision record
 [#1009](https://github.com/NonoHM/budgetpilot/issues/1009)). To stop running
 Ollama, follow « To stop using it » under
-[Before you upgrade to 1.3.0](#before-you-upgrade-to-130): leaving out the
-`-f` flag alone does not stop the Ollama already running.
+[Before you upgrade to 1.3.0](#before-you-upgrade-to-130): taking the AI
+overlay out of `COMPOSE_FILE` alone does not stop the Ollama already running.
 
 To pin a version instead of tracking `latest`, set it in `.env`:
 
@@ -853,6 +911,8 @@ file holds and what the validator checks are in the
    restored database is unreadable, permanently. See
    [the encryption key](#the-encryption-key). Then run `chmod 600 .env` on
    the new machine, because a copy does not always keep the file's mode.
+   Keep its `COMPOSE_FILE` line, and copy the Compose files it names that the
+   new machine lacks: the README block names the base file alone.
 4. Restore the database with the matching command above (`docker compose cp`
    on SQLite, `pg_restore` or `mariadb` on a server engine).
 5. Adjust `ORIGIN` if the URL changed.
@@ -957,7 +1017,9 @@ services:
     read_only: false
 ```
 
-Compose merges it automatically. Delete the file when you're done. Note that
+Compose merges it by itself while `.env` has no `COMPOSE_FILE` line; with
+one, add `:docker-compose.override.yml` at the end of it, then run
+`docker compose up -d`. Delete the file, and that entry, when you're done. Note that
 `docker compose down && docker compose up -d` starts from a clean container
 either way, so most "let me write a file in there to test" instincts are
 better served by the volume or by `docker compose logs`.
@@ -1036,12 +1098,33 @@ keep.
 
 ## Uninstalling
 
-```bash
-docker compose down -v      # deletes the container AND all data volumes
-docker image rm ghcr.io/nonohm/budgetpilot:latest
-```
+**Back up first** if you might want the data again, as [Backups](#backups)
+describes. The JSON export in Settings holds one account, and the next steps
+delete every account. Then, in the folder that holds your Compose files:
 
-With `COMPOSE_FILE` naming every file you used, the AI overlay included,
-`down -v` also deletes the downloaded Ollama models; without the overlay in the
-list, their volume stays behind. Then delete the folder. Export your data first
-if you want to keep it.
+1. [Check the list](#check-the-list). A partial list makes `down -v` leave
+   volumes behind, the database included; a parent folder's list makes it
+   delete another application's data.
+
+2. Delete the containers and every data volume, the database and any downloaded
+   Ollama models included:
+
+   ```bash
+   docker compose down -v
+   ```
+
+3. List the images:
+
+   ```bash
+   docker image ls
+   ```
+
+   Remove BudgetPilot's (`ghcr.io/nonohm/budgetpilot`, or the image built from
+   your checkout), those of your overlays (`postgres`, `mariadb`, `caddy`,
+   `ollama/ollama`) and `busybox`, unless another application uses them:
+   `docker image rm` followed by the REPOSITORY:TAG, or by the IMAGE ID on a
+   line whose tag is `<none>`.
+
+4. Move what you want to keep out of the folder: the backup, if you wrote it
+   there, and `.env`, whose `TOTP_ENCRYPTION_KEY` the backup needs. Then
+   delete the folder.

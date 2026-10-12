@@ -50,7 +50,7 @@ an arm64 machine (Raspberry Pi 4/5, Apple Silicon, AWS Graviton).
 
 ```bash
 mkdir budgetpilot && cd budgetpilot
-curl -O https://raw.githubusercontent.com/NonoHM/budgetpilot/main/docker-compose.prebuilt.yml
+curl -fO https://raw.githubusercontent.com/NonoHM/budgetpilot/main/docker-compose.prebuilt.yml
 ```
 
 ### 2. Create your `.env`
@@ -93,8 +93,10 @@ RATE_LIMIT_HASH_SECRET=$(openssl rand -hex 32)
 TOTP_ENCRYPTION_KEY=$(openssl rand -hex 32)
 BUDGETPILOT_VERSION=$BUDGETPILOT_VERSION
 APP_PORT=3000
+COMPOSE_PATH_SEPARATOR=:
 EOF
-  ) && echo "Wrote .env, pinned to BUDGETPILOT_VERSION=$BUDGETPILOT_VERSION."
+  ) && { [ -e docker-compose.yml ] || echo 'COMPOSE_FILE=docker-compose.prebuilt.yml' >> .env; } \
+    && echo "Wrote .env, pinned to BUDGETPILOT_VERSION=$BUDGETPILOT_VERSION."
 fi
 ```
 
@@ -107,8 +109,11 @@ Check it worked:
 cat .env
 ```
 
-You should see five lines. The first three carry a long random value after
-the `=`, and `BUDGETPILOT_VERSION` carries a version number like `0.13.1`.
+You should see seven lines. The first three carry a long random value after
+the `=`, `BUDGETPILOT_VERSION` carries a version number like `0.13.1`, and
+`COMPOSE_FILE` names your Compose file, so every later command is plain
+`docker compose`. An overlay you add later goes on that line
+([your Compose files](./operations.md#your-compose-files)).
 Without `openssl`, the block writes nothing and says so. Install it, or see
 [generating secrets without openssl](#generating-secrets-without-openssl)
 below.
@@ -153,8 +158,8 @@ base64 looks like, not a broken copy-paste.
 ### 3. Start it
 
 ```bash
-docker compose -f docker-compose.prebuilt.yml pull
-docker compose -f docker-compose.prebuilt.yml up -d
+docker compose pull
+docker compose up -d
 ```
 
 The `pull` is the step that fetches the version you pinned. `up -d` on its own
@@ -168,7 +173,7 @@ keeps running in the background after the command returns.
 ### 4. Check it's alive
 
 ```bash
-docker compose -f docker-compose.prebuilt.yml logs budgetpilot
+docker compose logs budgetpilot
 ```
 
 Each line is a JSON object. You want two of them near the end: a
@@ -178,7 +183,7 @@ Each line is a JSON object. You want two of them near the end: a
 only those two:
 
 ```bash
-docker compose -f docker-compose.prebuilt.yml logs budgetpilot | grep -E 'sys_startup|Listening on'
+docker compose logs budgetpilot | grep -E 'sys_startup|Listening on'
 ```
 
 `0.0.0.0:3000` is the port _inside_ the container, which never changes. The
@@ -247,7 +252,8 @@ and offers you a free one, keeping `APP_PORT` and `ORIGIN` in sync for you.
 
 No Node.js on the machine? Skip `npm run setup` and write the `.env` by hand
 with the block from [option A step 2](#2-create-your-env). It's the same
-file, the script just saves you the typing. If you write it in an editor
+file, the script just saves you the typing. In a checkout the block writes no
+`COMPOSE_FILE` line, because Compose finds `docker-compose.yml` by itself. If you write it in an editor
 instead, run `chmod 600 .env` afterwards, because it holds the three secrets.
 
 `--build` compiles the image. The first build takes 5 to 10 minutes because
@@ -256,12 +262,7 @@ the container. That's normal, not a hang. You need `--build` again after
 every code change.
 
 Then follow [step 4](#4-check-its-alive) and
-[step 5](#5-create-your-account) above, dropping the
-`-f docker-compose.prebuilt.yml` from the log command:
-
-```bash
-docker compose logs budgetpilot
-```
+[step 5](#5-create-your-account) above. The commands are the same.
 
 ---
 
@@ -481,6 +482,11 @@ one by hand. Registration is rate limited (5 attempts per 15 minutes per IP),
 but that bounds guessing rather than preventing it, and it is no substitute
 for a token with real entropy. Use three different values, never the same one
 twice.
+
+Write them into `.env` with the other lines the block writes:
+`BUDGETPILOT_VERSION`, `APP_PORT`, `COMPOSE_PATH_SEPARATOR=:` and, for the
+published image, `COMPOSE_FILE=docker-compose.prebuilt.yml`. Then run
+`chmod 600 .env`.
 
 ---
 

@@ -1,6 +1,9 @@
-# Optional MySQL/MariaDB overlay. Combine with either base compose file:
-#   docker compose -f docker-compose.yml -f docker-compose.mysql.yml up -d --build
-#   docker compose -f docker-compose.prebuilt.yml -f docker-compose.mysql.yml up -d
+# Optional MySQL/MariaDB overlay.
+# Add this file to the COMPOSE_FILE line in .env, after the base file, for example
+#   COMPOSE_FILE=docker-compose.prebuilt.yml:docker-compose.mysql.yml
+# (docker-compose.yml first on a source checkout, docker-compose.override.yml last
+# if you have one), then run `docker compose up -d`.
+# docs/operations.md « Your Compose files » explains the line.
 #
 # Runs a MariaDB server on the internal Compose network and points the app at it.
 # You do not need this: SQLite is the default and the recommended setup, and this
@@ -18,8 +21,9 @@
 # MariaDB container running while .env still says sqlite and the app quietly reads
 # an empty file on the volume.
 #
-# Never stack this with docker-compose.postgres.yml. Both set DATABASE_URL; the last
-# -f wins, and you would be running one database server the app never opens.
+# Never stack this with docker-compose.postgres.yml. Both set DATABASE_URL; the file
+# listed last in COMPOSE_FILE wins, and you would be running one database server
+# the app never opens.
 #
 # DATABASE_PASSWORD comes from .env and has no default on purpose — Compose refuses
 # to start rather than handing you a database whose password is in a public file.
