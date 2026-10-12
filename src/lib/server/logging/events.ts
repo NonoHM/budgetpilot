@@ -111,6 +111,58 @@ export type ReauthFailure =
 	'wrong_password' | 'wrong_code' | 'reused_code' | 'wrong_recovery_code' | 'unreadable_secret';
 export type DeadSessionReason = 'unknown' | 'revoked' | 'expired' | 'idle';
 
+/**
+ * THE AUTHORIZATION EVENTS (L4a, part of #250), built only in `logging/authz.ts`. Neither carries
+ * the client or its subnet (R1 on #841: the client only on authentication events and the
+ * authentication limiter refusal), and the `?: never` keys make a SPREAD of client fields a compile
+ * error too, for the reason given on `NoSubnetFields`.
+ */
+export type NoClientFields = { [A.clientPseudonym]?: never } & NoSubnetFields;
+
+/** The closed kind of a client-supplied reference that failed its userId-scoped lookup. */
+export type AuthzReference =
+	| 'transaction'
+	| 'split_category'
+	| 'rule'
+	| 'category'
+	| 'tag'
+	| 'session'
+	| 'column_mapping'
+	| 'import_batch'
+	| 'account'
+	| 'net_worth_account'
+	| 'budget'
+	| 'savings_goal'
+	| 'bill_action'
+	| 'bank_connection'
+	| 'bank_authorization'
+	| 'remembered_account'
+	| 'nature_mapping';
+
+export type AuthzReason = 'not_found_or_not_owned' | 'role_required';
+
+/**
+ * The reference kind is present exactly when the reason is a reference that did not resolve. The
+ * second member declares no `[A.authzReference]?: never`: measured on L4a, an optional key in one
+ * member of a union keyed by computed names widens the other member's literal to `string`, so a
+ * well-formed line stopped compiling. The excess-property check on the discriminated member still
+ * refuses a reference written beside `role_required`.
+ */
+export type AuthzFailure =
+	| { [A.authzReason]: 'not_found_or_not_owned'; [A.authzReference]: AuthzReference }
+	| { [A.authzReason]: 'role_required' };
+
+/** The admin actions that name an account as their target. */
+export type TargetedAdminAction = 'delete_user' | 'reset_password' | 'create_account';
+/** The admin actions that name no account. */
+export type UntargetedAdminAction = 'create_invitation' | 'revoke_invitation';
+export type AdminAction = TargetedAdminAction | UntargetedAdminAction;
+
+/** The target's pseudonym on the three actions that have one, and on no other (same shape as above). */
+export type AdminActionFields =
+	| { [A.adminAction]: TargetedAdminAction; [A.targetUserPseudonym]: LogUserPseudonym }
+	| { [A.adminAction]: UntargetedAdminAction };
+
 export type LogEvent =
 	| {
 			event: typeof E.sysStartup;
@@ -274,6 +326,8 @@ export type LogEvent =
 				[A.rateLimitCounter]?: RateLimitCounter;
 				[A.authnReason]?: RegistrationFailure;
 				[A.sessionReason]?: DeadSessionReason;
+				[A.authzReason]?: AuthzReason;
+				[A.authzReference]?: AuthzReference;
 				[A.userPseudonym]?: LogUserPseudonym;
 			};
 	  }
@@ -321,6 +375,8 @@ export type LogEvent =
 			event: typeof E.cryptDecryptFail;
 			attributes: UserFields & NoSubnetFields & { [A.cryptPurpose]: 'totp_secret' };
 	  }
+	| { event: typeof E.authzFail; attributes: UserFields & NoClientFields & AuthzFailure }
+	| { event: typeof E.authzAdmin; attributes: UserFields & NoClientFields & AdminActionFields }
 	| {
 			event: typeof E.consoleOutput;
 			attributes: {
@@ -336,7 +392,7 @@ export interface EventSpec<Attributes> {
 	/** One fixed English sentence: what happened and, where an operator can act, what to do. */
 	body: string;
 	/**
-	 * Reachable without a session at request time, so repeats inside a window are summarised. An
+	 * A visitor, or a member, can repeat it cheaply, so repeats inside a window are summarised. An
 	 * authentication failure that costs the server a password hash is not: the hash bounds its rate
 	 * far below what the window would, and each line names a source (L3).
 	 */
@@ -344,9 +400,10 @@ export interface EventSpec<Attributes> {
 	/**
 	 * Attributes added to the flood window's key, each a closed set or a keyed hash of a bounded
 	 * population, so one cheap repeat cannot summarise away a line of another kind (L3 contradiction
-	 * pass: twenty unknown cookies hid the replay of a revoked one).
+	 * pass: twenty unknown cookies hid the replay of a revoked one). Any member's key of an event
+	 * whose attributes are a union, so `authz_fail` can split by a reference only one member carries.
 	 */
-	floodBy?: readonly (keyof Attributes & string)[];
+	floodBy?: readonly (Attributes extends unknown ? keyof Attributes & string : never)[];
 	/** A security event in the sense of BP_SECURITY_LOG: dropped when the operator turns it off. */
 	security: boolean;
 	/** Every attribute the event can carry, with its level; a field declared `never` is not one. */
@@ -393,7 +450,7 @@ export const REGISTRY: { [N in EventName]: EventSpec<AttributesOf<N>> } = {
 	},
 	[E.sysMonitorDisabled]: {
 		severity: 'WARN',
-		body: 'Security event logging is off (BP_SECURITY_LOG=off): authentication, authorization and control-bypass events are not written.',
+		body: 'Security event logging is off (BP_SECURITY_LOG=off): authentication, authorization-failure and control-bypass events are not written.',
 		flood: false,
 		security: false,
 		attributes: { [A.monitor]: 'Operational' }
@@ -610,6 +667,33 @@ export const REGISTRY: { [N in EventName]: EventSpec<AttributesOf<N>> } = {
 		floodBy: [A.sessionReason, A.userPseudonym],
 		attributes: { [A.userPseudonym]: 'Pseudonymous', [A.sessionReason]: 'Operational' }
 	},
+	// A member, like a visitor, can repeat a refused reference cheaply, so it is summarised, and
+	// split by reason, kind and account so that one loop cannot summarise away another (L4a).
+	[E.authzFail]: {
+		severity: 'WARN',
+		body: "An authorization was refused: a reference a signed-in person sent found nothing under their account (missing, another account's, or their own in a state the action refuses, the three merged on purpose as the answer merges them), or a member asked for an admin-only page.",
+		flood: true,
+		security: true,
+		floodBy: [A.authzReason, A.authzReference, A.userPseudonym],
+		attributes: {
+			[A.userPseudonym]: 'Pseudonymous',
+			[A.authzReason]: 'Operational',
+			[A.authzReference]: 'Operational'
+		}
+	},
+	// WARN and not a security event, like budgetpilot.ai.inference_halted: a privileged action's
+	// record, which no setting drops.
+	[E.authzAdmin]: {
+		severity: 'WARN',
+		body: 'An admin action was carried out. The action says which; the target names the account it acted on, where there is one.',
+		flood: false,
+		security: false,
+		attributes: {
+			[A.userPseudonym]: 'Pseudonymous',
+			[A.adminAction]: 'Operational',
+			[A.targetUserPseudonym]: 'Pseudonymous'
+		}
+	},
 	[E.backfillStarted]: {
 		severity: 'INFO',
 		body: 'A one-time boot backfill started.',
@@ -818,6 +902,8 @@ export const REGISTRY: { [N in EventName]: EventSpec<AttributesOf<N>> } = {
 			[A.rateLimitCounter]: 'Operational',
 			[A.authnReason]: 'Operational',
 			[A.sessionReason]: 'Operational',
+			[A.authzReason]: 'Operational',
+			[A.authzReference]: 'Operational',
 			[A.userPseudonym]: 'Pseudonymous'
 		}
 	},

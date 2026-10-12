@@ -103,7 +103,9 @@ describe('the levels a log field may hold (docs/explanation/data-classification.
 		expect([...levels].sort()).toEqual(['Not classified', 'Operational', 'Pseudonymous']);
 	});
 
-	it('gives Pseudonymous to the three keyed hashes of pseudonym.ts, and to nothing else', () => {
+	// The target of an admin action is `logUserPseudonym` of another account (L4a): a fourth field
+	// holding the same keyed hash, not a fourth hash.
+	it('gives Pseudonymous to the keyed hashes of pseudonym.ts, and to nothing else', () => {
 		const pseudonymous = new Set(
 			Object.values(REGISTRY).flatMap((spec) =>
 				Object.entries(spec.attributes)
@@ -112,7 +114,7 @@ describe('the levels a log field may hold (docs/explanation/data-classification.
 			)
 		);
 		expect([...pseudonymous].sort()).toEqual(
-			[A.clientPseudonym, A.clientSubnetPseudonym, A.userPseudonym].sort()
+			[A.clientPseudonym, A.clientSubnetPseudonym, A.userPseudonym, A.targetUserPseudonym].sort()
 		);
 	});
 });
