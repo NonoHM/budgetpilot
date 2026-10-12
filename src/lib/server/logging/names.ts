@@ -174,6 +174,10 @@ export const EVENT = {
 	configEnvFileExposed: 'budgetpilot.config.env_file_exposed',
 	configModelHostRemote: 'budgetpilot.config.model_host_remote',
 
+	// The instance-wide AI kill switch (#986, AISVS 1.0 C12.4.3).
+	aiInferenceHalted: 'budgetpilot.ai.inference_halted',
+	aiInferenceResumed: 'budgetpilot.ai.inference_resumed',
+
 	requestFailed: 'budgetpilot.request.failed',
 	requestNotFound: 'budgetpilot.request.not_found',
 

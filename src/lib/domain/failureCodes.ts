@@ -55,6 +55,12 @@
  * - `model_remote`: the host lists the model as forwarded to another machine (an Ollama `-cloud`
  *   tag), which would send the prompt to a host no allowlist names. Pull a local model.
  *
+ * One more since #986, decided by an admin rather than read from the host:
+ *
+ * - `halted`: an admin halted inference for the whole instance on /admin (`ai/inferenceHalt.ts`),
+ *   or the halt could not be read, which refuses the same way. Refused before any socket when the
+ *   halt was already set; a call already running is aborted. Lifted on /admin, never on its own.
+ *
  * THE LAST TWO OF THE FIRST SIX LOOK LIKE ONE STATE AND NEED OPPOSITE ADVICE, which is why they are two codes.
  * Truncation is OUR fault: the ceiling was too small, and the answer is to raise a budget. An
  * unparseable answer is the model's: the answer is to try a different model. One sentence for both
@@ -74,7 +80,8 @@ export type LocalLlmFailureCode =
 	| 'busy'
 	| 'model_mismatch'
 	| 'model_unidentified'
-	| 'model_remote';
+	| 'model_remote'
+	| 'halted';
 
 /**
  * Used when nothing recognised the error, and when a payload carries no code at all.

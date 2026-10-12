@@ -7,6 +7,12 @@ import {
 	type LocalModelRequest
 } from './local-llm';
 
+// Not halted (#986): these cases are about the transport. The halt's own cases, against a real
+// engine, are `ai/inferenceHalt.db-smoke.ts`, and its fail-closed read is `ai/inferenceHalt.spec.ts`.
+vi.mock('$lib/server/db', () => ({
+	prisma: { inferenceHalt: { findUnique: async () => null } }
+}));
+
 /**
  * Since #967 a generation reads the host's model list before and after the chat, so every mock
  * answers `/api/tags` with the models these cases ask for: the default, as the code names it, and

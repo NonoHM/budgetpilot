@@ -1,5 +1,5 @@
 import type { ServerResponse } from 'node:http';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { requestLocalModel, type LocalModelRequest } from './local-llm';
 import {
@@ -16,6 +16,12 @@ import {
 	type FakeHost,
 	type Route
 } from './fakeModelHost.fixture';
+
+// Not halted (#986): these cases are about the transport. The halt's own cases, against a real
+// engine, are `ai/inferenceHalt.db-smoke.ts`, and its fail-closed read is `ai/inferenceHalt.spec.ts`.
+vi.mock('$lib/server/db', () => ({
+	prisma: { inferenceHalt: { findUnique: async () => null } }
+}));
 
 /**
  * #967: what the transport READS from the model host, measured on a real socket.
