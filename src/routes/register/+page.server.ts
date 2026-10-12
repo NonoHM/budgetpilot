@@ -29,6 +29,7 @@ import { ensureDefaultCategoriesSeeded } from '$lib/server/categories/defaults';
 import { ensureDefaultRulesSeeded } from '$lib/server/categorization/defaultRules';
 import { prisma } from '$lib/server/db';
 import type { PageServerLoad } from './$types';
+import { logAdminAction, logRoleRefused } from '$lib/server/logging/authz';
 
 export const load: PageServerLoad = async ({ locals, url }) => {
 	const inviteToken = url.searchParams.get('invite') ?? '';
@@ -49,8 +50,12 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 	// Say why. This used to be a bare 303 to /login, and a bare bounce reads as a broken link
 	// rather than as a policy: nothing on either screen named the invitation path, which is the
 	// documented way a second person gets an account.
-	if (!canRegister && !locals.user) throw redirect(303, '/login?notice=registration_closed');
-	if (!canRegister) throw error(403, m.register_error_admin_only());
+	if (!canRegister) {
+		if (!locals.user) throw redirect(303, '/login?notice=registration_closed');
+		// A signed-in member: an admin always can register (L4a).
+		logRoleRefused(locals.user.id);
+		throw error(403, m.register_error_admin_only());
+	}
 
 	return {
 		canRegister,
@@ -129,6 +134,8 @@ export const actions: Actions = {
 		const canRegister =
 			isOpenRegistration || Boolean(invitation) || userCount === 0 || locals.user?.role === 'ADMIN';
 		if (!canRegister) {
+			// No authz_fail for a signed-in member here (L4a design point 6): `refuse` already writes
+			// `authn_register_fail unavailable`, and one outcome gets one line.
 			return refuse('unavailable', fail(403, { error: m.register_error_unavailable() }));
 		}
 
@@ -209,6 +216,9 @@ export const actions: Actions = {
 			}
 			throw caught;
 		}
+
+		// The admin action L3 left to L4, written once the create has committed (L4a).
+		if (byAdmin && locals.user) logAdminAction(locals.user.id, 'create_account', user.id);
 
 		await ensureDefaultCategoriesSeeded(user.id);
 		await ensureDefaultRulesSeeded(user.id);

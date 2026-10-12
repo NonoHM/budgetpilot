@@ -23,6 +23,7 @@ import { log } from '$lib/server/logging';
 import { ATTRIBUTE, EVENT } from '$lib/server/logging/names';
 import { logUserPseudonym } from '$lib/server/logging/pseudonym';
 import type { PageServerLoad } from './$types';
+import { logAdminAction } from '$lib/server/logging/authz';
 
 const PAGE_SIZE = 20;
 
@@ -121,6 +122,7 @@ export const actions: Actions = {
 			await tx.transaction.deleteMany({ where: { userId: targetUserId } });
 			await tx.user.delete({ where: { id: targetUserId } });
 		});
+		logAdminAction(admin.id, 'delete_user', targetUserId);
 		return { deleteSuccess: m.admin_delete_success() };
 	},
 	resetPassword: async ({ cookies, getClientAddress, locals, request }) => {
@@ -160,6 +162,7 @@ export const actions: Actions = {
 			await endPendingSignIns(tx, targetUserId);
 			await tx.session.deleteMany({ where: { userId: targetUserId } });
 		});
+		logAdminAction(admin.id, 'reset_password', targetUserId);
 
 		return {
 			resetTargetUserId: targetUserId,
@@ -183,6 +186,7 @@ export const actions: Actions = {
 		}
 
 		const invitation = await createInvitation(admin.id, email);
+		logAdminAction(admin.id, 'create_invitation');
 		const inviteUrl = new URL(`/register?invite=${invitation.token}`, request.url).toString();
 
 		return {
@@ -225,7 +229,7 @@ export const actions: Actions = {
 		return { haltSuccess: m.admin_ai_resumed_notice() };
 	},
 	revokeInvitation: async ({ locals, request }) => {
-		requireAdmin(locals.user);
+		const admin = requireAdmin(locals.user);
 		const formData = await request.formData();
 		const invitationId = getFormValue(formData, 'invitationId');
 		if (!invitationId)
@@ -234,6 +238,7 @@ export const actions: Actions = {
 		const revoked = await revokeInvitation(invitationId);
 		// authz-exempt: admin power is unscoped by design, so a missing invitation is not an authorization failure (L4a)
 		if (!revoked) return fail(404, { revokeInviteError: m.admin_error_invitation_not_found() });
+		logAdminAction(admin.id, 'revoke_invitation');
 
 		return { revokeInviteSuccess: m.admin_invitation_revoked() };
 	}
