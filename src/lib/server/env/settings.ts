@@ -637,6 +637,16 @@ export const SETTINGS = {
 			'How many analyses one account may start in an hour. No feature reads it in 1.3 (#1009); kept for the next one.',
 		page: 'reference/ai-model.md'
 	},
+	BP_LLM_MODEL_DIGEST: {
+		kind: 'text',
+		tier: 'advanced',
+		group: 'AI connection',
+		readBy: 'app',
+		format: '64 lowercase hexadecimal characters, the digest the model server lists for LLM_MODEL',
+		summary:
+			'Refuses to generate with any other model than this one, even under the same name. Detects a swap; it does not authenticate the server. No feature reads it in 1.3 (#1009); kept for the next one.',
+		page: 'reference/ai-model.md'
+	},
 	BP_OLLAMA_MEM_LIMIT: {
 		kind: 'text',
 		tier: 'advanced',

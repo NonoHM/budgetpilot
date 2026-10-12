@@ -778,6 +778,97 @@ describe('startupEvents', () => {
 		]);
 		expect(REGISTRY[E.configEnvFileExposed].body).toMatch(/Run chmod 600 \.env\.$/);
 	});
+
+	// #967, ANSSI-PA-102 R34: with the model on another machine, whatever a feature sends it leaves
+	// this one, and nothing said so. Separates a startup that names that host from one that is silent,
+	// and the two silent cases that must stay silent: the AI overlay's own `ollama` service, which it
+	// declares internal in LLM_HTTP_PERMITTED_HOSTS, and a connection that is switched off.
+	describe('a model host that is not on this machine', () => {
+		const facts = { secureCookies: true, trustedProxyRanges: 2, exposedEnvFileMode: null };
+		const base = { ORIGIN: 'http://localhost:3999' };
+		const remote = {
+			...base,
+			LLM_ENABLED: 'true',
+			LLM_BASE_URL: 'https://models.example.test',
+			LLM_ALLOWED_HOSTS: 'models.example.test'
+		};
+
+		it('is named at startup when the connection is on', async () => {
+			const { startupEvents } = await import('./hooks.server');
+			expect(startupEvents(remote, facts)).toContainEqual({
+				event: E.configModelHostRemote,
+				attributes: { [A.configModelHost]: 'models.example.test' }
+			});
+			expect(REGISTRY[E.configModelHostRemote].severity).toBe('WARN');
+			expect(REGISTRY[E.configModelHostRemote].body).toMatch(/leaves this machine/);
+		});
+
+		// The contradiction pass on the design note: a declaration in LLM_HTTP_PERMITTED_HOSTS is not
+		// proof a host is on this machine, and a redirect reaches any allowlisted host, not only the
+		// base URL's. Each case separates a warning that judges what can be REACHED from one that
+		// judges what was typed into LLM_BASE_URL.
+		it.each([
+			[
+				'a network address declared for plain http',
+				{
+					...base,
+					LLM_ENABLED: 'true',
+					LLM_BASE_URL: 'http://192.168.1.20:11434',
+					LLM_ALLOWED_HOSTS: '192.168.1.20',
+					LLM_HTTP_PERMITTED_HOSTS: '192.168.1.20'
+				},
+				['192.168.1.20']
+			],
+			[
+				'an allowlisted host a redirect can reach, beside a loopback base URL',
+				{
+					...base,
+					LLM_ENABLED: 'true',
+					LLM_ALLOWED_HOSTS: 'localhost,127.0.0.1,[::1],models.example.test'
+				},
+				['models.example.test']
+			]
+		])('is named for %s', async (_label, env, named) => {
+			const { startupEvents } = await import('./hooks.server');
+			expect(
+				startupEvents(env, facts)
+					.filter((line) => line.event === E.configModelHostRemote)
+					.map((line) => (line.attributes as Record<string, unknown>)[A.configModelHost])
+			).toEqual(named);
+		});
+
+		it.each([
+			['the connection is off', { ...remote, LLM_ENABLED: 'false' }],
+			[
+				"the AI overlay's own service",
+				{
+					...base,
+					LLM_ENABLED: 'true',
+					LLM_BASE_URL: 'http://ollama:11434',
+					LLM_ALLOWED_HOSTS: 'localhost,127.0.0.1,::1,ollama',
+					LLM_HTTP_PERMITTED_HOSTS: ',ollama'
+				}
+			],
+			['the default loopback address', { ...base, LLM_ENABLED: 'true' }],
+			[
+				'the host machine seen from a container',
+				{
+					...base,
+					LLM_ENABLED: 'true',
+					LLM_BASE_URL: 'http://host.docker.internal:11434',
+					LLM_ALLOWED_HOSTS: 'host.docker.internal'
+				}
+			],
+			// Refused by the allowlist, so nothing is ever sent there: the refusal is the report.
+			['a base URL the allowlist refuses', { ...remote, LLM_ALLOWED_HOSTS: '' }]
+		])('is not named when %s', async (_label, env) => {
+			const { startupEvents } = await import('./hooks.server');
+			const events = startupEvents(env, facts);
+			// The calibration that the list is the startup report and not an empty one.
+			expect(events[0].event).toBe(E.sysStartup);
+			expect(events.map((line) => line.event)).not.toContain(E.configModelHostRemote);
+		});
+	});
 });
 
 // The wiring: the module reads the mode of the .env in the working directory when it loads, which

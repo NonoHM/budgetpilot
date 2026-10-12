@@ -47,8 +47,24 @@ export type { LocalLlmFailureCode };
  * What the transport returns: the answer, already validated against the caller's schema, or why
  * there is none. `null` from the transport means the connection is switched off (`LLM_ENABLED`).
  */
+/**
+ * Which weights answered, as the model host lists them (#967): its digest, and the file format it
+ * reports. Self-attested by the host: a hostile one can lie, so this records an accidental or
+ * unreviewed swap and authenticates nothing.
+ */
+export interface ModelIdentity {
+	digest: string;
+	format: string;
+}
+
 export type LocalLlmResult<T> =
-	| { value: T; unavailable?: undefined; failureCode?: undefined; notCharged?: undefined }
+	| {
+			value: T;
+			model: ModelIdentity;
+			unavailable?: undefined;
+			failureCode?: undefined;
+			notCharged?: undefined;
+	  }
 	| {
 			value?: undefined;
 			unavailable: true;

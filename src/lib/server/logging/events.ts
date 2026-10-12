@@ -149,6 +149,7 @@ export type LogEvent =
 	  }
 	| { event: typeof E.configLogLevelChanged; attributes: { [A.configLogLevel]: string } }
 	| { event: typeof E.configEnvFileExposed; attributes: { [A.configFileMode]: string } }
+	| { event: typeof E.configModelHostRemote; attributes: { [A.configModelHost]: string } }
 	| {
 			event: typeof E.requestFailed;
 			attributes: ErrorFields & {
@@ -456,6 +457,13 @@ export const REGISTRY: { [N in EventName]: EventSpec<AttributesOf<N>> } = {
 		flood: false,
 		security: false,
 		attributes: { [A.configFileMode]: 'Operational' }
+	},
+	[E.configModelHostRemote]: {
+		severity: 'WARN',
+		body: 'LLM_BASE_URL names a model server that is not on this machine, so whatever a feature sends the model leaves this machine for that host. Nothing to do if you chose that host; otherwise point LLM_BASE_URL at a local server.',
+		flood: false,
+		security: false,
+		attributes: { [A.configModelHost]: 'Operational' }
 	},
 	[E.requestFailed]: {
 		severity: 'ERROR',

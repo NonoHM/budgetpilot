@@ -1,12 +1,13 @@
 import { Ollama } from 'ollama';
-import type { ZodType } from 'zod';
+import { z, type ZodType } from 'zod';
 import { LOCAL_LLM_FALLBACK_CODE } from '$lib/domain/failureCodes';
 import { failureCode, isTimeoutError } from '$lib/server/errors';
 import { parseHostsCsv } from '$lib/server/hosts';
 import { fetchWithRedirectGuard } from '$lib/server/net/redirectGuard';
 import { readIntegerSetting } from '$lib/server/env/readSetting';
 import { SETTINGS } from '$lib/server/env/settings';
-import type { LocalLlmFailureCode, LocalLlmResult } from './types';
+import { OperatorFacingError } from '$lib/server/operatorFacingError';
+import type { LocalLlmFailureCode, LocalLlmResult, ModelIdentity } from './types';
 
 const DEFAULT_BASE_URL = 'http://127.0.0.1:11434';
 /**
@@ -49,6 +50,29 @@ export function isLocalLlmEnabled(env: NodeJS.ProcessEnv = process.env): boolean
 	return env.LLM_ENABLED === 'true' && (env.LLM_PROVIDER ?? 'ollama') === 'ollama';
 }
 
+/**
+ * What `/api/tags` prints for a model, and what `sha256sum` of its manifest prints (measured equal on
+ * Ollama 0.32.5). Lowercase only, because the comparison is exact: a value that can never equal a
+ * listed digest would refuse every generation, so it is refused at boot where the operator reads.
+ */
+const MODEL_DIGEST = /^[0-9a-f]{64}$/;
+
+/** The pinned digest, or `null` when none is set. An empty `.env` line is no pin. */
+function modelDigestPin(env: NodeJS.ProcessEnv): string | null {
+	return env.BP_LLM_MODEL_DIGEST ? env.BP_LLM_MODEL_DIGEST : null;
+}
+
+/** Boot check for `BP_LLM_MODEL_DIGEST` (#967): unset, empty, or a full digest. */
+export function assertLlmModelDigestConfigured(env: NodeJS.ProcessEnv = process.env): void {
+	const pin = modelDigestPin(env);
+	if (pin === null || MODEL_DIGEST.test(pin)) return;
+	throw new OperatorFacingError(
+		`BP_LLM_MODEL_DIGEST must be 64 lowercase hexadecimal characters, the digest the model ` +
+			`server lists for LLM_MODEL (received ${pin.length} characters). \`ollama list\` prints ` +
+			'only the first 12; docs/reference/ai-model.md shows how to read the whole digest.'
+	);
+}
+
 /** One shape for every giving-up path, so a code can never be omitted where `unavailable` is set. */
 function unavailable(code: LocalLlmFailureCode, noWork = false): LocalLlmResult<never> {
 	return {
@@ -75,11 +99,14 @@ async function probeLocalLlmReachable(
 	env: NodeJS.ProcessEnv
 ): Promise<boolean> {
 	try {
-		await fetchWithRedirectGuard(
+		const response = await fetchWithRedirectGuard(
 			`${baseUrl}/api/version`,
 			{ method: 'GET', signal: AbortSignal.timeout(connectTimeoutMs) },
 			{ isRedirectTargetAllowed: (target) => getLocalBaseUrl(target.href, env) !== null }
 		);
+		// Nothing here reads the body, so it is cancelled rather than bounded: zero bytes read is the
+		// tightest bound, and a declared length is no reason to call a listening host unreachable.
+		await response.body?.cancel();
 		return true;
 	} catch {
 		return false;
@@ -149,6 +176,228 @@ export async function probeLocalLlm(
 		: unavailable('unreachable', true);
 }
 
+/** Raised by the capped reader: the model host sent more than the bound its request earned. */
+class ModelHostResponseTooLarge extends Error {
+	override name = 'ModelHostResponseTooLarge';
+}
+
+/**
+ * THE ONE READER FOR A BODY FROM THE MODEL HOST (#967). Before it, `/api/chat` was read whole by the
+ * `ollama` client's `response.json()`: a fake host answering 200 MB raised the server's memory from
+ * 319 MB to 1.17 GB, and a 64 MiB answer was read to its last byte (measured in
+ * `modelHostBounds.spec.ts`). `num_predict` bounds what an honest model WRITES; nothing bounded what a
+ * server SENDS.
+ *
+ * The body handed on errors the moment it passes `maxBytes`, which cancels the socket, whatever
+ * length the host declared: a check on `Content-Length` first was break-checked and changed nothing
+ * observable, since the count stops a declared body at the same bound. `overflow.hit` records
+ * that it happened, because the `ollama` client swallows a body error on a non-2xx status and reports
+ * only the status (`checkOk`), so the error alone would read as « model not pulled » on a 404.
+ *
+ * Every body the app reads from the model host passes here: the model list and the generation (the
+ * client's injected `fetch`). The probe reads no body and cancels it instead.
+ */
+async function fetchModelHost(
+	url: string,
+	init: RequestInit,
+	maxBytes: number,
+	env: NodeJS.ProcessEnv,
+	overflow: { hit: boolean }
+): Promise<Response> {
+	const response = await fetchWithRedirectGuard(url, init, {
+		isRedirectTargetAllowed: (target) => getLocalBaseUrl(target.href, env) !== null
+	});
+	if (response.body === null) return response;
+	let read = 0;
+	const capped = response.body.pipeThrough(
+		new TransformStream<Uint8Array, Uint8Array>({
+			transform(chunk, controller) {
+				read += chunk.byteLength;
+				if (read > maxBytes) {
+					overflow.hit = true;
+					controller.error(
+						new ModelHostResponseTooLarge(`the model host sent more than ${maxBytes} bytes`)
+					);
+					return;
+				}
+				controller.enqueue(chunk);
+			}
+		})
+	);
+	return new Response(capped, {
+		status: response.status,
+		statusText: response.statusText,
+		headers: response.headers
+	});
+}
+
+/**
+ * HOW MANY BYTES AN HONEST ANSWER TO `format` CAN TAKE, derived from the schema and never a literal
+ * (#967; the same rule `num_predict` was held to after #524).
+ *
+ * Counted in GRAMMAR CHARACTERS, then multiplied by the most bytes one of them can cost on the wire:
+ *
+ * - Ollama compiles `format` with llama.cpp's converter. A string of `maxLength` N is N grammar
+ *   characters, and the grammar lets each be written as a `\uXXXX` escape.
+ * - Ollama's Go encoder then escapes that escape's backslash (2 bytes) and writes `<`, `>`, `&` as
+ *   `<` and kin (6 bytes; measured on 0.32.5). So one grammar character costs at most 7 bytes:
+ *   `\uXXXX` becomes `\\uXXXX`. A raw astral character is 4.
+ * - Every slot the grammar's space rule fills takes up to 22 characters: `| " " | "\n"{1,2} [ \t]{0,20}`,
+ *   the only space rule in the 0.32.5 image (found in `libllama-common.so`). A slot follows `{`, `[`,
+ *   `:`, `,`, every key and every value.
+ *
+ * Throws on a node it cannot bound (a string with neither `maxLength` nor `enum`, an array without
+ * `maxItems` and `items`, an object open to extra keys, any other type), because sizing it as zero
+ * refuses every answer and sizing it as infinity is no bound (F7 in the gateway design).
+ */
+const GRAMMAR_SPACE_CHARS = 22;
+const WORST_BYTES_PER_GRAMMAR_CHAR = 7;
+/**
+ * The chat envelope around `message.content`: measured at 308 bytes with a 12-character model name on
+ * Ollama 0.32.5 (eleven fields, all numbers, dates and fixed words). 2048 covers it six times over;
+ * the model name, which Ollama echoes, is counted separately at 6 bytes per byte.
+ */
+const CHAT_ENVELOPE_BYTES = 2048;
+/**
+ * The model list is the one body whose size the request cannot derive: it grows with the models the
+ * operator pulled. One entry measured 410 bytes on 0.32.5, so 1 MiB lists about 2500 models.
+ */
+const MODEL_LIST_MAX_BYTES = 1024 * 1024;
+
+type JsonSchemaNode = {
+	type?: unknown;
+	enum?: unknown;
+	maxLength?: unknown;
+	maxItems?: unknown;
+	items?: unknown;
+	properties?: unknown;
+	additionalProperties?: unknown;
+};
+
+function maxGrammarChars(node: JsonSchemaNode): number {
+	const space = GRAMMAR_SPACE_CHARS;
+	if (node.type === 'string') {
+		if (Array.isArray(node.enum)) {
+			return Math.max(...node.enum.map((member) => JSON.stringify(String(member)).length)) + space;
+		}
+		if (typeof node.maxLength !== 'number') {
+			throw new Error('answerByteBound: a string node needs maxLength or enum');
+		}
+		return node.maxLength + 2 + space;
+	}
+	if (node.type === 'array') {
+		if (typeof node.maxItems !== 'number' || typeof node.items !== 'object' || !node.items) {
+			throw new Error('answerByteBound: an array node needs maxItems and items');
+		}
+		const item = maxGrammarChars(node.items as JsonSchemaNode);
+		// `[` space, the items with `,` space between them, `]` space.
+		return (
+			1 + space + node.maxItems * item + Math.max(0, node.maxItems - 1) * (1 + space) + 1 + space
+		);
+	}
+	if (node.type === 'object') {
+		if (node.additionalProperties !== undefined && node.additionalProperties !== false) {
+			throw new Error('answerByteBound: an object node open to extra keys has no bound');
+		}
+		const entries = Object.entries((node.properties ?? {}) as Record<string, JsonSchemaNode>);
+		// Each `"key"` space `:` space value; `,` space between entries; `{` space and `}` space around.
+		const body = entries.reduce(
+			(total, [key, value]) =>
+				total + JSON.stringify(key).length + space + 1 + space + maxGrammarChars(value),
+			0
+		);
+		return 1 + space + body + Math.max(0, entries.length - 1) * (1 + space) + 1 + space;
+	}
+	throw new Error(`answerByteBound: cannot bound a ${JSON.stringify(node.type)} node`);
+}
+
+function answerByteBound(format: Record<string, unknown>, model: string): number {
+	return (
+		maxGrammarChars(format) * WORST_BYTES_PER_GRAMMAR_CHAR +
+		CHAT_ENVELOPE_BYTES +
+		Buffer.byteLength(model) * 6
+	);
+}
+
+/**
+ * A model name as Ollama reads it, so the configured name and the listed one compare as Ollama
+ * compares them: the default registry and the `library` namespace dropped (as `ollama list` prints
+ * them), `:latest` added when the LAST path segment carries no tag (a registry port is not a tag),
+ * and case folded (Ollama's own name equality ignores case).
+ */
+function ollamaShortName(name: string): string {
+	const tagged = name.slice(name.lastIndexOf('/') + 1).includes(':') ? name : `${name}:latest`;
+	return tagged
+		.replace(/^registry\.ollama\.ai\//i, '')
+		.replace(/^library\//i, '')
+		.toLowerCase();
+}
+
+const modelListSchema = z.object({
+	models: z.array(
+		z.object({
+			name: z.string(),
+			model: z.string().optional(),
+			digest: z.string(),
+			remote_host: z.string().optional(),
+			remote_model: z.string().optional(),
+			details: z.object({ format: z.string().optional() }).optional()
+		})
+	)
+});
+
+/**
+ * Which model would answer, read from `/api/tags` (the only Ollama endpoint carrying a digest;
+ * `/api/show` carries none, measured on 0.32.5). A failure code when it cannot be known. Within the
+ * CONNECT budget, because listing loads no model: a list that never comes is a host not answering.
+ */
+async function readModelIdentity(
+	baseUrl: string,
+	model: string,
+	env: NodeJS.ProcessEnv,
+	signal: AbortSignal | undefined
+): Promise<ModelIdentity | LocalLlmFailureCode> {
+	const budget = AbortSignal.timeout(readIntegerSetting('LLM_CONNECT_TIMEOUT_MS', env));
+	const overflow = { hit: false };
+	let response: Response;
+	let text: string;
+	try {
+		response = await fetchModelHost(
+			`${baseUrl}/api/tags`,
+			{ method: 'GET', signal: signal ? AbortSignal.any([budget, signal]) : budget },
+			MODEL_LIST_MAX_BYTES,
+			env,
+			overflow
+		);
+		text = await response.text();
+	} catch {
+		// Over the bound is a list that cannot be read; anything else (the budget, a reset, a refused
+		// redirect) is the host not answering, the same reading the probe gives it.
+		return overflow.hit ? 'model_unidentified' : 'unreachable';
+	}
+	if (!response.ok) return 'model_unidentified';
+	let parsed: ReturnType<typeof modelListSchema.safeParse>;
+	try {
+		parsed = modelListSchema.safeParse(JSON.parse(text));
+	} catch {
+		return 'model_unidentified';
+	}
+	if (!parsed.success) return 'model_unidentified';
+	const listed = parsed.data;
+	const wanted = ollamaShortName(model);
+	const entry = listed.models.find(
+		(candidate) =>
+			ollamaShortName(candidate.name) === wanted ||
+			(candidate.model !== undefined && ollamaShortName(candidate.model) === wanted)
+	);
+	if (!entry) return 'model_unavailable';
+	// An Ollama `-cloud` tag: listed here, generated on ollama.com (measured on 0.32.5). The prompt
+	// would leave for a host no allowlist names.
+	if (entry.remote_host || entry.remote_model) return 'model_remote';
+	if (!MODEL_DIGEST.test(entry.digest)) return 'model_unidentified';
+	return { digest: entry.digest, format: entry.details?.format ?? '' };
+}
+
 /** One generation: what the caller asks, and the two things that bound what may come back. */
 export interface LocalModelRequest<T> {
 	prompt: string;
@@ -184,24 +433,36 @@ export async function requestLocalModel<T>(
 ): Promise<LocalLlmResult<T> | null> {
 	if (!isLocalLlmEnabled(env)) return null;
 
+	const model = localLlmModel(env);
+	// Before any socket: a format the transport cannot bound is the caller's mistake, said as a throw
+	// rather than as a failure code the reader would be told to act on.
+	const answerBound = answerByteBound(request.format, model);
+
 	const refused = await probeLocalLlm(env);
 	if (refused) return refused;
 	// Non-null: the probe above returned null only after this same call accepted the address.
 	const baseUrl = getLocalBaseUrl(env.LLM_BASE_URL ?? DEFAULT_BASE_URL, env)!;
 
-	const model = localLlmModel(env);
+	// Which weights would answer, before asking them anything (#967). Each refusal here is before
+	// any generation, so none is charged.
+	const before = await readModelIdentity(baseUrl, model, env, signal);
+	if (typeof before === 'string') return unavailable(before, true);
+	const pin = modelDigestPin(env);
+	if (pin !== null && before.digest !== pin) return unavailable('model_mismatch', true);
+
 	// Refused rather than replaced by the default (#754): `0x10` used to read as 16 ms. The boot
 	// checks refuse the same values before any request reaches this.
 	const timeoutMs = readIntegerSetting('LLM_TIMEOUT_MS', env);
+	const overflow = { hit: false };
 
 	const client = new Ollama({
 		host: baseUrl,
 		// #215: guard redirects here too. The base URL is allowlisted (getLocalBaseUrl above), but a
 		// redirect could still bounce the fetch to a non-allowlisted host; every redirect target is
-		// re-validated against the same allowlist. Smaller exposure than the bank client (localhost
-		// only), identical guard-scope gap.
+		// re-validated against the same allowlist, inside `fetchModelHost`, which also bounds the body
+		// the client reads (#967).
 		fetch: (input, init) =>
-			fetchWithRedirectGuard(
+			fetchModelHost(
 				typeof input === 'string' ? input : input instanceof URL ? input.href : input.url,
 				{
 					...init,
@@ -209,7 +470,9 @@ export async function requestLocalModel<T>(
 						? AbortSignal.any([AbortSignal.timeout(timeoutMs), signal])
 						: AbortSignal.timeout(timeoutMs)
 				},
-				{ isRedirectTargetAllowed: (target) => getLocalBaseUrl(target.href, env) !== null }
+				answerBound,
+				env,
+				overflow
 			)
 	});
 
@@ -255,8 +518,17 @@ export async function requestLocalModel<T>(
 		const content = response.message?.content;
 		if (!content) return unreadable(truncated);
 
-		return parseLocalLlmContent(content, request.schema, truncated);
+		const parsed = parseLocalLlmContent(content, request.schema, truncated);
+		if (parsed.unavailable) return parsed;
+		// Confirmed AFTER the answer, because a pull finishing between the first read and the
+		// generation runs other weights under the first read's record. The generation ran, so charged.
+		const after = await readModelIdentity(baseUrl, model, env, signal);
+		if (typeof after === 'string') return unavailable(after);
+		if (after.digest !== before.digest) return unavailable('model_mismatch');
+		return { value: parsed.value, model: before };
 	} catch (caught) {
+		// Before the status: the client reports a body error on a non-2xx answer as that status alone.
+		if (overflow.hit) return unavailable('response_unusable');
 		// `unreachable` is the fallback rather than a catch-all sentence: the probe answered, so
 		// anything unrecognised here is the connection having failed since, which is the honest
 		// reading and the one whose advice ("check that it is running") stays true.
@@ -301,7 +573,7 @@ function parseLocalLlmContent<T>(
 	content: string,
 	schema: ZodType<T>,
 	truncated: boolean
-): LocalLlmResult<T> {
+): { value: T; unavailable?: undefined } | LocalLlmResult<never> {
 	let parsedJson: unknown;
 	try {
 		parsedJson = JSON.parse(content);
@@ -329,6 +601,31 @@ function getAllowedHosts(env: NodeJS.ProcessEnv): string[] {
 // Nothing hardcoded here beyond that baseline: any additional host goes through the env var.
 function getHttpPermittedHosts(env: NodeJS.ProcessEnv): string[] {
 	return [...DEFAULT_HTTP_PERMITTED_HOSTS, ...parseHostsCsv(env.LLM_HTTP_PERMITTED_HOSTS)];
+}
+
+/**
+ * Every host the connection may reach that is not on this machine (#967, ANSSI-PA-102 R34), in
+ * allowlist order; empty when the connection is off or its base URL is refused, because nothing is
+ * then sent anywhere. Startup names each, because whatever a feature sends the model leaves this
+ * machine for it.
+ *
+ * Every ALLOWLISTED host is judged, not only the base URL's: a redirect reaches any of them
+ * (`isRedirectTargetAllowed` above), with the request body.
+ *
+ * « This machine » is the loopback names, `host.docker.internal`, and a SINGLE-LABEL name the
+ * operator declares internal in `LLM_HTTP_PERMITTED_HOSTS`, which is how the AI overlay declares its
+ * `ollama` container (a Compose service name has no dot). A dotted name or an address declared there
+ * is still named: a declaration that plain http is acceptable is not proof the host is local. The
+ * known limit is a single-label name for another machine, which is taken at the operator's word.
+ */
+export function remoteModelHosts(env: Record<string, string | undefined>): string[] {
+	if (!isLocalLlmEnabled(env)) return [];
+	if (getLocalBaseUrl(env.LLM_BASE_URL ?? DEFAULT_BASE_URL, env) === null) return [];
+	const declared = getHttpPermittedHosts(env);
+	const onThisMachine = (host: string) =>
+		DEFAULT_HTTP_PERMITTED_HOSTS.includes(host) ||
+		(declared.includes(host) && !host.includes('.') && !host.includes(':'));
+	return [...new Set(getAllowedHosts(env))].filter((host) => !onThisMachine(host));
 }
 
 function getLocalBaseUrl(value: string, env: NodeJS.ProcessEnv): string | null {
