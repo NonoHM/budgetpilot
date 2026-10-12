@@ -3,7 +3,7 @@ import { z, type ZodType } from 'zod';
 import { LOCAL_LLM_FALLBACK_CODE } from '$lib/domain/failureCodes';
 import { failureCode, isTimeoutError } from '$lib/server/errors';
 import { parseHostsCsv } from '$lib/server/hosts';
-import { fetchWithRedirectGuard } from '$lib/server/net/redirectGuard';
+import { fetchWithRedirectGuard, SsrfRedirectError } from '$lib/server/net/redirectGuard';
 import { readIntegerSetting } from '$lib/server/env/readSetting';
 import { SETTINGS } from '$lib/server/env/settings';
 import { OperatorFacingError } from '$lib/server/operatorFacingError';
@@ -89,9 +89,8 @@ function unavailable(code: LocalLlmFailureCode, noWork = false): LocalLlmResult<
  * 404 here as unreachable would report a stopped service on an Ollama build that simply moved the
  * endpoint, which is the comfortable-direction failure AGENTS.md warns about.
  *
- * The redirect guard is the same one the generation call uses and holds the same allowlist, so this
- * extra request widens no SSRF surface: a 3xx to a non-allowlisted host throws here exactly as it
- * would there, before anything is sent to it.
+ * A redirect is an HTTP answer too, so it counts as reachable, and it is not followed: the model host
+ * gets no redirect (`NO_REDIRECT`), so this request reaches the base URL's host and no other.
  */
 async function probeLocalLlmReachable(
 	baseUrl: string,
@@ -108,8 +107,9 @@ async function probeLocalLlmReachable(
 		// tightest bound, and a declared length is no reason to call a listening host unreachable.
 		await response.body?.cancel();
 		return true;
-	} catch {
-		return false;
+	} catch (caught) {
+		// The guard throws on a 3xx it refuses to follow, after the host has answered it.
+		return caught instanceof SsrfRedirectError;
 	}
 }
 
@@ -281,19 +281,25 @@ type JsonSchemaNode = {
 	additionalProperties?: unknown;
 };
 
+/** A bound read from a schema is a count: Infinity never stops reading, a negative refuses all. */
+function isCount(value: unknown): value is number {
+	return Number.isSafeInteger(value) && (value as number) >= 0;
+}
+
 function maxGrammarChars(node: JsonSchemaNode): number {
 	const space = GRAMMAR_SPACE_CHARS;
 	if (node.type === 'string') {
 		if (Array.isArray(node.enum)) {
+			if (node.enum.length === 0) throw new Error('answerByteBound: an enum with no member');
 			return Math.max(...node.enum.map((member) => JSON.stringify(member).length)) + space;
 		}
-		if (typeof node.maxLength !== 'number') {
+		if (!isCount(node.maxLength)) {
 			throw new Error('answerByteBound: a string node needs maxLength or enum');
 		}
 		return node.maxLength + 2 + space;
 	}
 	if (node.type === 'array') {
-		if (typeof node.maxItems !== 'number' || typeof node.items !== 'object' || !node.items) {
+		if (!isCount(node.maxItems) || typeof node.items !== 'object' || !node.items) {
 			throw new Error('answerByteBound: an array node needs maxItems and items');
 		}
 		const item = maxGrammarChars(node.items as JsonSchemaNode);
@@ -381,10 +387,12 @@ async function readModelIdentity(
 			overflow
 		);
 		text = await response.text();
-	} catch {
-		// Over the bound is a list that cannot be read; anything else (the budget, a reset, a refused
-		// redirect) is the host not answering, the same reading the probe gives it.
-		return overflow.hit ? 'model_unidentified' : 'unreachable';
+	} catch (caught) {
+		// Over the bound, or a redirect where the list should be, is an answer that is not a list;
+		// anything else (the budget, a reset) is the host not answering, as the probe reads it.
+		return overflow.hit || caught instanceof SsrfRedirectError
+			? 'model_unidentified'
+			: 'unreachable';
 	}
 	if (!response.ok) return 'model_unidentified';
 	let parsed: ReturnType<typeof modelListSchema.safeParse>;
@@ -468,10 +476,8 @@ export async function requestLocalModel<T>(
 
 	const client = new Ollama({
 		host: baseUrl,
-		// #215: guard redirects here too. The base URL is allowlisted (getLocalBaseUrl above), but a
-		// redirect could still bounce the fetch to a non-allowlisted host; every redirect target is
-		// re-validated against the same allowlist, inside `fetchModelHost`, which also bounds the body
-		// the client reads (#967).
+		// Through `fetchModelHost`, which follows no redirect (#215 kept the fetch on the allowlist;
+		// #967 keeps it on the base URL's host) and bounds the body the client reads.
 		fetch: (input, init) =>
 			fetchModelHost(
 				typeof input === 'string' ? input : input instanceof URL ? input.href : input.url,

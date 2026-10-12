@@ -817,6 +817,17 @@ describe('startupEvents', () => {
 					LLM_HTTP_PERMITTED_HOSTS: '192.168.1.20'
 				},
 				['192.168.1.20']
+			],
+			[
+				'an IPv6 address declared for plain http',
+				{
+					...base,
+					LLM_ENABLED: 'true',
+					LLM_BASE_URL: 'http://[fd00::1]:11434',
+					LLM_ALLOWED_HOSTS: '[fd00::1]',
+					LLM_HTTP_PERMITTED_HOSTS: 'fd00::1'
+				},
+				['[fd00::1]']
 			]
 		])('is named for %s', async (_label, env, named) => {
 			const { startupEvents } = await import('./hooks.server');

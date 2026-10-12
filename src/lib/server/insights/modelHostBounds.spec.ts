@@ -714,3 +714,65 @@ describe('model host edges found after coding (#967)', () => {
 		expect(result?.value).toEqual({ text: member });
 	});
 });
+
+/** The narrow pass on the redirect fix (2026-10-12), one test per finding taken. */
+describe('a refused redirect reads as an answer (#967)', () => {
+	const answer = JSON.stringify({ text: 'ok' });
+
+	// The probe's rule is that ANY HTTP answer means something is listening. A 307 used to throw
+	// inside the guard and read as « not running », while a 300 counted as running. Separates the
+	// probe's reading of an answer from the guard's refusal to follow it.
+	it('counts a probe answered by a redirect as reachable, and follows nothing', async () => {
+		const other = await fakeHost({ '/api/version': version });
+		const host = await fakeHost({
+			'/api/version': (_req, res) => {
+				res.writeHead(307, { Location: `${other.baseUrl}/api/version` }).end();
+			},
+			'/api/tags': tags(),
+			'/api/chat': chat(answer)
+		});
+		const result = await requestLocalModel(stringRequest(10), envFor(host));
+		expect(result?.value).toEqual({ text: 'ok' });
+		expect(other.hits).toEqual({});
+	});
+
+	// A redirect where the model list should be is an answer that is not a list.
+	it('reads a model list answered by a redirect as unidentified, not as a stopped host', async () => {
+		const other = await fakeHost({ '/api/tags': tags() });
+		const host = await fakeHost({
+			'/api/version': version,
+			'/api/tags': (_req, res) => {
+				res.writeHead(307, { Location: `${other.baseUrl}/api/tags` }).end();
+			},
+			'/api/chat': chat(answer)
+		});
+		const result = await requestLocalModel(stringRequest(10), envFor(host));
+		expect(result).toEqual({
+			unavailable: true,
+			failureCode: 'model_unidentified',
+			notCharged: true
+		});
+		expect(other.hits).toEqual({});
+	});
+
+	// A bound read from a value that is not a count is no bound: Infinity never stops reading, a
+	// negative or empty one refuses every answer.
+	it.each([
+		['an infinite maxLength', { type: 'string', maxLength: Number.POSITIVE_INFINITY }, /maxLength/],
+		['a negative maxLength', { type: 'string', maxLength: -1 }, /maxLength/],
+		[
+			'a fractional maxItems',
+			{ type: 'array', maxItems: 1.5, items: { type: 'string', maxLength: 3 } },
+			/maxItems/
+		],
+		['an empty enum', { type: 'string', enum: [] }, /enum/]
+	])('refuses to send a format whose bound is not a count: %s', async (_label, node, reason) => {
+		const host = await fakeHost({ '/api/version': version, '/api/tags': tags() });
+		const request = {
+			...stringRequest(10),
+			format: { type: 'object', properties: { text: node }, required: ['text'] }
+		};
+		await expect(requestLocalModel(request, envFor(host))).rejects.toThrow(reason);
+		expect(host.hits).toEqual({});
+	});
+});

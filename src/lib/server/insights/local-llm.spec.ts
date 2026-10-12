@@ -131,8 +131,9 @@ describe('requestLocalModel', () => {
 		});
 
 		expect(result?.unavailable).toBe(true);
-		// Only the first (allowlisted) hop ran; the internal target was never requested.
-		expect(fetchMock).toHaveBeenCalledTimes(1);
+		// Two hops, both to the base URL: the probe, which reads a redirect as an answer, and the
+		// model list, which refuses it (#967). Neither followed it.
+		expect(fetchMock).toHaveBeenCalledTimes(2);
 		expect(fetchMock.mock.calls.map((call) => String(call[0]))).not.toContain(
 			'http://127.0.0.2:9998/latest/meta-data/'
 		);
