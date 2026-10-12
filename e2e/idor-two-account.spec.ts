@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { request as apiRequest, type APIRequestContext } from '@playwright/test';
 import { expect, test } from './fixtures';
 import { E2E_API_HEADERS, E2E_BASE_URL } from './config';
+import * as m from '../src/lib/paraglide/messages';
 import {
 	E2E_BOOTSTRAP_ADMIN_EMAIL,
 	E2E_BOOTSTRAP_ADMIN_PASSWORD,
@@ -602,7 +603,7 @@ test.describe('two-account authorization battery', () => {
 });
 
 test.describe('function-level access (v5.0.0-8.2.1)', () => {
-	// Every surface guarded by requireAdmin. The load is a GET; the four actions are POSTs.
+	// Every surface guarded by requireAdmin. The load is a GET; the six actions are POSTs.
 	interface AdminSurface {
 		label: string;
 		method: 'GET' | 'POST';
@@ -635,6 +636,16 @@ test.describe('function-level access (v5.0.0-8.2.1)', () => {
 			method: 'POST',
 			path: '/admin?/revokeInvitation',
 			fields: { id: 'does-not-exist' }
+		},
+		// #986. The calibration below posts these as the ADMIN, so the halt really happens; the lift
+		// comes right after it, with the admin's own password, so the shared database leaves this
+		// test running again.
+		{ label: 'haltInference', method: 'POST', path: '/admin?/haltInference', fields: {} },
+		{
+			label: 'liftInferenceHalt',
+			method: 'POST',
+			path: '/admin?/liftInferenceHalt',
+			fields: { currentPassword: ATTACKER.password }
 		}
 	];
 
@@ -671,6 +682,12 @@ test.describe('function-level access (v5.0.0-8.2.1)', () => {
 			refusedForAdmin,
 			`surfaces that 403'd an ADMIN, so their non-admin 403 proves nothing: ${refusedForAdmin.join(', ')}`
 		).toEqual([]);
+
+		// The halt above was real (#986): the lift that followed it must have landed, or every later
+		// spec runs against a halted instance. Read on the page, as the admin sees it: the suite runs
+		// with `LLM_ENABLED` off (`.env.test`), so a lifted halt reads « Off ».
+		const admin = await (await attacker.get('/admin')).text();
+		expect(admin).toContain(`>${m.admin_ai_state_off()}<`);
 	});
 
 	// A guard protects only what it inspects, and this list is the inspection. An admin action

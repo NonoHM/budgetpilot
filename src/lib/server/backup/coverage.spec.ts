@@ -24,6 +24,7 @@ const NOT_EXPORTED: Record<string, string> = {
 	PendingMfaChallenge: 'ephemeral authentication state',
 	Invitation: 'addressed to a person, not owned data; carries a token hash',
 	LoginAttempt: 'rate-limiting state, keyed by HMAC, not user data',
+	InferenceHalt: "the instance-wide AI halt (#986), set by an admin; not any member's data",
 	BankAuthorizationRequest: 'ephemeral OAuth state with encrypted payloads',
 	// #599: keyed by a hash under this instance's secret, so it never matches on another one, and
 	// every row carries an account identifier fragment, which a plaintext file must not (#468).

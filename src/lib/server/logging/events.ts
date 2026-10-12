@@ -150,6 +150,8 @@ export type LogEvent =
 	| { event: typeof E.configLogLevelChanged; attributes: { [A.configLogLevel]: string } }
 	| { event: typeof E.configEnvFileExposed; attributes: { [A.configFileMode]: string } }
 	| { event: typeof E.configModelHostRemote; attributes: { [A.configModelHost]: string } }
+	| { event: typeof E.aiInferenceHalted; attributes: UserFields & NoSubnetFields }
+	| { event: typeof E.aiInferenceResumed; attributes: UserFields & NoSubnetFields }
 	| {
 			event: typeof E.requestFailed;
 			attributes: ErrorFields & {
@@ -464,6 +466,22 @@ export const REGISTRY: { [N in EventName]: EventSpec<AttributesOf<N>> } = {
 		flood: false,
 		security: false,
 		attributes: { [A.configModelHost]: 'Operational' }
+	},
+	// Both WARN, the strictest level `BP_LOG_LEVEL` accepts, and neither a security event, so no
+	// setting can drop the record C12.4.3 asks for (#986, design pass F1).
+	[E.aiInferenceHalted]: {
+		severity: 'WARN',
+		body: 'An admin halted AI inference for the whole instance: the model call running was stopped, and every new one is refused until an admin resumes it on the admin page.',
+		flood: false,
+		security: false,
+		attributes: { [A.userPseudonym]: 'Pseudonymous' }
+	},
+	[E.aiInferenceResumed]: {
+		severity: 'WARN',
+		body: 'An admin resumed AI inference for the whole instance after entering their password again: model calls can run again.',
+		flood: false,
+		security: false,
+		attributes: { [A.userPseudonym]: 'Pseudonymous' }
 	},
 	[E.requestFailed]: {
 		severity: 'ERROR',

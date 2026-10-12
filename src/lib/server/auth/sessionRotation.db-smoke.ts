@@ -20,6 +20,7 @@ import { UNCLASSIFIED_CATEGORY } from '$lib/domain/categories';
 import { computeNameKey } from '$lib/server/naming/nameKey';
 import * as m from '$lib/paraglide/messages';
 import { prisma } from '$lib/server/db';
+import { haltInference, liftInferenceHalt, readInferenceHalt } from '$lib/server/ai/inferenceHalt';
 
 /**
  * S1b (#249, R3 on #841), against a real engine: `ASVS v5.0.0-7.2.4`, « a new session token on user
@@ -337,6 +338,21 @@ const CASES: Record<ReauthAction, Case> = {
 					).forcePasswordChange
 			};
 		}
+	},
+	liftInferenceHalt: {
+		route: 'admin',
+		session: 'rotated',
+		arrange: async () => {
+			const admin = await seedAccount('admin-lift', { role: 'ADMIN' });
+			// The halt is one row for the instance (#986): set it as the admin route does, so the
+			// lift has something to remove and `landed` can read its absence.
+			await haltInference(admin.id);
+			return {
+				callerId: admin.id,
+				form: formOf(secrets()),
+				landed: async () => (await readInferenceHalt()) === null
+			};
+		}
 	}
 };
 
@@ -389,6 +405,8 @@ beforeAll(() => {
 afterAll(async () => {
 	// Sessions, recovery codes and attempt rows cascade from User or are keyed by a session hash.
 	await prisma.user.deleteMany({ where: { id: { in: created } } });
+	// The lift case's halt survives its revoked-session test, by design; the next file starts clear.
+	await liftInferenceHalt(prisma);
 });
 
 describe('every re-authenticating action ends the token it arrived with (v5.0.0-7.2.4)', () => {

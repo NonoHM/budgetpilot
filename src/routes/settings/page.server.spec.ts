@@ -1720,7 +1720,7 @@ describe('S1: each re-authenticating settings action, through the real action', 
 
 	type SettingsReauthAction = Exclude<
 		keyof typeof reauth.REAUTH_FACTORS,
-		'deleteUser' | 'resetPassword'
+		'deleteUser' | 'resetPassword' | 'liftInferenceHalt'
 	>;
 
 	interface Case {
@@ -1889,7 +1889,8 @@ describe('S1: each re-authenticating settings action, through the real action', 
 		// The rest of the registry is the admin route's, covered in admin/page.server.spec.ts.
 		expect(Object.keys(reauth.REAUTH_FACTORS).filter((name) => !(name in actions))).toEqual([
 			'deleteUser',
-			'resetPassword'
+			'resetPassword',
+			'liftInferenceHalt'
 		]);
 	});
 

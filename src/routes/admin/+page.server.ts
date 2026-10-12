@@ -17,6 +17,11 @@ import {
 import { reauthenticate, reauthRefusalMessage } from '$lib/server/auth/reauth';
 import { resolveClientAddress } from '$lib/server/net/clientAddress';
 import { prisma } from '$lib/server/db';
+import { haltInference, liftInferenceHalt, readInferenceHalt } from '$lib/server/ai/inferenceHalt';
+import { isLocalLlmEnabled } from '$lib/server/insights/modelHostConfig';
+import { log } from '$lib/server/logging';
+import { ATTRIBUTE, EVENT } from '$lib/server/logging/names';
+import { logUserPseudonym } from '$lib/server/logging/pseudonym';
 import type { PageServerLoad } from './$types';
 
 const PAGE_SIZE = 20;
@@ -29,7 +34,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 	const totalPages = Math.max(1, Math.ceil(totalUsers / PAGE_SIZE));
 	const safePage = Math.min(page, totalPages);
 
-	const [users, invitations, adminAccount] = await Promise.all([
+	const [users, invitations, adminAccount, inferenceHalt] = await Promise.all([
 		prisma.user.findMany({
 			select: {
 				id: true,
@@ -51,7 +56,8 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		listPendingInvitations(),
 		// Whether the admin's OWN re-authentication asks for a code (#229): the dialogs render the
 		// field only then, and the server asks for it regardless of what the page rendered.
-		prisma.user.findUnique({ where: { id: admin.id }, select: { totpEnabled: true } })
+		prisma.user.findUnique({ where: { id: admin.id }, select: { totpEnabled: true } }),
+		readInferenceHalt()
 	]);
 
 	return {
@@ -73,7 +79,13 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 			hasPrevious: safePage > 1,
 			hasNext: safePage < totalPages
 		},
-		invitations
+		invitations,
+		inferenceHalt,
+		// Whether the connection is turned on in the configuration (`LLM_ENABLED=true` and the
+		// `ollama` provider): the badge reads « Enabled » or « Off » from it, and the halt applies
+		// either way. Not whether a call would succeed: an address the allowlist refuses still reads
+		// « Enabled », which is why the badge does not say « Running ».
+		aiConfigured: isLocalLlmEnabled()
 	};
 };
 
@@ -176,6 +188,39 @@ export const actions: Actions = {
 			inviteEmail: invitation.email,
 			inviteExpiresAt: invitation.expiresAt.toISOString()
 		};
+	},
+	// #986: halts every member's AI inference at once (AISVS 1.0 C9.6.1). An admin session alone,
+	// no password: it only takes a capability away, and an admin in an incident must not be slowed.
+	// Logged once per halt (C12.4.3); a second press keeps the first record and writes nothing.
+	haltInference: async ({ locals }) => {
+		const admin = requireAdmin(locals.user);
+		if (await haltInference(admin.id)) {
+			log({
+				event: EVENT.aiInferenceHalted,
+				attributes: { [ATTRIBUTE.userPseudonym]: logUserPseudonym(admin.id) }
+			});
+		}
+		return { haltSuccess: m.admin_ai_halted_notice() };
+	},
+	// #986: turns AI back on for every member, so the admin proves their own secrets first, like the
+	// two actions above. The delete commits with the rotated session or not at all, and the line is
+	// written only after that commit returns (design pass F3).
+	liftInferenceHalt: async ({ cookies, getClientAddress, locals, request }) => {
+		const admin = requireAdmin(locals.user);
+		const ip = resolveClientAddress({ getClientAddress, request });
+		const formData = await request.formData();
+
+		const reauth = await reauthenticate('liftInferenceHalt', { user: admin, ip, form: formData });
+		if (!reauth.ok) return fail(400, { haltError: reauthRefusalMessage(reauth) });
+
+		const lifted = await commitWithRotatedToken(admin, cookies, (tx) => liftInferenceHalt(tx));
+		if (lifted) {
+			log({
+				event: EVENT.aiInferenceResumed,
+				attributes: { [ATTRIBUTE.userPseudonym]: logUserPseudonym(admin.id) }
+			});
+		}
+		return { haltSuccess: m.admin_ai_resumed_notice() };
 	},
 	revokeInvitation: async ({ locals, request }) => {
 		requireAdmin(locals.user);

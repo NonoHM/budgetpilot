@@ -4,6 +4,7 @@ import { LOCAL_LLM_FALLBACK_CODE } from '$lib/domain/failureCodes';
 import { failureCode, isTimeoutError } from '$lib/server/errors';
 import { fetchWithRedirectGuard, SsrfRedirectError } from '$lib/server/net/redirectGuard';
 import { readIntegerSetting } from '$lib/server/env/readSetting';
+import { enterInference, isInferenceHalted } from '$lib/server/ai/inferenceHalt';
 import { SETTINGS } from '$lib/server/env/settings';
 import {
 	DEFAULT_BASE_URL,
@@ -65,11 +66,16 @@ function unavailable(code: LocalLlmFailureCode, noWork = false): LocalLlmResult<
  * A redirect is an HTTP answer too, so it counts as reachable, and it is not followed: the model host
  * gets no redirect (`NO_REDIRECT`), so this request reaches the base URL's host and no other.
  */
-async function probeLocalLlmReachable(baseUrl: string, connectTimeoutMs: number): Promise<boolean> {
+async function probeLocalLlmReachable(
+	baseUrl: string,
+	connectTimeoutMs: number,
+	signal?: AbortSignal
+): Promise<boolean> {
+	const budget = AbortSignal.timeout(connectTimeoutMs);
 	try {
 		const response = await fetchWithRedirectGuard(
 			`${baseUrl}/api/version`,
-			{ method: 'GET', signal: AbortSignal.timeout(connectTimeoutMs) },
+			{ method: 'GET', signal: signal ? AbortSignal.any([budget, signal]) : budget },
 			NO_REDIRECT
 		);
 		// Nothing here reads the body, so it is cancelled rather than bounded: zero bytes read is the
@@ -135,12 +141,30 @@ function isResponseError(caught: unknown, status: number): boolean {
 export async function probeLocalLlm(
 	env: NodeJS.ProcessEnv = process.env
 ): Promise<LocalLlmResult<never> | null> {
+	// A halted instance answers as halted rather than reachable (#986, design pass F6c): a caller
+	// that serves something it kept would otherwise go on serving it while inference is halted.
+	// Registered before the read, like the door, so a halt during the probe's socket counts too.
+	const halt = enterInference();
+	try {
+		if (await isInferenceHalted()) return unavailable('halted', true);
+		const reached = await probeModelHost(env, halt.signal);
+		return halt.signal.aborted ? unavailable('halted', true) : reached;
+	} finally {
+		halt.leave();
+	}
+}
+
+/** The reachability half of `probeLocalLlm`, which the door calls after its own halt read. */
+async function probeModelHost(
+	env: NodeJS.ProcessEnv,
+	signal?: AbortSignal
+): Promise<LocalLlmResult<never> | null> {
 	const baseUrl = getLocalBaseUrl(env.LLM_BASE_URL ?? DEFAULT_BASE_URL, env);
 	// Refused by the host allowlist, before any socket is opened. Distinct from "nothing answered":
 	// no amount of waiting fixes a base URL the allowlist will not accept.
 	if (!baseUrl) return unavailable('not_configured', true);
 	const connectTimeoutMs = readIntegerSetting('LLM_CONNECT_TIMEOUT_MS', env);
-	return (await probeLocalLlmReachable(baseUrl, connectTimeoutMs))
+	return (await probeLocalLlmReachable(baseUrl, connectTimeoutMs, signal))
 		? null
 		: unavailable('unreachable', true);
 }
@@ -426,103 +450,129 @@ export async function requestLocalModel<T>(
 	// rather than as a failure code the reader would be told to act on.
 	const answerBound = answerByteBound(request.format, model);
 
-	const refused = await probeLocalLlm(env);
-	if (refused) return refused;
-	// Non-null: the probe above returned null only after this same call accepted the address.
-	const baseUrl = getLocalBaseUrl(env.LLM_BASE_URL ?? DEFAULT_BASE_URL, env)!;
-
-	// Which weights would answer, before asking them anything (#967). Each refusal here is before
-	// any generation, so none is charged.
-	const before = await readModelIdentity(baseUrl, model, env, signal);
-	if (typeof before === 'string') return unavailable(before, true);
-	const pin = modelDigestPin(env);
-	if (pin !== null && before.digest !== pin) return unavailable('model_mismatch', true);
-
-	// Refused rather than replaced by the default (#754): `0x10` used to read as 16 ms. The boot
-	// checks refuse the same values before any request reaches this.
-	const timeoutMs = readIntegerSetting('LLM_TIMEOUT_MS', env);
-	const overflow = { hit: false };
-
-	const client = new Ollama({
-		host: baseUrl,
-		// Through `fetchModelHost`, which follows no redirect (#215 kept the fetch on the allowlist;
-		// #967 keeps it on the base URL's host) and bounds the body the client reads.
-		fetch: (input, init) =>
-			fetchModelHost(
-				typeof input === 'string' ? input : input instanceof URL ? input.href : input.url,
-				{
-					...init,
-					signal: signal
-						? AbortSignal.any([AbortSignal.timeout(timeoutMs), signal])
-						: AbortSignal.timeout(timeoutMs)
-				},
-				answerBound,
-				overflow
-			)
-	});
-
+	// The kill switch (#986). Registered BEFORE the halt is read, so a halt written after this line
+	// aborts this call and one written before it is read below: `ai/inferenceHalt.ts` says why the
+	// two orders together leave no gap. Every early return below sits inside this try, so `leave`
+	// runs for each of them.
+	const halt = enterInference();
 	try {
-		const response = await client.chat({
-			model,
-			messages: [{ role: 'user', content: request.prompt }],
-			format: request.format,
-			// UNCONDITIONAL, and the absence of a capability gate is the decision rather than the
-			// shortcut. A reasoning model spends its reasoning tokens out of the same `num_predict`
-			// budget as the answer, so the ceiling below can be correctly sized for the schema and
-			// still leave nothing for the JSON. Measured in #527 on qwen3.5:4b-q8_0 over a prompt built
-			// from this module's own builders: without this field, `done_reason: length`, 1060 tokens
-			// and ZERO characters of content; with it, `stop`, 282 tokens and complete French JSON.
-			// So on a model that reasons this is not an optimisation, it is the only measured
-			// configuration in which an answer arrives at all.
-			//
-			// Sent to every model because a model with no thinking capability accepts it and generates
-			// normally, measured on qwen2.5:0.5b and ministral-3:3b: HTTP 200, no error field. A gate
-			// is therefore available and buys nothing, at the cost of a request per generation and a
-			// second thing to keep true. Where it would read from was checked against a running server
-			// rather than against the client's types, because the two disagree: Ollama 0.32.5 returns
-			// `capabilities` per model on `/api/tags`, carrying `thinking` for qwen3.5:4b-q8_0 and not
-			// for qwen2.5:0.5b, while `ollama@0.6.3` declares that field only on `ShowResponse`. So the
-			// endpoint sends something the typed client cannot see, and reading the `.d.ts` alone gives
-			// the wrong answer about whether the gate is even buildable.
-			//
-			// It does NOT replace the ceiling. A model that ignores `think` reasons anyway, and no
-			// model measured here ignores it, so that branch is untested rather than handled.
-			think: false,
-			options: {
-				temperature: 0.2,
-				// The caller's, derived from its schema: see `LocalModelRequest.numPredict`.
-				num_predict: request.numPredict
-			}
+		if (await isInferenceHalted()) return unavailable('halted', true);
+		const callSignal = signal ? AbortSignal.any([signal, halt.signal]) : halt.signal;
+
+		const refused = await probeModelHost(env, callSignal);
+		// After EVERY await, before reading what it answered (design pass F4): a halt aborts the
+		// fetch, and the reader below would otherwise name that abort `unreachable`, whose advice
+		// (« check that it is running ») is false. No generation has started, so not charged.
+		if (halt.signal.aborted) return unavailable('halted', true);
+		if (refused) return refused;
+		// Non-null: the probe above returned null only after this same call accepted the address.
+		const baseUrl = getLocalBaseUrl(env.LLM_BASE_URL ?? DEFAULT_BASE_URL, env)!;
+
+		// Which weights would answer, before asking them anything (#967). Each refusal here is before
+		// any generation, so none is charged.
+		const before = await readModelIdentity(baseUrl, model, env, callSignal);
+		if (halt.signal.aborted) return unavailable('halted', true);
+		if (typeof before === 'string') return unavailable(before, true);
+		const pin = modelDigestPin(env);
+		if (pin !== null && before.digest !== pin) return unavailable('model_mismatch', true);
+
+		// Refused rather than replaced by the default (#754): `0x10` used to read as 16 ms. The boot
+		// checks refuse the same values before any request reaches this.
+		const timeoutMs = readIntegerSetting('LLM_TIMEOUT_MS', env);
+		const overflow = { hit: false };
+
+		const client = new Ollama({
+			host: baseUrl,
+			// Through `fetchModelHost`, which follows no redirect (#215 kept the fetch on the allowlist;
+			// #967 keeps it on the base URL's host) and bounds the body the client reads.
+			fetch: (input, init) =>
+				fetchModelHost(
+					typeof input === 'string' ? input : input instanceof URL ? input.href : input.url,
+					{
+						...init,
+						signal: AbortSignal.any([AbortSignal.timeout(timeoutMs), callSignal])
+					},
+					answerBound,
+					overflow
+				)
 		});
 
-		// `done_reason` has always been on this response and nothing read it. It is the one field that
-		// separates "the ceiling cut the answer off" from "the model produced something unreadable",
-		// which are the same broken JSON string and opposite advice to the person reading the card.
-		const truncated = response.done_reason === 'length';
+		try {
+			const response = await client.chat({
+				model,
+				messages: [{ role: 'user', content: request.prompt }],
+				format: request.format,
+				// UNCONDITIONAL, and the absence of a capability gate is the decision rather than the
+				// shortcut. A reasoning model spends its reasoning tokens out of the same `num_predict`
+				// budget as the answer, so the ceiling below can be correctly sized for the schema and
+				// still leave nothing for the JSON. Measured in #527 on qwen3.5:4b-q8_0 over a prompt built
+				// from this module's own builders: without this field, `done_reason: length`, 1060 tokens
+				// and ZERO characters of content; with it, `stop`, 282 tokens and complete French JSON.
+				// So on a model that reasons this is not an optimisation, it is the only measured
+				// configuration in which an answer arrives at all.
+				//
+				// Sent to every model because a model with no thinking capability accepts it and generates
+				// normally, measured on qwen2.5:0.5b and ministral-3:3b: HTTP 200, no error field. A gate
+				// is therefore available and buys nothing, at the cost of a request per generation and a
+				// second thing to keep true. Where it would read from was checked against a running server
+				// rather than against the client's types, because the two disagree: Ollama 0.32.5 returns
+				// `capabilities` per model on `/api/tags`, carrying `thinking` for qwen3.5:4b-q8_0 and not
+				// for qwen2.5:0.5b, while `ollama@0.6.3` declares that field only on `ShowResponse`. So the
+				// endpoint sends something the typed client cannot see, and reading the `.d.ts` alone gives
+				// the wrong answer about whether the gate is even buildable.
+				//
+				// It does NOT replace the ceiling. A model that ignores `think` reasons anyway, and no
+				// model measured here ignores it, so that branch is untested rather than handled.
+				think: false,
+				options: {
+					temperature: 0.2,
+					// The caller's, derived from its schema: see `LocalModelRequest.numPredict`.
+					num_predict: request.numPredict
+				}
+			});
+			// A halt landing after the body was read and before the client resolved aborts nothing,
+			// and the checks below would name the answer instead (code pass, item 4). Charged: the
+			// generation ran. No deterministic test reaches that window; the line is kept because it
+			// is real, not because a break reddens.
+			if (halt.signal.aborted) return unavailable('halted');
+			// `done_reason` has always been on this response and nothing read it. It is the one field that
+			// separates "the ceiling cut the answer off" from "the model produced something unreadable",
+			// which are the same broken JSON string and opposite advice to the person reading the card.
+			const truncated = response.done_reason === 'length';
 
-		const content = response.message?.content;
-		if (!content) return unreadable(truncated);
+			const content = response.message?.content;
+			if (!content) return unreadable(truncated);
 
-		const parsed = parseLocalLlmContent(content, request.schema, truncated);
-		if (parsed.unavailable) return parsed;
-		// Confirmed AFTER the answer, because a pull finishing between the first read and the
-		// generation runs other weights under the first read's record. The generation ran, so charged.
-		const after = await readModelIdentity(baseUrl, model, env, signal);
-		if (typeof after === 'string') return unavailable(after);
-		if (after.digest !== before.digest) return unavailable('model_mismatch');
-		return { value: parsed.value, model: before };
-	} catch (caught) {
-		// Before the status: the client reports a body error on a non-2xx answer as that status alone.
-		if (overflow.hit) return unavailable('response_unusable');
-		// `unreachable` is the fallback rather than a catch-all sentence: the probe answered, so
-		// anything unrecognised here is the connection having failed since, which is the honest
-		// reading and the one whose advice ("check that it is running") stays true.
-		// No work done only where it is KNOWN (404, 503 before generating); the catch-all is not,
-		// because a 500 or a reset can arrive after the GPU did the whole generation (#535).
-		return unavailable(
-			failureCode(caught, recogniseLocalLlmFailure, LOCAL_LLM_FALLBACK_CODE),
-			isModelNotFound(caught) || isOllamaBusy(caught)
-		);
+			const parsed = parseLocalLlmContent(content, request.schema, truncated);
+			if (parsed.unavailable) return parsed;
+			// Confirmed AFTER the answer, because a pull finishing between the first read and the
+			// generation runs other weights under the first read's record. The generation ran, so charged.
+			const after = await readModelIdentity(baseUrl, model, env, callSignal);
+			// Charged: the generation ran. C9.6.1's « outputs » is why a complete answer is still not
+			// handed over. A halt landing during this read is caught here; one landing just after the
+			// chat answered is caught by the check right after it.
+			if (halt.signal.aborted) return unavailable('halted');
+			if (typeof after === 'string') return unavailable(after);
+			if (after.digest !== before.digest) return unavailable('model_mismatch');
+			return { value: parsed.value, model: before };
+		} catch (caught) {
+			// First: the halt's abort reaches the client as an AbortError, which the codes below would
+			// read as a dropped connection. Charged: the generation had been sent.
+			if (halt.signal.aborted) return unavailable('halted');
+			// Before the status: the client reports a body error on a non-2xx answer as that status alone.
+			if (overflow.hit) return unavailable('response_unusable');
+			// `unreachable` is the fallback rather than a catch-all sentence: the probe answered, so
+			// anything unrecognised here is the connection having failed since, which is the honest
+			// reading and the one whose advice ("check that it is running") stays true.
+			// No work done only where it is KNOWN (404, 503 before generating); the catch-all is not,
+			// because a 500 or a reset can arrive after the GPU did the whole generation (#535).
+			return unavailable(
+				failureCode(caught, recogniseLocalLlmFailure, LOCAL_LLM_FALLBACK_CODE),
+				isModelNotFound(caught) || isOllamaBusy(caught)
+			);
+		}
+	} finally {
+		halt.leave();
 	}
 }
 
