@@ -52,6 +52,15 @@ const rateLimit = vi.hoisted(() => ({
 
 vi.mock('$lib/server/db', () => ({ prisma: db.prisma }));
 vi.mock('$lib/server/auth/invitations', () => invitations);
+// The L4a block reads the authorization lines; every line this module writes lands here.
+vi.hoisted(() => {
+	process.env.RATE_LIMIT_HASH_SECRET ??= 'a1'.repeat(32);
+});
+const logWriter = vi.hoisted(() => ({ log: vi.fn() }));
+vi.mock('$lib/server/logging', async (importOriginal) => ({
+	...(await importOriginal<typeof import('$lib/server/logging')>()),
+	log: logWriter.log
+}));
 vi.mock('$lib/server/auth/rateLimit', () => rateLimit);
 // The commit rotates the ADMIN's session token in the same transaction (#249). The rotation is
 // `sessionRotation.db-smoke.ts`'s, against a real engine, where both actions are driven through this
@@ -76,6 +85,9 @@ const { generateTemporaryPassword, hashPassword, validatePassword } =
 	await import('$lib/server/auth');
 const { actions, load } = await import('./+page.server');
 const reauth = await import('$lib/server/auth/reauth');
+const { ATTRIBUTE: A, EVENT: E } = await import('$lib/server/logging/names');
+const { logUserPseudonym } = await import('$lib/server/logging/pseudonym');
+const m = await import('$lib/paraglide/messages');
 
 const ADMIN = {
 	id: 'admin-a',
@@ -779,6 +791,188 @@ describe('/admin action guards, enumerated', () => {
 		// ahead of the parse.
 		await expect(invokeAction(name as keyof typeof actions, {}, USER)).rejects.toMatchObject({
 			status: 403
+		});
+	});
+});
+
+/**
+ * L4a on /admin. A member reaching an admin-only door writes one `authz_fail` with `role_required`
+ * and no reference, inside `requireAdmin` before its throw, and the answer is the 403 it was before.
+ * An admin action writes one `authz_admin` after its commit returns, on success only: a refused
+ * re-authentication writes only what already exists, and a missing target or invitation is not an
+ * authorization failure (admin power is unscoped by design), so it writes neither event.
+ */
+describe('L4a: authorization events on /admin', () => {
+	type Line = { event: string; attributes: Record<string, unknown> };
+	const lines = () => logWriter.log.mock.calls.map(([line]) => line as unknown as Line);
+	const named = (event: string) => lines().filter((line) => line.event === event);
+	const authzLines = () =>
+		lines().filter((line) => line.event === E.authzFail || line.event === E.authzAdmin);
+	/** The call order of the first line with this event name, or -Infinity when none was written,
+	 *  so an absent line can never read as « after ». */
+	const orderOf = (event: string) => {
+		const index = lines().findIndex((line) => line.event === event);
+		return index === -1 ? -Infinity : logWriter.log.mock.invocationCallOrder[index];
+	};
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		db.prisma.$transaction.mockImplementation(async (callback) => callback(tx));
+	});
+
+	describe('role_required', () => {
+		async function loadAs(user: typeof ADMIN | typeof USER | null) {
+			return (
+				load as unknown as (event: { locals: { user: unknown }; url: URL }) => Promise<unknown>
+			)({ locals: { user }, url: new URL('http://localhost/admin') }).then(
+				() => 'returned',
+				(thrown: { status?: number; body?: unknown }) => ({
+					status: thrown.status,
+					body: thrown.body
+				})
+			);
+		}
+
+		// Separates « the refusal is recorded » from « refused silently » (today), and pins the answer.
+		it('the admin load as a member: one authz_fail role_required with no reference, then the same 403', async () => {
+			const answer = await loadAs(USER);
+			expect({ answer, lines: named(E.authzFail) }).toEqual({
+				answer: { status: 403, body: { message: m.admin_error_forbidden() } },
+				lines: [
+					{
+						event: E.authzFail,
+						attributes: {
+							[A.userPseudonym]: logUserPseudonym(USER.id),
+							[A.authzReason]: 'role_required'
+						}
+					}
+				]
+			});
+		});
+
+		// Negatives: green today. Red if requireAdmin logs before its role check, or for a visitor
+		// with no session (requireUser redirects first, and there is no user to name).
+		it('the admin load as an admin, or with no session, writes no authz_fail', async () => {
+			db.prisma.user.count.mockResolvedValue(0);
+			db.prisma.user.findMany.mockResolvedValue([]);
+			accountsAre(null);
+			const asAdmin = await loadAs(ADMIN);
+			const signedOut = await loadAs(null);
+			expect({
+				asAdmin,
+				signedOut,
+				lines: named(E.authzFail)
+			}).toEqual({
+				asAdmin: 'returned',
+				signedOut: { status: 303, body: undefined },
+				lines: []
+			});
+		});
+	});
+
+	describe('authz_admin', () => {
+		const adminLine = (action: string, target?: string) => ({
+			event: E.authzAdmin,
+			attributes: {
+				[A.userPseudonym]: logUserPseudonym(ADMIN.id),
+				[A.adminAction]: action,
+				...(target === undefined ? {} : { [A.targetUserPseudonym]: logUserPseudonym(target) })
+			}
+		});
+
+		// Separates « recorded after the commit » from « not recorded » (today) and from « recorded
+		// before the delete ran », by the call order against the delete inside the commit.
+		it('deleteUser that succeeds: one authz_admin delete_user naming the target, after the delete', async () => {
+			accountsAre({ id: 'user-b' });
+			tx.session.deleteMany.mockResolvedValue({ count: 1 });
+			tx.transaction.deleteMany.mockResolvedValue({ count: 0 });
+			tx.user.delete.mockResolvedValue({ id: 'user-b' });
+
+			const result = await runDeleteUser(
+				{ targetUserId: 'user-b', currentPassword: ADMIN_PASSWORD },
+				ADMIN
+			);
+			expect({
+				result,
+				lines: authzLines(),
+				afterTheDelete: orderOf(E.authzAdmin) > tx.user.delete.mock.invocationCallOrder[0]
+			}).toEqual({
+				result: { deleteSuccess: m.admin_delete_success() },
+				lines: [adminLine('delete_user', 'user-b')],
+				afterTheDelete: true
+			});
+		});
+
+		it('resetPassword that succeeds: one authz_admin reset_password naming the target, after the update', async () => {
+			accountsAre({ id: 'user-b', email: 'user-b@example.test' });
+			tx.user.update.mockResolvedValue({ id: 'user-b' });
+			tx.session.deleteMany.mockResolvedValue({ count: 0 });
+
+			const result = await runResetPassword(
+				{ targetUserId: 'user-b', currentPassword: ADMIN_PASSWORD },
+				ADMIN
+			);
+			expect({
+				resetTarget: result.resetTargetUserId,
+				lines: authzLines(),
+				afterTheUpdate: orderOf(E.authzAdmin) > tx.user.update.mock.invocationCallOrder[0]
+			}).toEqual({
+				resetTarget: 'user-b',
+				lines: [adminLine('reset_password', 'user-b')],
+				afterTheUpdate: true
+			});
+		});
+
+		// Separates « the invitation actions name no target » from a line that always carries one.
+		it('createInvitation that succeeds: one authz_admin create_invitation with no target attribute', async () => {
+			invitations.createInvitation.mockResolvedValue({
+				id: 'invite-a',
+				token: 'the-raw-token',
+				email: null,
+				expiresAt: new Date('2026-07-11T00:00:00.000Z')
+			});
+			const result = await runCreateInvitation({}, ADMIN);
+			expect({ url: typeof result.inviteUrl, lines: authzLines() }).toEqual({
+				url: 'string',
+				lines: [adminLine('create_invitation')]
+			});
+		});
+
+		it('revokeInvitation that succeeds: one authz_admin revoke_invitation with no target attribute', async () => {
+			invitations.revokeInvitation.mockResolvedValue(true);
+			const result = await runRevokeInvitation({ invitationId: 'invite-a' }, ADMIN);
+			expect({ result, lines: authzLines() }).toEqual({
+				result: { revokeInviteSuccess: m.admin_invitation_revoked() },
+				lines: [adminLine('revoke_invitation')]
+			});
+		});
+
+		// Negatives: green today. Each turns red if authz_admin is written before the action's
+		// outcome is known (a refused re-authentication, a missing target, a missing invitation), or
+		// if a missing target is logged as an authorization failure. The first figure calibrates
+		// the capture: the refused re-authentication's own line is read through the same mock.
+		it('a refused re-authentication, a missing target or a missing invitation writes no authz event', async () => {
+			accountsAre({ id: 'user-b' });
+			await runDeleteUser({ targetUserId: 'user-b', currentPassword: 'wrong-password' }, ADMIN);
+			const reauthFailLines = named(E.authnReauthFail).length;
+
+			accountsAre(null);
+			const deleteMissing = await runDeleteUser(
+				{ targetUserId: 'user-unknown', currentPassword: ADMIN_PASSWORD },
+				ADMIN
+			);
+			const resetMissing = await runResetPassword(
+				{ targetUserId: 'user-unknown', currentPassword: ADMIN_PASSWORD },
+				ADMIN
+			);
+			invitations.revokeInvitation.mockResolvedValue(false);
+			const revokeMissing = await runRevokeInvitation({ invitationId: 'invite-b' }, ADMIN);
+
+			expect({
+				reauthFailLines,
+				statuses: [deleteMissing.status, resetMissing.status, revokeMissing.status],
+				authz: authzLines()
+			}).toEqual({ reauthFailLines: 1, statuses: [404, 404, 404], authz: [] });
 		});
 	});
 });

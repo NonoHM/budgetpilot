@@ -69,6 +69,9 @@ const PAYLOAD =
 	'bp-inject-7f3e\r\n{"event_name":"forged"}\u2028FORGED-LS\u2029FORGED-PS\u001b[31mRED\u001b[0m' +
 	'DEL\u007fNEL\u0085CSI\u009b31mC1';
 const OVERLONG = 'L'.repeat(20_000);
+/** The payload posted as an object reference (L4a), with a marker no other input carries. */
+const REFERENCE_MARKER = 'bp-ref-inject-91c4';
+const REFERENCE_PAYLOAD = `${REFERENCE_MARKER}\r\n{"event_name":"forged-ref"}\u2028REF-LS\u2029REF-PS\u001b[31mREF`;
 /** Header form: the payload without CR, LF and ESC, as the raw UTF-8 bytes a socket carries. */
 const HEADER_PAYLOAD = Buffer.from(
 	'bp-inject-7f3e {"event_name":"forged"}\u2028FORGED-LS\u2029FORGED-PS',
@@ -306,6 +309,11 @@ test.beforeAll(async () => {
 		await action('category-payload', '/categories?/createCategory', {
 			name: PAYLOAD + OVERLONG
 		});
+		// L4a: a payload as a posted object reference. `normalizeId` refuses it at the shape check
+		// (400, input validation, which writes no authorization line), and no authorization field
+		// carries an id anyway: so the only claim is that no part of it reaches any line. Its own
+		// marker, because the planted control above puts PAYLOAD itself in the startup line.
+		await action('reference-payload', '/rules?/delete', { id: REFERENCE_PAYLOAD + OVERLONG });
 		const upload = await api.post('/import', {
 			multipart: {
 				csvFile: {
@@ -417,6 +425,7 @@ test.describe('calibration', () => {
 			register: '200 redirect',
 			login: '200 redirect',
 			'category-payload': '200 failure',
+			'reference-payload': '200 failure',
 			// Measured, not chosen: the raw CR, LF and quote in this upload's file name make
 			// `request.formData()` throw before the action runs (#859). Kept, because it is the request
 			// that carries the payload to the error printer through a multipart body.
@@ -445,6 +454,38 @@ test.describe('calibration', () => {
 });
 
 test.describe('v5.0.0-16.4.1: no input can split or repaint a log line', () => {
+	// L4a. The posted reference is refused at the shape check and no authorization field carries an
+	// id, so no line may hold any part of it: its marker, its forged event name, or its separator
+	// tails, raw or decoded. The lines read are printed and asserted beside the finding, so a capture
+	// that read nothing cannot report clean. Green before L4a; red if any line writes the posted id.
+	test('no line holds any part of the payload posted as an object reference', () => {
+		const parts = [REFERENCE_MARKER, 'forged-ref', 'REF-LS', 'REF-PS'];
+		const holding = (capture: string) =>
+			capture
+				.split('\n')
+				.filter((line) => line !== '')
+				.filter((line) => {
+					let decoded = line;
+					try {
+						decoded = JSON.stringify(JSON.parse(line));
+					} catch {
+						// A line that does not parse is searched as it is.
+					}
+					return parts.some((part) => line.includes(part) || decoded.includes(part));
+				}).length;
+		const linesRead = requestCapture.split('\n').filter((line) => line !== '').length;
+		// The planted positive, through the same detector: one escaped line carrying the marker.
+		const planted = holding(`${JSON.stringify({ id: REFERENCE_PAYLOAD })}\n{"ok":1}\n`);
+		console.log(
+			`[log-injection] reference payload: ${linesRead} lines read, ${holding(requestCapture)} holding a part of it`
+		);
+		expect({ linesRead: linesRead > 0, planted, holding: holding(requestCapture) }).toEqual({
+			linesRead: true,
+			planted: 1,
+			holding: 0
+		});
+	});
+
 	test('the planted control is in the startup origin line, escaped, every kind of it', () => {
 		// Seen, not merely absent: the line decodes to the planted characters, while the raw capture
 		// holds none of them (the raw-kind test below). Removing any range from the serialiser

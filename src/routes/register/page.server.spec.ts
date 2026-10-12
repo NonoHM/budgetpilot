@@ -75,6 +75,7 @@ beforeEach(() => {
 const { actions, load } = await import('./+page.server');
 const { BACKFILL_USER_ID } = await import('$lib/server/auth');
 const { logPseudonym, logSubnet, logUserPseudonym } = await import('$lib/server/logging/pseudonym');
+const m = await import('$lib/paraglide/messages');
 
 describe('/register action', () => {
 	afterEach(() => {
@@ -386,7 +387,7 @@ describe('/register action', () => {
 		const result = await runRegister(
 			{ get: vi.fn(), set: vi.fn() },
 			{ email: 'nouveau@example.test', password: 'mot-de-passe-long' },
-			{ user: { role: 'ADMIN' } }
+			{ user: { id: 'user-admin', role: 'ADMIN' } }
 		);
 
 		expect(result.success).toBe('Utilisateur créé.');
@@ -633,7 +634,7 @@ describe('/register action — invitation', () => {
 			const result = await runRegister(
 				cookies,
 				{ email: 'nouveau-invite@example.test', password: 'mot-de-passe-long' },
-				{ user: { role: 'ADMIN' } },
+				{ user: { id: 'user-admin', role: 'ADMIN' } },
 				'admin-uses-invite-token'
 			);
 
@@ -841,7 +842,7 @@ describe('/register load', () => {
 });
 
 async function runLoad(
-	locals: { user: null | { role: string } },
+	locals: { user: null | { id?: string; role: string } },
 	inviteToken?: string
 ): Promise<LoadResult> {
 	const requestUrl = inviteToken
@@ -865,7 +866,7 @@ type LoadResult = {
 async function runRegister(
 	cookies: { get: ReturnType<typeof vi.fn>; set: ReturnType<typeof vi.fn> },
 	input: Record<string, string>,
-	locals: { user: null | { role: string } } = { user: null },
+	locals: { user: null | { id?: string; role: string } } = { user: null },
 	inviteToken?: string
 ) {
 	const formData = new FormData();
@@ -1077,9 +1078,12 @@ describe('/register action: security events (L3, #250)', () => {
 			expect(logged).toEqual([userCreated('user-invited-l3', 'invitation')]);
 		});
 
-		// R13: an admin action (L4's authz.admin_action), not an authentication, so not user_created.
-		// Separates « only the self-service paths are authentication events » from « every row ».
-		it('a signed-in admin creating an account writes nothing', async () => {
+		// R13: an admin action, not an authentication, so not user_created. L3 deferred it to L4 (the
+		// route's own comment says so), and L4a now writes it: exactly one authz_admin create_account
+		// naming the NEW account as its target, under the admin's pseudonym. Separates « only the
+		// self-service paths are authentication events » from « every row », and « recorded as an
+		// admin action » from « recorded as nothing » (before L4a).
+		it('a signed-in admin creating an account writes one authz_admin create_account, and no user_created', async () => {
 			db.prisma.user.count.mockResolvedValue(2);
 			db.prisma.user.findUnique.mockResolvedValue(null);
 			db.prisma.user.create.mockResolvedValue({ id: 'user-made-by-admin' });
@@ -1088,11 +1092,22 @@ describe('/register action: security events (L3, #250)', () => {
 			const result = await runRegister(
 				{ get: vi.fn(), set: vi.fn() },
 				{ email: 'made@example.test', password: 'mot-de-passe-long' },
-				{ user: { role: 'ADMIN' } }
+				{ user: { id: 'user-admin', role: 'ADMIN' } }
 			);
 
-			expect(result.success).toBe('Utilisateur créé.');
-			expect(logged).toEqual([]);
+			expect({ success: result.success, logged }).toEqual({
+				success: 'Utilisateur créé.',
+				logged: [
+					{
+						event: EVENT.authzAdmin,
+						attributes: {
+							[ATTRIBUTE.userPseudonym]: logUserPseudonym('user-admin'),
+							[ATTRIBUTE.adminAction]: 'create_account',
+							[ATTRIBUTE.targetUserPseudonym]: logUserPseudonym('user-made-by-admin')
+						}
+					}
+				]
+			});
 		});
 
 		// Separates « refused registration » (anonymous, an authentication event) from « refused
@@ -1119,6 +1134,8 @@ describe('/register action: security events (L3, #250)', () => {
 			});
 		});
 
+		// Still nothing after L4a: authz_admin is written after the create succeeds, never for a
+		// refused one (L4a contract « When »), and a refused admin creation is not a registration.
 		it("a signed-in admin's refused creation writes nothing either, while the answer is the refusal", async () => {
 			db.prisma.user.count.mockResolvedValue(2);
 			db.prisma.user.findUnique.mockResolvedValue(null);
@@ -1127,7 +1144,7 @@ describe('/register action: security events (L3, #250)', () => {
 			const result = await runRegister(
 				{ get: vi.fn(), set: vi.fn() },
 				{ email: 'taken@example.test', password: 'mot-de-passe-long' },
-				{ user: { role: 'ADMIN' } }
+				{ user: { id: 'user-admin', role: 'ADMIN' } }
 			);
 
 			expect({ status: result.status, data: result.data, logged }).toEqual({
@@ -1342,6 +1359,67 @@ describe('/register action: security events (L3, #250)', () => {
 			expect(result.status).toBe(400);
 			expect(result.data).toEqual({ error: 'Mot de passe invalide.' });
 			expect(logged).toEqual([]);
+		});
+	});
+});
+
+/**
+ * L4a on /register. A signed-in member refused the closed registration page writes one `authz_fail`
+ * with `role_required`, before the 403 it answered before L4a. The admin's account creation is
+ * asserted in the L3 block above, updated to L4a (one `authz_admin` `create_account`, no
+ * `user_created`).
+ */
+describe('L4a: authorization events on /register', () => {
+	const MEMBER = { id: 'user-member-l4a', role: 'USER' };
+	const ADMIN = { id: 'user-admin-l4a', role: 'ADMIN' };
+
+	afterEach(() => {
+		privateEnv.env.REGISTRATION_MODE = undefined;
+		vi.clearAllMocks();
+	});
+
+	async function loadAs(user: typeof MEMBER | typeof ADMIN | null) {
+		return runLoad({ user }).then(
+			(result) => ({ result }),
+			(thrown: { status?: number; body?: unknown }) => ({
+				status: thrown.status,
+				body: thrown.body
+			})
+		);
+	}
+
+	// Separates « the member's refusal is recorded » from « refused silently » (today).
+	it('the closed register page for a signed-in member: one authz_fail role_required, then the same 403', async () => {
+		db.prisma.user.count.mockResolvedValue(2);
+		db.prisma.user.findUnique.mockResolvedValue(null);
+
+		const answer = await loadAs(MEMBER);
+		expect({ answer, logged }).toEqual({
+			answer: { status: 403, body: { message: m.register_error_admin_only() } },
+			logged: [
+				{
+					event: EVENT.authzFail,
+					attributes: {
+						[ATTRIBUTE.userPseudonym]: logUserPseudonym(MEMBER.id),
+						[ATTRIBUTE.authzReason]: 'role_required'
+					}
+				}
+			]
+		});
+	});
+
+	// Negatives: green today. Red if the load logs for an admin, or for an anonymous visitor sent
+	// to /login (no user to name, and not an authorization refusal).
+	it('the register page for an admin, or for an anonymous visitor, writes no authz_fail', async () => {
+		db.prisma.user.count.mockResolvedValue(2);
+		db.prisma.user.findUnique.mockResolvedValue(null);
+
+		const asAdmin = await loadAs(ADMIN);
+		const anonymous = await loadAs(null);
+		expect({ asAdmin, anonymous, logged }).toEqual({
+			asAdmin: { result: { canRegister: true, inviteEmail: null, requiresBootstrapToken: false } },
+			anonymous: { status: 303, body: undefined },
+			logged: []
 		});
 	});
 });

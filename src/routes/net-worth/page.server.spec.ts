@@ -1,5 +1,5 @@
 import { error } from '@sveltejs/kit';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const service = vi.hoisted(() => ({
 	createNetWorthAccount: vi.fn(),
@@ -23,7 +23,29 @@ const savingsGoalsService = vi.hoisted(() => ({
 vi.mock('$lib/server/net-worth/service', () => service);
 vi.mock('$lib/server/savings-goals/service', () => savingsGoalsService);
 
+// The L4a block runs the REAL savings-goal service against this table; nothing else reads it.
+const dbFake = vi.hoisted(() => ({ prisma: {} as Record<string, unknown> }));
+vi.mock('$lib/server/db', () => dbFake);
+
+// The L4a block reads the authorization lines the real service writes.
+vi.hoisted(() => {
+	process.env.RATE_LIMIT_HASH_SECRET ??= 'a1'.repeat(32);
+});
+const logged = vi.hoisted(() => [] as unknown[]);
+vi.mock('$lib/server/logging', async (importOriginal) => ({
+	...(await importOriginal<typeof import('$lib/server/logging')>()),
+	log: (event: unknown) => {
+		logged.push(event);
+	}
+}));
+
 const { load, actions } = await import('./+page.server');
+const { deleteSavingsGoal: realDeleteSavingsGoal } = await vi.importActual<
+	typeof import('$lib/server/savings-goals/service')
+>('$lib/server/savings-goals/service');
+const { ATTRIBUTE: A, EVENT: E } = await import('$lib/server/logging/names');
+const { logUserPseudonym } = await import('$lib/server/logging/pseudonym');
+const m = await import('$lib/paraglide/messages');
 const testUser = { id: 'user-a', email: 'a@example.test', role: 'USER' as const };
 
 function buildFormData(fields: Record<string, string>): FormData {
@@ -451,5 +473,87 @@ describe('/net-worth dismissSavingsGoalReachedBanner action', () => {
 
 		expect(result.status).toBe(404);
 		expect(result.data.error).toBe('introuvable');
+	});
+});
+
+/**
+ * L4a: a malformed goal id (`!normalizeId`) is the same event as a missing one, indistinguishable by
+ * construction (contract « When »). These run the REAL `deleteSavingsGoal`, the service that throws
+ * `error(404)`, against a table scoped by the row's own userId.
+ */
+describe('L4a: a refused savings goal delete writes one authz_fail line, malformed or missing', () => {
+	type Line = { event: string; attributes: Record<string, unknown> };
+	const authzFails = () => (logged as Line[]).filter((line) => line.event === E.authzFail);
+	const goals = [
+		{ id: 'goal-owned', userId: 'user-a' },
+		{ id: 'goal-foreign', userId: 'user-b' }
+	];
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		logged.length = 0;
+		savingsGoalsService.deleteSavingsGoal.mockImplementation(realDeleteSavingsGoal);
+		// Models the one predicate the soft delete issues, and THROWS on any other.
+		dbFake.prisma.savingsGoal = {
+			updateMany: vi.fn(async ({ where }: { where: Record<string, unknown> }) => {
+				const keys = Object.keys(where).sort().join(',');
+				if (keys !== 'deletedAt,id,userId' || where.deletedAt !== null) {
+					throw new Error(`L4a savings goal fake: unsupported where ${keys}`);
+				}
+				const found = goals.some((row) => row.id === where.id && row.userId === where.userId);
+				return { count: found ? 1 : 0 };
+			})
+		};
+	});
+
+	afterEach(() => {
+		savingsGoalsService.deleteSavingsGoal.mockReset();
+		delete dbFake.prisma.savingsGoal;
+	});
+
+	async function deleteGoal(id: string) {
+		const result = (await actions.deleteSavingsGoal(buildEvent({ id }) as never)) as {
+			status?: number;
+			data?: unknown;
+		};
+		return { status: result.status, data: result.data, lines: authzFails() };
+	}
+
+	const refusedGoal = {
+		status: 404,
+		data: { error: m.savings_goal_error_not_found() },
+		lines: [
+			{
+				event: E.authzFail,
+				attributes: {
+					[A.userPseudonym]: logUserPseudonym(testUser.id),
+					[A.authzReason]: 'not_found_or_not_owned',
+					[A.authzReference]: 'savings_goal'
+				}
+			}
+		]
+	};
+
+	// Separates « the malformed path logs the same event » from « refused before any line » (today:
+	// the `!normalizeId` branch throws first and no lookup ever runs).
+	it('delete with a malformed goal id: one authz_fail savings_goal, and the same 404', async () => {
+		expect(await deleteGoal('!!')).toEqual(refusedGoal);
+	});
+
+	it('delete with a goal id that does not exist: the same line and the same 404', async () => {
+		expect(await deleteGoal('goal-missing')).toEqual(refusedGoal);
+	});
+
+	it('delete with a foreign goal id: the same line and the same 404', async () => {
+		expect(await deleteGoal('goal-foreign')).toEqual(refusedGoal);
+	});
+
+	// Negative: green today. Red if the call moves above the count check (logs every delete).
+	it('delete with an owned goal id writes no authz_fail', async () => {
+		const result = await actions.deleteSavingsGoal(buildEvent({ id: 'goal-owned' }) as never);
+		expect({ result, lines: authzFails() }).toEqual({
+			result: { success: m.savings_goal_success_deleted() },
+			lines: []
+		});
 	});
 });
