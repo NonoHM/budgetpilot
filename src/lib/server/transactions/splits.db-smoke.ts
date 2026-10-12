@@ -1,3 +1,4 @@
+import { env } from '$env/dynamic/private';
 import { DEFAULT_DENOMINATION } from '$lib/domain/money';
 import { afterAll, describe, expect, it } from 'vitest';
 import { prisma } from '$lib/server/db';
@@ -7,6 +8,10 @@ import { MAX_SPLITS_PER_TRANSACTION } from '$lib/domain/allocation';
 import { replaceSplits, clearSplits, type SplitInput } from './splits';
 import { buildTransactionWhere } from './where';
 import { countUncategorizedTransactions } from './nature';
+
+// L4a: a refused reference writes `authz_fail`, whose user pseudonym is keyed by this secret, and
+// the db-smoke `$env` is an empty stub on purpose (`vitest.db.env-stub.ts`), so the fixture is explicit.
+env.RATE_LIMIT_HASH_SECRET = 'e5'.repeat(32);
 
 /**
  * The split claims a fake Prisma structurally cannot answer, run against a real engine.
