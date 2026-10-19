@@ -226,7 +226,7 @@ jobs:
         env:
           platform: ${{ matrix.platform }}
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: digests-${{ steps.platform-key.outputs.key }}
           path: /tmp/digests/*
@@ -281,12 +281,12 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: digests-linux-amd64
           path: /tmp/scan-digests/amd64
 
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: digests-linux-arm64
           path: /tmp/scan-digests/arm64
@@ -329,7 +329,7 @@ jobs:
           output: trivy-release-amd64.sarif
 
       - name: Upload amd64 results to the Security tab
-        uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+        uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
         with:
           sarif_file: trivy-release-amd64.sarif
           category: trivy-image-release-amd64
@@ -345,7 +345,7 @@ jobs:
           skip-setup-trivy: true
 
       - name: Upload arm64 results to the Security tab
-        uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+        uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
         with:
           sarif_file: trivy-release-arm64.sarif
           category: trivy-image-release-arm64
@@ -435,7 +435,7 @@ jobs:
       # `cosign verify` resolves a tag to. Not either platform digest: those are its children.
       digest: ${{ steps.digest.outputs.digest }}
     steps:
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           path: /tmp/digests
           pattern: digests-*
@@ -587,7 +587,7 @@ jobs:
       packages: read
     steps:
       - name: Generate SBOM (Syft, SPDX JSON)
-        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
         with:
           image: ghcr.io/${{ needs.prepare.outputs.image }}:${{ needs.prepare.outputs.version }}
           registry-username: ${{ github.actor }}
@@ -597,7 +597,7 @@ jobs:
           upload-artifact: false
           upload-release-assets: false
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: sbom
           path: budgetpilot-*.spdx.json
@@ -689,7 +689,7 @@ jobs:
         with:
           cosign-release: v3.1.3
 
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: sbom
 
@@ -707,7 +707,7 @@ jobs:
       # file, so renaming this one would score the extra 2 points by asserting a format the bytes
       # do not have. That is a false statement about an artefact in exchange for a number, which
       # is the exact failure this whole programme exists to avoid. The name follows the content.
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: sbom-signature
           path: budgetpilot-*.sigstore.json
@@ -735,12 +735,12 @@ jobs:
         with:
           cosign-release: v3.1.3
 
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: digests-linux-amd64
           path: /tmp/verify-digests/amd64
 
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: digests-linux-arm64
           path: /tmp/verify-digests/arm64
@@ -850,7 +850,7 @@ jobs:
     permissions:
       contents: write # gh release upload — and nothing third-party runs here
     steps:
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: sbom
 
@@ -875,7 +875,7 @@ jobs:
     permissions:
       contents: write # gh release upload, and nothing third-party runs here
     steps:
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: sbom-signature
 
