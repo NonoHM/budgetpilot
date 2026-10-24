@@ -1,5 +1,80 @@
 # Changelog
 
+## [1.3.0](https://github.com/NonoHM/budgetpilot/compare/budgetpilot-v1.2.0...budgetpilot-v1.3.0) (2026-10-12)
+
+
+### Features
+
+* **admin:** halt every member's AI inference at once from /admin, and resume only with the password ([#986](https://github.com/NonoHM/budgetpilot/issues/986)) ([#1035](https://github.com/NonoHM/budgetpilot/issues/1035)) ([d66449f](https://github.com/NonoHM/budgetpilot/commit/d66449fb8eb11072b2bd70b99893726a585892a6))
+* **ai:** qualify the AI model on a real model and a hostile one, and default to phi4-mini ([#971](https://github.com/NonoHM/budgetpilot/issues/971)) ([#992](https://github.com/NonoHM/budgetpilot/issues/992)) ([5318c64](https://github.com/NonoHM/budgetpilot/commit/5318c641088884024494f49793766c2e85318416))
+* **ai:** the model picks statement kinds, the app checks each fact and the card writes every sentence ([#996](https://github.com/NonoHM/budgetpilot/issues/996)) ([#1008](https://github.com/NonoHM/budgetpilot/issues/1008)) ([a4f3f2c](https://github.com/NonoHM/budgetpilot/commit/a4f3f2c0951bafd59adede3e1b03ffabdebdc367))
+* **ai:** the model states no figure; the app attaches its own, and the card says what it dropped ([#969](https://github.com/NonoHM/budgetpilot/issues/969), [#831](https://github.com/NonoHM/budgetpilot/issues/831)) ([#1001](https://github.com/NonoHM/budgetpilot/issues/1001)) ([f4051f6](https://github.com/NonoHM/budgetpilot/commit/f4051f6ecc01282ecdcd84f5cf45e7a5c38b8fe6))
+* **auth:** end a session unused for 7 days, stored so an ended session never comes back ([#221](https://github.com/NonoHM/budgetpilot/issues/221)) ([#924](https://github.com/NonoHM/budgetpilot/issues/924)) ([d1a8bc1](https://github.com/NonoHM/budgetpilot/commit/d1a8bc1f722bfa90df162de76333f50f752a339e))
+* **auth:** mark a refused sign-in so a proxy can ban the address, with fail2ban, CrowdSec and Wazuh recipes ([#876](https://github.com/NonoHM/budgetpilot/issues/876)) ([#956](https://github.com/NonoHM/budgetpilot/issues/956)) ([afef6af](https://github.com/NonoHM/budgetpilot/commit/afef6af91d5ec65c7ee2abf9e9059e627518bdef))
+* **compose:** an opt-in overlay that takes Ollama off the internet once models are pulled ([#1024](https://github.com/NonoHM/budgetpilot/issues/1024)) ([#1029](https://github.com/NonoHM/budgetpilot/issues/1029)) ([db579d4](https://github.com/NonoHM/budgetpilot/commit/db579d45b7637e22380798722d69664ed8522658))
+* **config:** one registry for every setting, refused rather than clamped when out of range ([e3fd193](https://github.com/NonoHM/budgetpilot/commit/e3fd1934692baaca1c384658068cd34daedb0550)), closes [#754](https://github.com/NonoHM/budgetpilot/issues/754)
+* **config:** one registry for every setting, refused rather than clamped when out of range ([#915](https://github.com/NonoHM/budgetpilot/issues/915)) ([e3fd193](https://github.com/NonoHM/budgetpilot/commit/e3fd1934692baaca1c384658068cd34daedb0550))
+* **logging:** a command that turns a log pseudonym back into its account or address ([#942](https://github.com/NonoHM/budgetpilot/issues/942)) ([#961](https://github.com/NonoHM/budgetpilot/issues/961)) ([2e3344a](https://github.com/NonoHM/budgetpilot/commit/2e3344ac5e7f31c30ebb3beaf81a013581fcaec3))
+* **logging:** log every authentication outcome, client and account as keyed hashes (L3, part of [#250](https://github.com/NonoHM/budgetpilot/issues/250), [#936](https://github.com/NonoHM/budgetpilot/issues/936)) ([#943](https://github.com/NonoHM/budgetpilot/issues/943)) ([61c175c](https://github.com/NonoHM/budgetpilot/commit/61c175c765b09ee1f415529fb98b84016f878fa7))
+* **logging:** log refused references, admin-only refusals and admin actions (L4a, part of [#250](https://github.com/NonoHM/budgetpilot/issues/250)) ([#1048](https://github.com/NonoHM/budgetpilot/issues/1048)) ([3c61685](https://github.com/NonoHM/budgetpilot/commit/3c61685a75f99710688768f60d28a7643745b255))
+* **logging:** one typed JSON line per event, the log's foundation (part of [#250](https://github.com/NonoHM/budgetpilot/issues/250)) ([#871](https://github.com/NonoHM/budgetpilot/issues/871)) ([b3f841f](https://github.com/NonoHM/budgetpilot/commit/b3f841f3c9562885598cd6152cb9cc0ff659b4b0))
+
+
+### Bug Fixes
+
+* **ai:** a dashboard load starts no generation; advice is admitted, bounded and cancellable ([#535](https://github.com/NonoHM/budgetpilot/issues/535)) ([#985](https://github.com/NonoHM/budgetpilot/issues/985)) ([001d655](https://github.com/NonoHM/budgetpilot/commit/001d6557738f13f1fd973eccc7ce87dad233189e))
+* **ai:** read the model host within a bound, name the model by digest, warn about a remote host ([#967](https://github.com/NonoHM/budgetpilot/issues/967)) ([#1033](https://github.com/NonoHM/budgetpilot/issues/1033)) ([24f22db](https://github.com/NonoHM/budgetpilot/commit/24f22dbe9a2a0a7884f807ad5c0158f799ca2157))
+* **auth:** accept a TOTP code once, on every route that asks for one ([#897](https://github.com/NonoHM/budgetpilot/issues/897)) ([8e0e5f4](https://github.com/NonoHM/budgetpilot/commit/8e0e5f4d2e04586c83443fac2d94eceb26d48658))
+* **auth:** an unreadable second factor says so, and turns off with a recovery code ([#904](https://github.com/NonoHM/budgetpilot/issues/904)) ([#947](https://github.com/NonoHM/budgetpilot/issues/947)) ([9520db3](https://github.com/NonoHM/budgetpilot/commit/9520db325e022c000aff8376ec45fa37d45a011e))
+* **auth:** count an IPv6 client by its /56 in the per-address limits ([#931](https://github.com/NonoHM/budgetpilot/issues/931)) ([26a8418](https://github.com/NonoHM/budgetpilot/commit/26a8418de9550424dece70c60f9a6aa794cf3285))
+* **auth:** count re-authentication per session, so a stolen session cannot lock its owner out ([#888](https://github.com/NonoHM/budgetpilot/issues/888)) ([17e7ef6](https://github.com/NonoHM/budgetpilot/commit/17e7ef6a028e213f38bb9d52abff73ffa378d26d))
+* **auth:** end a sign-in waiting at the code step with the password, and refuse a password step a change superseded ([#923](https://github.com/NonoHM/budgetpilot/issues/923)) ([#925](https://github.com/NonoHM/budgetpilot/issues/925)) ([0a0956e](https://github.com/NonoHM/budgetpilot/commit/0a0956e3f140aca096e6921f0da65b292f2be317))
+* **auth:** keep the search out of the sign-in redirect, and the query string out of the example access log ([#908](https://github.com/NonoHM/budgetpilot/issues/908)) ([06c8352](https://github.com/NonoHM/budgetpilot/commit/06c8352280600b4254033e65048ebbd711c20fc9))
+* **auth:** one re-authentication path, now on revoke, restore and the admin actions ([#884](https://github.com/NonoHM/budgetpilot/issues/884)) ([d69155c](https://github.com/NonoHM/budgetpilot/commit/d69155cbb64e501d057ad59c681437617114ee81))
+* **auth:** rotate the session token with every re-authenticated change ([#890](https://github.com/NonoHM/budgetpilot/issues/890)) ([35d69cd](https://github.com/NonoHM/budgetpilot/commit/35d69cd514f82c2018b49253aa760ef794962ec3))
+* **auth:** send a visitor only to an internal path after signing in ([#844](https://github.com/NonoHM/budgetpilot/issues/844)) ([9b97366](https://github.com/NonoHM/budgetpilot/commit/9b97366c561680e0b2db88a31f1d7a83b3050a27))
+* **auth:** turning two-factor on or off ends every other session ([#949](https://github.com/NonoHM/budgetpilot/issues/949)) ([#953](https://github.com/NonoHM/budgetpilot/issues/953)) ([a5b9e11](https://github.com/NonoHM/budgetpilot/commit/a5b9e1193b49ba8988d07e1cd76649f6302823fd))
+* **ci:** run TruffleHog over the published text without a token, so the daily scan scans ([#916](https://github.com/NonoHM/budgetpilot/issues/916)) ([35b8598](https://github.com/NonoHM/budgetpilot/commit/35b85986a787f57345040a4ad2120a01922a7c8e))
+* **compose:** run the AI overlay's Ollama unprivileged, bounded, and reachable from no other container ([#821](https://github.com/NonoHM/budgetpilot/issues/821)) ([#1028](https://github.com/NonoHM/budgetpilot/issues/1028)) ([6db97df](https://github.com/NonoHM/budgetpilot/commit/6db97dfef58588b81639aa5427708dfdacee8c8b))
+* **database:** every reader in the image opens the file boot adopted ([#957](https://github.com/NonoHM/budgetpilot/issues/957)) ([#960](https://github.com/NonoHM/budgetpilot/issues/960)) ([5d8a906](https://github.com/NonoHM/budgetpilot/commit/5d8a906f4c0cf6677dbf9920c2603173e791edf2))
+* **database:** keep a query made outside an open SQLite transaction out of it ([#895](https://github.com/NonoHM/budgetpilot/issues/895)) ([ca0ddcd](https://github.com/NonoHM/budgetpilot/commit/ca0ddcd93584dcfbc60d2cc293b23e9025446e9f))
+* **deploy:** keep personal data out of the Caddy and PostgreSQL logs ([#865](https://github.com/NonoHM/budgetpilot/issues/865)) ([f8355cc](https://github.com/NonoHM/budgetpilot/commit/f8355cc1ddb66011ace570d667a27d8ca34f5197))
+* **deploy:** stop the AI overlay's Ollama calling ollama.com on its own ([#863](https://github.com/NonoHM/budgetpilot/issues/863)) ([74a425c](https://github.com/NonoHM/budgetpilot/commit/74a425cb4dbbea08ab272ba09cbbe2bbb8290213)), closes [#862](https://github.com/NonoHM/budgetpilot/issues/862)
+* **deps:** devalue 5.9.4 and a distroless base with OpenSSL 3.5.7-1~deb13u3 ([#858](https://github.com/NonoHM/budgetpilot/issues/858)) ([eec21f7](https://github.com/NonoHM/budgetpilot/commit/eec21f791190b9c961bb11d64531bb39f41a808f))
+* **deps:** force mariadb 3.5.4 so the image stops shipping three HIGH CVEs ([#950](https://github.com/NonoHM/budgetpilot/issues/950)) ([eb0d843](https://github.com/NonoHM/budgetpilot/commit/eb0d843bfc6d1bc2a76fb4924fb4ca5281eb8cd6))
+* **deps:** source-map-js 1.2.2 for CVE-2026-93749 ([#896](https://github.com/NonoHM/budgetpilot/issues/896)) ([33ba7b0](https://github.com/NonoHM/budgetpilot/commit/33ba7b0b901fec6699da09c101cb0c1ed4e19950))
+* **docs:** the .env block never overwrites or empties an existing .env, and upgrading never regenerates it ([#903](https://github.com/NonoHM/budgetpilot/issues/903)) ([98672d6](https://github.com/NonoHM/budgetpilot/commit/98672d63fdcc12e62b35ca341ba78540a30e23d5))
+* **insights:** clean every label before the model, and say what it receives ([#819](https://github.com/NonoHM/budgetpilot/issues/819), [#851](https://github.com/NonoHM/budgetpilot/issues/851)) ([#966](https://github.com/NonoHM/budgetpilot/issues/966)) ([16b3c2c](https://github.com/NonoHM/budgetpilot/commit/16b3c2c5ad90742d3c32889c9a0339a69b01e7d5))
+* **logging:** one client, one log pseudonym, and a subnet label for the subscriber the limiter counts ([#869](https://github.com/NonoHM/budgetpilot/issues/869)) ([#937](https://github.com/NonoHM/budgetpilot/issues/937)) ([d203f46](https://github.com/NonoHM/budgetpilot/commit/d203f468552121dde4203e8f1ee85c035d8f3ba3))
+* **logging:** unexpected errors never print their message or stack ([#847](https://github.com/NonoHM/budgetpilot/issues/847)) ([7d33fe7](https://github.com/NonoHM/budgetpilot/commit/7d33fe7a7540805e9691f34eb502ba0894920d5b))
+* **net:** read a forwarded hop written with its port, and stop at one that names no address ([#926](https://github.com/NonoHM/budgetpilot/issues/926)) ([bbf8fd1](https://github.com/NonoHM/budgetpilot/commit/bbf8fd1c9aba11b523fea19907c9923c8e3c4283))
+* **scripts:** ensure-ollama follows no redirect, caps the model list, and never pulls on a list it cannot read ([#994](https://github.com/NonoHM/budgetpilot/issues/994)) ([#1039](https://github.com/NonoHM/budgetpilot/issues/1039)) ([ecba2d4](https://github.com/NonoHM/budgetpilot/commit/ecba2d4445bb7d342f67fc76ec9046d99e67441f))
+* **security:** the agent hook refuses privileged GitHub writes, including through a shell's stdin ([#973](https://github.com/NonoHM/budgetpilot/issues/973)) ([#984](https://github.com/NonoHM/budgetpilot/issues/984)) ([e21c012](https://github.com/NonoHM/budgetpilot/commit/e21c012cf2e0a14fb68a378f8eec2fbdca273863))
+* **setup:** write .env readable by its owner only, and warn at startup when it is not ([#906](https://github.com/NonoHM/budgetpilot/issues/906)) ([97f848e](https://github.com/NonoHM/budgetpilot/commit/97f848e1dde54f9c5a103e2018619ac318a00a40))
+
+
+### Behaviour and internals
+
+* **ai:** remove the dashboard AI tips' model path; the connection stays with no caller ([#1010](https://github.com/NonoHM/budgetpilot/issues/1010)) ([#1020](https://github.com/NonoHM/budgetpilot/issues/1020)) ([39e56b7](https://github.com/NonoHM/budgetpilot/commit/39e56b76c012e7c7265fe3aa7e1dbe5ca8be65a2))
+
+
+### Documentation
+
+* **ai:** resolve the AISVS judgment calls and make every ANSSI verdict agree with its rows ([#1010](https://github.com/NonoHM/budgetpilot/issues/1010)) ([#1023](https://github.com/NonoHM/budgetpilot/issues/1023)) ([c7557b8](https://github.com/NonoHM/budgetpilot/commit/c7557b8902f921a2207f2a60ad0ef25941c67bc8))
+* **cite:** register the Unicode standards and the papers of the literature pass ([#1002](https://github.com/NonoHM/budgetpilot/issues/1002)) ([5899344](https://github.com/NonoHM/budgetpilot/commit/58993449bf34f1618dbc6d5c815eeb949d4e8caa))
+* classify every stored column and transmitted field into five protection levels ([#857](https://github.com/NonoHM/budgetpilot/issues/857)) ([424d24b](https://github.com/NonoHM/budgetpilot/commit/424d24ba83613232f6046e0ac2b96583f812ed93))
+* **logging:** guides, every field, what to do (part of [#250](https://github.com/NonoHM/budgetpilot/issues/250)) ([#874](https://github.com/NonoHM/budgetpilot/issues/874)) ([f627102](https://github.com/NonoHM/budgetpilot/commit/f627102cd1db64c3429a36ff45e36a5c74216fdb))
+* **ops:** apply an edited .env with up -d, and Ollama steps a careful operator cannot get wrong ([#1031](https://github.com/NonoHM/budgetpilot/issues/1031)) ([be39121](https://github.com/NonoHM/budgetpilot/commit/be39121670f95fd39ebb25ac30e33ef1dd6a3d30))
+* **ops:** name every Compose file once, in .env, so an upgrade keeps its overlays ([#1030](https://github.com/NonoHM/budgetpilot/issues/1030)) ([#1043](https://github.com/NonoHM/budgetpilot/issues/1043)) ([356917d](https://github.com/NonoHM/budgetpilot/commit/356917dca860dea4649c209555f2d6eef399783b))
+* **references:** track the OWASP LLM Top 10 2025 and ANSSI-PA-102 beside AISVS for the AI path ([#872](https://github.com/NonoHM/budgetpilot/issues/872)) ([79f08ac](https://github.com/NonoHM/budgetpilot/commit/79f08acf7657714182afb2487b14cb05fd41247a))
+* **security:** map the AI path against OWASP AISVS 1.0, recounted by a gate ([#536](https://github.com/NonoHM/budgetpilot/issues/536)) ([#979](https://github.com/NonoHM/budgetpilot/issues/979)) ([78c2a1f](https://github.com/NonoHM/budgetpilot/commit/78c2a1fb212079fb6d1881e3ccd58b098ec17c49))
+* track the ASVS 5.0.0 and AISVS 1.0 texts so a citation resolves from a clone ([#601](https://github.com/NonoHM/budgetpilot/issues/601)) ([#860](https://github.com/NonoHM/budgetpilot/issues/860)) ([768b0f1](https://github.com/NonoHM/budgetpilot/commit/768b0f1e8acf04830348e7c4b350977e858451f2))
+
+
+### Maintenance
+
+* **claude:** the working method as project skills, a contradiction-pass agent, and measured rules ([#814](https://github.com/NonoHM/budgetpilot/issues/814)) ([14dc8ed](https://github.com/NonoHM/budgetpilot/commit/14dc8ed64b285cae3fdbda2625948fd2a2b47e31))
+
 ## [1.2.0](https://github.com/NonoHM/budgetpilot/compare/budgetpilot-v1.1.1...budgetpilot-v1.2.0) (2026-09-30)
 
 
