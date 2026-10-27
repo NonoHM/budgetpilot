@@ -17,10 +17,9 @@ If the task touches auth, sessions, sensitive Prisma queries, userId isolation, 
 
 ## Docker guardrails (do not regress)
 
-- `ORIGIN=http://localhost:3000` must stay (otherwise POSTs get blocked).
 - Never remove python/build-essential/pkg-config (better-sqlite3) or openssl (Prisma) from the build.
 - Never add `-v` to `docker compose down`.
 
 ## Method
 
-Minimal diff. If UI: respect the black/white/zinc theme. Run `npm run check` if any TS/Svelte is touched.
+Minimal diff. If UI: respect the black/white/zinc theme; a UI string moves in both Paraglide catalogues (`en`, `fr`) together. Run `npm run check` if any TS/Svelte is touched. A change to the Dockerfile, Compose or `.env.example` is checked by the documented install from an empty clone.
