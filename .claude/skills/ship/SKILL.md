@@ -18,6 +18,7 @@ The owner pasted this order into 23 sessions; a line left out of the report is a
 - [ ] Tier declared, with its AGENTS.md clause, before reading code deeply
 - [ ] Tier 3: the ruling red as failing tests at agreed seams, before any design
 - [ ] Tier 3: design note (at most 10 lines), one contradiction pass on it, before code
+- [ ] Tier 2-3: design checked against the leading reference method (`cite`), before code
 - [ ] Red before green; each clause broken on purpose and seen red
 - [ ] Iterated on targeted suites only
 - [ ] Engines, full e2e, walk: ONCE after the last code change, in the background, one at a time
@@ -78,5 +79,6 @@ The owner pasted this order into 23 sessions; a line left out of the report is a
     - what is left, as an estimate in sessions with its method in the same sentence;
     - `/rename <slug>`, and whether `/clear` is safe now and why (nothing in flight, block written).
 
-A finding outside scope is filed with a milestone (`github-issues`, body in a file), not fixed,
-unless it meets the bar in AGENTS.md « Security boundaries ». Say which.
+A finding outside scope is filed with a milestone (`github-issues`, or
+`gh issue create --body-file <path>` when the GitHub MCP is down), not fixed, unless it meets the bar
+in AGENTS.md « Security boundaries ». Say which.
