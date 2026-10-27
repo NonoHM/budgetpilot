@@ -28,7 +28,9 @@ Screenshots at both widths through the `walk` skill, whether or not the screen l
 
 ## The contradiction pass
 
-After the tests are green and every break is done, before the PR opens:
+Before any code, once on the design note (at most 10 lines, written after the ruling is red as
+failing tests at agreed seams): a pass with the note in place of the diff. Then after the tests are
+green and every break is done, before the PR opens:
 
 1. Write the diff to a file: `git diff origin/main...HEAD > <scratchpad>/pass.diff`.
 2. Dispatch the `contradiction-pass` agent (a fresh agent, never a fork: a fork inherits the author's
@@ -37,5 +39,8 @@ After the tests are green and every break is done, before the PR opens:
 3. Each real finding is fixed under the same order (red, fix, break) and committed on its own. The
    exception is a finding inside the mechanism this PR just built, where a separate commit would
    reintroduce the gap in history: fold it in and say why in the commit message.
-4. When the first pass found anything, run a second, narrower pass on the fixes.
-5. Under a controller, the controller runs the pass: push the branch, do not open the PR, and report.
+4. When the first pass found anything, run a second, narrower pass on the fixes. Stop when a pass
+   finds nothing at the bar (AGENTS.md « Security boundaries »).
+5. Each pass's report goes to `docs/superpowers/passes/<pr or branch>-<n>.md` as it arrives, and
+   the PR body states its findings: chat context does not survive a crash.
+6. Under a controller, the controller runs the pass: push the branch, do not open the PR, and report.

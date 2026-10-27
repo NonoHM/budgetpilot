@@ -43,6 +43,8 @@ own documentation or source, never a generic search.
    where it does better, and the reason. « Nobody does X » needs every product's reading behind it.
 4. **An academic question** (a method, an algorithm, a usability figure) goes to `literature-review`
    or `paper-lookup`; name the databases searched and the identifiers retrieved.
+5. **Write the reading to `docs/superpowers/<date>-<topic>-research.md` before quoting it**, never
+   only to the scratchpad or the chat: a crash took both on 2026-10-27.
 
 ## Figures
 
