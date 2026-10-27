@@ -25,6 +25,7 @@ The owner pasted this order into 23 sessions; a line left out of the report is a
 - [ ] Tier 3: contradiction pass on the final code; a second on the fixes; stop at nothing at the bar
 - [ ] Reversible choices decided, citing the practice (`cite`); asked only where AGENTS.md says stop
 - [ ] Every standard cited through `cite`; research written to docs/superpowers/ before quoting
+- [ ] Docs touched: Diátaxis type kept; every changed sentence checked against Google and Microsoft, read at the source (`.claude/rules/docs.md`)
 - [ ] Screen moved: `walk` at 390 and 1280; chantier end: blind test and clumsy-user pentest
 - [ ] Out of scope below the bar: filed with a milestone, not folded in
 - [ ] Promises ledger empty (step 9)

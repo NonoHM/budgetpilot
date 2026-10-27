@@ -4,6 +4,8 @@ paths:
   - 'docs/using/**/*.md'
   - 'docs/reference/**/*.md'
   - 'docs/explanation/**/*.md'
+  - 'README.md'
+  - 'SECURITY.md'
 ---
 
 <!-- VERIFIED END TO END 2026-08-22: reading `docs/explanation/README.md` injected this rule into the
@@ -15,10 +17,11 @@ rule matcher does not, so it reports matches the rule will never make. -->
 
 # Documentation
 
-Invoke `documentation-writer` and `engineering:documentation` before writing or restructuring a page
-under these four paths, and write to the Google developer documentation and Microsoft Writing style
-guides, checked at the source rather than recalled. These are the Diátaxis tree: prose written for a
-reader.
+Invoke `documentation-writer` and `engineering:documentation` before any change to a page under
+these paths, one sentence included, and check every added or changed sentence against the Google
+developer documentation and Microsoft Writing style guides, read at the source rather than recalled.
+These are the Diátaxis tree, plus the two root pages a reader opens first: prose written for a
+reader. The `ship` checklist carries the same line, so the PR report says whether it ran.
 
 `docs/superpowers/`, `docs/local/` and `docs/audits/` are deliberately absent. The first two are
 gitignored chantier notes and plans, read for context rather than written as documentation, and an
