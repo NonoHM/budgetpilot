@@ -130,6 +130,10 @@ export const ATTRIBUTE = {
 	adminAction: 'budgetpilot.admin.action',
 	targetUserPseudonym: 'budgetpilot.target.user_pseudonym',
 
+	// Control bypass (L4b): a redirect the guard refused, as closed values only, never the host.
+	redirectReason: 'budgetpilot.redirect.reason',
+	redirectUpstream: 'budgetpilot.redirect.upstream',
+
 	// The container start, `boot.mjs`.
 	bootDirectory: 'budgetpilot.boot.directory',
 	bootUid: 'budgetpilot.boot.uid',
@@ -174,6 +178,9 @@ export const EVENT = {
 	// OWASP Logging Vocabulary, authorization, without the user the vocabulary appends (L4a).
 	authzFail: 'authz_fail',
 	authzAdmin: 'authz_admin',
+
+	// Control bypass (L4b). The vocabulary has no name for a refused redirect.
+	redirectRefused: 'budgetpilot.redirect.refused',
 
 	configOriginSet: 'budgetpilot.config.origin_set',
 	configOriginUnset: 'budgetpilot.config.origin_unset',

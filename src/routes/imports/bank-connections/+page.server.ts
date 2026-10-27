@@ -20,6 +20,7 @@ import {
 	readLinkableNetWorthAccounts
 } from '$lib/server/net-worth/service';
 import { isBankSyncStartRateLimited, recordBankSyncStartAttempt } from '$lib/server/auth/rateLimit';
+import { logWorkRateLimited } from '$lib/server/logging/authn';
 import { resolveClientAddress } from '$lib/server/net/clientAddress';
 import { normalizeId } from '$lib/server/transactions/where';
 import type { PageServerLoad } from './$types';
@@ -85,7 +86,9 @@ export const actions: Actions = {
 		}
 
 		const ip = resolveClientAddress({ getClientAddress, request });
-		if (await isBankSyncStartRateLimited(user.id, ip)) {
+		const trip = await isBankSyncStartRateLimited(user.id, ip);
+		if (trip) {
+			logWorkRateLimited('BANK_SYNC_START', trip, user.id);
 			return fail(429, { error: m.bank_connections_error_too_many_attempts() });
 		}
 		await recordBankSyncStartAttempt(user.id, ip);
@@ -117,7 +120,9 @@ export const actions: Actions = {
 		if (!connectionId) return fail(400, { error: m.bank_connections_error_generic() });
 
 		const ip = resolveClientAddress({ getClientAddress, request });
-		if (await isBankSyncStartRateLimited(user.id, ip)) {
+		const trip = await isBankSyncStartRateLimited(user.id, ip);
+		if (trip) {
+			logWorkRateLimited('BANK_SYNC_START', trip, user.id);
 			return fail(429, { error: m.bank_connections_error_too_many_attempts() });
 		}
 		await recordBankSyncStartAttempt(user.id, ip);
@@ -163,7 +168,9 @@ export const actions: Actions = {
 						})
 					};
 				case 'throttled':
-					// Informational, not an error: the 6h PSD2 throttle is expected behavior.
+					// Informational for the member, and still a refused repeat, so logged like the
+					// limiter's refusals (#250 L4b): the connection's own interval was the full counter.
+					logWorkRateLimited('BANK_SYNC', { counter: 'subject' }, user.id);
 					return fail(429, { warning: m.bank_connections_sync_throttled() });
 				case 'consent_expired':
 					return fail(409, { error: m.bank_connections_sync_consent_expired() });

@@ -81,6 +81,19 @@ export interface UserFields {
 /** The limiter kinds that are authentication (R1): the only ones whose refusal carries the client. */
 export type AuthAttemptKind = 'LOGIN' | 'MFA' | 'REGISTER' | 'INVITE' | 'REAUTH';
 
+/**
+ * The refusals that bound a member's expensive work (L4b): their line names the user, never the
+ * client (R1). `BANK_SYNC` is not the limiter: it is the six-hour interval of one bank connection,
+ * whose `subject` counter is that connection's own.
+ */
+export type WorkAttemptKind = 'IMPORT' | 'BANK_SYNC_START' | 'BANK_SYNC';
+
+/** Why the redirect guard refused (L4b): closed, so the host the remote chose is never written. */
+export type RedirectRefusal = 'target_not_allowed' | 'unresolvable_location' | 'too_many_redirects';
+
+/** Which outbound path the guard was protecting. */
+export type RedirectUpstream = 'bank_provider' | 'model_host';
+
 /** Which of a refused attempt's counters was full: the client's, the subject's, or both. */
 export type RateLimitCounter = 'address' | 'subject' | 'both';
 
@@ -322,13 +335,15 @@ export type LogEvent =
 				[A.suppressedRoute]?: string;
 				[A.suppressedErrorType]?: string;
 				// The summarised event's own `floodBy` values, so a summary still says which kind it counted.
-				[A.rateLimitKind]?: AuthAttemptKind;
+				[A.rateLimitKind]?: AuthAttemptKind | WorkAttemptKind;
 				[A.rateLimitCounter]?: RateLimitCounter;
 				[A.authnReason]?: RegistrationFailure;
 				[A.sessionReason]?: DeadSessionReason;
 				[A.authzReason]?: AuthzReason;
 				[A.authzReference]?: AuthzReference;
 				[A.userPseudonym]?: LogUserPseudonym;
+				[A.redirectReason]?: RedirectRefusal;
+				[A.redirectUpstream]?: RedirectUpstream;
 			};
 	  }
 	| {
@@ -343,11 +358,17 @@ export type LogEvent =
 	| { event: typeof E.authnLoginFail; attributes: AttackClientFields & LoginFailure }
 	| {
 			event: typeof E.rateLimitExceeded;
-			attributes: AttackClientFields &
-				Partial<UserFields> & {
-					[A.rateLimitKind]: AuthAttemptKind;
-					[A.rateLimitCounter]: RateLimitCounter;
-				};
+			attributes:
+				| (AttackClientFields &
+						Partial<UserFields> & {
+							[A.rateLimitKind]: AuthAttemptKind;
+							[A.rateLimitCounter]: RateLimitCounter;
+						})
+				| (UserFields &
+						NoClientFields & {
+							[A.rateLimitKind]: WorkAttemptKind;
+							[A.rateLimitCounter]: RateLimitCounter;
+						});
 	  }
 	| { event: typeof E.authnLogout; attributes: UserFields & NoSubnetFields }
 	| {
@@ -377,6 +398,13 @@ export type LogEvent =
 	  }
 	| { event: typeof E.authzFail; attributes: UserFields & NoClientFields & AuthzFailure }
 	| { event: typeof E.authzAdmin; attributes: UserFields & NoClientFields & AdminActionFields }
+	| {
+			event: typeof E.redirectRefused;
+			attributes: NoClientFields & {
+				[A.redirectReason]: RedirectRefusal;
+				[A.redirectUpstream]: RedirectUpstream;
+			};
+	  }
 	| {
 			event: typeof E.consoleOutput;
 			attributes: {
@@ -588,10 +616,10 @@ export const REGISTRY: { [N in EventName]: EventSpec<AttributesOf<N>> } = {
 	},
 	[E.rateLimitExceeded]: {
 		severity: 'WARN',
-		body: 'The rate limiter refused an authentication attempt. The counter says whether the client, or the account, challenge or session it aimed at, was full.',
+		body: 'An attempt was refused because it came too often. The kind says which: a sign-in step, an import, a bank connection or a bank sync. The counter says whether the client, or the account, challenge, session or connection it aimed at, was full.',
 		flood: true,
 		security: true,
-		floodBy: [A.rateLimitKind, A.rateLimitCounter],
+		floodBy: [A.rateLimitKind, A.rateLimitCounter, A.userPseudonym],
 		attributes: {
 			[A.clientPseudonym]: 'Pseudonymous',
 			[A.clientSubnetPseudonym]: 'Pseudonymous',
@@ -693,6 +721,16 @@ export const REGISTRY: { [N in EventName]: EventSpec<AttributesOf<N>> } = {
 			[A.adminAction]: 'Operational',
 			[A.targetUserPseudonym]: 'Pseudonymous'
 		}
+	},
+	// A control-bypass event (L4b) with no actor: the party a refused redirect implicates is the
+	// upstream that sent it, not the member whose request reached it.
+	[E.redirectRefused]: {
+		severity: 'WARN',
+		body: 'An outbound request was answered with a redirect the guard refused to follow. The reason says why; the upstream says which service sent it.',
+		flood: true,
+		security: true,
+		floodBy: [A.redirectReason, A.redirectUpstream],
+		attributes: { [A.redirectReason]: 'Operational', [A.redirectUpstream]: 'Operational' }
 	},
 	[E.backfillStarted]: {
 		severity: 'INFO',
@@ -904,7 +942,9 @@ export const REGISTRY: { [N in EventName]: EventSpec<AttributesOf<N>> } = {
 			[A.sessionReason]: 'Operational',
 			[A.authzReason]: 'Operational',
 			[A.authzReference]: 'Operational',
-			[A.userPseudonym]: 'Pseudonymous'
+			[A.userPseudonym]: 'Pseudonymous',
+			[A.redirectReason]: 'Operational',
+			[A.redirectUpstream]: 'Operational'
 		}
 	},
 	[E.logLineTooLong]: {

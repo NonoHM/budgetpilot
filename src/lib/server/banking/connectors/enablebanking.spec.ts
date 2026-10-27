@@ -1,6 +1,20 @@
 import { generateKeyPairSync } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
-import { EnableBankingConnector } from './enablebanking';
+import { ATTRIBUTE, EVENT } from '$lib/server/logging/names';
+
+const logged = vi.hoisted(() => [] as unknown[]);
+vi.mock('$lib/server/logging', async (importOriginal) => {
+	const original = await importOriginal<typeof import('$lib/server/logging')>();
+	return {
+		...original,
+		log: (event: Parameters<typeof original.log>[0]) => {
+			logged.push(event);
+			original.log(event);
+		}
+	};
+});
+
+const { EnableBankingConnector } = await import('./enablebanking');
 import { UNCLASSIFIED_CATEGORY } from '$lib/server/import/utils/safety';
 import { assignDedupeKeysForBatch } from '$lib/server/import/dedupeRecompute';
 
@@ -139,6 +153,18 @@ describe('EnableBankingConnector, SSRF redirect guard (#215)', () => {
 
 		// Only the first hop ran; the internal target was never requested.
 		expect(fetchImpl).toHaveBeenCalledTimes(1);
+		// #250 L4b: the bank path names itself, and the refusal is logged once, without the host.
+		expect(
+			logged.filter((line) => (line as { event: string }).event === EVENT.redirectRefused)
+		).toEqual([
+			{
+				event: EVENT.redirectRefused,
+				attributes: {
+					[ATTRIBUTE.redirectReason]: 'target_not_allowed',
+					[ATTRIBUTE.redirectUpstream]: 'bank_provider'
+				}
+			}
+		]);
 		expect(fetchImpl.mock.calls.map((call) => String(call[0]))).not.toContain(
 			'http://127.0.0.2:9998/latest/meta-data/'
 		);

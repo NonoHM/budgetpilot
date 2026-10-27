@@ -90,6 +90,7 @@ export async function enableBankingRequest(
 		},
 		{
 			fetchImpl,
+			upstream: 'bank_provider',
 			isRedirectTargetAllowed: (target) => getBankProviderBaseUrl(target.href, env) !== null
 		}
 	);

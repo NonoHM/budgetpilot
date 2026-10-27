@@ -207,10 +207,6 @@ async function tripOf(kind: AttemptKind, keys: RateLimitKeys): Promise<RateLimit
 	return null;
 }
 
-async function isRateLimited(kind: AttemptKind, keys: RateLimitKeys): Promise<boolean> {
-	return (await tripOf(kind, keys)) !== null;
-}
-
 async function recordAttempt(kind: AttemptKind, ip: string, email?: string): Promise<void> {
 	const ipHash = hashAddress(ip);
 	const emailHash = email !== undefined ? hashRateLimitKey(email) : null;
@@ -264,8 +260,11 @@ export async function recordMfaAttempt(challengeId: string, ip: string): Promise
 // provider (createConnection). Limited by IP AND by hashed userId, same rationale
 // as MFA: an authenticated account can't be used to hammer the provider from a
 // single IP, nor from many IPs on a single account.
-export async function isBankSyncStartRateLimited(userId: string, ip: string): Promise<boolean> {
-	return isRateLimited('BANK_SYNC_START', { ip, subject: userId });
+export async function isBankSyncStartRateLimited(
+	userId: string,
+	ip: string
+): Promise<RateLimitTrip | null> {
+	return tripOf('BANK_SYNC_START', { ip, subject: userId });
 }
 
 export async function recordBankSyncStartAttempt(userId: string, ip: string): Promise<void> {
@@ -318,8 +317,11 @@ export async function recordReauthAttempt(sessionId: string, ip: string): Promis
 //
 // Unlike LOGIN, EVERY attempt is recorded rather than only the failures: what is being limited here
 // is the RATE of expensive work, and a refused upload costs the same to reach as an accepted one.
-export async function isImportRateLimited(userId: string, ip: string): Promise<boolean> {
-	return isRateLimited('IMPORT', { ip, subject: userId });
+export async function isImportRateLimited(
+	userId: string,
+	ip: string
+): Promise<RateLimitTrip | null> {
+	return tripOf('IMPORT', { ip, subject: userId });
 }
 
 export async function recordImportAttempt(userId: string, ip: string): Promise<void> {
