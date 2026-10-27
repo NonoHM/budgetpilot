@@ -24,6 +24,7 @@ import {
 	type CategoryNatureMappingRecord
 } from '$lib/server/transactions/nature';
 import { logReferenceRefused } from '$lib/server/logging/authz';
+import { logSensitiveDelete } from '$lib/server/logging/data';
 
 const MANUAL_ACCOUNT_NAME = 'Compte manuel';
 const MONTH_PATTERN = /^\d{4}-\d{2}$/;
@@ -357,9 +358,11 @@ export async function updateBudget(
 	const target = await upsertBudgetByFoldedName(userId, categoryName, amountCents);
 
 	if (target.id !== existing.id) {
-		await prisma.monthlyBudget.deleteMany({
+		const merged = await prisma.monthlyBudget.deleteMany({
 			where: { id: existing.id, userId }
 		});
+		// The edited budget folded into another one (L4b-2): a deletion the member triggered.
+		if (merged.count === 1) logSensitiveDelete(userId, 'merge_budget');
 	}
 }
 

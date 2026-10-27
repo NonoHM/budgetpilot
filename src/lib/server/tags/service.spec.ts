@@ -30,6 +30,18 @@ const db = vi.hoisted(() => {
 
 vi.mock('$lib/server/db', () => ({ prisma: db.prisma }));
 
+// The L4b-2 block reads the `sensitive_delete` lines the prune writes.
+vi.hoisted(() => {
+	process.env.RATE_LIMIT_HASH_SECRET ??= 'a1'.repeat(32);
+});
+const logged = vi.hoisted(() => [] as unknown[]);
+vi.mock('$lib/server/logging', async (importOriginal) => ({
+	...(await importOriginal<typeof import('$lib/server/logging')>()),
+	log: (event: unknown) => {
+		logged.push(event);
+	}
+}));
+
 // The retry wrapper is exercised for real in categories/resolve.spec.ts and against real engines;
 // here it is passed through so the upsert's arguments stay inspectable.
 vi.mock('$lib/server/database/upsert', async (importOriginal) => {
@@ -51,6 +63,7 @@ const {
 	TagVanishedError
 } = await import('./service');
 const { computeNameKey } = await import('$lib/server/naming/nameKey');
+const { logUserPseudonym } = await import('$lib/server/logging/pseudonym');
 const { MAX_TAGS_PER_TRANSACTION, TAG_COLOR_TOKENS } = await import('$lib/domain/tags');
 
 beforeEach(() => {
@@ -505,5 +518,43 @@ describe('pruneOrphanTags', () => {
 		await pruneOrphanTags('user-a', []);
 
 		expect(db.prisma.tag.deleteMany).not.toHaveBeenCalled();
+	});
+});
+
+/**
+ * L4b-2 (#250, owner ruling 3): the prune is the only place that knows it deleted a tag (an edit
+ * removed its last use), so it writes `sensitive_delete` itself, with the bucket of the count the
+ * engine answered. Wire names as literals, as in `logging/data.spec.ts`.
+ */
+describe('pruneOrphanTags writes sensitive_delete (L4b-2)', () => {
+	const deletes = () =>
+		logged.filter((line) => (line as { event: string }).event === 'sensitive_delete');
+
+	beforeEach(() => {
+		logged.length = 0;
+	});
+
+	it('tags deleted: one line, scope tag, the bucket of the count the engine answered', async () => {
+		db.prisma.tag.deleteMany.mockResolvedValueOnce({ count: 3 });
+		expect(await pruneOrphanTags('user-a', ['ochre', 'clay', 'sage'])).toBe(3);
+		expect(deletes()).toEqual([
+			{
+				event: 'sensitive_delete',
+				attributes: {
+					'budgetpilot.user.pseudonym': logUserPseudonym('user-a'),
+					'budgetpilot.data.operation': 'prune_tags',
+					'budgetpilot.data.scope': 'tag',
+					'budgetpilot.data.records_deleted': '2-9'
+				}
+			}
+		]);
+	});
+
+	// A tag still in use is not deleted, and nothing deleted is nothing to record. Green today.
+	it('no tag deleted, or none handed over, writes none', async () => {
+		db.prisma.tag.deleteMany.mockResolvedValueOnce({ count: 0 });
+		await pruneOrphanTags('user-a', ['ochre']);
+		await pruneOrphanTags('user-a', []);
+		expect(deletes()).toEqual([]);
 	});
 });

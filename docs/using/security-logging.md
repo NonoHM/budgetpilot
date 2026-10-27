@@ -17,7 +17,11 @@ The log records how the server is running. For example:
   that could not be fetched;
 - a sign-in, a sign-out or a registration, as the next section describes;
 - a request the server refused because it named something your account cannot use, and an action
-  an admin carried out, as the section after it describes.
+  an admin carried out, as the section after it describes;
+- each time you or an admin deletes something from your account, each time you download an export,
+  and each time a backup file you upload is refused: the kind of thing, such as a transaction, an
+  import or the whole account, with a rough count of transactions such as « 10-99 », never what it
+  contained.
 
 If you report a problem, the reference on the error page lets the person who runs the instance find
 the matching line.

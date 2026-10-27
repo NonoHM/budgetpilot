@@ -383,3 +383,35 @@ describe('L4a: a refused rule delete writes one authz_fail line', () => {
 		});
 	});
 });
+
+/** L4b-2 (#250): a deleted rule writes `sensitive_delete`, scope rule, no count. Literal wire names. */
+describe('L4b-2: delete writes sensitive_delete', () => {
+	type Line = { event: string; attributes: Record<string, unknown> };
+	const deletes = () => (logged as Line[]).filter((line) => line.event === 'sensitive_delete');
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		logged.length = 0;
+	});
+
+	it('an owned rule: one line, scope rule, no count field', async () => {
+		db.rules.push({ ...db.rules[0], id: 'rule-l4b2-owned', userId: 'user-a' });
+		await runAction('delete', { id: 'rule-l4b2-owned' });
+		expect(deletes()).toEqual([
+			{
+				event: 'sensitive_delete',
+				attributes: {
+					'budgetpilot.user.pseudonym': logUserPseudonym(testUser.id),
+					'budgetpilot.data.operation': 'delete_rule',
+					'budgetpilot.data.scope': 'rule'
+				}
+			}
+		]);
+	});
+
+	// Green today; red if the line is written before the count is read.
+	it('a foreign rule deletes nothing and writes none', async () => {
+		await runAction('delete', { id: 'rule-user-b' });
+		expect(deletes()).toEqual([]);
+	});
+});

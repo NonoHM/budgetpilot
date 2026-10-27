@@ -1781,7 +1781,8 @@ describe('restoreBackup', () => {
 		const payload = buildValidPayload();
 		payload.recurringStreamActions = [anchoredAction(['ghost-1', 'ghost-2'])];
 
-		await expect(restoreBackup('user-a', payload)).resolves.toBeUndefined();
+		// Resolves, with the counts the fake engine answered (L4b-2: a restore returns them).
+		await expect(restoreBackup('user-a', payload)).resolves.toEqual({ deleted: 0, restored: 1 });
 
 		expect(db.store.recurringStreamActions[0].anchorTransactionIds).toBe('[]');
 		// Nothing was anchored, so nothing left the bulk path.

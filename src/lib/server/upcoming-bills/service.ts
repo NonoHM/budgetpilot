@@ -49,6 +49,7 @@ import {
 import { prisma } from '$lib/server/db';
 import { normalizeId } from '$lib/server/transactions/where';
 import { logReferenceRefused } from '$lib/server/logging/authz';
+import { logSensitiveDelete } from '$lib/server/logging/data';
 
 /**
  * Upcoming-bills server layer: reads the recurring flows out of the user's transactions, projects
@@ -720,13 +721,15 @@ export async function recordStreamAction(
 	// exist to fail before), and on MySQL the range delete over `@@index([userId, kind])` takes
 	// next-key locks from the start of the transaction, where previously nothing was locked until
 	// the insert — so two concurrent writers for one user serialize slightly earlier.
-	const created = await prisma.$transaction(async (tx) => {
+	// The pruned count is returned out of the callback, the committed attempt's own answer, and
+	// logged only once the transaction has returned: the cap can still refuse and roll it back.
+	const { created, pruned } = await prisma.$transaction(async (tx) => {
 		// Prune the inert ignore/paid decisions BEFORE counting, so the cap is a statement about the
 		// decisions that can still do something rather than about everything ever recorded. See
 		// `computeInertActionCutoff` for the predicate and for why the trigger is here and not on the
 		// read path. Same transaction as the count and the insert: if the cap still refuses the write,
 		// the whole thing rolls back and nothing was deleted.
-		await tx.recurringStreamAction.deleteMany({
+		const prune = await tx.recurringStreamAction.deleteMany({
 			where: {
 				userId,
 				// THE ONLY THING KEEPING EXCLUDE OUT OF THIS DELETE. Do not remove this conjunct on the
@@ -750,7 +753,7 @@ export async function recordStreamAction(
 			throw error(400, m.upcoming_bills_error_action_limit());
 		}
 
-		return tx.recurringStreamAction.create({
+		const row = await tx.recurringStreamAction.create({
 			data: {
 				userId,
 				kind: dbKind,
@@ -762,7 +765,9 @@ export async function recordStreamAction(
 			},
 			select: { id: true }
 		});
+		return { created: row, pruned: prune.count };
 	});
+	if (pruned > 0) logSensitiveDelete(userId, pruned, 'prune_bill_actions');
 
 	return { actionId: created.id };
 }

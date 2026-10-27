@@ -125,7 +125,10 @@ const db = vi.hoisted(() => ({
 	}
 }));
 
-const deleteBatch = vi.hoisted(() => ({ deleteImportBatch: vi.fn(async () => true) }));
+// Answers the number of transactions it deleted, or null when the batch did not resolve (L4b-2).
+const deleteBatch = vi.hoisted(() => ({
+	deleteImportBatch: vi.fn(async (): Promise<number | null> => 0)
+}));
 
 vi.mock('$lib/server/import/mapping/store', () => store);
 // `ImportWriteError` is the REAL class, for the reason `ImportBucketAccountError` above gives: the
@@ -146,8 +149,15 @@ vi.mock('$lib/server/import/persist', async (importOriginal) => ({
 vi.mock('$lib/server/import/collision', () => collision);
 vi.mock('$lib/server/import/deleteBatch', () => deleteBatch);
 vi.mock('$lib/server/db', () => ({ prisma: db.prisma }));
+// Every line the route writes, captured instead of printed (L4b-2 reads `sensitive_delete`).
+const logWriter = vi.hoisted(() => ({ log: vi.fn() }));
+vi.mock('$lib/server/logging', async (importOriginal) => ({
+	...(await importOriginal<typeof import('$lib/server/logging')>()),
+	log: logWriter.log
+}));
 
 const { actions } = await import('./+page.server');
+const { logUserPseudonym } = await import('$lib/server/logging/pseudonym');
 
 /** Four transactions, three columns, and NO title row. */
 const HEADERLESS = [
@@ -296,7 +306,7 @@ describe('a corrected import replaces the batch it was launched from', () => {
 		// Zero by default, so the ordinary tests below exercise the DELETE path rather than the
 		// withholding one. The withholding tests set their own figure.
 		db.prisma.transaction.count.mockResolvedValue(0);
-		deleteBatch.deleteImportBatch.mockResolvedValue(true);
+		deleteBatch.deleteImportBatch.mockResolvedValue(0);
 	});
 
 	it('deletes the named batch AFTER the rows are written', async () => {
@@ -314,7 +324,7 @@ describe('a corrected import replaces the batch it was launched from', () => {
 		});
 		deleteBatch.deleteImportBatch.mockImplementationOnce(async () => {
 			order.push('delete');
-			return true;
+			return 0;
 		});
 
 		await submit(WITH_HEADER, true, { replaceBatchId: 'batch-old' });
@@ -583,6 +593,51 @@ describe('a corrected import replaces the batch it was launched from', () => {
 		await submit(WITH_HEADER, true);
 
 		expect(collision.findCollidingBatch).toHaveBeenCalledWith('user-a', expect.anything(), {});
+	});
+
+	// L4b-2 (#250): the replace writes `sensitive_delete` with the bucket of the transactions the
+	// delete reports removing, and a withheld replace writes none.
+	const deletes = () =>
+		logWriter.log.mock.calls
+			.map(([line]) => line as { event: string; attributes: Record<string, unknown> })
+			.filter((line) => line.event === 'sensitive_delete');
+
+	it('L4b-2: a replace writes one sensitive_delete import_replace with the deleted bucket', async () => {
+		logWriter.log.mockClear();
+		db.prisma.transaction.count.mockResolvedValue(4);
+		persist.persistImportedTransactions.mockResolvedValue({
+			importedRows: 4,
+			duplicateRows: 0,
+			importedDebitCents: 0,
+			importedCreditCents: 0
+		});
+		deleteBatch.deleteImportBatch.mockResolvedValue(4);
+		await submit(WITH_HEADER, true, { replaceBatchId: 'batch-old' });
+		expect(deletes()).toEqual([
+			{
+				event: 'sensitive_delete',
+				attributes: {
+					'budgetpilot.user.pseudonym': logUserPseudonym('user-a'),
+					'budgetpilot.data.operation': 'import_replace',
+					'budgetpilot.data.scope': 'import',
+					'budgetpilot.data.transactions_deleted': '2-9'
+				}
+			}
+		]);
+	});
+
+	// Green today; red if the line is written on the withheld branch, where nothing was deleted.
+	it('L4b-2: a withheld replace writes none', async () => {
+		logWriter.log.mockClear();
+		db.prisma.transaction.count.mockResolvedValue(30);
+		persist.persistImportedTransactions.mockResolvedValue({
+			importedRows: 28,
+			duplicateRows: 0,
+			importedDebitCents: 0,
+			importedCreditCents: 0
+		});
+		await submit(WITH_HEADER, true, { replaceBatchId: 'batch-old' });
+		expect(deletes()).toEqual([]);
 	});
 });
 

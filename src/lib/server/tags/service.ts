@@ -1,4 +1,5 @@
 import { prisma } from '$lib/server/db';
+import { logSensitiveDelete } from '$lib/server/logging/data';
 import { computeNameKey } from '$lib/server/naming/nameKey';
 import {
 	withConcurrentWriteRetry,
@@ -343,5 +344,8 @@ export async function pruneOrphanTags(userId: string, tagIds: string[]): Promise
 	const result = await prisma.tag.deleteMany({
 		where: { id: { in: tagIds }, userId, transactions: { none: {} } }
 	});
+	// Logged here because only the prune knows an edit took a tag's last use (L4b-2). A prune that
+	// deleted nothing destroyed nothing, so it writes nothing.
+	if (result.count > 0) logSensitiveDelete(userId, result.count, 'prune_tags');
 	return result.count;
 }

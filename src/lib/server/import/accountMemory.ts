@@ -9,6 +9,7 @@ import {
 import { accountMemoryKeyFor } from './accountMemoryKey';
 import type { ResolvableAccount } from './sourceSignature';
 import type { ParsedCsvRow } from './types';
+import { logSensitiveDelete } from '$lib/server/logging/data';
 
 /**
  * WHICH ACCOUNT A STATEMENT'S OWN IDENTIFIER BELONGS TO, AS THE USER ANSWERED IT (#599, #696).
@@ -137,9 +138,11 @@ export async function rememberAnsweredAccount(input: {
 	const holder = named.holder(accountsForPicker(held));
 	if (holder !== null) {
 		if (holder === input.accountId) {
-			await prisma.rememberedAccount.deleteMany({
+			const overruled = await prisma.rememberedAccount.deleteMany({
 				where: { userId: input.userId, identifierKey: named.key.identifierKey }
 			});
+			// A remembered answer the member made, removed by this import (L4b-2).
+			if (overruled.count > 0) logSensitiveDelete(input.userId, 'overrule_remembered_account');
 		}
 		return 'not-applicable';
 	}

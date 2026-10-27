@@ -65,6 +65,7 @@ import {
 } from '$lib/server/transactions/totals';
 import type { PageServerLoad } from './$types';
 import { logReferenceRefused } from '$lib/server/logging/authz';
+import { logSensitiveDelete } from '$lib/server/logging/data';
 
 /** The join row Prisma returns for the `tags` relation, before flattenTagLinks unwraps it. */
 interface TagLinkRow {
@@ -1001,6 +1002,7 @@ export const actions: Actions = {
 			logReferenceRefused(user.id, 'transaction');
 			return fail(404, { deleteError: m.transactions_error_transaction_not_found() });
 		}
+		logSensitiveDelete(user.id, result.count, 'delete_transaction');
 		return { deleteSuccess: true };
 	},
 

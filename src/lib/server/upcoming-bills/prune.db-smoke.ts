@@ -4,6 +4,11 @@ import { prisma } from '$lib/server/db';
 import { resolveDatabaseProvider } from '$lib/server/database/provider';
 import { computeNameKey } from '$lib/server/naming/nameKey';
 import { computeInertActionCutoff, recordStreamAction } from '$lib/server/upcoming-bills/service';
+import { env } from '$env/dynamic/private';
+
+// L4b-2: the code this suite drives writes data events whose user pseudonym is keyed by this
+// secret, and db-smoke's `$env` is an empty stub, so the secret is a fixture of the file.
+env.RATE_LIMIT_HASH_SECRET ??= 'f6'.repeat(32);
 
 /**
  * What this file proves, and why the unit tests structurally cannot.

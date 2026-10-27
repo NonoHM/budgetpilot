@@ -87,6 +87,7 @@ const { actions, load } = await import('./+page.server');
 const reauth = await import('$lib/server/auth/reauth');
 const { ATTRIBUTE: A, EVENT: E } = await import('$lib/server/logging/names');
 const { logUserPseudonym } = await import('$lib/server/logging/pseudonym');
+const { commitWithRotatedToken } = await import('$lib/server/auth');
 const m = await import('$lib/paraglide/messages');
 
 const ADMIN = {
@@ -995,5 +996,65 @@ describe('L4a: authorization events on /admin', () => {
 				authz: authzLines()
 			}).toEqual({ reauthFailLines: 1, statuses: [404, 404, 404], authz: [] });
 		});
+	});
+});
+
+/**
+ * L4b-2 (#250): an admin's delete of another account writes `sensitive_delete` beside `authz_admin`,
+ * with the bucket of transactions destroyed and the deleted account as its target. Wire names as
+ * literals, as in `logging/data.spec.ts`.
+ */
+describe('L4b-2: deleteUser writes sensitive_delete', () => {
+	type Line = { event: string; attributes: Record<string, unknown> };
+	const deletes = () =>
+		logWriter.log.mock.calls
+			.map(([line]) => line as unknown as Line)
+			.filter((line) => line.event === 'sensitive_delete');
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		db.prisma.$transaction.mockImplementation(async (callback) => callback(tx));
+	});
+
+	it('one line naming the admin, the target and the bucket of transactions deleted', async () => {
+		accountsAre({ id: 'user-b' });
+		tx.session.deleteMany.mockResolvedValue({ count: 1 });
+		tx.transaction.deleteMany.mockResolvedValue({ count: 3 });
+		tx.user.delete.mockResolvedValue({ id: 'user-b' });
+		await runDeleteUser({ targetUserId: 'user-b', currentPassword: ADMIN_PASSWORD }, ADMIN);
+		expect(deletes()).toEqual([
+			{
+				event: 'sensitive_delete',
+				attributes: {
+					'budgetpilot.user.pseudonym': logUserPseudonym(ADMIN.id),
+					'budgetpilot.data.operation': 'delete_user',
+					'budgetpilot.data.scope': 'account',
+					'budgetpilot.data.transactions_deleted': '2-9',
+					'budgetpilot.target.user_pseudonym': logUserPseudonym('user-b')
+				}
+			}
+		]);
+	});
+
+	// Separates « after the commit returns » from « inside the change » (contradiction pass F3):
+	// the admin's own session was revoked elsewhere, so the commit runs the change and rolls back.
+	it('a commit that rolls back after the change writes none', async () => {
+		accountsAre({ id: 'user-b' });
+		tx.transaction.deleteMany.mockResolvedValue({ count: 3 });
+		vi.mocked(commitWithRotatedToken).mockImplementationOnce(async (_user, _cookies, change) => {
+			await change(tx as never);
+			throw new Error('rolled back');
+		});
+		await expect(
+			runDeleteUser({ targetUserId: 'user-b', currentPassword: ADMIN_PASSWORD }, ADMIN)
+		).rejects.toThrow('rolled back');
+		expect(deletes()).toEqual([]);
+	});
+
+	// Green today; red if the line is written before the target resolves.
+	it('a missing target writes none', async () => {
+		accountsAre(null);
+		await runDeleteUser({ targetUserId: 'inconnu', currentPassword: ADMIN_PASSWORD }, ADMIN);
+		expect(deletes()).toEqual([]);
 	});
 });

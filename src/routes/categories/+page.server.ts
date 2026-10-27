@@ -24,6 +24,7 @@ import {
 import { planDefaultCategoryRenames } from '$lib/server/categories/renamePrompt';
 import type { PageServerLoad } from './$types';
 import { logReferenceRefused } from '$lib/server/logging/authz';
+import { logSensitiveDelete } from '$lib/server/logging/data';
 
 export type CategoryRow = {
 	id: string;
@@ -373,6 +374,7 @@ export const actions: Actions = {
 			}),
 			prisma.category.delete({ where: { id } })
 		]);
+		logSensitiveDelete(user.id, 'delete_category');
 
 		// The message says the transactions are no longer in this category, and deliberately does NOT
 		// name where each one landed: there are TWO populations and they do not go to the same place.
@@ -409,8 +411,12 @@ export const actions: Actions = {
 		if (!nature) {
 			// The answer is the same whether the mapping resolved or not, so the line is the only trace
 			// of one that did not; a malformed id gets that same answer and the same line (L4a).
-			if (mappingId && !(await deleteCategoryNatureMapping(user.id, mappingId))) {
-				logReferenceRefused(user.id, 'nature_mapping');
+			if (mappingId) {
+				if (await deleteCategoryNatureMapping(user.id, mappingId)) {
+					logSensitiveDelete(user.id, 'delete_nature_mapping');
+				} else {
+					logReferenceRefused(user.id, 'nature_mapping');
+				}
 			}
 			return { success: m.categories_success_nature_reset() };
 		}

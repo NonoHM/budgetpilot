@@ -235,12 +235,14 @@ tracked.
   [#280](https://github.com/NonoHM/budgetpilot/issues/280)). On a finance
   application a wrong figure is the defect class that matters most, and these
   are not fixed.
-- **Security event logging is partial**
-  ([#250](https://github.com/NonoHM/budgetpilot/issues/250)). Sign-ins, refused
-  authorizations, refusals for too many attempts and refused outbound redirects
-  are logged, as [the logging reference](../logging.md) lists. Refused input,
-  bulk deletes and exports are not yet, so a deleted import or a full export
-  leaves no line.
+- **Security event logging is partial**. Sign-ins, refused authorizations,
+  refusals for too many attempts, refused outbound redirects, every deletion,
+  every export and every refused backup file are logged, as
+  [the logging reference](../logging.md) lists. An edit that changes stored data
+  ([#1080](https://github.com/NonoHM/budgetpilot/issues/1080)), a refused form
+  field ([#1081](https://github.com/NonoHM/budgetpilot/issues/1081)) and a change
+  to two-step verification
+  ([#1082](https://github.com/NonoHM/budgetpilot/issues/1082)) are not yet.
 - **No layout verification under a longer locale**
   ([#158](https://github.com/NonoHM/budgetpilot/issues/158)).
   Pseudo-localisation is not wired into the suite, so no claim about the

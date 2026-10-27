@@ -30,6 +30,7 @@ The list is tracked; the copies are not. Which of these bind the project, and ho
 - AISVS Appendix C, AI for code generation: https://raw.githubusercontent.com/OWASP/AISVS/main/1.0/en/0x92-Appendix-C_AI_for_Code_Generation.md
 - WSTG, Web Security Testing Guide: https://owasp.org/www-project-web-security-testing-guide/
 - Top 10 for LLM Applications 2025 (tracked in `docs/reference/standards/owasp-llm-top10-2025/`, pin commit eb87ba80e0698de911dcdb8af60830e97723e3fc, folder `2_0_vulns/`): https://github.com/OWASP/www-project-top-10-for-large-language-model-applications
+- Logging Vocabulary Cheat Sheet (pin commit 9d41c054686e35fb56070b4b6271ae2829edea6a, read 2026-10-27; not tracked: its examples trip gitleaks and the private-reference gate): https://github.com/OWASP/CheatSheetSeries/blob/9d41c054686e35fb56070b4b6271ae2829edea6a/cheatsheets/Logging_Vocabulary_Cheat_Sheet.md
 - Top 10 for LLM Applications 2025, LLM06 Excessive Agency: https://owasp.github.io/www-project-top-10-for-large-language-model-applications/2_0_vulns/LLM06_ExcessiveAgency.html
 - Top 10 CI/CD Security Risks, CICD SEC 01 Insufficient Flow Control Mechanisms: https://raw.githubusercontent.com/OWASP/www-project-top-10-ci-cd-security-risks/main/CICD-SEC-01-Insufficient-Flow-Control-Mechanisms.md
 - Top 10 CI/CD Security Risks, CICD SEC 02 Inadequate Identity And Access Management: https://raw.githubusercontent.com/OWASP/www-project-top-10-ci-cd-security-risks/main/CICD-SEC-02-Inadequate-Identity-And-Access-Management.md

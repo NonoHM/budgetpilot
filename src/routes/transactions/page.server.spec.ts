@@ -2670,3 +2670,48 @@ describe('L4a: refused references on /transactions write one authz_fail line', (
 		}).toEqual({ ownedOpened: true, ownedLines: 0, totalLines: 0 });
 	});
 });
+
+/**
+ * L4b-2 (#250, owner ruling 3): one deleted transaction is a deletion too, so it writes
+ * `sensitive_delete` with the count the engine answered. Wire names as literals, as in
+ * `logging/data.spec.ts`.
+ */
+describe('L4b-2: deleteTransaction writes sensitive_delete', () => {
+	type Line = { event: string; attributes: Record<string, unknown> };
+	const deletes = () => (logged as Line[]).filter((line) => line.event === 'sensitive_delete');
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		logged.length = 0;
+	});
+
+	// Separates « the delete is recorded » from « recorded nowhere » (the tree before rev 3).
+	it('an owned transaction: one line, scope transaction, bucket 1', async () => {
+		const index = db.transactions.findIndex((t) => t.id === 'transaction-7');
+		const row = db.transactions[index];
+		try {
+			await runDeleteTransaction({ transactionId: 'transaction-7' });
+			expect(deletes()).toEqual([
+				{
+					event: 'sensitive_delete',
+					attributes: {
+						'budgetpilot.user.pseudonym': logUserPseudonym(testUser.id),
+						'budgetpilot.data.operation': 'delete_transaction',
+						'budgetpilot.data.scope': 'transaction',
+						'budgetpilot.data.transactions_deleted': '1'
+					}
+				}
+			]);
+		} finally {
+			// Later describes in this file count the fixture's rows.
+			if (!db.transactions.some((t) => t.id === 'transaction-7'))
+				db.transactions.splice(index, 0, row);
+		}
+	});
+
+	// Green today; red if the line is written before the count is read.
+	it('a foreign id deletes nothing and writes none', async () => {
+		await runDeleteTransaction({ transactionId: 'transaction-foreign' });
+		expect(deletes()).toEqual([]);
+	});
+});

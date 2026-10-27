@@ -79,3 +79,47 @@ describe('/imports/bank-connections ?/sync', () => {
 		).toEqual([]);
 	});
 });
+
+/**
+ * L4b-2 (#250, owner ruling 3): removing a bank connection writes `sensitive_delete`, scope
+ * bank_connection (its accounts and transactions are kept), no count. Wire names as literals.
+ */
+describe('/imports/bank-connections ?/delete writes sensitive_delete', () => {
+	async function remove(): Promise<unknown> {
+		const body = new FormData();
+		body.set('connectionId', 'connection-1');
+		const request = new Request('http://localhost/imports/bank-connections?/delete', {
+			method: 'POST',
+			body
+		});
+		return actions.delete({ locals: { user: USER }, request } as never);
+	}
+	const deletes = () =>
+		logged.filter((line) => (line as { event: string }).event === 'sensitive_delete');
+
+	beforeEach(() => {
+		logged.length = 0;
+		service.deleteBankConnection.mockReset();
+	});
+
+	it('a connection that resolved: one line, scope bank_connection', async () => {
+		service.deleteBankConnection.mockResolvedValue(true);
+		await remove();
+		expect(deletes()).toEqual([
+			{
+				event: 'sensitive_delete',
+				attributes: {
+					'budgetpilot.user.pseudonym': logUserPseudonym(USER.id),
+					'budgetpilot.data.operation': 'delete_bank_connection',
+					'budgetpilot.data.scope': 'bank_connection'
+				}
+			}
+		]);
+	});
+
+	it('a connection that does not resolve writes none', async () => {
+		service.deleteBankConnection.mockResolvedValue(false);
+		await remove();
+		expect(deletes()).toEqual([]);
+	});
+});

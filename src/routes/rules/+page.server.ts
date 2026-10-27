@@ -13,6 +13,7 @@ import { prisma } from '$lib/server/db';
 import { normalizeId } from '$lib/server/transactions/where';
 import type { PageServerLoad } from './$types';
 import { logReferenceRefused } from '$lib/server/logging/authz';
+import { logSensitiveDelete } from '$lib/server/logging/data';
 
 export const load: PageServerLoad = async ({ locals, url }) => {
 	const user = requireUser(locals.user);
@@ -121,6 +122,7 @@ export const actions: Actions = {
 			logReferenceRefused(user.id, 'rule');
 			return fail(404, { error: m.rules_error_not_found() });
 		}
+		logSensitiveDelete(user.id, 'delete_rule');
 
 		return { success: m.rules_success_deleted() };
 	},

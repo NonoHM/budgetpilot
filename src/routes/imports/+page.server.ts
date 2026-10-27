@@ -9,6 +9,7 @@ import type { PageServerLoad } from './$types';
 import { displayAccountName } from '$lib/server/accounts/projection';
 import { IMPORTED_COUNT_SELECT, importedCountOf } from '$lib/server/import/importedCount';
 import { logReferenceRefused } from '$lib/server/logging/authz';
+import { logSensitiveDelete } from '$lib/server/logging/data';
 
 export const load: PageServerLoad = async ({ locals, url }) => {
 	const user = requireUser(locals.user);
@@ -123,16 +124,18 @@ export const actions: Actions = {
 		// anything looks, and the catch returns. `no-useless-assignment` says so and it is right, and
 		// a placeholder that cannot be observed is worse than none, since it reads as a default the
 		// 404 branch below might fall back to.
-		let deleted: boolean;
+		let deleted: number | null;
 		try {
 			deleted = await deleteImportBatch(user.id, batchId);
 		} catch {
 			return fail(500, { error: m.imports_error_delete_failed() });
 		}
-		if (!deleted) {
+		// `null`, not falsy: a batch holding no transactions resolves and is deleted with a count of 0.
+		if (deleted === null) {
 			logReferenceRefused(user.id, 'import_batch');
 			return fail(404, { error: m.imports_error_not_found() });
 		}
+		logSensitiveDelete(user.id, deleted, 'import_cancel');
 
 		throw redirect(303, '/imports?cancelled=1');
 	}

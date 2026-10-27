@@ -10,6 +10,11 @@ import {
 	readCurrentMonthSpending,
 	spentCentsFor
 } from '$lib/server/budget/dashboard';
+import { env } from '$env/dynamic/private';
+
+// L4b-2: the code this suite drives writes data events whose user pseudonym is keyed by this
+// secret, and db-smoke's `$env` is an empty stub, so the secret is a fixture of the file.
+env.RATE_LIMIT_HASH_SECRET ??= 'f6'.repeat(32);
 
 /**
  * Renaming a category must move every stored reference to its name, or `/budgets` states a false
