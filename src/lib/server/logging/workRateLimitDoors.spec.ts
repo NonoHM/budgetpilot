@@ -7,14 +7,18 @@ import { describe, expect, it } from 'vitest';
  * The route logs, not the limiter (`rateLimit.spec.ts`, « the limiter module writes no log line »),
  * so a sixth door could ask and forget to log; this gate is what stops it.
  *
- * WHAT IT READS: every tracked `.ts` file under `src/` that is not a spec. WHAT IT LOOKS FOR: each
- * call of the two wrappers, and `logWorkRateLimited(` between that call and the next `return`,
- * which is the refusal's answer. The calibration is the count: five doors, three import and two
- * bank-sync, so a detector matching nothing fails the first test.
+ * WHAT IT READS: every tracked `.ts` file under `src/` that is not a spec, comments removed, so a
+ * comment naming the call cannot stand in for it. WHAT IT LOOKS FOR: each call of the two wrappers,
+ * and between that call and the next `return` (the refusal's answer) a `logWorkRateLimited` call
+ * passing the KIND of the wrapper asked, so an import door logging a bank-sync refusal fails too. An
+ * aliased import would hide a door from the name, so aliasing either wrapper fails on its own. The
+ * calibration is the count: five doors, three import and two bank-sync.
  */
 
 const ROOT = process.cwd();
+const KIND = { isImportRateLimited: 'IMPORT', isBankSyncStartRateLimited: 'BANK_SYNC_START' };
 const CALL = /\b(isImportRateLimited|isBankSyncStartRateLimited)\(/g;
+const ALIAS = /\b(?:isImportRateLimited|isBankSyncStartRateLimited)\s+as\b/;
 
 const files = execFileSync('git', ['ls-files', 'src'], { cwd: ROOT, encoding: 'utf8' })
 	.split('\n')
@@ -22,23 +26,35 @@ const files = execFileSync('git', ['ls-files', 'src'], { cwd: ROOT, encoding: 'u
 	.filter((path) => !/\.spec\.ts$|\.db-smoke\.ts$|\/paraglide\/|\/generated\//.test(path))
 	.filter((path) => path !== 'src/lib/server/auth/rateLimit.ts');
 
-const doors = files.flatMap((path) => {
-	const source = readFileSync(`${ROOT}/${path}`, 'utf8');
-	return [...source.matchAll(CALL)].map((match) => {
-		const after = source.slice(match.index);
+const sources = files.map((path) => ({
+	path,
+	code: readFileSync(`${ROOT}/${path}`, 'utf8')
+		.replace(/\/\*[\s\S]*?\*\//g, '')
+		.replace(/\/\/.*$/gm, '')
+}));
+
+const doors = sources.flatMap(({ path, code }) =>
+	[...code.matchAll(CALL)].map((match) => {
+		const after = code.slice(match.index);
 		const refusal = after.slice(0, after.indexOf('return'));
-		return { at: `${path}:${source.slice(0, match.index).split('\n').length}`, refusal };
-	});
-});
+		const kind = KIND[match[1] as keyof typeof KIND];
+		return {
+			at: `${path} (${match[1]})`,
+			logged: refusal.includes(`logWorkRateLimited('${kind}'`)
+		};
+	})
+);
 
 describe('every door asking a work-kind limiter logs the refusal', () => {
 	it('reads the files and finds the five doors', () => {
 		expect([files.length > 100, doors.length]).toEqual([true, 5]);
 	});
 
-	it('finds the log call before each refusal answers', () => {
-		expect(
-			doors.filter((door) => !door.refusal.includes('logWorkRateLimited(')).map((d) => d.at)
-		).toEqual([]);
+	it('finds the log call, with the kind asked, before each refusal answers', () => {
+		expect(doors.filter((door) => !door.logged).map((door) => door.at)).toEqual([]);
+	});
+
+	it('finds no aliased import of either wrapper', () => {
+		expect(sources.filter(({ code }) => ALIAS.test(code)).map(({ path }) => path)).toEqual([]);
 	});
 });

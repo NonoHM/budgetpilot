@@ -375,8 +375,9 @@ Then write the line with `log()` from `$lib/server/logging`. Two settings of an 
 - **`flood: true`** when a visitor, or a member, can repeat it cheaply, so that a loop of
   requests cannot fill the disk. Its repeats are counted, as « Every event » describes.
 - **`security: true`** for an authentication, authorization-failure or control-bypass event, which
-  `BP_SECURITY_LOG=off` drops. The ten authentication events, `crypt_decrypt_fail`, `authz_fail` and the
-  control-bypass event `budgetpilot.redirect.refused` are. The
+  `BP_SECURITY_LOG=off` drops. The ten authentication events, `crypt_decrypt_fail`, `authz_fail` and
+  `budgetpilot.redirect.refused` are. The control-bypass events are `excess_rate_limit_exceeded`,
+  counted among the ten for its sign-in kinds, and `budgetpilot.redirect.refused`. The
   record of an admin action, such as `authz_admin`, is not, so no setting drops it.
 - **`floodBy`** names the closed field, or the keyed hash, that splits a summarised event's window,
   so that one cheap repeat cannot hide a line of another kind.
