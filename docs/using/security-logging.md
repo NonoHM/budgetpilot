@@ -74,7 +74,7 @@ scrambled forms instead, made with a secret key that only the instance holds:
 Anyone without the key cannot turn these back into your address or your account. The person who
 runs the instance holds the key, so they can.
 
-An import or a bank connection refused because of too many attempts is recorded too. That line
+An import, a bank connection or a bank sync refused because it came too often is recorded too. That line
 holds only the scrambled form of your account, never your IP address or your network.
 
 ## Refused requests and admin actions

@@ -81,8 +81,12 @@ export interface UserFields {
 /** The limiter kinds that are authentication (R1): the only ones whose refusal carries the client. */
 export type AuthAttemptKind = 'LOGIN' | 'MFA' | 'REGISTER' | 'INVITE' | 'REAUTH';
 
-/** The limiter kinds that bound a member's expensive work (L4b): their refusal names the user, never the client (R1). */
-export type WorkAttemptKind = 'IMPORT' | 'BANK_SYNC_START';
+/**
+ * The refusals that bound a member's expensive work (L4b): their line names the user, never the
+ * client (R1). `BANK_SYNC` is not the limiter: it is the six-hour interval of one bank connection,
+ * whose `subject` counter is that connection's own.
+ */
+export type WorkAttemptKind = 'IMPORT' | 'BANK_SYNC_START' | 'BANK_SYNC';
 
 /** Why the redirect guard refused (L4b): closed, so the host the remote chose is never written. */
 export type RedirectRefusal = 'target_not_allowed' | 'unresolvable_location' | 'too_many_redirects';
@@ -612,7 +616,7 @@ export const REGISTRY: { [N in EventName]: EventSpec<AttributesOf<N>> } = {
 	},
 	[E.rateLimitExceeded]: {
 		severity: 'WARN',
-		body: 'The rate limiter refused an attempt. The kind says which: a sign-in step, an import or a bank connection. The counter says whether the client, or the account, challenge or session it aimed at, was full.',
+		body: 'An attempt was refused because it came too often. The kind says which: a sign-in step, an import, a bank connection or a bank sync. The counter says whether the client, or the account, challenge, session or connection it aimed at, was full.',
 		flood: true,
 		security: true,
 		floodBy: [A.rateLimitKind, A.rateLimitCounter, A.userPseudonym],

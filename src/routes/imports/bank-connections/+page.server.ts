@@ -168,7 +168,9 @@ export const actions: Actions = {
 						})
 					};
 				case 'throttled':
-					// Informational, not an error: the 6h PSD2 throttle is expected behavior.
+					// Informational for the member, and still a refused repeat, so logged like the
+					// limiter's refusals (#250 L4b): the connection's own interval was the full counter.
+					logWorkRateLimited('BANK_SYNC', { counter: 'subject' }, user.id);
 					return fail(429, { warning: m.bank_connections_sync_throttled() });
 				case 'consent_expired':
 					return fail(409, { error: m.bank_connections_sync_consent_expired() });

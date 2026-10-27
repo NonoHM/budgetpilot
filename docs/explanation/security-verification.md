@@ -235,12 +235,12 @@ tracked.
   [#280](https://github.com/NonoHM/budgetpilot/issues/280)). On a finance
   application a wrong figure is the defect class that matters most, and these
   are not fixed.
-- **No security event logging**
-  ([#250](https://github.com/NonoHM/budgetpilot/issues/250)). Authentication,
-  authorization and bypass attempts are all unrecorded. The design exists and
-  is deliberate about what it would capture; it is not built. **There is no
-  audit trail.** If something happened on your instance, nothing would tell
-  you.
+- **Security event logging is partial**
+  ([#250](https://github.com/NonoHM/budgetpilot/issues/250)). Sign-ins, refused
+  authorizations, refusals for too many attempts and refused outbound redirects
+  are logged, as [the logging reference](../logging.md) lists. Refused input,
+  bulk deletes and exports are not yet, so a deleted import or a full export
+  leaves no line.
 - **No layout verification under a longer locale**
   ([#158](https://github.com/NonoHM/budgetpilot/issues/158)).
   Pseudo-localisation is not wired into the suite, so no claim about the

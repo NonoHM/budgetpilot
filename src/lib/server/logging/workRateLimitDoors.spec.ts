@@ -13,6 +13,12 @@ import { describe, expect, it } from 'vitest';
  * passing the KIND of the wrapper asked, so an import door logging a bank-sync refusal fails too. An
  * aliased import would hide a door from the name, so aliasing either wrapper fails on its own. The
  * calibration is the count: five doors, three import and two bank-sync.
+ *
+ * ITS PREMISES, named because a door outside them is invisible to it (narrow pass on L4b-1): a door
+ * calls a wrapper by name, in a tracked `.ts` file, and answers the refusal with `return`. A wrapper
+ * held in a variable, a refusal thrown, or a string holding `//` or `/*` near a door is not read
+ * correctly; none exists today. The bank sync interval is not the limiter and is held by its route
+ * spec, `imports/bank-connections/page.server.spec.ts`.
  */
 
 const ROOT = process.cwd();
