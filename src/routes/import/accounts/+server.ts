@@ -2,6 +2,7 @@ import { json } from '@sveltejs/kit';
 import * as m from '$lib/paraglide/messages';
 import { requireUser } from '$lib/server/auth';
 import { isImportRateLimited, recordImportAttempt } from '$lib/server/auth/rateLimit';
+import { logWorkRateLimited } from '$lib/server/logging/authn';
 import { resolveClientAddress } from '$lib/server/net/clientAddress';
 import { exceedsCsvProductLimit } from '$lib/server/import/resourceBounds';
 import {
@@ -74,7 +75,9 @@ export const POST: RequestHandler = async ({ locals, request, getClientAddress }
 
 	// This door reads an uploaded file too, so it carries the same limiter as the other two.
 	const importIp = resolveClientAddress({ getClientAddress, request });
-	if (await isImportRateLimited(user.id, importIp)) {
+	const trip = await isImportRateLimited(user.id, importIp);
+	if (trip) {
+		logWorkRateLimited('IMPORT', trip, user.id);
 		return json({ error: m.import_error_too_many_attempts() }, { status: 429 });
 	}
 	await recordImportAttempt(user.id, importIp);

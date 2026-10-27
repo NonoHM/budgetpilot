@@ -12,7 +12,8 @@ import type {
 	RegistrationFailure,
 	RegistrationMethod,
 	SignInFactor,
-	UserFields
+	UserFields,
+	WorkAttemptKind
 } from './events.ts';
 
 /**
@@ -127,6 +128,23 @@ export function logRateLimited(
 			[A.rateLimitKind]: kind,
 			[A.rateLimitCounter]: trip.counter
 		}
+	});
+}
+
+/**
+ * The limiter refused an import or a bank-connection start (L4b, #250). The same event as an
+ * authentication refusal, with the user and NO client: R1 (#841) keeps the address off every event
+ * that is not authentication. Written by the door, like `logRateLimited`; `workRateLimitDoors.spec.ts`
+ * holds every door to it.
+ */
+export function logWorkRateLimited(
+	kind: WorkAttemptKind,
+	trip: RateLimitTrip,
+	userId: string
+): void {
+	log({
+		event: E.rateLimitExceeded,
+		attributes: { ...user(userId), [A.rateLimitKind]: kind, [A.rateLimitCounter]: trip.counter }
 	});
 }
 

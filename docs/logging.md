@@ -140,10 +140,10 @@ et un an. » A year is the ceiling to set; the recommendation is not binding.
 
 ## Settings
 
-| Variable          | Values                  | Default | Effect                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| ----------------- | ----------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `BP_LOG_LEVEL`    | `debug`, `info`, `warn` | `info`  | Lines below this severity are not written. There is no `error` level: `sys_startup`, `sys_monitor_disabled`, `sys_crash` and every `budgetpilot.config.*` event are `WARN` or above and cannot be silenced                                                                                                                                                                                                                  |
-| `BP_SECURITY_LOG` | `on`, `off`             | `on`    | `off` drops the authentication, authorization-failure and control-bypass events, and writes `sys_monitor_disabled` at every start while it is off. The authentication events and `authz_fail` are written; control-bypass events are [#250](https://github.com/NonoHM/budgetpilot/issues/250). A record of an admin action, such as `authz_admin` or `budgetpilot.ai.inference_halted`, is not a security event and is kept |
+| Variable          | Values                  | Default | Effect                                                                                                                                                                                                                                                                                                                                                                                     |
+| ----------------- | ----------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `BP_LOG_LEVEL`    | `debug`, `info`, `warn` | `info`  | Lines below this severity are not written. There is no `error` level: `sys_startup`, `sys_monitor_disabled`, `sys_crash` and every `budgetpilot.config.*` event are `WARN` or above and cannot be silenced                                                                                                                                                                                 |
+| `BP_SECURITY_LOG` | `on`, `off`             | `on`    | `off` drops the authentication, authorization-failure and control-bypass events, and writes `sys_monitor_disabled` at every start while it is off. The control-bypass events are the rate limiter's refusals, every kind, and `budgetpilot.redirect.refused`. A record of an admin action, such as `authz_admin` or `budgetpilot.ai.inference_halted`, is not a security event and is kept |
 
 A value outside the list stops the server at start with a message naming the allowed values. A value
 other than the default is written at start.
@@ -293,7 +293,7 @@ line does not carry is absent, not empty.
 | `budgetpilot.authn.factor`                    | What completed a sign-in.                                                                                                                                                                                         | string  | `password`, `totp`, `recovery_code`                                                                                                                                                                                                                               | `"totp"`                                                             | Operational    |
 | `budgetpilot.authn.method`                    | How an account was created.                                                                                                                                                                                       | string  | `bootstrap`, `backfill`, `open`, `invitation`                                                                                                                                                                                                                     | `"invitation"`                                                       | Operational    |
 | `budgetpilot.authn.action`                    | The sensitive action a re-authentication was for.                                                                                                                                                                 | string  | an action listed under `budgetpilot.authn.reauth_success`                                                                                                                                                                                                         | `"changePassword"`                                                   | Operational    |
-| `budgetpilot.ratelimit.kind`                  | Which authentication limit refused the attempt.                                                                                                                                                                   | string  | `LOGIN`, `MFA`, `REGISTER`, `INVITE`, `REAUTH`                                                                                                                                                                                                                    | `"LOGIN"`                                                            | Operational    |
+| `budgetpilot.ratelimit.kind`                  | Which limit refused the attempt: a sign-in step, an import, a bank connection or a bank sync.                                                                                                                     | string  | `LOGIN`, `MFA`, `REGISTER`, `INVITE`, `REAUTH`, `IMPORT`, `BANK_SYNC_START`, `BANK_SYNC`                                                                                                                                                                          | `"LOGIN"`                                                            | Operational    |
 | `budgetpilot.ratelimit.counter`               | Which counter of the refused attempt was full.                                                                                                                                                                    | string  | `address`, `subject`, `both`                                                                                                                                                                                                                                      | `"subject"`                                                          | Operational    |
 | `budgetpilot.session.reason`                  | Why a session cookie no longer works.                                                                                                                                                                             | string  | `unknown`, `revoked`, `idle`, `expired`                                                                                                                                                                                                                           | `"idle"`                                                             | Operational    |
 | `budgetpilot.crypt.purpose`                   | What the secret that did not decrypt is for.                                                                                                                                                                      | string  | `totp_secret`                                                                                                                                                                                                                                                     | `"totp_secret"`                                                      | Operational    |
@@ -301,6 +301,8 @@ line does not carry is absent, not empty.
 | `budgetpilot.authz.reference`                 | The kind of reference that resolved to nothing the account may use. Only with `not_found_or_not_owned`, and never the reference itself.                                                                           | string  | `transaction`, `split_category`, `rule`, `category`, `tag`, `session`, `column_mapping`, `import_batch`, `account`, `net_worth_account`, `budget`, `savings_goal`, `bill_action`, `bank_connection`, `bank_authorization`, `remembered_account`, `nature_mapping` | `"transaction"`                                                      | Operational    |
 | `budgetpilot.admin.action`                    | The admin action that was carried out.                                                                                                                                                                            | string  | `delete_user`, `reset_password`, `create_account`, `create_invitation`, `revoke_invitation`                                                                                                                                                                       | `"delete_user"`                                                      | Operational    |
 | `budgetpilot.target.user_pseudonym`           | The account an admin action acted on, as a keyed hash of its user id under the key of `budgetpilot.user.pseudonym`. Only on the three actions that name an account.                                               | string  | 64 lowercase hexadecimal characters                                                                                                                                                                                                                               | `"5f1c0e9d2a7b4c63e8f10a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f"` | Pseudonymous   |
+| `budgetpilot.redirect.reason`                 | Why the redirect guard refused to follow a redirect.                                                                                                                                                              | string  | `target_not_allowed`, `unresolvable_location`, `too_many_redirects`                                                                                                                                                                                               | `"target_not_allowed"`                                               | Operational    |
+| `budgetpilot.redirect.upstream`               | Which outbound service sent the refused redirect.                                                                                                                                                                 | string  | `bank_provider`, `model_host`                                                                                                                                                                                                                                     | `"bank_provider"`                                                    | Operational    |
 
 ## What to do
 
@@ -325,13 +327,14 @@ below asks nothing.
 | `budgetpilot.ai.inference_resumed`            | Nothing to do if an admin meant to resume AI. An unexpected line means someone holding an admin's session and password turned AI back on: halt it again, and ask that admin to change their password.                                                                                                                                                                                                                                      |
 | `budgetpilot.request.failed`                  | A visitor met an error page. Find this line with the reference they were shown (the tutorial shows how), read the error class and code, and fix the cause. During a flood, look for a `budgetpilot.log.suppressed` line in the same minute.                                                                                                                                                                                                |
 | `authn_login_fail`                            | Nothing to do for one line. Many from one `budgetpilot.client.pseudonym` or one subnet label in a few minutes is password guessing: block that client on the web server ([Ban an address after failed sign-ins](./ban-failed-sign-ins.md)). Many `wrong_password` for one user pseudonym from many clients is an attack on that account: tell its owner.                                                                                   |
-| `excess_rate_limit_exceeded`                  | The rate limiter already refused the attempt. Read `budgetpilot.ratelimit.counter`: `address` points at the client, `subject` at an account or session someone else is attacking.                                                                                                                                                                                                                                                          |
+| `excess_rate_limit_exceeded`                  | The attempt was already refused. For a sign-in kind, read `budgetpilot.ratelimit.counter`: `address` points at the client, `subject` at an account or session someone else is attacking. For `IMPORT`, `BANK_SYNC_START` or `BANK_SYNC`, one line is usually a second tab or a double click; many lines for one `budgetpilot.user.pseudonym` mean that member's session is being used in a loop: ask them.                                 |
 | `user_created`                                | Nothing to do if you expected a new account. An unexpected one in `REGISTRATION_MODE=open`, or a `bootstrap` you did not make, is worth checking in the admin page.                                                                                                                                                                                                                                                                        |
 | `budgetpilot.authn.register_fail`             | Nothing to do for one line. Many `bootstrap_token_invalid` lines mean someone is guessing `BOOTSTRAP_TOKEN`: make sure it is long, or empty it once the first account exists.                                                                                                                                                                                                                                                              |
 | `crypt_decrypt_fail`                          | `TOTP_ENCRYPTION_KEY` is not the key this account's two-factor secret was stored with, so no code from its app can pass. If you changed the key, put the old one back and restart. Otherwise the person turns two-factor off in Settings with a recovery code and sets it up again; one with no recovery code left needs the database procedure in `docs/reference/two-factor.md`.                                                         |
 | `budgetpilot.authn.reauth_fail`               | Nothing to do for one line. Repeated failures for one user pseudonym can mean someone holding that person's session is guessing their password: ask them to change their password in Settings, which logs out their other sessions.                                                                                                                                                                                                        |
 | `authz_fail`                                  | Nothing to do for one line: a stale link or a page left open in a second tab writes the same. Many `not_found_or_not_owned` lines for one `budgetpilot.user.pseudonym` mean that account is trying identifiers it does not hold, and many `role_required` lines mean a member keeps reaching admin pages: ask that person, and if their session may be someone else's, reset their password from the admin page, which ends every session. |
 | `authz_admin`                                 | Nothing to do if an admin meant to do it. An unexpected line means someone holding an admin's session acted: read `budgetpilot.admin.action` and the target, undo what you can, and ask that admin to change their password.                                                                                                                                                                                                               |
+| `budgetpilot.redirect.refused`                | The request was not followed, so nothing reached the other host. A `bank_provider` line means the bank provider's address redirected somewhere outside `BANK_SYNC_ALLOWED_HOSTS`: check the address you configured, and whether the provider moved; a repeat with no change on your side is worth reporting to the provider.                                                                                                               |
 | `budgetpilot.backfill.merges_blocked`         | Run `scripts/normalize-names.mjs --dry-run` to see which names now read as duplicates, then merge or rename them. Nothing was changed, so nothing is broken meanwhile.                                                                                                                                                                                                                                                                     |
 | `budgetpilot.net_worth.links_withdrawn`       | In Settings, choose again which synchronized bank account feeds each net worth line named in the app. Until you do, those lines are not fed.                                                                                                                                                                                                                                                                                               |
 | `budgetpilot.dates.check_failed`              | Nothing was changed. The check runs again at the next start; if it keeps failing, read the lines around it for the cause.                                                                                                                                                                                                                                                                                                                  |
@@ -372,8 +375,9 @@ Then write the line with `log()` from `$lib/server/logging`. Two settings of an 
 - **`flood: true`** when a visitor, or a member, can repeat it cheaply, so that a loop of
   requests cannot fill the disk. Its repeats are counted, as « Every event » describes.
 - **`security: true`** for an authentication, authorization-failure or control-bypass event, which
-  `BP_SECURITY_LOG=off` drops. The ten authentication events, `crypt_decrypt_fail` and `authz_fail`
-  are; the control-bypass events are [#250](https://github.com/NonoHM/budgetpilot/issues/250). The
+  `BP_SECURITY_LOG=off` drops. The ten authentication events, `crypt_decrypt_fail`, `authz_fail` and
+  `budgetpilot.redirect.refused` are. The control-bypass events are `excess_rate_limit_exceeded`,
+  counted among the ten for its sign-in kinds, and `budgetpilot.redirect.refused`. The
   record of an admin action, such as `authz_admin`, is not, so no setting drops it.
 - **`floodBy`** names the closed field, or the keyed hash, that splits a summarised event's window,
   so that one cheap repeat cannot hide a line of another kind.
@@ -398,8 +402,9 @@ fails when the two disagree on any event, severity, sentence, attribute or level
 the first 20 lines with the same event, status, route template and error class are written, the rest
 are counted, and when the minute ends one `budgetpilot.log.suppressed` line gives the count with
 that event, status, route and class. That line belongs to no request, so it carries no `trace_id`.
-Four events also count separately by their own field: `excess_rate_limit_exceeded`
-by `budgetpilot.ratelimit.kind` and `budgetpilot.ratelimit.counter`, `budgetpilot.authn.register_fail` by `budgetpilot.authn.reason`,
+Five events also count separately by their own field: `excess_rate_limit_exceeded`
+by `budgetpilot.ratelimit.kind`, `budgetpilot.ratelimit.counter` and `budgetpilot.user.pseudonym`,
+`budgetpilot.redirect.refused` by its reason and upstream, `budgetpilot.authn.register_fail` by `budgetpilot.authn.reason`,
 `budgetpilot.session.invalid` by its reason and `budgetpilot.user.pseudonym`, and `authz_fail` by its
 reason, its reference and `budgetpilot.user.pseudonym`. Their summary line
 carries those fields too, so a burst of one kind cannot hide a line of another.
@@ -653,7 +658,7 @@ other sessions » after the code was accepted). A form with an empty field write
 
 Severity WARN. Summarised when repeated.
 
-> The rate limiter refused an authentication attempt. The counter says whether the client, or the account, challenge or session it aimed at, was full.
+> An attempt was refused because it came too often. The kind says which: a sign-in step, an import, a bank connection or a bank sync. The counter says whether the client, or the account, challenge, session or connection it aimed at, was full.
 
 | Attribute                                 | Level        |
 | ----------------------------------------- | ------------ |
@@ -664,12 +669,19 @@ Severity WARN. Summarised when repeated.
 | `budgetpilot.ratelimit.kind`              | Operational  |
 | `budgetpilot.ratelimit.counter`           | Operational  |
 
-`budgetpilot.ratelimit.kind` is `LOGIN`, `MFA`, `REGISTER`, `INVITE` or `REAUTH`.
+`budgetpilot.ratelimit.kind` is `LOGIN`, `MFA`, `REGISTER`, `INVITE` or `REAUTH` for a sign-in step,
+`IMPORT` or `BANK_SYNC_START` for a member's import or bank connection, and `BANK_SYNC` for a
+bank sync asked again within six hours of the last one, which is that connection's own interval
+rather than the rate limiter.
 `budgetpilot.ratelimit.counter` is `address` when the client's own counter was full, `subject` when
 the counter of what it aimed at was (the email for `LOGIN`, the sign-in challenge for `MFA`, the
-session for `REAUTH`), or `both`. A `subject` refusal is not this client's doing: someone else's
-failures against the same email refuse the owner too. The user pseudonym is present for `MFA` and
-`REAUTH`. Bank sync and import refusals are not on this event.
+session for `REAUTH`), or `both`. For a sign-in kind, a `subject` refusal is not this client's doing:
+someone else's failures against the same email refuse the owner too. The user pseudonym is present for `MFA`,
+`REAUTH` and the three member kinds. `IMPORT`, `BANK_SYNC_START` and `BANK_SYNC` carry no client
+pseudonym and no subnet: the client address is on sign-in events only. For the first two `subject`
+is the member's own counter and `address` the counter of their network; `BANK_SYNC` is always
+`subject`, the connection's interval. Repeats are summarised per member, so one member's
+loop cannot hide another's refusal.
 
 ### `session_logout`
 
@@ -844,6 +856,29 @@ an account from the registration page), `create_invitation` or `revoke_invitatio
 action acted on, present on the first three only. Written after the change is committed, so a
 refused re-authentication or a missing target writes nothing here; the refused password is
 `budgetpilot.authn.reauth_fail`. Not a security event, so `BP_SECURITY_LOG=off` keeps it.
+
+### `budgetpilot.redirect.refused`
+
+Severity WARN. Summarised when repeated.
+
+> An outbound request was answered with a redirect the guard refused to follow. The reason says why; the upstream says which service sent it.
+
+| Attribute                       | Level       |
+| ------------------------------- | ----------- |
+| `budgetpilot.redirect.reason`   | Operational |
+| `budgetpilot.redirect.upstream` | Operational |
+
+`budgetpilot.redirect.reason` is `target_not_allowed` when the redirect pointed at a host the
+allowlist refuses, `unresolvable_location` when its address could not be read, and
+`too_many_redirects` when the chain went past five hops. `budgetpilot.redirect.upstream` is
+`bank_provider` or `model_host`; no page reaches the model host in this release, so only
+`bank_provider` lines can appear. The line carries neither the host nor the address the redirect
+named, because the remote service chose both. It names no client or user either: a refused redirect
+concerns the service that sent it, not the member.
+
+A cross-site form refusal writes nothing. SvelteKit answers a POST from another origin with 403
+before the application sees the request, so there is no line to write; the refusal itself still
+happens.
 
 ### `budgetpilot.backfill.started`
 
@@ -1099,6 +1134,8 @@ Severity WARN.
 | `budgetpilot.authz.reason`              | Operational  |
 | `budgetpilot.authz.reference`           | Operational  |
 | `budgetpilot.user.pseudonym`            | Pseudonymous |
+| `budgetpilot.redirect.reason`           | Operational  |
+| `budgetpilot.redirect.upstream`         | Operational  |
 
 ### `budgetpilot.log.line_too_long`
 

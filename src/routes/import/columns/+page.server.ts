@@ -3,6 +3,7 @@ import { EVENT } from '$lib/server/logging/names';
 import { log } from '$lib/server/logging';
 import * as m from '$lib/paraglide/messages';
 import { isImportRateLimited, recordImportAttempt } from '$lib/server/auth/rateLimit';
+import { logWorkRateLimited } from '$lib/server/logging/authn';
 import { resolveClientAddress } from '$lib/server/net/clientAddress';
 import { requireUser } from '$lib/server/auth';
 import { prisma } from '$lib/server/db';
@@ -83,7 +84,9 @@ export const actions: Actions = {
 			return fail(400, { error: m.import_error_bad_extension() });
 		}
 		const importIp = resolveClientAddress({ getClientAddress, request });
-		if (await isImportRateLimited(user.id, importIp)) {
+		const trip = await isImportRateLimited(user.id, importIp);
+		if (trip) {
+			logWorkRateLimited('IMPORT', trip, user.id);
 			return fail(429, { error: m.import_error_too_many_attempts() });
 		}
 		await recordImportAttempt(user.id, importIp);

@@ -1,5 +1,15 @@
-import { describe, expect, it, vi } from 'vitest';
-import { fetchWithRedirectGuard, SsrfRedirectError } from './redirectGuard';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { ATTRIBUTE, EVENT } from '$lib/server/logging/names';
+
+const logged = vi.hoisted(() => [] as unknown[]);
+vi.mock('$lib/server/logging', async (importOriginal) => ({
+	...(await importOriginal<typeof import('$lib/server/logging')>()),
+	log: (event: unknown) => {
+		logged.push(event);
+	}
+}));
+
+const { fetchWithRedirectGuard, SsrfRedirectError } = await import('./redirectGuard');
 
 function redirect(status: number, location: string): Response {
 	return new Response(null, { status, headers: { location } });
@@ -20,7 +30,7 @@ describe('fetchWithRedirectGuard', () => {
 		const response = await fetchWithRedirectGuard(
 			'https://api.example.test/data',
 			{ method: 'GET' },
-			{ fetchImpl, isRedirectTargetAllowed: allowExample }
+			{ fetchImpl, upstream: 'bank_provider', isRedirectTargetAllowed: allowExample }
 		);
 
 		expect(response.status).toBe(200);
@@ -39,7 +49,7 @@ describe('fetchWithRedirectGuard', () => {
 			fetchWithRedirectGuard(
 				'https://api.example.test/auth',
 				{ method: 'POST' },
-				{ fetchImpl, isRedirectTargetAllowed: allowExample }
+				{ fetchImpl, upstream: 'bank_provider', isRedirectTargetAllowed: allowExample }
 			)
 		).rejects.toBeInstanceOf(SsrfRedirectError);
 
@@ -59,7 +69,7 @@ describe('fetchWithRedirectGuard', () => {
 		const response = await fetchWithRedirectGuard(
 			'https://api.example.test/v1/data',
 			{ method: 'GET' },
-			{ fetchImpl, isRedirectTargetAllowed: allowExample }
+			{ fetchImpl, upstream: 'bank_provider', isRedirectTargetAllowed: allowExample }
 		);
 
 		expect(response.status).toBe(200);
@@ -78,7 +88,7 @@ describe('fetchWithRedirectGuard', () => {
 		const response = await fetchWithRedirectGuard(
 			'https://api.example.test/v1/data',
 			{ method: 'GET' },
-			{ fetchImpl, isRedirectTargetAllowed: allowExample }
+			{ fetchImpl, upstream: 'bank_provider', isRedirectTargetAllowed: allowExample }
 		);
 
 		expect(response.status).toBe(200);
@@ -99,7 +109,7 @@ describe('fetchWithRedirectGuard', () => {
 		await fetchWithRedirectGuard(
 			'https://api.example.test/data',
 			{ method: 'GET', headers: { Authorization: 'Bearer secret', Cookie: 'sid=1' } },
-			{ fetchImpl: crossFetch, isRedirectTargetAllowed: allowBoth }
+			{ fetchImpl: crossFetch, upstream: 'bank_provider', isRedirectTargetAllowed: allowBoth }
 		);
 		const crossHeaders = new Headers(crossFetch.mock.calls[1][1]?.headers);
 		expect(crossHeaders.get('authorization')).toBeNull();
@@ -112,7 +122,7 @@ describe('fetchWithRedirectGuard', () => {
 		await fetchWithRedirectGuard(
 			'https://api.example.test/v1/data',
 			{ method: 'GET', headers: { Authorization: 'Bearer secret' } },
-			{ fetchImpl: sameFetch, isRedirectTargetAllowed: allowExample }
+			{ fetchImpl: sameFetch, upstream: 'bank_provider', isRedirectTargetAllowed: allowExample }
 		);
 		const sameHeaders = new Headers(sameFetch.mock.calls[1][1]?.headers);
 		expect(sameHeaders.get('authorization')).toBe('Bearer secret');
@@ -130,7 +140,7 @@ describe('fetchWithRedirectGuard', () => {
 		await fetchWithRedirectGuard(
 			'https://api.example.test/submit',
 			{ method: 'POST', body: JSON.stringify({ a: 1 }) },
-			{ fetchImpl, isRedirectTargetAllowed: allowExample }
+			{ fetchImpl, upstream: 'bank_provider', isRedirectTargetAllowed: allowExample }
 		);
 
 		const secondInit = fetchImpl.mock.calls[1][1] as RequestInit;
@@ -148,7 +158,12 @@ describe('fetchWithRedirectGuard', () => {
 			fetchWithRedirectGuard(
 				'https://api.example.test/start',
 				{ method: 'GET' },
-				{ fetchImpl, isRedirectTargetAllowed: allowExample, maxRedirects: 2 }
+				{
+					fetchImpl,
+					upstream: 'bank_provider',
+					isRedirectTargetAllowed: allowExample,
+					maxRedirects: 2
+				}
 			)
 		).rejects.toBeInstanceOf(SsrfRedirectError);
 
@@ -163,10 +178,82 @@ describe('fetchWithRedirectGuard', () => {
 		const response = await fetchWithRedirectGuard(
 			'https://api.example.test/data',
 			{ method: 'GET' },
-			{ fetchImpl, isRedirectTargetAllowed: allowExample }
+			{ fetchImpl, upstream: 'bank_provider', isRedirectTargetAllowed: allowExample }
 		);
 
 		expect(response.status).toBe(304);
 		expect(fetchImpl).toHaveBeenCalledTimes(1);
+	});
+});
+
+// #250 L4b: a refused redirect is a control-bypass event. Each reason compares the whole event, so a
+// reason written as a constant fails two rows, and the host the remote chose (a canary here) can
+// never be a field: R1 and « text a remote host chose is never a field » (docs/logging.md).
+describe('a refused redirect is logged with a closed reason and the upstream, never the host', () => {
+	const CANARY = 'canary-host-l4b.invalid';
+
+	beforeEach(() => {
+		logged.length = 0;
+	});
+
+	async function refusedWith(
+		responses: Response[],
+		upstream: 'bank_provider' | 'model_host',
+		maxRedirects?: number
+	): Promise<unknown[]> {
+		const fetchImpl = vi.fn<FetchFn>();
+		for (const response of responses) fetchImpl.mockResolvedValueOnce(response);
+		await expect(
+			fetchWithRedirectGuard(
+				'https://api.example.test/start',
+				{ method: 'GET' },
+				{ fetchImpl, upstream, isRedirectTargetAllowed: allowExample, maxRedirects }
+			)
+		).rejects.toBeInstanceOf(SsrfRedirectError);
+		return [...logged];
+	}
+
+	function refusal(reason: string, upstream: string): unknown[] {
+		return [
+			{
+				event: EVENT.redirectRefused,
+				attributes: { [ATTRIBUTE.redirectReason]: reason, [ATTRIBUTE.redirectUpstream]: upstream }
+			}
+		];
+	}
+
+	it.each(['bank_provider', 'model_host'] as const)(
+		'a target off the allowlist (%s) writes target_not_allowed and not the host',
+		async (upstream) => {
+			const events = await refusedWith([redirect(302, `http://${CANARY}/x`)], upstream);
+			expect({ events, host: JSON.stringify(events).includes(CANARY) }).toEqual({
+				events: refusal('target_not_allowed', upstream),
+				host: false
+			});
+		}
+	);
+
+	it('a Location that is not a URL writes unresolvable_location', async () => {
+		const events = await refusedWith([redirect(302, 'http://[not-a-host')], 'model_host');
+		expect(events).toEqual(refusal('unresolvable_location', 'model_host'));
+	});
+
+	it('a chain past the cap writes too_many_redirects', async () => {
+		const hop = () => redirect(302, 'https://api.example.test/again');
+		const events = await refusedWith([hop(), hop(), hop()], 'bank_provider', 2);
+		expect(events).toEqual(refusal('too_many_redirects', 'bank_provider'));
+	});
+
+	it('a followed redirect and a plain answer write nothing', async () => {
+		const fetchImpl = vi
+			.fn<FetchFn>()
+			.mockResolvedValueOnce(redirect(302, 'https://api.example.test/v2'))
+			.mockResolvedValueOnce(new Response('ok', { status: 200 }));
+		const response = await fetchWithRedirectGuard(
+			'https://api.example.test/v1',
+			{ method: 'GET' },
+			{ fetchImpl, upstream: 'bank_provider', isRedirectTargetAllowed: allowExample }
+		);
+		expect({ status: response.status, logged }).toEqual({ status: 200, logged: [] });
 	});
 });

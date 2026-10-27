@@ -74,6 +74,10 @@ scrambled forms instead, made with a secret key that only the instance holds:
 Anyone without the key cannot turn these back into your address or your account. The person who
 runs the instance holds the key, so they can.
 
+The log also records when the server refuses an import, a bank connection or a bank sync because
+you tried it too often. That line holds only the scrambled form of your account, never your IP
+address or your network.
+
 ## Refused requests and admin actions
 
 When you ask for a transaction, a rule, an account or anything else that does not exist, or that is

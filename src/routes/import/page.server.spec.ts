@@ -740,6 +740,19 @@ const db = vi.hoisted(() => {
 
 vi.mock('$lib/server/db', () => ({ prisma: db.prisma }));
 
+// Pass-through: every line is still written, and also kept here for the rate-limit refusal below.
+const logged = vi.hoisted(() => [] as unknown[]);
+vi.mock('$lib/server/logging', async (importOriginal) => {
+	const original = await importOriginal<typeof import('$lib/server/logging')>();
+	return {
+		...original,
+		log: (event: Parameters<typeof original.log>[0]) => {
+			logged.push(event);
+			original.log(event);
+		}
+	};
+});
+
 const { actions, load } = await import('./+page.server');
 const testUser = { id: 'user-a', email: 'a@example.test', role: 'USER' as const };
 
@@ -3360,6 +3373,34 @@ describe('/import is rate limited', () => {
 			const result = await runImport(formData);
 			expect(result.status).toBe(429);
 			expect(result.data.error).toBe(m.import_error_too_many_attempts());
+		} finally {
+			db.prisma.loginAttempt.count.mockResolvedValue(0);
+		}
+	});
+
+	// #250 L4b, R1: the refusal is a control-bypass event naming the member and not the client. The
+	// whole event is compared, so a client pseudonym riding along or a missing user fails it.
+	it('logs the refusal once, with the user pseudonym and no client', async () => {
+		const { EVENT, ATTRIBUTE } = await import('$lib/server/logging/names');
+		const { logUserPseudonym } = await import('$lib/server/logging/pseudonym');
+		db.prisma.loginAttempt.count.mockResolvedValue(10_000);
+		logged.length = 0;
+		try {
+			const formData = new FormData();
+			formData.set('csvFile', new File(['date;label;amount\n'], 'statement.csv'));
+			await runImport(formData);
+			expect(
+				logged.filter((line) => (line as { event: string }).event === EVENT.rateLimitExceeded)
+			).toEqual([
+				{
+					event: EVENT.rateLimitExceeded,
+					attributes: {
+						[ATTRIBUTE.rateLimitKind]: 'IMPORT',
+						[ATTRIBUTE.rateLimitCounter]: 'both',
+						[ATTRIBUTE.userPseudonym]: logUserPseudonym(testUser.id)
+					}
+				}
+			]);
 		} finally {
 			db.prisma.loginAttempt.count.mockResolvedValue(0);
 		}
