@@ -24,8 +24,8 @@ stated claim is false. You read; you never edit.
 
 1. **Root: the claim, in the change's own words.** The targets are the totalising words: every, all,
    both, never, only, closes, the single writer, cannot.
-2. **Children: every premise the root needs.** Name each by kind. Four kinds recur in this
-   repository's record, so look for each before inventing others, then add the fixed fifth:
+2. **Children: every premise the root needs.** Name each by kind. Five kinds recur in this
+   repository's record, so look for each before inventing others, then add the fixed sixth:
    - **Set completeness**: « the callers / writers / doors are these N ». Enumerate from the code,
      not the diff, searching for the VARIABLE and the column, not for the guard. Use Serena's
      reference tools where configured; a text search answers where you looked. The writers of a
@@ -42,6 +42,10 @@ stated claim is false. You read; you never edit.
      itself, through a helper that would be production code anywhere else, measures that the step is
      possible, not that the application performs it. A state a test covers needs a route that
      produces it.
+   - **Reference method**: where the problem has a common form elsewhere (for a security mechanism,
+     the auth frameworks AGENTS.md « Before citing an industry pattern » names), the change matches
+     it or says where it differs and why. With no reading cited, the node is UNVERIFIABLE BY
+     READING, never SURVIVED.
    - **The inference itself**, one fixed node: « if every child holds, the root follows, unless ... ».
      Name the premise that would have to be added for the root to be true. This is the undercutting
      defeater of eliminative argumentation (CMU/SEI-2015-TR-005, doi:10.1184/R1/6573413.v1, p. 7: « the truth of the rule's

@@ -1,6 +1,6 @@
 ---
 name: cite
-description: Use before writing a standard's identifier into a BudgetPilot PR, issue, doc or comment (ASVS, AISVS, WCAG, CWE, ATT&CK, ATLAS, NIST, CIS, ANSSI, ISO/IEC), before calling something industry practice, and when asked what Actual Budget, Firefly III, YNAB or Monarch do.
+description: Use before settling a BudgetPilot design whose problem has a common form elsewhere (auth, sessions, imports, retries), before writing a standard's identifier into a PR, issue, doc or comment (ASVS, AISVS, WCAG, CWE, ATT&CK, ATLAS, NIST, CIS, ANSSI, ISO/IEC), before calling something industry practice, and when asked what Actual Budget, Firefly III, YNAB, Monarch or an auth framework do.
 argument-hint: '[identifier or question]'
 ---
 
@@ -35,9 +35,9 @@ own documentation or source, never a generic search.
 
 1. **Check the tracker for a ruling first**: `gh issue list --state all --search "<topic>"`. A question
    already ruled is quoted with its issue number, not reopened.
-2. **Read every product AGENTS.md lists, or mark it « not read » with the reason.** Each one's own
-   text. Source: `git ls-remote` for the commit, then cite
-   `repo@<sha>:<path>`. Documentation: the URL and the date read. A summarising fetch that finds no
+2. **Read every product AGENTS.md lists, or mark it « not read » with the reason**, and for a
+   security mechanism every framework it lists too. Each one's own text. Source: `git ls-remote`
+   for the commit, then cite `repo@<sha>:<path>`. Documentation: the URL and the date read. A summarising fetch that finds no
    mention covers only the pages it read: say which pages.
 3. **Write what each does, and why if it says why, in a small table**; then where BudgetPilot matches,
    where it does better, and the reason. « Nobody does X » needs every product's reading behind it.

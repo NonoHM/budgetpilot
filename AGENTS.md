@@ -464,6 +464,18 @@ session briefed #464's fix on a "UUIDs preserved same-instance, stripped cross-i
 conflict-resolution pattern that neither comparable actually implements, checked directly against
 both afterward.
 
+**Read them before the design is settled, not when a citation is written.** A design whose problem
+has a common form elsewhere is checked against the leading reference method before any code, and
+the PR says where ours differs and why. Found after the code, a difference is a rewrite.
+
+**For a security mechanism, the frameworks are the reference, beside the products.** Auth,
+sessions, MFA, passwords and tokens are decided in **Django**, **Laravel**, **ASP.NET Identity** and
+**Devise**, read as source at a pinned commit; the budgeting products often implement no such
+control, and an absence is not a practice. For #923 neither Actual nor Firefly had anything
+comparable, while two frameworks bound a session to its password hash and a third had fixed the
+same race upstream. An upstream PR or issue a reading cites is verified directly before it is
+quoted.
+
 ## References
 
 Standards this repository is held to, and where each one binds.
