@@ -155,6 +155,14 @@ table can disagree by one version.
 An academic question goes through `literature-review` or `paper-lookup`. Rows record what a paper
 was read FOR, so nobody re-reads it to find out. Copies in `guardrails/` and `data-to-text/`.
 
+Attacking a claim's premises, for the `contradiction-pass` agent (read 2026-10-27). Copy in `gates/`:
+
+- Goodenough, Weinstock, Klein, « Eliminative Argumentation: A Basis for Arguing Confidence in System
+  Properties », CMU/SEI-2015-TR-005, 2015. The three defeaters (p. 7: rebutting on a claim,
+  undermining on evidence, undercutting on an inference), « m|n » confidence (p. 5), the
+  challengeable « Assumed OK » terminator (p. 10):
+  https://doi.org/10.1184/R1/6573413.v1 (PDF: https://www.sei.cmu.edu/documents/1248/2015_005_001_434813.pdf)
+
 Character-level attacks on filters (read 2026-10-11, #998, #996, #250):
 
 - Hackett et al., « Bypassing LLM Guardrails: An Empirical Analysis of Evasion Attacks against Prompt

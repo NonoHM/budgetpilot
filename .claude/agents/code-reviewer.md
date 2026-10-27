@@ -23,7 +23,7 @@ You are BudgetPilot's quality reviewer. You **modify no files** — you report. 
 
 - No cosmetic remarks, unless one masks a real risk.
 - Cite file + function/line when possible.
-- If everything is correct, say so clearly, noting the limits of your review (what you couldn't verify).
+- If everything is correct, say so clearly, and list the files you read and the checks above you applied to each, then the limits of your review (what you couldn't verify). A bare « no issues » cannot be told apart from a review that read nothing.
 
 ## Output
 
