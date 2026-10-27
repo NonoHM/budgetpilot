@@ -15,6 +15,9 @@
  * this was written.
  */
 
+import { logRedirectRefused } from '$lib/server/logging/bypass';
+import type { RedirectRefusal, RedirectUpstream } from '$lib/server/logging/events';
+
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 
 /** A redirect was refused because its target host is not allowlisted, or the chain was too long. */
@@ -36,6 +39,8 @@ export interface RedirectGuardOptions {
 	 * (e.g. `(u) => getBankProviderBaseUrl(u.href, env) !== null`).
 	 */
 	isRedirectTargetAllowed: (target: URL) => boolean;
+	/** Which service this fetch reaches, for the refusal's log line (L4b): never its host. */
+	upstream: RedirectUpstream;
 }
 
 /**
@@ -66,24 +71,46 @@ export async function fetchWithRedirectGuard(
 		if (location === null) return response;
 
 		if (hop >= maxRedirects) {
-			throw new SsrfRedirectError(`refusing to follow more than ${maxRedirects} redirects`);
+			throw refused(
+				'too_many_redirects',
+				options.upstream,
+				`refusing to follow more than ${maxRedirects} redirects`
+			);
 		}
 
 		let target: URL;
 		try {
 			target = new URL(location, currentUrl);
 		} catch {
-			throw new SsrfRedirectError('redirect Location is not a resolvable URL');
+			throw refused(
+				'unresolvable_location',
+				options.upstream,
+				'redirect Location is not a resolvable URL'
+			);
 		}
 
 		// The whole point of #215: the allowlist inspects the DESTINATION, not only the first hop.
 		if (!options.isRedirectTargetAllowed(target)) {
-			throw new SsrfRedirectError('redirect target host is not allowlisted');
+			throw refused(
+				'target_not_allowed',
+				options.upstream,
+				'redirect target host is not allowlisted'
+			);
 		}
 
 		currentInit = nextHopInit(currentInit, currentUrl, target, response.status);
 		currentUrl = target.toString();
 	}
+}
+
+/** Every refusal is logged where it is thrown, so no caller can refuse silently (#250 L4b). */
+function refused(
+	reason: RedirectRefusal,
+	upstream: RedirectUpstream,
+	message: string
+): SsrfRedirectError {
+	logRedirectRefused(reason, upstream);
+	return new SsrfRedirectError(message);
 }
 
 function nextHopInit(init: RequestInit, fromUrl: string, toUrl: URL, status: number): RequestInit {

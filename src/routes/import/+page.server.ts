@@ -35,6 +35,7 @@ import { resolveImportOffer } from '$lib/server/import/offerPrecedence';
 import { declaredCurrencyRefusal } from '$lib/server/import/declaredCurrency';
 import { DEFAULT_DENOMINATION } from '$lib/domain/money';
 import { isImportRateLimited, recordImportAttempt } from '$lib/server/auth/rateLimit';
+import { logWorkRateLimited } from '$lib/server/logging/authn';
 import { resolveClientAddress } from '$lib/server/net/clientAddress';
 import {
 	buildInvalidRowDetails,
@@ -213,7 +214,9 @@ export const actions: Actions = {
 		// resource ceiling and cheap, and nothing stopped the second. Checked BEFORE the file is read,
 		// so a tripped counter costs nothing to answer.
 		const importIp = resolveClientAddress({ getClientAddress, request });
-		if (await isImportRateLimited(user.id, importIp)) {
+		const trip = await isImportRateLimited(user.id, importIp);
+		if (trip) {
+			logWorkRateLimited('IMPORT', trip, user.id);
 			return fail(429, { error: m.import_error_too_many_attempts() });
 		}
 		await recordImportAttempt(user.id, importIp);

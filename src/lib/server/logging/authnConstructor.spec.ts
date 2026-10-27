@@ -16,7 +16,9 @@ import { EVENT } from './names';
  * name of each event the registry marks `security: true`, which are the authentication
  * events and `crypt_decrypt_fail` (#904), which carries the user pseudonym too. `authz_fail` is a
  * security event as well, and is left out here: its one constructor is `authz.ts`, held by
- * `authzConstructor.spec.ts`. The calibration is the real constructor: `authn.ts` must be found by
+ * `authzConstructor.spec.ts`. `budgetpilot.redirect.refused` (L4b) is left out too: it carries no
+ * pseudonym, only two closed literal unions, so there is nothing for a second constructor to get
+ * wrong without a cast; its one constructor is `bypass.ts`. The calibration is the real constructor: `authn.ts` must be found by
  * the same detector.
  */
 
@@ -28,7 +30,9 @@ const ALLOWED = new Set([
 ]);
 
 const securityEvents = Object.entries(REGISTRY)
-	.filter(([name, spec]) => spec.security && name !== EVENT.authzFail)
+	.filter(
+		([name, spec]) => spec.security && name !== EVENT.authzFail && name !== EVENT.redirectRefused
+	)
 	.map(([name]) => name);
 const keys = Object.entries(EVENT)
 	.filter(([, name]) => securityEvents.includes(name))
