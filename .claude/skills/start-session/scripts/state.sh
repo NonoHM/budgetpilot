@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Prints the state a session starts from: the newest RESUME HERE block, every worktree against its
-# remote branch, and what is open on GitHub. Read-only, and it always exits 0, because the skill that
-# runs it injects its output: a failing command would abort the skill instead of showing the state.
+# remote branch, and what is open on GitHub. Read-only except `git worktree prune`, and it always
+# exits 0, because the skill that runs it injects its output: a failing command would abort the skill
+# instead of showing the state.
 #
 # The skill injects this with `!` and its frontmatter pre-approves exactly `bash
 # .claude/skills/start-session/scripts/state.sh` in `allowed-tools`. Measured 2026-09-30: without that
@@ -20,15 +21,21 @@ echo "## Newest RESUME HERE block"
 # The plan lives in the main checkout's gitignored docs/superpowers/, which a linked worktree does not
 # have, so look there through the common git directory.
 main_root=$(cd "$(git rev-parse --git-common-dir)/.." && pwd)
-plan=$(grep -l -- 'RESUME HERE' "$main_root"/docs/superpowers/*.md 2>/dev/null | xargs -r ls -t 2>/dev/null | head -1)
+# A HEADING, not a mention: a note quoting the phrase, if touched last, used to win and print nothing.
+plans=$(grep -lE -- '^#+ .*RESUME HERE' "$main_root"/docs/superpowers/*.md 2>/dev/null | xargs -r ls -t 2>/dev/null)
+plan=$(printf '%s\n' "$plans" | head -1)
+read_count=$(ls "$main_root"/docs/superpowers/*.md 2>/dev/null | wc -l)
 if [ -z "$plan" ]; then
-	echo "none found under docs/superpowers/ (read $(ls "$main_root"/docs/superpowers/*.md 2>/dev/null | wc -l) files); the tracker is the state"
+	echo "none found under docs/superpowers/ (read $read_count files); the tracker is the state"
 else
-	echo "file: ${plan#"$main_root"/}  (modified $(date -r "$plan" '+%Y-%m-%d %H:%M'))"
+	echo "file: ${plan#"$main_root"/}  (modified $(date -r "$plan" '+%Y-%m-%d %H:%M'); newest of $(printf '%s\n' "$plans" | wc -l) files with the heading, $read_count read)"
 	# The block runs from its heading to the next heading of the same or higher level.
-	awk '/^#+ .*RESUME HERE/ && !found { found=1; lvl=index($0, " "); print; next }
+	block=$(awk '/^#+ .*RESUME HERE/ && !found { found=1; lvl=index($0, " "); print; next }
 	     found && /^#+ / && index($0, " ") <= lvl { exit }
-	     found { print }' "$plan"
+	     found { print }' "$plan")
+	printf '%s\n' "$block"
+	tmp_paths=$(printf '%s\n' "$block" | grep -c '/tmp/')
+	[ "$tmp_paths" -gt 0 ] && echo "WARNING: $tmp_paths line(s) of this block name a /tmp path, which a reboot or crash deletes"
 fi
 
 echo
@@ -37,6 +44,10 @@ remote=$(timeout 10 git ls-remote --heads origin 2>/dev/null)
 [ -z "$remote" ] && echo "(origin unreachable: every remote column below is unknown, not equal)"
 # A branch whose pull request merged is finished even when its remote moved afterwards (the merge
 # script updates a branch that is behind), so it is counted, not listed, unless it is dirty.
+# A worktree created in a scratchpad outlives it as a registration and printed `fatal: cannot change`
+# here in 13 sessions; prune drops only registrations whose directory is gone.
+pruned=$(git worktree prune --verbose 2>&1 | grep -c .)
+[ "$pruned" -gt 0 ] && echo "pruned $pruned registration(s) of worktrees whose directory is gone"
 merged=$(timeout 20 gh pr list --state merged -L 2000 --json headRefName --jq '.[].headRefName' 2>/dev/null)
 total=0
 quiet=0

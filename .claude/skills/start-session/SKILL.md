@@ -29,8 +29,13 @@ Owner's note: $ARGUMENTS
    implementation sessions: `sonnet` tier 1-2, `opus` tier 3 and contradiction passes.
 5. **Tier in the first message, before work**, with its clause from AGENTS.md « How much rigour a
    change earns ». Found wrong later: report it, never raise it silently.
-6. **Skill for the job**: `ship` (a PR), `plan-chantier` (a plan), `walk` (a browser check). Decide
-   the reversible yourself (same AGENTS.md section, last paragraph); stop only where it says.
+6. **Skill for the job**: every piece of code goes through `ship`, whose checklist is the working
+   order; `plan-chantier` (a plan), `walk` (a browser check). Load the skills the block's **Skills**
+   line names. Decide the reversible yourself (same AGENTS.md section, last paragraph); stop only
+   where it says.
+7. **Anything worth keeping goes to `docs/superpowers/<date>-<slug>/` from the start** (scripts,
+   pass reports, research, keys); the scratchpad is throwaway and a crash deletes it. Never create a
+   git worktree in a scratchpad.
 
 ## While working
 
@@ -47,6 +52,8 @@ When the piece merges, the owner stops, or usage runs low:
 1. All branches pushed, trees clean, no break in any file; name any break in flight.
 2. New block at the top of the plan's status section: `#### RESUME HERE (<date>, <why stopped>)` with
    **Verify first**, **Merged** (PR, SHA), **In flight** (branch, pushed SHA, left, next step),
-   **Next**, **Filed**. No plan file: create one under `docs/superpowers/` (gitignored). What must
+   **Next**, **Skills** (the ones the next piece needs), **Filed**. No `/tmp` path in it. No plan file: create one under `docs/superpowers/` (gitignored). What must
    survive a clone goes in an issue.
-3. Suggest a `/rename`; say `/clear` is safe. Prefer `/clear` plus this block over `/compact`.
+3. The closing block from `ship` step 11 (schema, roadmap, estimate with method). Suggest a
+   `/rename <slug>`; say whether `/clear` is safe and why. Prefer `/clear` plus this block over
+   `/compact`.
