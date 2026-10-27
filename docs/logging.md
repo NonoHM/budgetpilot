@@ -327,7 +327,7 @@ below asks nothing.
 | `budgetpilot.ai.inference_resumed`            | Nothing to do if an admin meant to resume AI. An unexpected line means someone holding an admin's session and password turned AI back on: halt it again, and ask that admin to change their password.                                                                                                                                                                                                                                      |
 | `budgetpilot.request.failed`                  | A visitor met an error page. Find this line with the reference they were shown (the tutorial shows how), read the error class and code, and fix the cause. During a flood, look for a `budgetpilot.log.suppressed` line in the same minute.                                                                                                                                                                                                |
 | `authn_login_fail`                            | Nothing to do for one line. Many from one `budgetpilot.client.pseudonym` or one subnet label in a few minutes is password guessing: block that client on the web server ([Ban an address after failed sign-ins](./ban-failed-sign-ins.md)). Many `wrong_password` for one user pseudonym from many clients is an attack on that account: tell its owner.                                                                                   |
-| `excess_rate_limit_exceeded`                  | The rate limiter already refused the attempt. Read `budgetpilot.ratelimit.counter`: `address` points at the client, `subject` at an account or session someone else is attacking. For `IMPORT`, `BANK_SYNC_START` or `BANK_SYNC`, many lines for one `budgetpilot.user.pseudonym` mean that member's session is being used in a loop: ask them.                                                                                            |
+| `excess_rate_limit_exceeded`                  | The attempt was already refused. For a sign-in kind, read `budgetpilot.ratelimit.counter`: `address` points at the client, `subject` at an account or session someone else is attacking. For `IMPORT`, `BANK_SYNC_START` or `BANK_SYNC`, one line is usually a second tab or a double click; many lines for one `budgetpilot.user.pseudonym` mean that member's session is being used in a loop: ask them.                                 |
 | `user_created`                                | Nothing to do if you expected a new account. An unexpected one in `REGISTRATION_MODE=open`, or a `bootstrap` you did not make, is worth checking in the admin page.                                                                                                                                                                                                                                                                        |
 | `budgetpilot.authn.register_fail`             | Nothing to do for one line. Many `bootstrap_token_invalid` lines mean someone is guessing `BOOTSTRAP_TOKEN`: make sure it is long, or empty it once the first account exists.                                                                                                                                                                                                                                                              |
 | `crypt_decrypt_fail`                          | `TOTP_ENCRYPTION_KEY` is not the key this account's two-factor secret was stored with, so no code from its app can pass. If you changed the key, put the old one back and restart. Otherwise the person turns two-factor off in Settings with a recovery code and sets it up again; one with no recovery code left needs the database procedure in `docs/reference/two-factor.md`.                                                         |
@@ -675,8 +675,8 @@ bank sync asked again within six hours of the last one, which is that connection
 rather than the rate limiter.
 `budgetpilot.ratelimit.counter` is `address` when the client's own counter was full, `subject` when
 the counter of what it aimed at was (the email for `LOGIN`, the sign-in challenge for `MFA`, the
-session for `REAUTH`), or `both`. A `subject` refusal is not this client's doing: someone else's
-failures against the same email refuse the owner too. The user pseudonym is present for `MFA`,
+session for `REAUTH`), or `both`. For a sign-in kind, a `subject` refusal is not this client's doing:
+someone else's failures against the same email refuse the owner too. The user pseudonym is present for `MFA`,
 `REAUTH` and the three member kinds. `IMPORT`, `BANK_SYNC_START` and `BANK_SYNC` carry no client
 pseudonym and no subnet: the client address is on sign-in events only. For the first two `subject`
 is the member's own counter and `address` the counter of their network; `BANK_SYNC` is always
@@ -873,8 +873,8 @@ allowlist refuses, `unresolvable_location` when its address could not be read, a
 `too_many_redirects` when the chain went past five hops. `budgetpilot.redirect.upstream` is
 `bank_provider` or `model_host`; no page reaches the model host in this release, so only
 `bank_provider` lines can appear. The line carries neither the host nor the address the redirect
-named, since the remote chose both, and no client or user: the party a refused redirect implicates
-is the service that sent it.
+named, because the remote service chose both. It names no client or user either: a refused redirect
+concerns the service that sent it, not the member.
 
 A cross-site form refusal writes nothing. SvelteKit answers a POST from another origin with 403
 before the application sees the request, so there is no line to write; the refusal itself still
