@@ -722,7 +722,7 @@ first two `+` signs of the file; write it down to recognise the key later.
    checkpoints verified: 3
    lines no checkpoint covers: 6
    newest checkpoint signed at: 2026-10-28T09:05:15.000Z
-   host 4ff86fa85fae: 6 line(s) after its newest checkpoint, signed at 2026-10-28T09:05:15.000Z
+   host 6e49dbbb59d4: 6 line(s) after its newest checkpoint, signed at 2026-10-28T09:05:15.000Z
    ```
 
    The 6 lines after the newest checkpoint are the ones the running server wrote since then. They
@@ -756,7 +756,7 @@ starts: 2
 checkpoints verified: 2
 lines no checkpoint covers: 6
 newest checkpoint signed at: 2026-10-28T09:05:15.000Z
-host 4ff86fa85fae: 6 line(s) after its newest checkpoint, signed at 2026-10-28T09:05:15.000Z
+host 6e49dbbb59d4: 6 line(s) after its newest checkpoint, signed at 2026-10-28T09:05:15.000Z
 BREAK chain at line 6
 BREAK root at line 8
 ```
@@ -766,8 +766,9 @@ removed line: it no longer matches the lines in the copy, even if someone recomp
 
 ### What sealing cannot show
 
-- **The newest lines.** Lines written since the last checkpoint are not sealed yet, so the interval
-  is the window in which the newest lines can be changed unseen.
+- **The newest lines, and the first lines of a cut copy.** Lines after a start's last checkpoint,
+  and the lines before the first checkpoint of a copy cut by rotation, are not evidence, and
+  deleting them shows nowhere. The interval is the window in which the newest lines stay unsealed.
 - **Anything after a takeover.** Someone who controls the host holds the key and can sign what they
   write, so only a copy kept elsewhere before then is evidence.
 - **The time.** The signed time is the host's clock, so a clock set wrong signs a wrong time.

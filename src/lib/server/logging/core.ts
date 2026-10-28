@@ -19,6 +19,7 @@ import {
 	openSealKey,
 	readLinkedCheckpoint,
 	SEAL_KEY_NAME,
+	VOLUME_LINK_FILE,
 	writeLinkedCheckpoint,
 	type SealKey,
 	type SealUnavailable
@@ -113,6 +114,7 @@ export interface SealState {
 	/** A line was written since the last checkpoint, the checkpoint line itself excepted. */
 	pending: boolean;
 	linkFile: string;
+	volumeFile: string;
 }
 
 export interface ChainState {
@@ -343,11 +345,13 @@ export function createLogWriter(options: WriterOptions): LogWriter {
 		seal.segment += 1;
 		emitSeal({ event: E.logCheckpoint, attributes: { [A.logCheckpointNote]: note } });
 		seal.pending = false;
-		writeLinkedCheckpoint(seal.linkFile, {
+		const written = {
 			origin: fields.origin,
 			size: fields.size,
 			root: fields.root.toString('base64')
-		});
+		};
+		writeLinkedCheckpoint(seal.linkFile, written);
+		writeLinkedCheckpoint(seal.volumeFile, written);
 	};
 
 	const startSeal = ({
@@ -371,10 +375,19 @@ export function createLogWriter(options: WriterOptions): LogWriter {
 			});
 			return;
 		}
-		const tag = hostTag(host);
+		const tag = hostTag(host, key.privateKey);
 		const linkFile = join(dir, `last-checkpoint.${tag}`);
+		const volumeFile = join(dir, VOLUME_LINK_FILE);
 		const previous = readLinkedCheckpoint(linkFile);
-		chain.seal = { key, tree: createMerkleTree(), segment: 0, pending: false, linkFile };
+		const volumePrevious = readLinkedCheckpoint(volumeFile);
+		chain.seal = {
+			key,
+			tree: createMerkleTree(),
+			segment: 0,
+			pending: false,
+			linkFile,
+			volumeFile
+		};
 		emitSeal({
 			event: E.logSealStarted,
 			attributes: {
@@ -383,6 +396,13 @@ export function createLogWriter(options: WriterOptions): LogWriter {
 				[A.logSealPreviousOrigin]: previous?.origin ?? 'none',
 				...(previous
 					? { [A.logSealPreviousSize]: previous.size, [A.logSealPreviousRoot]: previous.root }
+					: {}),
+				[A.logSealVolumePreviousOrigin]: volumePrevious?.origin ?? 'none',
+				...(volumePrevious
+					? {
+							[A.logSealVolumePreviousSize]: volumePrevious.size,
+							[A.logSealVolumePreviousRoot]: volumePrevious.root
+						}
 					: {})
 			}
 		});

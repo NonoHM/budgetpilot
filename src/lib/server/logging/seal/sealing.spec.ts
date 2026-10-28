@@ -261,3 +261,76 @@ describe('the newest lines of a running start', () => {
 		}).toEqual({ status: 'verified', unverified: [], tails: [2], unsealed: 2 });
 	});
 });
+
+describe('the volume link (design note A14)', () => {
+	function stoppedStart(dir: string, host: string) {
+		const w = writer('on');
+		const proc = new EventEmitter();
+		w.write.startSeal({ dir, intervalSeconds: 900, host, proc });
+		w.write(lockWait);
+		proc.emit('exit');
+		return w.out;
+	}
+
+	// A whole start from another seal directory, every line signed by a key the verifier accepts:
+	// nothing is unverified, so only the volume link of `none` after a sealed start can tell.
+	// Separates « a host's first start must link an earlier start » from « any first start may say
+	// none ».
+	it('a host first seen after a sealed start, linking none through the volume: missing-start', () => {
+		const home = sealDir();
+		const elsewhere = sealDir();
+		const a = stoppedStart(home, 'host-a');
+		const inserted = stoppedStart(elsewhere, 'host-z');
+		const b = stoppedStart(home, 'host-a');
+		const vkeys = [home, elsewhere].map((dir) =>
+			readFileSync(join(dir, 'verification.vkey'), 'utf8').trim()
+		);
+		const report = verifyLog([...a, ...inserted, ...b].join(''), vkeys);
+		expect(report.breaks.map((found) => found.kind)).toEqual(['missing-start']);
+	});
+});
+
+describe('what the verifier will not read as rotation or as another program', () => {
+	function stoppedStart(dir: string, lines: number, tickAfter?: number) {
+		const w = writer('on');
+		const proc = new EventEmitter();
+		w.write.startSeal({ dir, intervalSeconds: 900, host: 'h', proc });
+		for (let i = 1; i <= lines; i++) {
+			w.write(lockWait);
+			if (i === tickAfter) w.scheduled.splice(0).forEach((s) => s.run());
+		}
+		proc.emit('exit');
+		return w.out;
+	}
+	const vkeyOfDir = (dir: string) => readFileSync(join(dir, 'verification.vkey'), 'utf8').trim();
+
+	// A16 on its own: the head of a later start cut WITHOUT recomputing the chain, so every
+	// remaining segment still verifies and only « a start beginning at seq 1 precedes it » can tell
+	// the cut from rotation. The seal.spec case rechains, which also breaks a root.
+	it('a later start cut at its head, chain left as written: missing-head', () => {
+		const dir = sealDir();
+		const a = stoppedStart(dir, 2);
+		const b = stoppedStart(dir, 6, 3);
+		const cut = b.slice(b.findIndex((line) => eventOf(line) === E.logCheckpoint) + 1);
+		const kinds = verifyLog([...a, ...cut].join(''), vkeyOfDir(dir)).breaks.map((f) => f.kind);
+		expect(kinds).toContain('missing-head');
+	});
+
+	// A18, one claim each: a line carrying only `event_name`, and one carrying only
+	// `service.name: budgetpilot`. Each separates « claims the envelope » from « another program ».
+	for (const claim of [
+		{ [FIELD.eventName]: E.backfillLockWait },
+		{ [A.serviceName]: 'budgetpilot' }
+	]) {
+		it(`a line claiming the writer with ${Object.keys(claim)[0]} alone: malformed`, () => {
+			const dir = sealDir();
+			const lines = stoppedStart(dir, 2);
+			lines.splice(2, 0, `${JSON.stringify(claim)}\n`);
+			const report = verifyLog(lines.join(''), vkeyOfDir(dir));
+			expect([report.breaks.map((f) => f.kind), report.linesNotFromWriter]).toEqual([
+				['malformed'],
+				0
+			]);
+		});
+	}
+});

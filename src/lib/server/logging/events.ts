@@ -470,6 +470,9 @@ export type LogEvent =
 				[A.logSealPreviousOrigin]: string;
 				[A.logSealPreviousSize]?: number;
 				[A.logSealPreviousRoot]?: string;
+				[A.logSealVolumePreviousOrigin]: string;
+				[A.logSealVolumePreviousSize]?: number;
+				[A.logSealVolumePreviousRoot]?: string;
 			};
 	  }
 	| {
@@ -1183,7 +1186,10 @@ export const REGISTRY: { [N in EventName]: EventSpec<AttributesOf<N>> } = {
 			[A.logSealHost]: 'Operational',
 			[A.logSealPreviousOrigin]: 'Operational',
 			[A.logSealPreviousSize]: 'Operational',
-			[A.logSealPreviousRoot]: 'Operational'
+			[A.logSealPreviousRoot]: 'Operational',
+			[A.logSealVolumePreviousOrigin]: 'Operational',
+			[A.logSealVolumePreviousSize]: 'Operational',
+			[A.logSealVolumePreviousRoot]: 'Operational'
 		}
 	},
 	[E.logSealUnavailable]: {

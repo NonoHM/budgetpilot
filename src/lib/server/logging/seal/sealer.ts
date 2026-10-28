@@ -1,5 +1,5 @@
 import {
-	createHash,
+	createHmac,
 	createPrivateKey,
 	createPublicKey,
 	generateKeyPairSync,
@@ -22,6 +22,11 @@ import { vkeyOf } from './note.ts';
  * - `last-checkpoint.<host tag>`, the newest checkpoint this host wrote, written AFTER the checkpoint
  *   line, so a crash between the two names an earlier checkpoint the log still holds. One per host
  *   (design note A10), so two containers on one volume each link their own previous start.
+ * - `last-checkpoint.volume`, the newest checkpoint ANY host on this volume wrote, written the same
+ *   way after the host's file (design note A14). A recreated container is a new host, so without it
+ *   a start between two recreations could be removed from a copy unseen. One file overwritten by
+ *   every host is « the newest `last-checkpoint.*` by modification time » without reading clocks
+ *   whose granularity is coarser than two starts in a row.
  *
  * Imported by `boot.mjs` as TypeScript source: erasable syntax only, relative imports only.
  */
@@ -58,9 +63,18 @@ const unavailable = (reason: SealUnavailableReason, error?: unknown): SealUnavai
 	return code === undefined ? { reason } : { reason, code };
 };
 
-/** The first 12 hex of SHA-256 of the host name: tells hosts apart without writing the name. */
-export function hostTag(host: string): string {
-	return createHash('sha256').update(host, 'utf8').digest('hex').slice(0, 12);
+/** Where every host on the volume records its newest checkpoint (A14). */
+export const VOLUME_LINK_FILE = 'last-checkpoint.volume';
+
+/**
+ * Tells hosts apart without writing the host name (design note A15): HMAC-SHA-256 keyed by the seal
+ * key's PKCS#8 DER, first 12 hex. A plain hash of the name could be reversed by trying names.
+ */
+export function hostTag(host: string, privateKey: KeyObject): string {
+	return createHmac('sha256', privateKey.export({ type: 'pkcs8', format: 'der' }))
+		.update(host, 'utf8')
+		.digest('hex')
+		.slice(0, 12);
 }
 
 function generateKey(dir: string, keyPath: string): string {

@@ -167,6 +167,9 @@ export const ATTRIBUTE = {
 	logSealPreviousOrigin: 'budgetpilot.log.seal.previous_origin',
 	logSealPreviousSize: 'budgetpilot.log.seal.previous_size',
 	logSealPreviousRoot: 'budgetpilot.log.seal.previous_root',
+	logSealVolumePreviousOrigin: 'budgetpilot.log.seal.volume_previous_origin',
+	logSealVolumePreviousSize: 'budgetpilot.log.seal.volume_previous_size',
+	logSealVolumePreviousRoot: 'budgetpilot.log.seal.volume_previous_root',
 	logSealReason: 'budgetpilot.log.seal.reason',
 	consoleMethod: 'budgetpilot.console.method',
 	consoleText: 'budgetpilot.console.text'
