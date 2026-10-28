@@ -124,6 +124,42 @@ describe('prisma.config.ts and the file form', () => {
 		SPAWN_TIMEOUT_MS
 	);
 
+	// Pass 2B, finding 2: a CLI run outside the image takes DATABASE_URL from `.env`, which the config
+	// loads itself. Separates a config that resolves after that load (the password file meets the
+	// URL, and the CLI gets as far as the connection) from one that resolves before it (« does not
+	// name a ... server », a refusal of a URL that is there).
+	it(
+		'resolves the password file against a DATABASE_URL the config read from .env',
+		() => {
+			writeFileSync(
+				join(directory, '.env'),
+				'DATABASE_PROVIDER=postgresql\nDATABASE_URL=postgresql://bp@127.0.0.1:1/bp\n'
+			);
+			const file = join(directory, 'db');
+			writeFileSync(file, 'pw\n', { mode: 0o600 });
+			const out = spawnSync(
+				process.execPath,
+				[
+					join(ROOT, 'node_modules/prisma/build/index.js'),
+					'migrate',
+					'status',
+					'--config',
+					join(ROOT, 'prisma.config.ts')
+				],
+				{
+					cwd: directory,
+					env: { PATH: process.env.PATH, CHECKPOINT_DISABLE: '1', DATABASE_PASSWORD_FILE: file },
+					encoding: 'utf8',
+					timeout: 60_000
+				}
+			);
+			const output = `${out.stdout}${out.stderr}`;
+			expect(output).not.toContain('A secret could not be read');
+			expect(output).toContain('127.0.0.1:1');
+		},
+		SPAWN_TIMEOUT_MS
+	);
+
 	// Calibration for the assertion above: the same run with one form prints no refusal.
 	it(
 		'prints no refusal with the file form alone',
