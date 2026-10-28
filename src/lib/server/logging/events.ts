@@ -41,7 +41,12 @@ export interface ErrorFields {
 
 /** Why sealing is off for this start although `BP_LOG_SEAL=on` (#875). */
 export type SealUnavailableReason =
-	'dir_unset' | 'key_unreadable' | 'key_invalid' | 'dir_unwritable';
+	| 'dir_unset'
+	| 'key_unreadable'
+	| 'key_exposed'
+	| 'key_invalid'
+	| 'keygen_failed'
+	| 'dir_unwritable';
 
 export type BackfillName =
 	'name_keys' | 'dedupe_key_hashes' | 'dedupe_key_recompute' | 'statement_accounts';

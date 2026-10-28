@@ -294,7 +294,7 @@ COPY package.json package-lock.json ./
 COPY boot.mjs ./boot.mjs
 COPY healthcheck.mjs ./healthcheck.mjs
 # boot.mjs writes its lines through the logger's own core, imported as TypeScript source before
-# the server bundle loads (#250). These six, the seal's three (#875) and operatorFacingError.ts,
+# the server bundle loads (#250). These six, the seal's four (#875) and operatorFacingError.ts,
 # copied above, are the whole import graph; pino comes from the production node_modules.
 COPY --from=builder /app/src/lib/server/logging/core.ts \
 	/app/src/lib/server/logging/events.ts \

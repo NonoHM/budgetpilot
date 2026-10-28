@@ -6,7 +6,15 @@ import {
 	randomUUID,
 	type KeyObject
 } from 'node:crypto';
-import { linkSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
+import {
+	linkSync,
+	mkdirSync,
+	readFileSync,
+	renameSync,
+	statSync,
+	unlinkSync,
+	writeFileSync
+} from 'node:fs';
 import { join } from 'node:path';
 import type { SealUnavailableReason } from '../events.ts';
 import { vkeyOf } from './note.ts';
@@ -77,11 +85,8 @@ export function hostTag(host: string, privateKey: KeyObject): string {
 		.slice(0, 12);
 }
 
-function generateKey(dir: string, keyPath: string): string {
+function placeKey(dir: string, keyPath: string, pem: string): string {
 	mkdirSync(dir, { recursive: true, mode: 0o700 });
-	const pem = generateKeyPairSync('ml-dsa-44')
-		.privateKey.export({ type: 'pkcs8', format: 'pem' })
-		.toString();
 	const temporary = join(dir, `key.pem.${randomUUID()}.tmp`);
 	writeFileSync(temporary, pem, { flag: 'wx', mode: 0o600 });
 	try {
@@ -95,6 +100,18 @@ function generateKey(dir: string, keyPath: string): string {
 	}
 }
 
+/**
+ * PostgreSQL's rule for its TLS key (`check_ssl_key_file_permissions`): owned by this user, 0600 or
+ * less; owned by root, 0640 or less. Not applicable where the platform has no uid.
+ */
+function exposed(keyPath: string): boolean {
+	const uid = process.getuid?.();
+	if (uid === undefined) return false;
+	const { uid: owner, mode } = statSync(keyPath);
+	if (owner === uid) return (mode & 0o077) !== 0;
+	return owner === 0 && (mode & 0o037) !== 0;
+}
+
 /** The key in `dir`, generated on first use, with its vkey written beside it; or why not. */
 export function openSealKey(dir: string): SealKey | SealUnavailable {
 	const keyPath = join(dir, 'key.pem');
@@ -103,11 +120,24 @@ export function openSealKey(dir: string): SealKey | SealUnavailable {
 		pem = readFileSync(keyPath, 'utf8');
 	} catch (error) {
 		if (codeOf(error) !== 'ENOENT') return unavailable('key_unreadable', error);
+		let generated: string;
 		try {
-			pem = generateKey(dir, keyPath);
-		} catch (generating) {
-			return unavailable('dir_unwritable', generating);
+			generated = generateKeyPairSync('ml-dsa-44')
+				.privateKey.export({ type: 'pkcs8', format: 'pem' })
+				.toString();
+		} catch {
+			return unavailable('keygen_failed');
 		}
+		try {
+			pem = placeKey(dir, keyPath, generated);
+		} catch (placing) {
+			return unavailable('dir_unwritable', placing);
+		}
+	}
+	try {
+		if (exposed(keyPath)) return unavailable('key_exposed');
+	} catch (error) {
+		return unavailable('key_unreadable', error);
 	}
 	let privateKey: KeyObject;
 	try {

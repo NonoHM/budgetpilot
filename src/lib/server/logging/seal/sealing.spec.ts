@@ -144,6 +144,25 @@ describe('sealing unavailable', () => {
 		expect(unavailable(w.out)).toEqual(['key_invalid']);
 	});
 
+	// PostgreSQL's rule for its TLS key (research.md): a key its owner's group or others can read
+	// is refused. Separates « the mode of an existing key is read » from « only a new key is 0600 ».
+	it('names key_exposed when key.pem can be read by its group, and still writes every line', () => {
+		const dir = sealDir();
+		const key = generateKeyPairSync('ml-dsa-44').privateKey.export({
+			type: 'pkcs8',
+			format: 'pem'
+		});
+		writeFileSync(join(dir, 'key.pem'), key, { mode: 0o640 });
+		const w = writer('on');
+		w.write.startSeal({ dir, intervalSeconds: 900, host: 'h', proc: new EventEmitter() });
+		w.write(lockWait);
+		expect([unavailable(w.out), w.out.map(eventOf).at(-1), w.chain.seal]).toEqual([
+			['key_exposed'],
+			E.backfillLockWait,
+			null
+		]);
+	});
+
 	it('tries once per chain: a second startSeal writes no second WARN', () => {
 		const chain = newChain();
 		const first = writer('on', chain);
