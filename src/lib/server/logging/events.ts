@@ -421,6 +421,7 @@ export type LogEvent =
 			attributes: { [A.bootDirectory]: string; [A.bootUid]: number; [A.errorCode]?: string };
 	  }
 	| { event: typeof E.bootMigrateFailed; attributes: { [A.bootExitCode]: number } }
+	| { event: typeof E.bootSecretsRefused; attributes: { [A.errorOperatorMessage]: string } }
 	| {
 			event: typeof E.logSuppressed;
 			attributes: {
@@ -1097,6 +1098,13 @@ export const REGISTRY: { [N in EventName]: EventSpec<AttributesOf<N>> } = {
 		flood: false,
 		security: false,
 		attributes: { [A.bootExitCode]: 'Operational' }
+	},
+	[E.bootSecretsRefused]: {
+		severity: 'FATAL',
+		body: 'A secret given as a file could not be used, so the app refuses to start. The message says which and why.',
+		flood: false,
+		security: false,
+		attributes: { [A.errorOperatorMessage]: 'Operational' }
 	},
 	[E.logSuppressed]: {
 		severity: 'WARN',

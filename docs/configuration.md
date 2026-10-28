@@ -50,6 +50,73 @@ effect and the warning keeps the mode it found, so keep the install in the Linux
 filesystem. Under Git Bash, Node runs as a Windows program and the check is
 skipped.
 
+## Secrets in files
+
+To keep a secret out of `.env` and out of `docker inspect`, put it in a file
+and give the app the file's path in a variable named after the secret with
+`_FILE` added:
+
+| Variable                      | Holds the path of a file containing                                   |
+| ----------------------------- | --------------------------------------------------------------------- |
+| `TOTP_ENCRYPTION_KEY_FILE`    | `TOTP_ENCRYPTION_KEY`                                                 |
+| `RATE_LIMIT_HASH_SECRET_FILE` | `RATE_LIMIT_HASH_SECRET`                                              |
+| `BOOTSTRAP_TOKEN_FILE`        | `BOOTSTRAP_TOKEN`                                                     |
+| `DATABASE_PASSWORD_FILE`      | the database password, which the app puts into `DATABASE_URL` for you |
+
+This is the convention of the official Docker database images, so a Docker
+Compose `secrets:` entry, a Kubernetes secret, a systemd credential or a vault
+agent that writes a file all work. For example, with Compose:
+
+```yaml
+services:
+  budgetpilot:
+    environment:
+      TOTP_ENCRYPTION_KEY_FILE: /run/secrets/totp_key
+    secrets:
+      - totp_key
+secrets:
+  totp_key:
+    file: ./secrets/totp_key
+```
+
+Compose mounts such a file with the owner and mode it has on the host, and the
+app runs as user 65532, so give the file to that user:
+
+```bash
+sudo chown 65532 secrets/totp_key && sudo chmod 600 secrets/totp_key
+```
+
+The app reads each file once when the container starts, before anything else,
+and removes line breaks at the end of it. A file that is empty after that
+counts as not set, like an empty variable. After you change a secret file,
+restart the app: the commands in `scripts/` read the file when you run them,
+while the running server keeps the value it read at its start.
+
+The app refuses to start, and says why, when:
+
+- you set both forms of one secret, such as `TOTP_ENCRYPTION_KEY` and
+  `TOTP_ENCRYPTION_KEY_FILE`: set one, so the value the app runs with is the
+  one you edit. An empty variable, as `.env.example` ships them, counts as not
+  set;
+- the file cannot be found or read. The message names the variable and the
+  error code, and not what the variable holds, in case the secret itself was
+  written where the path belongs. With `BP_STRICT_SECRET_FILES=on`, a file that
+  exists but fails a check is named by its path, as described below;
+- `DATABASE_PASSWORD_FILE` is set and `DATABASE_URL` does not name a PostgreSQL
+  or MySQL server with a user, or already holds a password, inside the address
+  or as `?password=`. Write the URL with the user and no password, for example
+  `postgresql://budgetpilot@db.example.test:5432/budgetpilot`;
+- the app is started other than from its image, for example with `node build`
+  or `npm run dev`: only the image's start reads these files, so set the
+  secret itself there.
+
+The PostgreSQL and MySQL overlays shipped with BudgetPilot still take the
+plain `DATABASE_PASSWORD`, because they also hand it to the database server
+they start. `DATABASE_PASSWORD_FILE` is for a database server you run yourself.
+
+With `BP_STRICT_SECRET_FILES=on`, each of these files is checked as described
+below before it is read.
+
 ## Refusing to start on an exposed secret file
 
 `.env` holds the three secrets above, and sometimes a database password. Every
@@ -60,8 +127,9 @@ accounts on the machine can read or write it. To refuse to start instead, set:
 BP_STRICT_SECRET_FILES=on   # default: off, which only warns
 ```
 
-With it on, the app checks `.env` in the directory it starts from and the
-file named by `ENABLE_BANKING_PRIVATE_KEY_PATH`, and refuses to start when:
+With it on, the app checks `.env` in the directory it starts from, the
+file named by `ENABLE_BANKING_PRIVATE_KEY_PATH` and each file named by a
+[`_FILE` variable](#secrets-in-files), and refuses to start when:
 
 - another account can change the file;
 - every account can read the file, whoever owns it;

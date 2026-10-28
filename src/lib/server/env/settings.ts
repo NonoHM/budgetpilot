@@ -162,6 +162,16 @@ export const SETTINGS = {
 			'Encrypts every two-factor secret at rest. Changing it locks every user with two-factor out.',
 		page: 'configuration.md#the-three-secrets'
 	},
+	TOTP_ENCRYPTION_KEY_FILE: {
+		kind: 'text',
+		tier: 'advanced',
+		group: 'Secrets',
+		readBy: 'app',
+		secret: true,
+		format: 'the path of a file holding the value; set this or TOTP_ENCRYPTION_KEY, never both',
+		summary: 'TOTP_ENCRYPTION_KEY read from a file, such as a Compose or systemd secret.',
+		page: 'configuration.md#secrets-in-files'
+	},
 	RATE_LIMIT_HASH_SECRET: {
 		kind: 'text',
 		tier: 'essential',
@@ -173,6 +183,16 @@ export const SETTINGS = {
 			'Keys the hashes that stand in for addresses and account names in rate limits and logs.',
 		page: 'configuration.md#the-three-secrets'
 	},
+	RATE_LIMIT_HASH_SECRET_FILE: {
+		kind: 'text',
+		tier: 'advanced',
+		group: 'Secrets',
+		readBy: 'app',
+		secret: true,
+		format: 'the path of a file holding the value; set this or RATE_LIMIT_HASH_SECRET, never both',
+		summary: 'RATE_LIMIT_HASH_SECRET read from a file, such as a Compose or systemd secret.',
+		page: 'configuration.md#secrets-in-files'
+	},
 	BOOTSTRAP_TOKEN: {
 		kind: 'text',
 		tier: 'essential',
@@ -183,6 +203,16 @@ export const SETTINGS = {
 		summary:
 			'Required to create the first administrator account. May be left blank once one exists.',
 		page: 'configuration.md#the-three-secrets'
+	},
+	BOOTSTRAP_TOKEN_FILE: {
+		kind: 'text',
+		tier: 'advanced',
+		group: 'Secrets',
+		readBy: 'app',
+		secret: true,
+		format: 'the path of a file holding the value; set this or BOOTSTRAP_TOKEN, never both',
+		summary: 'BOOTSTRAP_TOKEN read from a file, such as a Compose or systemd secret.',
+		page: 'configuration.md#secrets-in-files'
 	},
 	BP_STRICT_SECRET_FILES: {
 		kind: 'choice',
@@ -304,6 +334,17 @@ export const SETTINGS = {
 		summary:
 			'Password of the database server the PostgreSQL and MySQL Compose overlays start. SQLite ignores it.',
 		page: 'database-providers.md'
+	},
+	DATABASE_PASSWORD_FILE: {
+		kind: 'text',
+		tier: 'advanced',
+		group: 'Database',
+		readBy: 'app',
+		secret: true,
+		format: 'the path of a file holding the value; set this or DATABASE_PASSWORD, never both',
+		summary:
+			'The database password read from a file and put into DATABASE_URL, which then holds the user and no password.',
+		page: 'configuration.md#secrets-in-files'
 	},
 
 	// ── Reverse proxy ───────────────────────────────────────────────────────────────────────────

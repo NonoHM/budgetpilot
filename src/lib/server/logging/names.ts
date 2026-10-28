@@ -237,6 +237,7 @@ export const EVENT = {
 	bootDataDirNotWritable: 'budgetpilot.boot.data_dir_not_writable',
 	bootDataDirUnusable: 'budgetpilot.boot.data_dir_unusable',
 	bootMigrateFailed: 'budgetpilot.boot.migrate_failed',
+	bootSecretsRefused: 'budgetpilot.boot.secrets_refused',
 
 	logSuppressed: 'budgetpilot.log.suppressed',
 	logLineTooLong: 'budgetpilot.log.line_too_long',

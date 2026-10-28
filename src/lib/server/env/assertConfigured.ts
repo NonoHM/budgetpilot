@@ -26,6 +26,7 @@ import {
 	assertSessionLifetimeConfigured
 } from '$lib/server/env/readSetting';
 import { assertSecretFilesSafe } from '$lib/server/env/secretFiles';
+import { assertSecretSourcesConfigured } from '$lib/server/env/secretSources';
 import { assertLlmModelDigestConfigured } from '$lib/server/insights/modelHostConfig';
 
 type Check = [name: string, run: () => void | Promise<void>];
@@ -128,7 +129,8 @@ export const ENVIRONMENT_CHECKS: Check[] = [
 	['BP_LLM_QUEUE_DEPTH', assertLlmQueueDepthConfigured],
 	['BP_LLM_USER_HOURLY', assertLlmUserHourlyConfigured],
 	['BP_LLM_MODEL_DIGEST', assertLlmModelDigestConfigured],
-	['BP_STRICT_SECRET_FILES', assertSecretFilesSafe]
+	['BP_STRICT_SECRET_FILES', assertSecretFilesSafe],
+	['<NAME>_FILE', assertSecretSourcesConfigured]
 ];
 
 /**

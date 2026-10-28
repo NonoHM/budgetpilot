@@ -220,6 +220,12 @@ COPY --from=builder /app/prisma.config.ts ./prisma.config.ts
 # Same reason as the prod-deps stage: the CMD below runs `prisma migrate deploy`, which loads
 # prisma.config.ts, which imports this module to pick the provider's migration history.
 COPY --from=builder /app/src/lib/server/database/provider.ts ./src/lib/server/database/provider.ts
+# The `<NAME>_FILE` resolver (#826, #1099), imported by boot.mjs, prisma.config.ts and both operator
+# scripts, and the strict check's rules it judges each file by. Its third import,
+# operatorFacingError.ts, is copied below.
+COPY --from=builder /app/src/lib/server/env/secretSources.ts \
+	/app/src/lib/server/env/secretFileFacts.ts \
+	./src/lib/server/env/
 
 # The name-normalization preview, and everything it imports.
 #

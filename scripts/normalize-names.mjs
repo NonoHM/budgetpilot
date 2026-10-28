@@ -16,8 +16,18 @@ import { withBootBackfillLock } from '../src/lib/server/database/advisoryLock.ts
 import { createPrismaClient } from '../src/lib/server/database/client.ts';
 import { runNameKeyBackfill } from '../src/lib/server/naming/backfill.ts';
 import { renderNameKeyReport } from '../src/lib/server/naming/report.ts';
+import { applySecretSources } from '../src/lib/server/env/secretSources.ts';
 
 const dryRun = process.argv.includes('--dry-run');
+
+// DATABASE_PASSWORD_FILE (#826, #1099): `docker compose exec` hands this process the container's
+// configured environment, which the boot resolved only for itself.
+try {
+	applySecretSources(process.env);
+} catch (error) {
+	console.error('Name normalization failed:', error instanceof Error ? error.message : error);
+	process.exit(1);
+}
 
 // Same client the app builds, so this preview reaches the same database the app will.
 const prisma = createPrismaClient();
