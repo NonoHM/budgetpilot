@@ -14,9 +14,7 @@ import { describe, expect, it } from 'vitest';
  *
  * WHAT IT READS: every tracked `.ts` under `src/` that is not a spec, a db-smoke or generated, with
  * comments removed so a comment naming a call cannot stand in for it. ITS PREMISE: a writer calls
- * the Prisma model by its usual name (`transaction`, `user`, `account` or `importBatch`, then
- * `.delete` or `.deleteMany`); a model reached through a variable, or raw SQL, is not read. None
- * exists today.
+ * a Prisma delegate by its model's name, then `.delete` or `.deleteMany` (the model list is REV 3c's).
  *
  * REV 3 (owner ruling 3, « everything gets traced »): every deletion of table A, one row included,
  * so the mirror also reads the models of the one-row deletes, and a HELPER is pinned by its own
@@ -34,8 +32,10 @@ import { describe, expect, it } from 'vitest';
  * schema.prisma a delete can reach, the system ones and the two that cascade from Transaction
  * included, a nested `deleteMany:` inside an update, and a soft delete (`deletedAt: new Date(`),
  * because the member pressed Delete and has no undo. NOT READ, and none exists today: a soft
- * delete given a date through a variable (`deletedAt: now`), a delegate held in a variable, a
- * dynamic `import()` of a helper's module.
+ * delete given a date through a variable (`deletedAt: now`), a nested `delete:` relation write, a
+ * delegate held in a variable or reached by brackets (`prisma['transaction']`), raw SQL, a dynamic
+ * `import()` of a helper's module, and anything outside `src/`: `scripts/normalize-names.mjs` runs
+ * the boot backfill for an operator and prints its report instead of logging it.
  *
  * The writers that destroy no member data are named in NOT_A_DOOR with the reason, rather than
  * silently excluded.
