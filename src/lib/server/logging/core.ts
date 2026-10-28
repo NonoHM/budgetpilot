@@ -1,4 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { hostname } from 'node:os';
+import { join } from 'node:path';
 import pino from 'pino';
 import { REGISTRY, type LogEvent } from './events.ts';
 import { createFloodGate } from './flood.ts';
@@ -10,8 +12,25 @@ import {
 	SERVICE_NAME,
 	type EventName
 } from './names.ts';
-import { capAttributes, escapeLine, MAX_LINE_BYTES } from './serialize.ts';
-import type { LogLevelSetting, SecurityLogSetting } from './settings.ts';
+import { createMerkleTree, type MerkleTree } from './seal/merkle.ts';
+import { signCheckpoint } from './seal/note.ts';
+import {
+	hostTag,
+	openSealKey,
+	readLinkedCheckpoint,
+	SEAL_KEY_NAME,
+	writeLinkedCheckpoint,
+	type SealKey,
+	type SealUnavailable
+} from './seal/sealer.ts';
+import {
+	capAttributes,
+	escapeLine,
+	MAX_CHECKPOINT_NOTE_LENGTH,
+	MAX_LINE_BYTES,
+	MAX_OPERATOR_MESSAGE_LENGTH
+} from './serialize.ts';
+import type { LogLevelSetting, LogSealSetting, SecurityLogSetting } from './settings.ts';
 
 /**
  * The writer: one typed event in, one line of flat NDJSON out (#250).
@@ -20,8 +39,15 @@ import type { LogLevelSetting, SecurityLogSetting } from './settings.ts';
  * `severity_text` and `severity_number` on OpenTelemetry's 1 to 24 scale, never pino's 10 to 60,
  * `event_name`, `body`, and `trace_id` inside a request), then the event's attributes as flat
  * scalar keys, then four integrity fields: the schema version, a random id for this process, a
- * sequence number, and the SHA-256 of the previous line as written. Pino does the level filtering
- * and the encoding; it has no transport and writes synchronously to file descriptor 1.
+ * sequence number, and the SHA-256 of the previous line as written. The writer filters levels
+ * itself, so the seal's lines are written whatever `BP_LOG_LEVEL` says; pino does the encoding, has
+ * no transport and writes synchronously to file descriptor 1.
+ *
+ * THE SEAL (#875, `BP_LOG_SEAL=on`). Each line written after `startSeal` is also a leaf of an
+ * RFC 6962 tree, one tree per SEGMENT: from the `seal_started` line, or from a checkpoint line, up
+ * to the next checkpoint. A checkpoint is a C2SP signed note over the segment's size and root,
+ * written at the interval when lines were written since the last one, and on every `flush()` and
+ * process stop. With sealing off no tree exists and no line is hashed beyond the chain.
  *
  * WHAT THE CHAIN IS FOR, AND WHAT IT IS NOT. A gap in `budgetpilot.log.seq` or a `budgetpilot.log.prev`
  * that does not match the hash of the line before it shows that a line was removed or edited after
@@ -56,8 +82,14 @@ const OTEL_SEVERITY: Record<PinoMethod, [string, number]> = {
 	fatal: ['FATAL', 21]
 };
 
+/** pino's order, for the writer's own filter. */
+const LEVEL_RANK: Record<PinoMethod, number> = { debug: 0, info: 1, warn: 2, error: 3, fatal: 4 };
+
 const ZERO_HASH = '0'.repeat(64);
-const LONG_KEYS: ReadonlySet<string> = new Set([A.errorOperatorMessage]);
+const LONG_KEYS: ReadonlyMap<string, number> = new Map([
+	[A.errorOperatorMessage, MAX_OPERATOR_MESSAGE_LENGTH],
+	[A.logCheckpointNote, MAX_CHECKPOINT_NOTE_LENGTH]
+]);
 /** What `budgetpilot.log.line_too_long` keeps of a line it replaces: the envelope, no attribute. */
 const ENVELOPE_KEYS = [
 	FIELD.severityText,
@@ -73,10 +105,21 @@ const ENVELOPE_KEYS = [
 	A.logPrev
 ];
 
+/** The seal of a chain once started; `null` once a start was tried and the key was unusable. */
+export interface SealState {
+	key: SealKey;
+	tree: MerkleTree;
+	segment: number;
+	/** A line was written since the last checkpoint, the checkpoint line itself excepted. */
+	pending: boolean;
+	linkFile: string;
+}
+
 export interface ChainState {
 	bootId: string;
 	seq: number;
 	prev: string;
+	seal?: SealState | null;
 }
 
 const CHAIN = Symbol.for('budgetpilot.log.chain');
@@ -108,10 +151,28 @@ export interface WriterOptions {
 	context?: () => RequestFields | undefined;
 	now?: () => number;
 	schedule?: (run: () => void, ms: number) => void;
+	/** `on` lets `startSeal` start the seal of this writer's chain (#875). */
+	seal?: LogSealSetting;
 }
 
-/** `flush()` writes the summary of every open flood window now, for a process about to stop. */
-export type LogWriter = ((event: LogEvent) => void) & { flush: () => void };
+export interface StartSealOptions {
+	/** `BP_LOG_SEAL_DIR`. Unset: one WARN, every line written unsealed. */
+	dir: string | undefined;
+	intervalSeconds: number;
+	host?: string;
+	proc?: Pick<NodeJS.EventEmitter, 'on'>;
+}
+
+/**
+ * `flush()` writes the summary of every open flood window now, for a process about to stop, then
+ * seals what was written since the last checkpoint. `startSeal` starts the seal of the chain once
+ * per chain; `checkpoint()` seals now.
+ */
+export type LogWriter = ((event: LogEvent) => void) & {
+	flush: () => void;
+	startSeal: (options: StartSealOptions) => void;
+	checkpoint: () => void;
+};
 
 export function sha256Hex(text: string): string {
 	return createHash('sha256').update(text, 'utf8').digest('hex');
@@ -160,6 +221,11 @@ const floodKey = (label: FloodLabel): string =>
 export function createLogWriter(options: WriterOptions): LogWriter {
 	const chain = options.chain ?? processChain();
 	const now = options.now ?? Date.now;
+	const schedule =
+		options.schedule ??
+		((run: () => void, ms: number) => {
+			setTimeout(run, ms).unref();
+		});
 
 	const finish = (line: string): string => {
 		const body = line.endsWith('\n') ? line.slice(0, -1) : line;
@@ -182,7 +248,8 @@ export function createLogWriter(options: WriterOptions): LogWriter {
 
 	const logger = pino(
 		{
-			level: options.level,
+			// The writer filters levels itself (`write` below), so pino lets every method through.
+			level: 'debug',
 			base: null,
 			messageKey: FIELD.body,
 			timestamp: () => `,"${FIELD.timestamp}":"${new Date(now()).toISOString()}"`,
@@ -197,6 +264,10 @@ export function createLogWriter(options: WriterOptions): LogWriter {
 			write(line: string) {
 				const finished = finish(line);
 				chain.prev = sha256Hex(finished);
+				if (chain.seal) {
+					chain.seal.tree.append(Buffer.from(finished, 'utf8'));
+					chain.seal.pending = true;
+				}
 				options.sink(`${finished}\n`);
 			}
 		}
@@ -248,21 +319,87 @@ export function createLogWriter(options: WriterOptions): LogWriter {
 				undefined
 			);
 		},
-		{
-			now,
-			schedule:
-				options.schedule ??
-				((run, ms) => {
-					setTimeout(run, ms).unref();
-				})
-		}
+		{ now, schedule }
 	);
+
+	/** Seal lines bypass the level and security filters: `write` applies those, not `emit`. */
+	const emitSeal = (event: LogEvent) => {
+		const spec = REGISTRY[event.event];
+		emit(event.event, METHOD_OF[spec.severity], spec.body, event.attributes, undefined);
+	};
+
+	const checkpoint = () => {
+		const seal = chain.seal;
+		if (!seal?.pending) return;
+		const fields = {
+			origin: `${SEAL_KEY_NAME}/${chain.bootId}/${seal.segment}`,
+			size: seal.tree.size,
+			root: seal.tree.root(),
+			timestamp: Math.floor(now() / 1000)
+		};
+		const note = signCheckpoint(fields, { name: SEAL_KEY_NAME, privateKey: seal.key.privateKey });
+		// The checkpoint line is leaf 0 of the next segment.
+		seal.tree = createMerkleTree();
+		seal.segment += 1;
+		emitSeal({ event: E.logCheckpoint, attributes: { [A.logCheckpointNote]: note } });
+		seal.pending = false;
+		writeLinkedCheckpoint(seal.linkFile, {
+			origin: fields.origin,
+			size: fields.size,
+			root: fields.root.toString('base64')
+		});
+	};
+
+	const startSeal = ({
+		dir,
+		intervalSeconds,
+		host = hostname(),
+		proc = process
+	}: StartSealOptions) => {
+		if (options.seal !== 'on' || chain.seal !== undefined) return;
+		const key: SealKey | SealUnavailable =
+			dir === undefined ? { reason: 'dir_unset' } : openSealKey(dir);
+		if (dir === undefined || 'reason' in key) {
+			const { reason, code } = key as SealUnavailable;
+			chain.seal = null;
+			emitSeal({
+				event: E.logSealUnavailable,
+				attributes: {
+					[A.logSealReason]: reason,
+					...(code === undefined ? {} : { [A.errorCode]: code })
+				}
+			});
+			return;
+		}
+		const tag = hostTag(host);
+		const linkFile = join(dir, `last-checkpoint.${tag}`);
+		const previous = readLinkedCheckpoint(linkFile);
+		chain.seal = { key, tree: createMerkleTree(), segment: 0, pending: false, linkFile };
+		emitSeal({
+			event: E.logSealStarted,
+			attributes: {
+				[A.logSealKeyId]: key.keyId,
+				[A.logSealHost]: tag,
+				[A.logSealPreviousOrigin]: previous?.origin ?? 'none',
+				...(previous
+					? { [A.logSealPreviousSize]: previous.size, [A.logSealPreviousRoot]: previous.root }
+					: {})
+			}
+		});
+		const tick = () => {
+			checkpoint();
+			schedule(tick, intervalSeconds * 1000);
+		};
+		schedule(tick, intervalSeconds * 1000);
+		proc.on('sveltekit:shutdown', checkpoint);
+		proc.on('exit', checkpoint);
+	};
 
 	const write = (event: LogEvent) => {
 		const spec = REGISTRY[event.event];
 		if (spec.security && options.securityLog === 'off') return;
 		const method = METHOD_OF[spec.severity];
-		if (!logger.isLevelEnabled(method)) return;
+		if (LEVEL_RANK[method] < LEVEL_RANK[options.level]) return;
 		const request = options.context?.();
 		if (spec.flood) {
 			const label = floodLabel(event, request);
@@ -270,7 +407,11 @@ export function createLogWriter(options: WriterOptions): LogWriter {
 		}
 		emit(event.event, method, spec.body, event.attributes, request);
 	};
-	return Object.assign(write, { flush: admit.flush });
+	const flush = () => {
+		admit.flush();
+		checkpoint();
+	};
+	return Object.assign(write, { flush, startSeal, checkpoint });
 }
 
 /** A synchronous sink on file descriptor 1, so a line is out before a `process.exit` that follows. */

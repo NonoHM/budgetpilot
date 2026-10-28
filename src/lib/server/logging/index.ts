@@ -9,7 +9,9 @@ import { ATTRIBUTE as A, EVENT as E } from './names.ts';
 import {
 	DEFAULT_LOG_LEVEL,
 	readLogSettings,
+	readSealSettings,
 	resolveLogLevel,
+	resolveLogSeal,
 	resolveSecurityLog
 } from './settings.ts';
 
@@ -49,11 +51,17 @@ let writer: LogWriter | undefined;
 
 function current(): LogWriter {
 	if (!writer) {
+		const { seal, dir, intervalSeconds } = readSealSettings(process.env);
 		writer = createLogWriter({
 			...readLogSettings(process.env),
+			seal,
 			sink: stdoutSink(),
 			context: () => requests.getStore()
 		});
+		// Before the first line, so a start boot.mjs did not seal (`vite dev`, a bare `node build`)
+		// is sealed from its first line; under boot.mjs the chain is sealed already and this does
+		// nothing (#875).
+		writer.startSeal({ dir, intervalSeconds });
 		flushOnStop(writer);
 	}
 	return writer;
@@ -68,6 +76,8 @@ function current(): LogWriter {
  * closed; 'exit' follows `sys_crash`'s `process.exit(1)`. No signal listener, which would remove
  * Node's default exit on SIGINT under `vite dev`. `boot.mjs`'s writer needs none: no event it
  * writes is summarised. A kill that runs no handler (SIGKILL, out of memory) still loses them.
+ * `flush` also seals what was written since the last checkpoint (#875, design note A8), so the
+ * summaries it writes at stop are covered.
  */
 export function flushOnStop(
 	target: Pick<LogWriter, 'flush'>,
@@ -161,14 +171,16 @@ export function installConsoleBridge(
 }
 
 /**
- * Boot check for the two settings, registered in `env/assertConfigured.ts`: refuses a value outside
- * the domain, and writes the departure from each default.
+ * Boot check for the three closed settings, registered in `env/assertConfigured.ts`: refuses a value
+ * outside the domain, and writes the departure from each default. `BP_LOG_SEAL=on` needs no line of
+ * its own: `sys_startup` carries it, and the seal writes `seal_started` or `seal_unavailable`.
  */
 export function assertLoggingConfigured(
 	env: Record<string, string | undefined> = process.env
 ): void {
 	const level = resolveLogLevel(env);
 	const securityLog = resolveSecurityLog(env);
+	resolveLogSeal(env);
 	if (level !== DEFAULT_LOG_LEVEL) {
 		log({ event: E.configLogLevelChanged, attributes: { [A.configLogLevel]: level } });
 	}

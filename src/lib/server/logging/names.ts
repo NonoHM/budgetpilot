@@ -67,6 +67,7 @@ export const ATTRIBUTE = {
 	configOrigin: 'budgetpilot.config.origin',
 	configSecurityLog: 'budgetpilot.config.security_log',
 	configLogLevel: 'budgetpilot.config.log_level',
+	configLogSeal: 'budgetpilot.config.log_seal',
 	configName: 'budgetpilot.config.name',
 	configValue: 'budgetpilot.config.value',
 	configDefault: 'budgetpilot.config.default',
@@ -159,6 +160,14 @@ export const ATTRIBUTE = {
 	suppressedErrorType: 'budgetpilot.log.suppressed_error_type',
 	suppressedStatus: 'budgetpilot.log.suppressed_status',
 	droppedBytes: 'budgetpilot.log.dropped_bytes',
+	// The log seal (#875): the checkpoint note, and what a start says about its key and its link.
+	logCheckpointNote: 'budgetpilot.log.checkpoint.note',
+	logSealKeyId: 'budgetpilot.log.seal.key_id',
+	logSealHost: 'budgetpilot.log.seal.host',
+	logSealPreviousOrigin: 'budgetpilot.log.seal.previous_origin',
+	logSealPreviousSize: 'budgetpilot.log.seal.previous_size',
+	logSealPreviousRoot: 'budgetpilot.log.seal.previous_root',
+	logSealReason: 'budgetpilot.log.seal.reason',
 	consoleMethod: 'budgetpilot.console.method',
 	consoleText: 'budgetpilot.console.text'
 } as const;
@@ -241,6 +250,9 @@ export const EVENT = {
 
 	logSuppressed: 'budgetpilot.log.suppressed',
 	logLineTooLong: 'budgetpilot.log.line_too_long',
+	logCheckpoint: 'budgetpilot.log.checkpoint',
+	logSealStarted: 'budgetpilot.log.seal_started',
+	logSealUnavailable: 'budgetpilot.log.seal_unavailable',
 	consoleOutput: 'budgetpilot.console.output'
 } as const;
 

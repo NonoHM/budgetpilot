@@ -1,7 +1,12 @@
 import {
 	DEFAULT_LOG_LEVEL,
+	DEFAULT_LOG_SEAL,
+	DEFAULT_LOG_SEAL_INTERVAL,
 	DEFAULT_SECURITY_LOG,
 	LOG_LEVELS,
+	LOG_SEAL_VALUES,
+	MAX_LOG_SEAL_INTERVAL,
+	MIN_LOG_SEAL_INTERVAL,
 	SECURITY_LOG_VALUES
 } from '../logging/settings.ts';
 
@@ -21,7 +26,7 @@ import {
  *
  * **What it is not.** It is not a loader: it holds no value and reads no environment. Each reader
  * still lives beside the code that uses the value, and asks this table for its bounds. A leaf
- * module on purpose, importing nothing but the logger's two domains, so the five bound modules can
+ * module on purpose, importing nothing but the logger's domains, so the five bound modules can
  * import their numbers from here without a cycle and without pulling Prisma into anything that only
  * wants a default.
  *
@@ -734,6 +739,44 @@ export const SETTINGS = {
 		summary:
 			'Whether security events are written. Off is announced at every start, and cannot be hidden.',
 		page: 'logging.md'
+	},
+	BP_LOG_SEAL: {
+		kind: 'choice',
+		tier: 'common',
+		group: 'Logging',
+		readBy: 'app',
+		values: LOG_SEAL_VALUES,
+		default: DEFAULT_LOG_SEAL,
+		otherwise: 'refused',
+		summary:
+			'Whether the log is sealed: signed, timestamped checkpoints that let a copy of the log be verified.',
+		page: 'logging-howto.md#seal-the-log'
+	},
+	BP_LOG_SEAL_DIR: {
+		kind: 'text',
+		tier: 'advanced',
+		group: 'Logging',
+		readBy: 'app',
+		format: 'a directory the app can write to',
+		default: '/data/log-seal in the image; unset elsewhere',
+		summary:
+			'Where the seal key, its verification key and the link between starts are kept. Mount a directory here to keep the key outside the data volume.',
+		page: 'logging-howto.md#seal-the-log'
+	},
+	BP_LOG_SEAL_INTERVAL: {
+		kind: 'integer',
+		tier: 'advanced',
+		group: 'Logging',
+		readBy: 'app',
+		default: DEFAULT_LOG_SEAL_INTERVAL,
+		min: MIN_LOG_SEAL_INTERVAL,
+		max: MAX_LOG_SEAL_INTERVAL,
+		unit: 'seconds',
+		ceiling:
+			'The lines of the last interval are not sealed yet, so above a day a copy taken daily could hold a whole day of lines no signature covers.',
+		summary:
+			'Seconds between two log checkpoints: the window in which the newest lines are not yet sealed.',
+		page: 'logging-howto.md#seal-the-log'
 	},
 
 	// ── Server process ──────────────────────────────────────────────────────────────────────────

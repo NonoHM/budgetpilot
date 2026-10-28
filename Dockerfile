@@ -190,6 +190,9 @@ ENV DATABASE_URL=file:/data/budgetpilot.db
 # home directory, so do not drop it as a mere network optimisation.
 ENV CHECKPOINT_DISABLE=1
 ENV PRISMA_HIDE_UPDATE_MESSAGE=1
+# The log seal's key, verification key and link state (#875), used only with BP_LOG_SEAL=on. Inside
+# /data, which every Compose file mounts; boot.mjs creates the directory on first use.
+ENV BP_LOG_SEAL_DIR=/data/log-seal
 
 # The apt-get layer the Debian-based runner used to need is gone with the base: ca-certificates
 # and openssl are both already in distroless (the schema-engine's libssl.so.3 is satisfied by the
@@ -291,8 +294,8 @@ COPY package.json package-lock.json ./
 COPY boot.mjs ./boot.mjs
 COPY healthcheck.mjs ./healthcheck.mjs
 # boot.mjs writes its lines through the logger's own core, imported as TypeScript source before
-# the server bundle loads (#250). These six and operatorFacingError.ts, copied above, are the whole
-# import graph; pino comes from the production node_modules.
+# the server bundle loads (#250). These six, the seal's three (#875) and operatorFacingError.ts,
+# copied above, are the whole import graph; pino comes from the production node_modules.
 COPY --from=builder /app/src/lib/server/logging/core.ts \
 	/app/src/lib/server/logging/events.ts \
 	/app/src/lib/server/logging/flood.ts \
@@ -300,6 +303,14 @@ COPY --from=builder /app/src/lib/server/logging/core.ts \
 	/app/src/lib/server/logging/serialize.ts \
 	/app/src/lib/server/logging/settings.ts \
 	./src/lib/server/logging/
+COPY --from=builder /app/src/lib/server/logging/seal/merkle.ts \
+	/app/src/lib/server/logging/seal/note.ts \
+	/app/src/lib/server/logging/seal/sealer.ts \
+	/app/src/lib/server/logging/seal/verify.ts \
+	./src/lib/server/logging/seal/
+# scripts/log-seal.mjs (#875), the operator's verify command. It imports only seal/verify.ts, whose
+# closure is the core above.
+COPY --from=builder /app/scripts/log-seal.mjs ./scripts/log-seal.mjs
 
 # Restating what the :nonroot tag already sets, on purpose. Removing this line changes nothing
 # today — tried, and `docker inspect` still reported 65532 — which is exactly why it stays: it
