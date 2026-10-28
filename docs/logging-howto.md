@@ -697,6 +697,32 @@ docker compose cp budgetpilot:/data/log-seal/verification.vkey ./verification.vk
 Keep the file with your backups, or on another machine. The key ID is the 8 characters between the
 first two `+` signs of the file; write it down to recognise the key later.
 
+### Change the key
+
+Replace the key when it may have been copied. Delete the key file alone and keep the rest of the
+seal directory, so that the next start still links to the last one:
+
+1. Copy the current verification key off the machine, as in
+   [Keep the verification key somewhere else](#keep-the-verification-key-somewhere-else). Lines
+   signed before the change can be verified only with it.
+1. Delete the key file. The image has no shell, so its own Node deletes it.
+
+   ```bash
+   docker compose exec budgetpilot /nodejs/bin/node -e "require('node:fs').rmSync('/data/log-seal/key.pem')"
+   ```
+
+1. Restart the container. The server creates a new key and writes a new `verification.vkey`.
+
+   ```bash
+   docker compose restart budgetpilot
+   ```
+
+1. Copy the new verification key off the machine.
+
+To verify a copy that spans the change, give both keys, each with its own `--vkey`. Do not delete
+the whole directory: the next start then links to nothing, and the check reports the starts before
+it as removed.
+
 ### Verify a copy of the log
 
 1. Save the log to a file. The command needs each line exactly as the server wrote it, so keep
@@ -729,12 +755,12 @@ first two `+` signs of the file; write it down to recognise the key later.
    are not sealed yet, so they are not evidence. If the instance changed its key, give each
    verification key with its own `--vkey`.
 
-| Status       | Exit status | What it means                                                                                                                                                          |
-| ------------ | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `verified`   | 0           | Every line is covered by a checkpoint signed by your key, apart from the newest lines and, after rotation, the first lines of the copy.                                |
-| `broken`     | 1           | The copy contradicts a signature: a line was removed, edited or moved, a checkpoint is missing, or a start was removed. Each `BREAK` line names the line it found.     |
-| `unverified` | 3           | Nothing contradicts a signature, but some lines are not covered: a start with sealing off, or a start that stopped without its last checkpoint, such as after a crash. |
-| `nothing`    | 2           | No checkpoint verified: sealing was off, or the key is not the one that signed the log. Also the status of a command it could not run.                                 |
+| Status       | Exit status | What it means                                                                                                                                                                                                                                                                                        |
+| ------------ | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `verified`   | 0           | Every line is covered by a checkpoint signed by your key, apart from the newest lines and, after rotation, the first lines of the copy.                                                                                                                                                              |
+| `broken`     | 1           | The copy contradicts a signature: a line was removed, edited or moved, a checkpoint is missing, or a start was removed. Each `BREAK` line names the line it found.                                                                                                                                   |
+| `unverified` | 3           | Nothing contradicts a signature, but some lines are not covered: a start with sealing off, a start that stopped without its last checkpoint, such as after a crash, a start whose first lines are missing although it is not the first in the copy, or a copy that lacks another container's starts. |
+| `nothing`    | 2           | No checkpoint verified: sealing was off, or the key is not the one that signed the log. Also the status of a command it could not run.                                                                                                                                                               |
 
 ### Check that the command finds a removed line
 
@@ -774,6 +800,10 @@ removed line: it no longer matches the lines in the copy, even if someone recomp
 - **The time.** The signed time is the host's clock, so a clock set wrong signs a wrong time.
 - **The end of the newest start cut back to an earlier checkpoint.** It shows only as the newest
   signed time lagging behind the clock, so compare that time with when you took the copy.
+- **A start removed while two containers share one seal directory.** When two containers write to
+  the same seal directory at the same time, removing all of one container's start from a merged
+  copy can still read `verified`. Give each container that runs alongside another its own
+  `BP_LOG_SEAL_DIR`, and verify with each directory's key.
 - **A copy with nothing kept elsewhere.** Sealing then shows edits by people without the key, and
   nothing more: ship the log to a collector on another machine as well.
 

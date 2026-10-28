@@ -9,18 +9,23 @@ import { openCheckpoint, parseVkey, type CheckpointFields, type Vkey } from './n
  *
  * THE RULING (design note A9). A BREAK is signed content the copy contradicts: a root or a size, a
  * signature, a segment index, a link to a checkpoint or a start that should be in the copy and is
- * not, starts out of order, a start that is not the copy's first but has lost its head, a writer
- * line that does not parse as one, or the keyless chain of #871. Lines no signature covers are
- * UNVERIFIED, listed with a reason and a count and never a break: an unsealed start, a start that
- * ended without its stop checkpoint, a fork after a restored state file. The copy's partial head
+ * not, starts out of order, a writer line that does not parse as one, or the keyless chain of #871.
+ * Lines no signature covers are UNVERIFIED, listed with a reason and a count and never a break: an
+ * unsealed start, a start that ended without its stop checkpoint, a fork after a restored state
+ * file, a later start that begins inside a segment, a link whose target the copy cannot show. The
+ * copy's partial head
  * (rotation) and the newest tail are NOTICES: expected in any live log.
  *
  * NO EXEMPTION RESTS ON AN UNSIGNED FIELD (design note, final passes). A tail is the newest lines
  * only if no verified checkpoint follows its first line in the copy (A13), never because its host
- * tag looks new. A start may begin inside a segment only while no start beginning at seq 1 precedes
- * it (A16). A start that is its host's first in the copy, and not the copy's first start, must link
- * through the volume to a checkpoint an earlier start holds (A14), so a recreated container cannot
- * hide the start removed before it.
+ * tag looks new. Only the copy's FIRST start may begin inside a segment and stay verified (A20): a
+ * later one could be a concurrent host cut by rotation or a deleted head, and `seq` cannot tell them
+ * apart, so it is unverified. Nor can copy position: each start's roots cover its own lines only, so
+ * an editor can interleave starts at will. Every start's volume link is read (A21); a start that is
+ * its host's first in the copy, and not the copy's first start, must find its target there (A14), so
+ * a recreated container cannot hide the start removed before it. Two or more containers writing to
+ * one seal directory at once are a stated limit: nothing links a start whose stop the other
+ * container's newer checkpoint overwrote in the volume file.
  *
  * `status`: `broken` if any break; else `nothing` if no checkpoint verified; else `unverified` if
  * anything is unverified; else `verified`.
@@ -34,11 +39,15 @@ export type BreakKind =
 	| 'signature'
 	| 'root'
 	| 'segment'
-	| 'missing-head'
 	| 'missing-start'
 	| 'missing-checkpoint'
 	| 'start-order';
-export type UnverifiedKind = 'unsealed-start' | 'ended-without-checkpoint' | 'fork';
+export type UnverifiedKind =
+	| 'unsealed-start'
+	| 'ended-without-checkpoint'
+	| 'fork'
+	| 'begins-inside'
+	| 'link-outside-copy';
 export type NoticeKind = 'copy-begins-later' | 'copy-begins-mid-segment';
 export type VerifyStatus = 'verified' | 'broken' | 'unverified' | 'nothing';
 
@@ -76,8 +85,8 @@ interface Start {
 	/** The previous start of this host, and the newest checkpoint on the volume, at its start. */
 	link?: Link;
 	volumeLink?: Link;
-	/** No seal_started line in the copy: rotation cut it inside a segment. */
-	beganInside: boolean;
+	/** No seal_started line in the copy: the copy's first start (rotation) or a later one (A20). */
+	cut?: 'first' | 'later';
 	/** Checkpoints whose signature opened, by `origin size root`. */
 	held: Set<string>;
 	tailLines: number;
@@ -151,7 +160,6 @@ export function verifyLog(text: string, vkeyText: string | readonly string[]): V
 			bootId,
 			lines: [],
 			held: new Set<string>(),
-			beganInside: false,
 			tailLines: 0,
 			newestTime: null,
 			sealed: false
@@ -164,22 +172,24 @@ export function verifyLog(text: string, vkeyText: string | readonly string[]): V
 	/** Position in the copy of the last checkpoint that verified, for the tail rule (A13). */
 	let lastVerifiedAt = 0;
 	report.starts = order.length;
-	// A16: rotation cuts only the front of a copy, so once a start that begins at seq 1 has been
-	// read, no later start may begin inside a segment.
-	order.forEach((start, position) =>
-		verifyStart(
-			start,
-			!order.slice(0, position).some((earlier) => earlier.lines[0].record[A.logSeq] === 1)
-		)
-	);
+	order.forEach((start, position) => verifyStart(start, position === 0));
 
-	function verifyStart(start: Start, mayBeginInside: boolean) {
+	function verifyStart(start: Start, isFirst: boolean) {
+		const startedAt = start.lines.findIndex((l) => l.record[FIELD.eventName] === E.logSealStarted);
+		const hasCheckpoint = start.lines.some((l) => l.record[FIELD.eventName] === E.logCheckpoint);
+		// A20: with no seal_started the head is cut, and whether by rotation or by a deletion is
+		// decided by position alone: `seq` is unsigned. A deleted head whose chain was rewritten also
+		// rewrites the first surviving checkpoint's line, leaf 0 of the next segment, so a root breaks.
+		if (startedAt < 0) start.cut = isFirst ? 'first' : 'later';
+
 		// The keyless chain (#871).
 		start.lines.forEach((line, i) => {
 			const seq = line.record[A.logSeq] as number;
 			const prev = line.record[A.logPrev] as string;
 			if (i === 0) {
-				if (!mayBeginInside && (seq !== 1 || prev !== ZERO_HASH)) broke('chain', line.at);
+				if (start.cut === undefined && !isFirst && (seq !== 1 || prev !== ZERO_HASH)) {
+					broke('chain', line.at);
+				}
 				return;
 			}
 			const before = start.lines[i - 1];
@@ -188,18 +198,9 @@ export function verifyLog(text: string, vkeyText: string | readonly string[]): V
 			}
 		});
 
-		const startedAt = start.lines.findIndex((l) => l.record[FIELD.eventName] === E.logSealStarted);
-		const hasCheckpoint = start.lines.some((l) => l.record[FIELD.eventName] === E.logCheckpoint);
-		// Set before the unsealed branch: a cut head with no checkpoint in the copy is still a start
-		// whose earlier checkpoints may precede the copy (A17).
-		start.beganInside = startedAt < 0 && mayBeginInside;
 		if (startedAt < 0 && !hasCheckpoint) {
 			report.unverified.push({ kind: 'unsealed-start', lines: start.lines.length });
 			report.unsealedLines += start.lines.length;
-			return;
-		}
-		if (startedAt < 0 && !mayBeginInside) {
-			broke('missing-head', start.lines[0].at);
 			return;
 		}
 		start.sealed = true;
@@ -247,8 +248,13 @@ export function verifyLog(text: string, vkeyText: string | readonly string[]): V
 				if (index === undefined || (segment !== undefined && index !== segment)) {
 					broke('segment', line.at);
 				} else if (segment === undefined) {
-					// The copy begins inside this segment: its leaves are not all here.
-					report.notices.push({ kind: 'copy-begins-mid-segment', lines: i });
+					// The start begins inside this segment: its leaves are not all here.
+					if (start.cut === 'first') {
+						report.notices.push({ kind: 'copy-begins-mid-segment', lines: i });
+					} else {
+						report.unverified.push({ kind: 'begins-inside', lines: i });
+						report.unsealedLines += i;
+					}
 					segment = index;
 				} else if (opened.size !== tree.size || !opened.root.equals(tree.root())) {
 					broke('root', line.at);
@@ -292,19 +298,22 @@ export function verifyLog(text: string, vkeyText: string | readonly string[]): V
 		return refusal;
 	}
 
-	/** The target of a link holds the checkpoint it names, unless the copy begins inside it (A17). */
+	/**
+	 * The target of a link holds the checkpoint it names, unless it begins inside a segment: then the
+	 * checkpoint may precede its first line, a notice for the copy's first start (A17) and unverified
+	 * for a later one (A20).
+	 */
 	function checkHeld(target: Start, key: string, at: number) {
-		if (target.beganInside && !target.held.has(key)) {
-			report.notices.push({ kind: 'copy-begins-later', lines: 0 });
-			return;
-		}
-		if (!target.held.has(key)) broke('missing-checkpoint', at);
+		if (target.held.has(key)) return;
+		if (target.cut === 'first') report.notices.push({ kind: 'copy-begins-later', lines: 0 });
+		else if (target.cut === 'later') report.unverified.push({ kind: 'link-outside-copy', lines: 0 });
+		else broke('missing-checkpoint', at);
 	}
 
 	const targetOf = (link: Exclude<Link, 'none'>) => starts.get(ORIGIN.exec(link.origin)?.[1] ?? '');
 	const keyOf = (link: Exclude<Link, 'none'>) => checkpointKey(link.origin, link.size, link.root);
 
-	// Links, followed per host (A10, A12), and through the volume for a host's first start (A14).
+	// Links, followed per host (A10, A12), and through the volume for every start (A14, A21).
 	const lastOfHost = new Map<string, Start>();
 	// What a link must name: the host's last start that HOLDS a checkpoint. One that died before
 	// its first never advanced the state file, so the next start rightly names the one before it.
@@ -314,13 +323,26 @@ export function verifyLog(text: string, vkeyText: string | readonly string[]): V
 		if (start.host === undefined || start.link === undefined) return;
 		const at = start.lines[0].at;
 		const firstOfHost = !lastOfHost.has(start.host);
-		if (firstOfHost && position > 0 && start.volumeLink !== undefined) {
+		// The same checkpoint through both links is one fact, read once, by the host link, but only
+		// where the copy holds its target: absent, the host link reads it as a copy beginning later.
+		const sameAsHostLink =
+			start.volumeLink !== 'none' &&
+			start.link !== 'none' &&
+			start.volumeLink !== undefined &&
+			keyOf(start.volumeLink) === keyOf(start.link) &&
+			targetOf(start.link) !== undefined;
+		if (position > 0 && start.volumeLink !== undefined && !sameAsHostLink) {
 			const volume = start.volumeLink;
 			const target = volume === 'none' ? undefined : targetOf(volume);
 			if (volume === 'none') {
-				if (order.slice(0, position).some((earlier) => earlier.sealed)) broke('missing-start', at);
+				// Only a checkpoint writes the volume file, so only a start holding one contradicts none.
+				const earlierHeld = order.slice(0, position).some((earlier) => earlier.held.size > 0);
+				if (earlierHeld) broke('missing-start', at);
 			} else if (!target) {
-				broke('missing-start', at);
+				// A host's first start names the start before its recreation (A14). A later start of a
+				// host may name another container's, which a one-container copy lacks (A21).
+				if (firstOfHost) broke('missing-start', at);
+				else report.unverified.push({ kind: 'link-outside-copy', lines: 0 });
 			} else if (order.indexOf(target) > position) {
 				broke('start-order', at);
 			} else {
