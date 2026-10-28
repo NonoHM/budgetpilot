@@ -675,6 +675,16 @@ signatures and the chain together.
    not use the key, and writes every line unsealed. [What to do](./logging.md#what-to-do) says how
    to fix each reason.
 
+### Seal the log without Docker
+
+If you run `node build` yourself, set `BP_LOG_SEAL=on` and `BP_LOG_SEAL_DIR` in the server's
+environment. Only the Docker image sets the directory for you, so without it the start logs
+`budgetpilot.log.seal_unavailable` with the reason `dir_unset`. The directory must exist, and the
+user that runs the server must be able to write it. The server keeps its key and
+`verification.vkey` there. Send the server's standard output to a file, and check it with the same
+`jq` filter as above. To verify, run `node scripts/log-seal.mjs verify --vkey "$(cat verification.vkey)" < capture.log`
+from the repository root, with the Node version in `.nvmrc`.
+
 ### Keep the verification key somewhere else
 
 The verification key is public: anyone may see it, and it cannot sign anything. Copy it off the
