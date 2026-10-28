@@ -1,9 +1,9 @@
 import { generateKeyPairSync } from 'node:crypto';
 import { EventEmitter } from 'node:events';
-import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createLogWriter, newChain, type ChainState } from '../core';
 import { ATTRIBUTE as A, EVENT as E, FIELD } from '../names';
 import { MAX_CHECKPOINT_NOTE_LENGTH, MAX_LINE_BYTES } from '../serialize';
@@ -161,6 +161,27 @@ describe('sealing unavailable', () => {
 			E.backfillLockWait,
 			null
 		]);
+	});
+
+	// Narrow pass 3, N13: PostgreSQL also refuses a key owned by anyone but the server's user or root.
+	// A key of another user's, 0644, is read through the others bit. Separates « the owner is checked »
+	// from « only our own key's mode ».
+	it('names key_exposed when key.pem belongs to another user, whatever its mode', () => {
+		const dir = sealDir();
+		const key = generateKeyPairSync('ml-dsa-44').privateKey.export({
+			type: 'pkcs8',
+			format: 'pem'
+		});
+		writeFileSync(join(dir, 'key.pem'), key, { mode: 0o600 });
+		const owner = statSync(join(dir, 'key.pem')).uid;
+		const euid = vi.spyOn(process, 'geteuid').mockReturnValue(owner + 1);
+		try {
+			const w = writer('on');
+			w.write.startSeal({ dir, intervalSeconds: 900, host: 'h', proc: new EventEmitter() });
+			expect(unavailable(w.out)).toEqual(['key_exposed']);
+		} finally {
+			euid.mockRestore();
+		}
 	});
 
 	it('tries once per chain: a second startSeal writes no second WARN', () => {

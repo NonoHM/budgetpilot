@@ -760,7 +760,7 @@ the whole directory: the next start then links to nothing, and a copy that spans
 | `verified`   | 0           | Every line is covered by a checkpoint signed by your key, apart from the newest lines and, after rotation, the first lines of the copy.                                                                                |
 | `broken`     | 1           | The copy contradicts a signature: a line was removed, edited or moved within its start, a checkpoint is missing or is not signed by a key you gave, or a start was removed. Each `BREAK` line names the line it found. |
 | `unverified` | 3           | Nothing contradicts a signature, but some lines or starts are not covered. The list after this table gives each case.                                                                                                  |
-| `nothing`    | 2           | No checkpoint verified: sealing was off for the whole copy. Also the status of a command it could not run.                                                                                                             |
+| `nothing`    | 2           | No checkpoint verified: sealing was off, or no checkpoint was written yet in the lines this copy holds. Also the status of a command it could not run.                                                                 |
 
 A copy reads `unverified` when it holds any of these:
 
@@ -815,7 +815,8 @@ removed line: it no longer matches the lines in the copy, even if someone recomp
   with when you took the copy.
 - **The order of two starts' lines.** Each start's lines are sealed in their own order, not against
   another start's: lines of two starts mixed together, each start keeping its own order, still
-  verify. Each line keeps its own `time`.
+  verify. Each line keeps its own `time`. With a copy cut by rotation as well, the copy's first
+  start can be cut later than the checkpoint a newer start links to.
 - **A start removed while two containers share one seal directory.** When two containers write to
   the same seal directory at the same time, removing all of one container's start from a merged
   copy can still read `verified`. Give each container that runs alongside another its own

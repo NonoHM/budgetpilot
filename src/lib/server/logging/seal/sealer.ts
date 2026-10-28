@@ -101,15 +101,17 @@ function placeKey(dir: string, keyPath: string, pem: string): string {
 }
 
 /**
- * PostgreSQL's rule for its TLS key (`check_ssl_key_file_permissions`): owned by this user, 0600 or
- * less; owned by root, 0640 or less. Not applicable where the platform has no uid.
+ * PostgreSQL's rule for its TLS key (`check_ssl_key_file_permissions`): owned by this process's
+ * effective user, 0600 or less; owned by root, 0640 or less; owned by anyone else, refused. Not
+ * applicable where the platform has no uid.
  */
 function exposed(keyPath: string): boolean {
-	const uid = process.getuid?.();
-	if (uid === undefined) return false;
+	const euid = process.geteuid?.();
+	if (euid === undefined) return false;
 	const { uid: owner, mode } = statSync(keyPath);
-	if (owner === uid) return (mode & 0o077) !== 0;
-	return owner === 0 && (mode & 0o037) !== 0;
+	if (owner === euid) return (mode & 0o077) !== 0;
+	if (owner === 0) return (mode & 0o037) !== 0;
+	return true;
 }
 
 /** The key in `dir`, generated on first use, with its vkey written beside it; or why not. */
