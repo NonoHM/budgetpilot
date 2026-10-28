@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -45,8 +45,13 @@ afterEach(() => {
  * file at the first query, not when the client is built). `created` is what the directory holds
  * afterwards: empty proves the run queried no database.
  */
-function run(args: string[], secret: string | undefined = SECRET, input?: string) {
-	const childEnv: NodeJS.ProcessEnv = { PATH: process.env.PATH };
+function run(
+	args: string[],
+	secret: string | undefined = SECRET,
+	input?: string,
+	extra: NodeJS.ProcessEnv = {}
+) {
+	const childEnv: NodeJS.ProcessEnv = { PATH: process.env.PATH, ...extra };
 	if (secret !== undefined) childEnv.RATE_LIMIT_HASH_SECRET = secret;
 	const cwd = mkdtempSync(join(tmpdir(), 'log-pseudonym-'));
 	try {
@@ -98,6 +103,34 @@ describe('log-pseudonym --address', () => {
 		expect(logPseudonym('192.0.2.10')).toBe(unpadded);
 		const out = run(['--address', '192.0.2.10'], padded);
 		expect(out.stdout).toBe(`${unpadded}\n`);
+	});
+
+	// #826/#1099: the command reads RATE_LIMIT_HASH_SECRET_FILE through the resolver the image's
+	// boot runs, so an install keeping the secret in a file gets the pseudonym its log carries.
+	// Separates a command that calls `applySecretSources` from one that reads the plain variable
+	// only, which refuses here for a missing secret.
+	it('reads the secret from RATE_LIMIT_HASH_SECRET_FILE as the app does', () => {
+		env.RATE_LIMIT_HASH_SECRET = SECRET;
+		const expected = `${logPseudonym('192.0.2.10')}\n`;
+		const directory = mkdtempSync(join(tmpdir(), 'log-pseudonym-secret-'));
+		try {
+			const file = join(directory, 'rate');
+			writeFileSync(file, `${SECRET}\n`);
+			const out = run(['--address', '192.0.2.10'], '', undefined, {
+				RATE_LIMIT_HASH_SECRET_FILE: file
+			});
+			expect(out.stderr).toBe('');
+			expect(out.stdout).toBe(expected);
+			const both = run(['--address', '192.0.2.10'], SECRET, undefined, {
+				RATE_LIMIT_HASH_SECRET_FILE: file
+			});
+			expect(both.status).toBe(2);
+			expect(both.stderr).toBe(
+				'A secret could not be read from its file:\n     - RATE_LIMIT_HASH_SECRET and RATE_LIMIT_HASH_SECRET_FILE are both set. Set one of them, so that the value the app runs with is the one you edit.\n'
+			);
+		} finally {
+			rmSync(directory, { recursive: true, force: true });
+		}
 	});
 
 	it('refuses text that is not an address, and says so', () => {

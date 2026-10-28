@@ -11,7 +11,7 @@ describe('the settings registry', () => {
 	it('declares every setting it is asked about', () => {
 		// The absolute figure beside every « no offenders » below: a registry that lost its entries
 		// would satisfy each of them.
-		expect(entries.length).toBe(51);
+		expect(entries.length).toBe(55);
 	});
 
 	// R13 (#841): a new name starts with `BP_`, and the names that existed before the ruling are
@@ -20,8 +20,25 @@ describe('the settings registry', () => {
 	it('names every setting added after R13 with the BP_ prefix', () => {
 		const unprefixed = entries
 			.map(([name]) => name)
-			.filter((name) => !name.startsWith('BP_') && !NAMES_BEFORE_THE_BP_PREFIX.includes(name));
+			.filter((name) => !name.startsWith('BP_') && !NAMES_BEFORE_THE_BP_PREFIX.includes(name))
+			// The file form of a frozen name (owner, 2026-10-28, #826/#1099): the docker-library
+			// `<NAME>_FILE` convention, which collides with nothing its base name does not.
+			.filter((name) => !(name.endsWith('_FILE') && NAMES_BEFORE_THE_BP_PREFIX.includes(name.slice(0, -5))));
 		expect(unprefixed).toStrictEqual([]);
+	});
+
+	// #826/#1099, owner 2026-10-28: the file form of a frozen name is that name plus `_FILE`, the
+	// docker-library convention operators copy, and it collides with nothing the base name does not
+	// already collide with. A rule, not four additions to the frozen list. Separates a registry that
+	// declares the file forms from one that does not.
+	it('declares the file form of each secret the boot reads from a file', () => {
+		const fileForms = entries.map(([name]) => name).filter((name) => name.endsWith('_FILE'));
+		expect(fileForms).toStrictEqual([
+			'TOTP_ENCRYPTION_KEY_FILE',
+			'RATE_LIMIT_HASH_SECRET_FILE',
+			'BOOTSTRAP_TOKEN_FILE',
+			'DATABASE_PASSWORD_FILE'
+		]);
 	});
 
 	it('keeps the frozen list to names the registry still declares', () => {

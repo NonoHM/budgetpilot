@@ -39,10 +39,26 @@ import { createLogWriter, stdoutSink } from './src/lib/server/logging/core.ts';
 import { ATTRIBUTE, EVENT } from './src/lib/server/logging/names.ts';
 import { readLogSettings } from './src/lib/server/logging/settings.ts';
 import { IMAGE_DATABASE_URL, resolveImageDatabaseUrl } from './src/lib/server/database/provider.ts';
+import { applySecretSources } from './src/lib/server/env/secretSources.ts';
+import { OperatorFacingError } from './src/lib/server/operatorFacingError.ts';
 
 const log = createLogWriter({ ...readLogSettings(process.env), sink: stdoutSink() });
 /** A filesystem error code, admitted only in the shape of one. */
 const FS_ERROR_CODE = /^[A-Z0-9_]{1,40}$/;
+
+// Secrets given as `<NAME>_FILE` (#826, #1099), before anything below reads one: the database URL
+// may gain its password here, `migrate deploy` inherits this environment, and the server's `init`
+// copies it into `$env/dynamic/private` at import. The refusal names variables, never a value.
+try {
+	applySecretSources(process.env);
+} catch (error) {
+	if (!(error instanceof OperatorFacingError)) throw error;
+	log({
+		event: EVENT.bootSecretsRefused,
+		attributes: { [ATTRIBUTE.errorOperatorMessage]: error.message }
+	});
+	process.exit(1);
+}
 
 // The image default, and the one it replaced.
 //

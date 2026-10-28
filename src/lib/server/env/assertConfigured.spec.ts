@@ -232,6 +232,7 @@ const { assertDatabaseConfigured } = await import('$lib/server/database/bootChec
 const { assertForwardingConfigSafe } = await import('$lib/server/net/clientAddress');
 const { assertLoggingConfigured } = await import('$lib/server/logging');
 const { assertSecretFilesSafe } = await import('./secretFiles');
+const { assertSecretSourcesConfigured } = await import('./secretSources');
 const { assertLlmModelDigestConfigured } = await import('$lib/server/insights/modelHostConfig');
 const NOT_OPERATOR_BOUNDS = new Map<unknown, string>([
 	[assertDatabaseConfigured, 'a connection string and an engine name'],
@@ -241,6 +242,7 @@ const NOT_OPERATOR_BOUNDS = new Map<unknown, string>([
 	[assertForwardingConfigSafe, 'two variables that must not be set at all'],
 	[assertLoggingConfigured, 'two variables, each a closed set of words'],
 	[assertSecretFilesSafe, 'a switch, on or off'],
+	[assertSecretSourcesConfigured, 'file paths, read before the server starts'],
 	[assertLlmModelDigestConfigured, 'a model digest, compared exactly']
 ]);
 const OPERATOR_BOUNDS = ENVIRONMENT_CHECKS.filter(([, run]) => !NOT_OPERATOR_BOUNDS.has(run));

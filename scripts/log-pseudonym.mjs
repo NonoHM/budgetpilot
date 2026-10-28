@@ -27,6 +27,7 @@ import { parseArgs } from 'node:util';
 import { validateEmail } from '../src/lib/server/auth/emailAddress.ts';
 import { readRateLimitSecret } from '../src/lib/server/auth/rateLimitSecret.ts';
 import { createPrismaClient } from '../src/lib/server/database/client.ts';
+import { applySecretSources } from '../src/lib/server/env/secretSources.ts';
 import { SETTINGS } from '../src/lib/server/env/settings.ts';
 import {
 	deriveLogPseudonymKey,
@@ -174,6 +175,10 @@ async function withDatabase(read) {
 }
 
 async function main() {
+	// RATE_LIMIT_HASH_SECRET_FILE and DATABASE_PASSWORD_FILE (#826, #1099): `docker compose exec`
+	// hands this process the container's configured environment, which the boot resolved only for
+	// itself.
+	applySecretSources(process.env);
 	const { mode, values } = parse();
 
 	if (mode === 'address') {

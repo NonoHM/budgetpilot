@@ -9,6 +9,12 @@ import {
 	schemaPathFor,
 	toPrismaConnectionUrl
 } from './src/lib/server/database/provider.ts';
+import { applySecretSources } from './src/lib/server/env/secretSources.ts';
+
+// `<NAME>_FILE` (#826, #1099): a no-op under `boot.mjs`, which resolved them and removed the
+// variables, and the resolver for a CLI run that replaced the image's command (`docs/operations.md`
+// sends an operator to `migrate resolve` that way), which would otherwise connect with no password.
+applySecretSources(process.env);
 
 const envPath = '.env';
 

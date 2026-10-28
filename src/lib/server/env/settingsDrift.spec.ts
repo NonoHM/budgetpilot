@@ -78,6 +78,10 @@ const COMPUTED_READS_EXPLAINED: Record<string, string> = {
 	'src/lib/server/net/clientAddress.ts#TRUSTED_PROXIES_ENV': 'a constant holding `TRUSTED_PROXIES`',
 	'src/lib/server/net/clientAddress.ts#name':
 		'`ADDRESS_HEADER` and `XFF_DEPTH`, listed as literals beside the read',
+	'src/lib/server/env/secretSources.ts#name':
+		'the four secrets with a file form, listed as literals in `FILE_FORM_SECRETS` beside the read',
+	'src/lib/server/env/secretSources.ts#fileName':
+		'their `_FILE` names, listed as literals in `FILE_FORM_SECRETS` beside the read',
 	'src/lib/server/security/sourceScan.ts#i':
 		'not an environment read: indexes a string named `source` character by character'
 };
