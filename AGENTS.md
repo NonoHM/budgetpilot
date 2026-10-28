@@ -230,6 +230,10 @@ Tooling enforces formatting; do not restate it. What tooling cannot check:
 - Prefer the existing component and the existing helper. Check before adding either.
 - Any number an operator might need to move is read from the environment: a default, a hard
   ceiling, refusal rather than clamping, and a boot warning when it differs.
+- **A new environment variable is named `BP_<NAME>`** (R13, #841). The names that predate the
+  rule keep theirs and are listed, frozen, in `NAMES_BEFORE_THE_BP_PREFIX` (`settings.ts`). A
+  secret's file form is its own name plus `_FILE`: `TOTP_ENCRYPTION_KEY_FILE`, `BP_<NAME>_FILE`.
+  `settings.spec.ts` fails on a name outside both.
 
 ## Writing a sentence for the interface
 
