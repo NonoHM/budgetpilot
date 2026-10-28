@@ -1,4 +1,5 @@
 import { generateKeyPairSync } from 'node:crypto';
+import { EventEmitter } from 'node:events';
 import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -6,6 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { createLogWriter, newChain, sha256Hex } from '../core';
 import type { LogEvent } from '../events';
 import { ATTRIBUTE as A, EVENT as E, FIELD } from '../names';
+import { MAX_LINE_BYTES } from '../serialize';
 import { vkeyOf } from './note';
 import { verifyLog, type VerifyReport } from './verify';
 
@@ -37,10 +39,20 @@ const event = (n: number): LogEvent => ({
 	attributes: { [A.backfillName]: `step-${n}`, [A.backfillWaitedSeconds]: n }
 });
 
-/** One process start: `lines` events, a checkpoint every `every` lines if given, then a clean stop. */
-function runStart(dir: string, lines: number, every?: number): string[] {
+/** A process stand-in: the stop checkpoint is reached through the events the sealer listens to. */
+const fakeProcess = () => {
+	const proc = new EventEmitter();
+	return { proc, stop: () => (proc.emit('sveltekit:shutdown'), proc.emit('exit')) };
+};
+
+/**
+ * One process start: `lines` events, a checkpoint every `every` lines if given (through the
+ * interval timer the sealer schedules), then a clean stop through the process events.
+ */
+function runStart(dir: string, lines: number, every?: number, host = 'host-a'): string[] {
 	const out: string[] = [];
 	const scheduled: (() => void)[] = [];
+	const { proc, stop } = fakeProcess();
 	const write = createLogWriter({
 		level: 'info',
 		securityLog: 'on',
@@ -49,12 +61,12 @@ function runStart(dir: string, lines: number, every?: number): string[] {
 		seal: 'on',
 		schedule: (run) => scheduled.push(run)
 	});
-	write.startSeal({ dir, intervalSeconds: 900 });
+	write.startSeal({ dir, intervalSeconds: 900, host, proc });
 	for (let i = 1; i <= lines; i++) {
 		write(event(i));
-		if (every && i % every === 0) write.checkpoint();
+		if (every && i % every === 0) scheduled.splice(0).forEach((run) => run());
 	}
-	write.flush();
+	stop();
 	return out;
 }
 
@@ -132,7 +144,8 @@ describe('a copy edited by someone without the key', () => {
 		const dir = sealDir();
 		const lines = runStart(dir, 10, 4);
 		lines[2] = lines[2].replace('step-2', 'step-X');
-		expect(kinds(verifyLog(text(rechain(lines)), vkeyIn(dir)))).toEqual(['root']);
+		// Rewriting the chain changes every later line, so every later segment's root differs too.
+		expect(new Set(kinds(verifyLog(text(rechain(lines)), vkeyIn(dir))))).toEqual(new Set(['root']));
 	});
 
 	it('a deleted line, chain recomputed: root', () => {
@@ -184,6 +197,48 @@ describe('a copy edited by someone without the key', () => {
 		expect(report.notices.map((n) => n.kind)).toEqual(['copy-begins-later']);
 	});
 
+	// Rotation (json-file keeps 5 x 10 MB) cuts the copy inside a segment of the running start.
+	it('a copy beginning inside a segment verifies the segments after it', () => {
+		const dir = sealDir();
+		const lines = runStart(dir, 10, 4);
+		const report = verifyLog(text(lines.slice(3)), vkeyIn(dir));
+		expect(report.breaks).toEqual([]);
+		expect(report.notices.map((n) => n.kind)).toEqual(['copy-begins-mid-segment']);
+		expect(report.checkpointsVerified).toBe(2);
+	});
+
+	it('an unsealed start between two sealed ones: unsealed-start', () => {
+		const dir = sealDir();
+		const a = runStart(dir, 2);
+		const forged: string[] = [];
+		const plain = createLogWriter({ level: 'info', securityLog: 'on', sink: (l) => forged.push(l), chain: newChain() });
+		plain(event(99));
+		const b = runStart(dir, 2);
+		expect(kinds(verifyLog(text([...a, ...forged, ...b]), vkeyIn(dir)))).toEqual(['unsealed-start']);
+	});
+
+	it('two containers on one volume: each copy verifies', () => {
+		const dir = sealDir();
+		const x1 = runStart(dir, 2, undefined, 'host-x');
+		const y1 = runStart(dir, 2, undefined, 'host-y');
+		const x2 = runStart(dir, 2, undefined, 'host-x');
+		const y2 = runStart(dir, 2, undefined, 'host-y');
+		expect(verifyLog(text([...x1, ...x2]), vkeyIn(dir)).breaks).toEqual([]);
+		expect(verifyLog(text([...y1, ...y2]), vkeyIn(dir)).breaks).toEqual([]);
+	});
+
+	it('a key replaced between two starts verifies with both vkeys', () => {
+		const dir = sealDir();
+		const a = runStart(dir, 2);
+		const first = vkeyIn(dir);
+		rmSync(join(dir, 'key.pem'));
+		const b = runStart(dir, 2);
+		const second = vkeyIn(dir);
+		expect(second).not.toBe(first);
+		expect(verifyLog(text([...a, ...b]), [first, second]).breaks).toEqual([]);
+		expect(kinds(verifyLog(text([...a, ...b]), second))).toContain('signature');
+	});
+
 	it('verified with another key: signature', () => {
 		const dir = sealDir();
 		const lines = runStart(dir, 4);
@@ -191,6 +246,57 @@ describe('a copy edited by someone without the key', () => {
 		const report = verifyLog(text(lines), other);
 		expect(new Set(kinds(report))).toEqual(new Set(['signature']));
 		expect(report.checkpointsVerified).toBe(0);
+	});
+});
+
+describe('when a checkpoint is written', () => {
+	function started() {
+		const dir = sealDir();
+		const out: string[] = [];
+		const scheduled: (() => void)[] = [];
+		const { proc, stop } = fakeProcess();
+		const write = createLogWriter({
+			level: 'warn',
+			securityLog: 'off',
+			sink: (line) => out.push(line),
+			chain: newChain(),
+			seal: 'on',
+			schedule: (run) => scheduled.push(run)
+		});
+		write.startSeal({ dir, intervalSeconds: 900, host: 'h', proc });
+		const tick = () => scheduled.splice(0).forEach((run) => run());
+		const count = () => out.map(eventOf).filter((n) => n === E.logCheckpoint).length;
+		return { dir, out, write, tick, stop, count };
+	}
+
+	// The level is `warn` and security logging is off in `started()`: neither may drop a seal line.
+	it('at a tick after lines were written, whatever BP_LOG_LEVEL and BP_SECURITY_LOG say', () => {
+		const s = started();
+		expect(s.out.map(eventOf)).toEqual([E.logSealStarted]);
+		s.tick();
+		expect(s.count()).toBe(1);
+	});
+
+	it('not at a tick after nothing but the last checkpoint was written', () => {
+		const s = started();
+		s.tick();
+		s.tick();
+		expect(s.count()).toBe(1);
+	});
+
+	it('once on stop, though both stop events arrive', () => {
+		const s = started();
+		s.stop();
+		expect(s.count()).toBe(1);
+		expect(verifyLog(text(s.out), vkeyIn(s.dir)).unsealedLines).toBe(0);
+	});
+
+	it('within MAX_LINE_BYTES, with the whole note', () => {
+		const s = started();
+		s.stop();
+		const line = s.out.find((l) => eventOf(l) === E.logCheckpoint)!;
+		expect(Buffer.byteLength(line)).toBeLessThan(MAX_LINE_BYTES);
+		expect(verifyLog(text(s.out), vkeyIn(s.dir)).checkpointsVerified).toBe(1);
 	});
 });
 
