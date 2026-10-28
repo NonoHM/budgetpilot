@@ -90,6 +90,11 @@ A **full replacement**, inside one database transaction:
 1. Every row belonging to the account is deleted, in dependency order.
 2. Everything in the file is recreated, with fresh identifiers.
 
+Two accounts from the same kind of import whose names differ only in case or
+accents, such as Livret and LIVRET, come back as two accounts, never one. The
+second gets a short code after its name, such as `LIVRET · 3fa91c`. You can
+rename it from the Accounts card.
+
 There is no merge mode and no undo. If any step fails, the transaction rolls
 back and the account is left as it was.
 
