@@ -129,8 +129,8 @@ failing on a removed line and on an edited one, and records the last line as a c
 Some events can be caused by a visitor who has not signed in: a page that does not exist, an
 unexpected error. Written one line per request, a loop of requests becomes a loop of disk writes, and
 the log becomes the way to fill the disk. For these events the first 20 lines of one event within a
-minute are written. The rest are counted, and when the minute ends one `budgetpilot.log.suppressed`
-line gives the count.
+minute are written. The rest are counted, and when the minute ends, or when the server stops first,
+one `budgetpilot.log.suppressed` line gives the count.
 
 The trade-off is detail. During a burst, the lines past the twentieth are gone, so the log shows how
 many requests failed and not which. The count survives, and so does the first twenty. The other

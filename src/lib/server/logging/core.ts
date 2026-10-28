@@ -110,7 +110,8 @@ export interface WriterOptions {
 	schedule?: (run: () => void, ms: number) => void;
 }
 
-export type LogWriter = (event: LogEvent) => void;
+/** `flush()` writes the summary of every open flood window now, for a process about to stop. */
+export type LogWriter = ((event: LogEvent) => void) & { flush: () => void };
 
 export function sha256Hex(text: string): string {
 	return createHash('sha256').update(text, 'utf8').digest('hex');
@@ -257,7 +258,7 @@ export function createLogWriter(options: WriterOptions): LogWriter {
 		}
 	);
 
-	return (event) => {
+	const write = (event: LogEvent) => {
 		const spec = REGISTRY[event.event];
 		if (spec.security && options.securityLog === 'off') return;
 		const method = METHOD_OF[spec.severity];
@@ -269,6 +270,7 @@ export function createLogWriter(options: WriterOptions): LogWriter {
 		}
 		emit(event.event, method, spec.body, event.attributes, request);
 	};
+	return Object.assign(write, { flush: admit.flush });
 }
 
 /** A synchronous sink on file descriptor 1, so a line is out before a `process.exit` that follows. */

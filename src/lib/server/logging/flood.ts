@@ -36,22 +36,27 @@ export interface FloodGateOptions {
 /**
  * Returns `admit(key, label)`: true when the line is written, false when it is counted instead.
  * `label` describes the key for the summary line and is kept from the first line of each window.
+ * `admit.flush()` closes every open window now; the timer of a window it closed then does nothing.
  */
 export function createFloodGate<Label>(
 	summarise: (label: Label, suppressed: number, windowSeconds: number) => void,
 	options: FloodGateOptions
-): (key: string, label: Label) => boolean {
+): ((key: string, label: Label) => boolean) & { flush: () => void } {
 	const windowMs = options.windowMs ?? FLOOD_WINDOW_MS;
 	const allowance = options.allowance ?? FLOOD_ALLOWANCE;
 	const windows = new Map<string, Window<Label>>();
 
+	// The summary names the seconds the window ran, from its first line, rounded up, 1 to the window
+	// (owner rulings on #866): a window cut short by a stop is no longer reported as a full minute.
 	const close = (key: string, window: Window<Label>) => {
 		if (windows.get(key) !== window) return;
 		windows.delete(key);
-		if (window.suppressed > 0) summarise(window.label, window.suppressed, windowMs / 1000);
+		if (window.suppressed === 0) return;
+		const covered = Math.ceil((options.now() - window.start) / 1000);
+		summarise(window.label, window.suppressed, Math.min(windowMs / 1000, Math.max(1, covered)));
 	};
 
-	return (key, label) => {
+	const admit = (key: string, label: Label): boolean => {
 		const now = options.now();
 		const current = windows.get(key);
 		if (current && now - current.start >= windowMs) close(key, current);
@@ -69,4 +74,11 @@ export function createFloodGate<Label>(
 		}
 		return false;
 	};
+
+	/** Writes every open window's summary now, for a process about to stop (#866, #1085). */
+	const flush = () => {
+		for (const [key, window] of windows) close(key, window);
+	};
+
+	return Object.assign(admit, { flush });
 }

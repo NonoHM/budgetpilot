@@ -48,12 +48,33 @@ const KNOWN_METHODS = new Set([
 let writer: LogWriter | undefined;
 
 function current(): LogWriter {
-	writer ??= createLogWriter({
-		...readLogSettings(process.env),
-		sink: stdoutSink(),
-		context: () => requests.getStore()
-	});
+	if (!writer) {
+		writer = createLogWriter({
+			...readLogSettings(process.env),
+			sink: stdoutSink(),
+			context: () => requests.getStore()
+		});
+		flushOnStop(writer);
+	}
 	return writer;
+}
+
+/**
+ * Writes the open flood windows when the process stops (#866, #1085), as Python's `logging`
+ * (atexit), Monolog's BufferHandler (register_shutdown_function) and pino's transports ('exit') flush
+ * what they hold. Two events, because 'exit' alone missed two engines: after SIGTERM adapter-node
+ * closes the server and waits for the loop, and the PostgreSQL and MariaDB pools kept it running
+ * past Docker's 10 s grace (measured on 4fb08df). 'sveltekit:shutdown' arrives once the server has
+ * closed; 'exit' follows `sys_crash`'s `process.exit(1)`. No signal listener, which would remove
+ * Node's default exit on SIGINT under `vite dev`. `boot.mjs`'s writer needs none: no event it
+ * writes is summarised. A kill that runs no handler (SIGKILL, out of memory) still loses them.
+ */
+export function flushOnStop(
+	target: Pick<LogWriter, 'flush'>,
+	proc: Pick<NodeJS.EventEmitter, 'on'> = process
+): void {
+	proc.on('sveltekit:shutdown', target.flush);
+	proc.on('exit', target.flush);
 }
 
 export function log(event: LogEvent): void {
