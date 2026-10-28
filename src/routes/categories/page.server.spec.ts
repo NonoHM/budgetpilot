@@ -295,10 +295,23 @@ const db = vi.hoisted(() => {
 
 vi.mock('$lib/server/db', () => ({ prisma: db.prisma }));
 
+// The L4b-2 block at the foot of this file reads the `sensitive_delete` lines this module writes.
+vi.hoisted(() => {
+	process.env.RATE_LIMIT_HASH_SECRET ??= 'a1'.repeat(32);
+});
+const logged = vi.hoisted(() => [] as unknown[]);
+vi.mock('$lib/server/logging', async (importOriginal) => ({
+	...(await importOriginal<typeof import('$lib/server/logging')>()),
+	log: (event: unknown) => {
+		logged.push(event);
+	}
+}));
+
 // Must stay aligned with UNCLASSIFIED_CATEGORY ($lib/domain/categories).
 const UNCLASSIFIED_CATEGORY = 'uncategorized';
 
 const { actions, load } = await import('./+page.server');
+const { logUserPseudonym } = await import('$lib/server/logging/pseudonym');
 const testUser = { id: 'user-a', email: 'a@example.test', role: 'USER' as const };
 
 describe('deleteCategory — orphelins CategoryNatureMapping / MonthlyBudget', () => {
@@ -841,5 +854,65 @@ describe('load — the rename prompt (#162)', () => {
 		// back, or switches language, is offered it again.
 		expect(await loadPrompt()).toBeNull();
 		expect(db.promptDismissal.at).toBeNull();
+	});
+});
+
+/**
+ * L4b-2 (#250, owner ruling 3): deleting a category, and resetting a category's nature (which deletes
+ * its mapping), each write `sensitive_delete` with no count. Wire names as literals, as in
+ * `logging/data.spec.ts`.
+ */
+describe('L4b-2: categories writes sensitive_delete', () => {
+	type Line = { event: string; attributes: Record<string, unknown> };
+	const deletes = () => (logged as Line[]).filter((line) => line.event === 'sensitive_delete');
+	const line = (operation: string, scope: string) => ({
+		event: 'sensitive_delete',
+		attributes: {
+			'budgetpilot.user.pseudonym': logUserPseudonym(testUser.id),
+			'budgetpilot.data.operation': operation,
+			'budgetpilot.data.scope': scope
+		}
+	});
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		logged.length = 0;
+		db.categories.length = 0;
+		db.categories.push(
+			{ id: 'cat-alimentation', userId: 'user-a', name: 'Alimentation', defaultKey: 'food' },
+			{ id: 'cat-non-classe', userId: 'user-a', name: UNCLASSIFIED_CATEGORY, defaultKey: null }
+		);
+	});
+
+	it('deleteCategory on an owned category: one line, scope category', async () => {
+		await runAction('deleteCategory', { id: 'cat-alimentation' });
+		expect(deletes()).toEqual([line('delete_category', 'category')]);
+	});
+
+	// Green today; red if the line is written before the category resolves.
+	it('deleteCategory on an id that does not resolve writes none', async () => {
+		await runAction('deleteCategory', { id: 'cat-absent-l4b2' });
+		expect(deletes()).toEqual([]);
+	});
+
+	// The fake's deleteMany models the by-name delete only, so the by-id answer is set per test.
+	it('updateNature resetting a mapping that resolved: one line, scope nature_mapping', async () => {
+		db.prisma.categoryNatureMapping.deleteMany.mockResolvedValueOnce({ count: 1 });
+		await runAction('updateNature', {
+			categoryName: 'Alimentation',
+			nature: '',
+			mappingId: 'mapping-alimentation'
+		});
+		expect(deletes()).toEqual([line('delete_nature_mapping', 'nature_mapping')]);
+	});
+
+	it('updateNature resetting a mapping that does not resolve writes none', async () => {
+		db.prisma.categoryNatureMapping.deleteMany.mockResolvedValueOnce({ count: 0 });
+		await runAction('updateNature', {
+			categoryName: 'Alimentation',
+			nature: '',
+			mappingId: 'mapping-absent-l4b2'
+		});
+		expect(deletes()).toEqual([]);
 	});
 });

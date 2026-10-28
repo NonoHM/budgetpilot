@@ -12,6 +12,7 @@ import {
 	undoStreamAction
 } from '$lib/server/upcoming-bills/service';
 import type { Actions, PageServerLoad } from './$types';
+import { logSensitiveDelete } from '$lib/server/logging/data';
 
 /**
  * Read-only month view plus the four row mutations.
@@ -86,6 +87,7 @@ export const actions: Actions = {
 		} catch (caught) {
 			return fail(getErrorStatus(caught), { billError: getErrorMessage(caught) });
 		}
+		logSensitiveDelete(user.id, 'undo_bill_action');
 
 		const result: BillActionResult = { kind: 'restore', actionId: null, month: '', label: '' };
 		return { billAction: result };

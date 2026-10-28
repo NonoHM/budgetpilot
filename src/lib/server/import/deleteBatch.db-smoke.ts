@@ -156,7 +156,8 @@ describe('deleteImportBatch against a real engine', () => {
 		// a seed that silently wrote nothing cannot pass as a successful delete.
 		expect(await prisma.transaction.count({ where: { importBatchId: batchId } })).toBe(2);
 
-		expect(await deleteImportBatch(seed.userId, batchId)).toBe(true);
+		// L4b-2: the count the engine reports deleting, which `sensitive_delete` buckets.
+		expect(await deleteImportBatch(seed.userId, batchId)).toBe(2);
 
 		expect(await prisma.importBatch.count({ where: { id: batchId } })).toBe(0);
 		expect(await prisma.transaction.count({ where: { importBatchId: batchId } })).toBe(0);
@@ -176,7 +177,7 @@ describe('deleteImportBatch against a real engine', () => {
 
 		// The attempt is made rather than reasoned about. The id is real and correct; only the
 		// session is wrong, which is the shape of every IDOR this project tests for.
-		expect(await deleteImportBatch(attacker.userId, batchId)).toBe(false);
+		expect(await deleteImportBatch(attacker.userId, batchId)).toBeNull();
 
 		expect(await prisma.importBatch.count({ where: { id: batchId } })).toBe(1);
 		expect(await prisma.transaction.count({ where: { importBatchId: batchId } })).toBe(2);
@@ -222,7 +223,7 @@ describe('deleteImportBatch against a real engine', () => {
 		// batch when a second one of the same user exists.
 		const corrected = await seedBatch(seed, 'releve-corrige.csv');
 
-		expect(await deleteImportBatch(seed.userId, wrong)).toBe(true);
+		expect(await deleteImportBatch(seed.userId, wrong)).toBe(2);
 
 		expect(await prisma.transaction.count({ where: { importBatchId: wrong } })).toBe(0);
 		expect(await prisma.importBatch.count({ where: { id: corrected } })).toBe(1);

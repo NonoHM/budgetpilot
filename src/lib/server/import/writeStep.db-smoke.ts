@@ -358,7 +358,8 @@ describe('#662: what the partial-import sentence tells the user to do', () => {
 		expect(failed.ok ? null : failed.failure).toMatchObject({
 			createdAt: partial.createdAt.toISOString()
 		});
-		expect(await deleteImportBatch(userA, partial.id)).toBe(true);
+		// The three rows that landed, as the engine counts them (L4b-2).
+		expect(await deleteImportBatch(userA, partial.id)).toBe(3);
 
 		// A file whose cause is FIXED lands every row, none miscounted as a duplicate of a row the
 		// delete removed. This measures a corrected file, not the literal retry: see the next test.

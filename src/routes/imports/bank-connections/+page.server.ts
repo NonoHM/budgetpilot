@@ -25,6 +25,7 @@ import { resolveClientAddress } from '$lib/server/net/clientAddress';
 import { normalizeId } from '$lib/server/transactions/where';
 import type { PageServerLoad } from './$types';
 import { logReferenceRefused } from '$lib/server/logging/authz';
+import { logSensitiveDelete } from '$lib/server/logging/data';
 
 /** The only provider exposed in the UI (the mock connector stays test/demo-only). */
 const PROVIDER = 'enablebanking';
@@ -199,6 +200,7 @@ export const actions: Actions = {
 			logReferenceRefused(user.id, 'bank_connection');
 			return fail(404, { error: m.bank_connections_error_generic() });
 		}
+		logSensitiveDelete(user.id, 'delete_bank_connection');
 		return { success: m.bank_connections_deleted_success() };
 	},
 

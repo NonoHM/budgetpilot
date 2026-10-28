@@ -168,12 +168,14 @@ describe('restore volume with tags', () => {
 
 describe('restore purge and the join table', () => {
 	it('leaves no orphan link behind, because both parents cascade', async () => {
-		expect.assertions(3);
+		expect.assertions(5);
 
 		const userId = await freshUser();
 
 		// First restore: creates the tag, the transaction and the link.
-		await restoreBackup(userId, buildVolumePayload(1));
+		// L4b-2: a restore answers how many transactions its purge removed and how many it wrote, from
+		// the engine's own answers inside the commit; none removed on a fresh user.
+		expect(await restoreBackup(userId, buildVolumePayload(1))).toEqual({ deleted: 0, restored: 1 });
 		expect(await prisma.transactionTag.count({ where: { transaction: { userId } } })).toBe(1);
 
 		const linkedTagIds = (
@@ -186,7 +188,8 @@ describe('restore purge and the join table', () => {
 		const empty = buildVolumePayload(1);
 		empty.tags = [];
 		empty.transactionTags = [];
-		await restoreBackup(userId, empty);
+		// The second restore's purge removed the first one's transaction.
+		expect(await restoreBackup(userId, empty)).toEqual({ deleted: 1, restored: 1 });
 
 		expect(await prisma.transactionTag.count({ where: { transaction: { userId } } })).toBe(0);
 		// Nothing survives pointing at the tags the purge removed, on any engine.

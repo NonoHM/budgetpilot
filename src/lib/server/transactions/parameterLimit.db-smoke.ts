@@ -13,6 +13,11 @@ import { load as transactionsLoad } from '../../../routes/transactions/+page.ser
 import { GET as exportGET } from '../../../routes/transactions/export/+server';
 import { load as dashboardLoad } from '../../../routes/+page.server';
 import { load as reportsLoad } from '../../../routes/reports/+page.server';
+import { env } from '$env/dynamic/private';
+
+// L4b-2: the code this suite drives writes data events whose user pseudonym is keyed by this
+// secret, and db-smoke's `$env` is an empty stub, so the secret is a fixture of the file.
+env.RATE_LIMIT_HASH_SECRET ??= 'f6'.repeat(32);
 
 /**
  * THE SQLITE HOST-PARAMETER LIMIT, hit by EFFECTIVE_CATEGORY_SELECT's `splits` relation.

@@ -4,6 +4,11 @@ import { prisma } from '$lib/server/db';
 import { setTransactionTags, pruneOrphanTags, resolveTagByName } from './service';
 import { countTagsInScope } from './counts';
 import { applyTagToFilteredSet, undoBulkTag } from './bulk';
+import { env } from '$env/dynamic/private';
+
+// L4b-2: the code this suite drives writes data events whose user pseudonym is keyed by this
+// secret, and db-smoke's `$env` is an empty stub, so the secret is a fixture of the file.
+env.RATE_LIMIT_HASH_SECRET ??= 'f6'.repeat(32);
 
 /**
  * The two tag claims a fake Prisma structurally cannot answer.

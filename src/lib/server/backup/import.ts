@@ -18,8 +18,20 @@ import {
 import { MAX_ANCHOR_IDS, parseAnchorTransactionIds, type BackupExport } from './schema';
 import { validateColumnMapping } from '$lib/server/import/mapping/model';
 import { resolveColumnMappingsPerUser } from '$lib/server/import/mapping/store';
+import type { BackupIntegrityReason } from '$lib/server/logging/data';
 
-export class BackupImportError extends Error {}
+/**
+ * A file the integrity check refused. `reason` is the closed suffix of the message key, for the log
+ * (L4b-2): the message names ids from the file, so it goes to the member's screen and never to the log.
+ */
+export class BackupImportError extends Error {
+	constructor(
+		readonly reason: BackupIntegrityReason,
+		message: string
+	) {
+		super(message);
+	}
+}
 
 /** Historical FR name of the sentinel, present in pre-i18n exports. */
 const LEGACY_UNCLASSIFIED_NAME = 'Non catégorisé';
@@ -77,23 +89,33 @@ type TransactionClient = Parameters<Parameters<(typeof prisma)['$transaction']>[
  * Runs the restore's one transaction. The route passes `commitWithRotatedToken`, so the restore and
  * the new session token commit together (#249); every other caller gets a plain transaction.
  */
-export type RestoreCommit = (
-	change: (tx: TransactionClient) => Promise<void>,
+export type RestoreCommit = <T>(
+	change: (tx: TransactionClient) => Promise<T>,
 	options: typeof LONG_TRANSACTION_OPTIONS
-) => Promise<void>;
+) => Promise<T>;
 
 const plainTransaction: RestoreCommit = (change, options) => prisma.$transaction(change, options);
 
+/** How many transactions the purge removed and how many the restore wrote back (L4b-2). */
+export interface RestoreCounts {
+	deleted: number;
+	restored: number;
+}
+
+/**
+ * The counts are returned FROM the commit callback, so they are the committed attempt's own answer:
+ * a commit that retries runs the callback whole again.
+ */
 export async function restoreBackup(
 	userId: string,
 	payload: BackupExport,
 	commit: RestoreCommit = plainTransaction
-): Promise<void> {
+): Promise<RestoreCounts> {
 	assertReferentialIntegrity(payload);
 
-	await commit(async (tx) => {
+	return commit(async (tx) => {
 		// a. Full purge for this user, in dependency order.
-		await tx.transaction.deleteMany({ where: { userId } });
+		const purged = await tx.transaction.deleteMany({ where: { userId } });
 		// Before the accounts it hangs off, and explicitly rather than through the cascade the
 		// foreign key would give. Two reasons, and the second is the one that matters: every
 		// remembered account carries an account identifier fragment, which the export does not
@@ -475,13 +497,18 @@ export async function restoreBackup(
 		const bulkTransactions = transactionData.filter(
 			(entry) => !idCapturingTransactionIds.has(entry.oldId)
 		);
+		let restored = 0;
 		if (bulkTransactions.length > 0) {
-			await tx.transaction.createMany({ data: bulkTransactions.map((entry) => entry.data) });
+			const bulk = await tx.transaction.createMany({
+				data: bulkTransactions.map((entry) => entry.data)
+			});
+			restored += bulk.count;
 		}
 		for (const entry of transactionData) {
 			if (!idCapturingTransactionIds.has(entry.oldId)) continue;
 			const created = await tx.transaction.create({ data: entry.data, select: { id: true } });
 			transactionIdMap.set(entry.oldId, created.id);
+			restored += 1;
 		}
 
 		if (payload.recurringStreamActions.length > 0) {
@@ -579,6 +606,7 @@ export async function restoreBackup(
 			for (const [index, part] of parts.entries()) {
 				if (part.transactionId === undefined) {
 					throw new BackupImportError(
+						'unknown_split_transaction',
 						m.settings_backup_error_unknown_split_transaction({
 							id: payload.transactionSplits[index].transactionId
 						})
@@ -586,6 +614,7 @@ export async function restoreBackup(
 				}
 				if (part.categoryId === undefined) {
 					throw new BackupImportError(
+						'unknown_split_category',
 						m.settings_backup_error_unknown_split_category({
 							id: payload.transactionSplits[index].categoryId
 						})
@@ -695,6 +724,8 @@ export async function restoreBackup(
 				nameKey: computeNameKey(UNCLASSIFIED_CATEGORY)
 			}
 		});
+
+		return { deleted: purged.count, restored };
 	}, LONG_TRANSACTION_OPTIONS);
 }
 
@@ -725,6 +756,7 @@ function assertReferentialIntegrity(payload: BackupExport): void {
 		const verdict = validateColumnMapping(mapping);
 		if (!verdict.ok) {
 			throw new BackupImportError(
+				'invalid_column_mapping',
 				m.settings_backup_error_invalid_column_mapping({ reason: verdict.reason.code })
 			);
 		}
@@ -740,6 +772,7 @@ function assertReferentialIntegrity(payload: BackupExport): void {
 	const mappingCap = resolveColumnMappingsPerUser();
 	if (payload.columnMappings.length > mappingCap) {
 		throw new BackupImportError(
+			'too_many_column_mappings',
 			m.settings_backup_error_too_many_column_mappings({ max: mappingCap })
 		);
 	}
@@ -751,6 +784,7 @@ function assertReferentialIntegrity(payload: BackupExport): void {
 	for (const mapping of payload.columnMappings) {
 		if (fingerprints.has(mapping.fingerprint)) {
 			throw new BackupImportError(
+				'duplicate_column_mapping',
 				m.settings_backup_error_duplicate_column_mapping({
 					fingerprint: mapping.fingerprint.slice(0, 12)
 				})
@@ -762,11 +796,13 @@ function assertReferentialIntegrity(payload: BackupExport): void {
 	for (const account of payload.accounts) {
 		if (account.netWorthAccountId && !netWorthAccountIds.has(account.netWorthAccountId)) {
 			throw new BackupImportError(
+				'unknown_net_worth_account_link',
 				m.settings_backup_error_unknown_net_worth_account_link({ id: account.id })
 			);
 		}
 		if (account.bankConnectionId && !bankConnectionIds.has(account.bankConnectionId)) {
 			throw new BackupImportError(
+				'unknown_bank_connection_link',
 				m.settings_backup_error_unknown_bank_connection_link({ id: account.id })
 			);
 		}
@@ -774,13 +810,22 @@ function assertReferentialIntegrity(payload: BackupExport): void {
 
 	for (const transaction of payload.transactions) {
 		if (!accountIds.has(transaction.accountId)) {
-			throw new BackupImportError(m.settings_backup_error_unknown_account({ id: transaction.id }));
+			throw new BackupImportError(
+				'unknown_account',
+				m.settings_backup_error_unknown_account({ id: transaction.id })
+			);
 		}
 		if (!categoryIds.has(transaction.categoryId)) {
-			throw new BackupImportError(m.settings_backup_error_unknown_category({ id: transaction.id }));
+			throw new BackupImportError(
+				'unknown_category',
+				m.settings_backup_error_unknown_category({ id: transaction.id })
+			);
 		}
 		if (transaction.importBatchId && !importBatchIds.has(transaction.importBatchId)) {
-			throw new BackupImportError(m.settings_backup_error_unknown_import({ id: transaction.id }));
+			throw new BackupImportError(
+				'unknown_import',
+				m.settings_backup_error_unknown_import({ id: transaction.id })
+			);
 		}
 	}
 
@@ -790,11 +835,15 @@ function assertReferentialIntegrity(payload: BackupExport): void {
 	for (const link of payload.transactionTags) {
 		if (!transactionIds.has(link.transactionId)) {
 			throw new BackupImportError(
+				'unknown_tag_transaction',
 				m.settings_backup_error_unknown_tag_transaction({ id: link.transactionId })
 			);
 		}
 		if (!tagIds.has(link.tagId)) {
-			throw new BackupImportError(m.settings_backup_error_unknown_tag({ id: link.tagId }));
+			throw new BackupImportError(
+				'unknown_tag',
+				m.settings_backup_error_unknown_tag({ id: link.tagId })
+			);
 		}
 	}
 
@@ -844,6 +893,7 @@ function assertReferentialIntegrity(payload: BackupExport): void {
 	for (const [transactionId, keys] of tagKeysByTransaction) {
 		if (keys.size > MAX_TAGS_PER_TRANSACTION) {
 			throw new BackupImportError(
+				'tag_count',
 				m.settings_backup_error_tag_count({
 					id: transactionId,
 					max: MAX_TAGS_PER_TRANSACTION
@@ -856,11 +906,13 @@ function assertReferentialIntegrity(payload: BackupExport): void {
 	for (const split of payload.transactionSplits) {
 		if (!transactionIds.has(split.transactionId)) {
 			throw new BackupImportError(
+				'unknown_split_transaction',
 				m.settings_backup_error_unknown_split_transaction({ id: split.transactionId })
 			);
 		}
 		if (!categoryIds.has(split.categoryId)) {
 			throw new BackupImportError(
+				'unknown_split_category',
 				m.settings_backup_error_unknown_split_category({ id: split.categoryId })
 			);
 		}
@@ -923,6 +975,7 @@ function assertReferentialIntegrity(payload: BackupExport): void {
 			!isValidSplitPartAmount(split.amountCents, parentAmountCents)
 		) {
 			throw new BackupImportError(
+				'split_amount',
 				m.settings_backup_error_split_amount({ id: split.transactionId })
 			);
 		}
@@ -932,17 +985,22 @@ function assertReferentialIntegrity(payload: BackupExport): void {
 		const parentAmountCents = transactionAmountById.get(transactionId)!;
 		if (sum !== parentAmountCents) {
 			throw new BackupImportError(
+				'split_sum_mismatch',
 				m.settings_backup_error_split_sum_mismatch({ id: transactionId })
 			);
 		}
 		if (count < MIN_SPLITS_PER_TRANSACTION || count > MAX_SPLITS_PER_TRANSACTION) {
-			throw new BackupImportError(m.settings_backup_error_split_count({ id: transactionId }));
+			throw new BackupImportError(
+				'split_count',
+				m.settings_backup_error_split_count({ id: transactionId })
+			);
 		}
 	}
 
 	for (const snapshot of payload.netWorthSnapshots) {
 		if (!netWorthAccountIds.has(snapshot.accountId)) {
 			throw new BackupImportError(
+				'unknown_net_worth_account',
 				m.settings_backup_error_unknown_net_worth_account({ id: snapshot.id })
 			);
 		}
@@ -951,6 +1009,7 @@ function assertReferentialIntegrity(payload: BackupExport): void {
 	for (const goal of payload.savingsGoals) {
 		if (goal.netWorthAccountId && !netWorthAccountIds.has(goal.netWorthAccountId)) {
 			throw new BackupImportError(
+				'unknown_savings_goal_account',
 				m.settings_backup_error_unknown_savings_goal_account({ id: goal.id })
 			);
 		}

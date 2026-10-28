@@ -7,6 +7,7 @@ import { collectAllTransactions } from '$lib/server/transactions/batch';
 import { error } from '@sveltejs/kit';
 import * as m from '$lib/paraglide/messages';
 import type { RequestHandler } from './$types';
+import { logSensitiveRead } from '$lib/server/logging/data';
 
 export const GET: RequestHandler = async ({ locals, url }) => {
 	const user = requireUser(locals.user);
@@ -63,6 +64,8 @@ export const GET: RequestHandler = async ({ locals, url }) => {
 		{ accountName: await accountNameFor(user.id, transactions) }
 	);
 	const dateStamp = new Date().toISOString().slice(0, 10);
+	// The transactions read, never the CSV's lines, which are a different count (L4b-2).
+	logSensitiveRead(user.id, 'transactions_csv', transactions.length);
 
 	return new Response(csv, {
 		headers: {

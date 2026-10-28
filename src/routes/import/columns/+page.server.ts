@@ -43,6 +43,7 @@ import type { ReplaceOutcome } from '$lib/import/completedImport.svelte';
 import type { ImportSummaryResult } from '$lib/domain/importSummary';
 import { readAccountDisplayName } from '$lib/server/accounts/service';
 import { logReferenceRefused } from '$lib/server/logging/authz';
+import { logSensitiveDelete } from '$lib/server/logging/data';
 
 /**
  * The import the designation screen submits, and the ONE place its choices become facts.
@@ -578,8 +579,13 @@ export const actions: Actions = {
 					replacedRows,
 					importedRows: persisted.importedRows
 				};
-			} else if (await deleteImportBatch(user.id, replacing.id)) {
-				replaced = { kind: 'deleted', replacedAt };
+			} else {
+				// `null` only when the batch no longer resolves; 0 transactions is still a delete.
+				const deleted = await deleteImportBatch(user.id, replacing.id);
+				if (deleted !== null) {
+					replaced = { kind: 'deleted', replacedAt };
+					logSensitiveDelete(user.id, deleted, 'import_replace');
+				}
 			}
 		}
 

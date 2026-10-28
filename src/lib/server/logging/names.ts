@@ -134,6 +134,16 @@ export const ATTRIBUTE = {
 	redirectReason: 'budgetpilot.redirect.reason',
 	redirectUpstream: 'budgetpilot.redirect.upstream',
 
+	// Data events (L4b-2): what went or left as a closed scope, counts only as buckets.
+	dataOperation: 'budgetpilot.data.operation',
+	dataScope: 'budgetpilot.data.scope',
+	dataExport: 'budgetpilot.data.export',
+	dataTransactionsDeleted: 'budgetpilot.data.transactions_deleted',
+	dataTransactionsRestored: 'budgetpilot.data.transactions_restored',
+	dataRecordsDeleted: 'budgetpilot.data.records_deleted',
+	dataTransactionsExported: 'budgetpilot.data.transactions_exported',
+	restoreReason: 'budgetpilot.restore.reason',
+
 	// The container start, `boot.mjs`.
 	bootDirectory: 'budgetpilot.boot.directory',
 	bootUid: 'budgetpilot.boot.uid',
@@ -181,6 +191,11 @@ export const EVENT = {
 
 	// Control bypass (L4b). The vocabulary has no name for a refused redirect.
 	redirectRefused: 'budgetpilot.redirect.refused',
+
+	// OWASP Logging Vocabulary, data events (L4b-2), without the user the vocabulary appends.
+	sensitiveDelete: 'sensitive_delete',
+	sensitiveRead: 'sensitive_read',
+	inputValidationFail: 'input_validation_fail',
 
 	configOriginSet: 'budgetpilot.config.origin_set',
 	configOriginUnset: 'budgetpilot.config.origin_unset',

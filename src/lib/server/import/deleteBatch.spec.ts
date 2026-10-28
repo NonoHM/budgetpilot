@@ -11,7 +11,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const db = vi.hoisted(() => ({
 	prisma: {
 		importBatch: { findFirst: vi.fn(), delete: vi.fn() },
-		transaction: { deleteMany: vi.fn() },
+		// Answers the engine's count synchronously, so the `$transaction` fake below hands it back.
+		transaction: { deleteMany: vi.fn(() => ({ count: 4 })) },
 		$transaction: vi.fn(async (ops: unknown[]) => ops)
 	}
 }));
@@ -32,7 +33,7 @@ describe('deleteImportBatch', () => {
 
 		const deleted = await deleteImportBatch('user-1', 'batch-of-user-2');
 
-		expect(deleted).toBe(false);
+		expect(deleted).toBeNull();
 		expect(db.prisma.$transaction).not.toHaveBeenCalled();
 		expect(db.prisma.transaction.deleteMany).not.toHaveBeenCalled();
 		expect(db.prisma.importBatch.delete).not.toHaveBeenCalled();
@@ -56,7 +57,8 @@ describe('deleteImportBatch', () => {
 
 		const deleted = await deleteImportBatch('user-1', 'batch-1');
 
-		expect(deleted).toBe(true);
+		// L4b-2: the count the engine answered for the transactions, not a boolean.
+		expect(deleted).toBe(4);
 		expect(db.prisma.transaction.deleteMany).toHaveBeenCalledWith({
 			where: { userId: 'user-1', importBatchId: 'batch-1' }
 		});

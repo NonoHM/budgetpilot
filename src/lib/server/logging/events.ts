@@ -176,6 +176,102 @@ export type AdminActionFields =
 	| { [A.adminAction]: TargetedAdminAction; [A.targetUserPseudonym]: LogUserPseudonym }
 	| { [A.adminAction]: UntargetedAdminAction };
 
+/**
+ * THE DATA EVENTS (L4b-2, part of #250), built only in `logging/data.ts`. A line says WHAT WENT
+ * (or left, for an export) as a closed scope the constructor derives from the operation, and a
+ * count only qualifies it, as a bucket (owner ruling 2026-10-27: a restore or an account deletion
+ * that wipes everything else can log 0). No name, label, id or file name: only closed values and
+ * the pseudonyms.
+ */
+export type CountBucket = '0' | '1' | '2-9' | '10-99' | '100-999' | '1000+';
+
+/** The deletions whose line carries the transactions they destroyed. */
+export type CountedDeleteOperation =
+	'delete_account' | 'import_cancel' | 'import_replace' | 'delete_transaction';
+/** The deletions whose line carries no count. */
+export type UncountedDeleteOperation =
+	| 'delete_category'
+	| 'delete_rule'
+	| 'delete_tag'
+	| 'delete_budget'
+	| 'delete_column_mapping'
+	| 'forget_remembered_account'
+	| 'delete_nature_mapping'
+	| 'delete_bank_connection'
+	| 'undo_bill_action'
+	| 'merge_budget'
+	| 'overrule_remembered_account'
+	| 'delete_net_worth_account'
+	| 'delete_savings_goal';
+/** The prunes: records an edit or a write left with no use, counted under one field (rev 3b). */
+export type PruneOperation = 'prune_tags' | 'prune_bill_actions';
+export type SensitiveDeleteOperation =
+	CountedDeleteOperation | 'delete_user' | 'restore' | PruneOperation | UncountedDeleteOperation;
+
+export type DataScope =
+	| 'account'
+	| 'account_records'
+	| 'import'
+	| 'transaction'
+	| 'category'
+	| 'rule'
+	| 'tag'
+	| 'budget'
+	| 'column_mapping'
+	| 'remembered_account'
+	| 'nature_mapping'
+	| 'bank_connection'
+	| 'bill_action'
+	| 'net_worth_account'
+	| 'savings_goal'
+	| 'selection';
+
+export type DataExport = 'backup' | 'transactions_csv';
+
+/**
+ * Why a restore file was refused by its integrity check: the suffix of the message key each
+ * `BackupImportError` throw site uses (`settings_backup_error_<reason>`), closed so the log never
+ * carries the message, which names ids from the file.
+ */
+export type BackupIntegrityReason =
+	| 'invalid_column_mapping'
+	| 'too_many_column_mappings'
+	| 'duplicate_column_mapping'
+	| 'unknown_net_worth_account_link'
+	| 'unknown_bank_connection_link'
+	| 'unknown_account'
+	| 'unknown_category'
+	| 'unknown_import'
+	| 'unknown_tag_transaction'
+	| 'unknown_tag'
+	| 'tag_count'
+	| 'unknown_split_transaction'
+	| 'unknown_split_category'
+	| 'split_amount'
+	| 'split_sum_mismatch'
+	| 'split_count'
+	| 'unknown_net_worth_account'
+	| 'unknown_savings_goal_account';
+/** Why the restore route refused a file before or around the restore itself. */
+export type RestoreFileRefusal =
+	| 'too_large'
+	| 'too_complex'
+	| 'invalid_json'
+	| 'unsupported_format'
+	| 'schema_invalid'
+	| 'date_out_of_range'
+	| 'duplicate';
+export type RestoreRefusal = RestoreFileRefusal | BackupIntegrityReason;
+
+export interface SensitiveDeleteFields {
+	[A.dataOperation]: SensitiveDeleteOperation;
+	[A.dataScope]: DataScope;
+	[A.dataTransactionsDeleted]?: CountBucket;
+	[A.dataTransactionsRestored]?: CountBucket;
+	[A.dataRecordsDeleted]?: CountBucket;
+	[A.targetUserPseudonym]?: LogUserPseudonym;
+}
+
 export type LogEvent =
 	| {
 			event: typeof E.sysStartup;
@@ -344,6 +440,15 @@ export type LogEvent =
 				[A.userPseudonym]?: LogUserPseudonym;
 				[A.redirectReason]?: RedirectRefusal;
 				[A.redirectUpstream]?: RedirectUpstream;
+				[A.dataOperation]?: SensitiveDeleteOperation;
+				[A.dataScope]?: DataScope;
+				[A.dataTransactionsDeleted]?: CountBucket;
+				[A.dataTransactionsRestored]?: CountBucket;
+				[A.dataRecordsDeleted]?: CountBucket;
+				[A.targetUserPseudonym]?: LogUserPseudonym;
+				[A.dataExport]?: DataExport;
+				[A.dataTransactionsExported]?: CountBucket;
+				[A.restoreReason]?: RestoreRefusal;
 			};
 	  }
 	| {
@@ -404,6 +509,23 @@ export type LogEvent =
 				[A.redirectReason]: RedirectRefusal;
 				[A.redirectUpstream]: RedirectUpstream;
 			};
+	  }
+	| {
+			event: typeof E.sensitiveDelete;
+			attributes: UserFields & NoClientFields & SensitiveDeleteFields;
+	  }
+	| {
+			event: typeof E.sensitiveRead;
+			attributes: UserFields &
+				NoClientFields & {
+					[A.dataExport]: DataExport;
+					[A.dataScope]: DataScope;
+					[A.dataTransactionsExported]: CountBucket;
+				};
+	  }
+	| {
+			event: typeof E.inputValidationFail;
+			attributes: UserFields & NoClientFields & { [A.restoreReason]: RestoreRefusal };
 	  }
 	| {
 			event: typeof E.consoleOutput;
@@ -732,6 +854,58 @@ export const REGISTRY: { [N in EventName]: EventSpec<AttributesOf<N>> } = {
 		floodBy: [A.redirectReason, A.redirectUpstream],
 		attributes: { [A.redirectReason]: 'Operational', [A.redirectUpstream]: 'Operational' }
 	},
+	// An audit record, like authz_admin: not a security event, so BP_SECURITY_LOG=off keeps it.
+	// Summarised because one-row deletes repeat at will (rev 3), keyed by every field that tells two
+	// kinds apart, so a burst of one cannot hide a line of another.
+	[E.sensitiveDelete]: {
+		severity: 'WARN',
+		body: 'A member or an admin deleted stored data. The scope says what went and a count only qualifies it: 0 beside the account scope still means every record went.',
+		flood: true,
+		security: false,
+		floodBy: [
+			A.dataOperation,
+			A.dataScope,
+			A.dataTransactionsDeleted,
+			A.dataTransactionsRestored,
+			A.dataRecordsDeleted,
+			A.userPseudonym,
+			A.targetUserPseudonym
+		],
+		attributes: {
+			[A.userPseudonym]: 'Pseudonymous',
+			[A.dataOperation]: 'Operational',
+			[A.dataScope]: 'Operational',
+			[A.dataTransactionsDeleted]: 'Operational',
+			[A.dataTransactionsRestored]: 'Operational',
+			[A.dataRecordsDeleted]: 'Operational',
+			[A.targetUserPseudonym]: 'Pseudonymous'
+		}
+	},
+	// The bucket is in the key (contradiction pass F2): twenty empty exports must not summarise away
+	// the full one that follows them in the same minute.
+	[E.sensitiveRead]: {
+		severity: 'WARN',
+		body: 'A member exported data. The export says which file, the scope says what it holds, and the count how many transactions it carried.',
+		flood: true,
+		security: false,
+		floodBy: [A.dataExport, A.dataTransactionsExported, A.userPseudonym],
+		attributes: {
+			[A.userPseudonym]: 'Pseudonymous',
+			[A.dataExport]: 'Operational',
+			[A.dataScope]: 'Operational',
+			[A.dataTransactionsExported]: 'Operational'
+		}
+	},
+	// A control-bypass event (owner ruling 2026-10-27): only an uploaded backup's refusals, never a
+	// form field's.
+	[E.inputValidationFail]: {
+		severity: 'WARN',
+		body: 'A backup file uploaded for restore was refused, and nothing in the account changed. The reason says which check refused it.',
+		flood: true,
+		security: true,
+		floodBy: [A.restoreReason, A.userPseudonym],
+		attributes: { [A.userPseudonym]: 'Pseudonymous', [A.restoreReason]: 'Operational' }
+	},
 	[E.backfillStarted]: {
 		severity: 'INFO',
 		body: 'A one-time boot backfill started.',
@@ -944,7 +1118,16 @@ export const REGISTRY: { [N in EventName]: EventSpec<AttributesOf<N>> } = {
 			[A.authzReference]: 'Operational',
 			[A.userPseudonym]: 'Pseudonymous',
 			[A.redirectReason]: 'Operational',
-			[A.redirectUpstream]: 'Operational'
+			[A.redirectUpstream]: 'Operational',
+			[A.dataOperation]: 'Operational',
+			[A.dataScope]: 'Operational',
+			[A.dataTransactionsDeleted]: 'Operational',
+			[A.dataTransactionsRestored]: 'Operational',
+			[A.dataRecordsDeleted]: 'Operational',
+			[A.targetUserPseudonym]: 'Pseudonymous',
+			[A.dataExport]: 'Operational',
+			[A.dataTransactionsExported]: 'Operational',
+			[A.restoreReason]: 'Operational'
 		}
 	},
 	[E.logLineTooLong]: {

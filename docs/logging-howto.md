@@ -284,6 +284,50 @@ After a routine rotation, keep the old secret offline, away from the server, for
 the logs written under it. After a leak, destroy it: it no longer protects those lines from whoever
 holds the leaked copy, and keeping it is one more place it can leak from.
 
+## Find what an account lost
+
+Every deletion a member or an admin makes writes a `sensitive_delete` line, and every export writes
+a `sensitive_read` line. A line names the account by its pseudonym and says what went, never what it
+contained. To list the deletions and exports of one account:
+
+1. Print the account's pseudonym:
+
+   ```bash
+   docker compose exec budgetpilot /nodejs/bin/node scripts/log-pseudonym.mjs --email
+   ```
+
+   At `Email:`, type the account's address and press Enter. If the account no longer exists, the
+   command cannot find it: take the pseudonym from the line that recorded its deletion instead.
+
+2. Print every deletion and export that names the account, as the actor or as an admin's target,
+   with the summaries of repeated ones:
+
+   ```bash
+   docker compose logs --no-log-prefix budgetpilot | jq -cR --arg p PSEUDONYM 'fromjson? | select(.["budgetpilot.user.pseudonym"] == $p or .["budgetpilot.target.user_pseudonym"] == $p) | select((.event_name | IN("sensitive_delete", "sensitive_read")) or (.["budgetpilot.log.suppressed_event"] | IN("sensitive_delete", "sensitive_read"))) | [.timestamp, .event_name, .["budgetpilot.data.operation"] // .["budgetpilot.data.export"], .["budgetpilot.data.scope"], .["budgetpilot.data.transactions_deleted"] // .["budgetpilot.data.transactions_exported"], .["budgetpilot.log.suppressed_count"]]'
+   ```
+
+   Replace `PSEUDONYM` with the 64 characters the first step printed. Each output line gives the
+   time, the event, the operation or export, the scope, the transaction count, and, on a summary
+   line, how many lines it stands for:
+
+   ```text
+   ["2026-10-27T21:44:43.824Z","sensitive_read","backup","account_records","100-999",null]
+   ["2026-10-27T21:44:43.824Z","sensitive_delete","delete_transaction","transaction","1",null]
+   ["2026-10-27T21:44:43.824Z","sensitive_delete","restore","account_records","0",null]
+   ["2026-10-27T21:45:43.824Z","budgetpilot.log.suppressed","delete_transaction","transaction","1",5]
+   ```
+
+   This run deleted 25 transactions one by one in under a minute and printed 20 identical
+   `delete_transaction` lines, shortened here to one. The last line stands for the 5 deletions past
+   that limit.
+
+3. Read the scope before the count. `account` and `account_records` mean every record of the
+   account went, whatever the transaction count says. [Every event](./logging.md#sensitive_delete)
+   lists what each scope covers.
+
+What to do about a deletion the member did not make is under
+[What to do](./logging.md#what-to-do).
+
 ## Keep the lines that are not JSON
 
 Dropping the lines that `jq` cannot parse hides the database tool's output. That output is where a
