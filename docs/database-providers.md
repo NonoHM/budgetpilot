@@ -214,6 +214,19 @@ database is the whole requirement: no superuser, no `CREATEDB`, no
 with more, see [the app's database
 account](#the-apps-database-account).
 
+To keep the password out of `.env` and out of `docker inspect`, write the URL
+with the user and no password, and give the password as a file instead:
+
+```dotenv
+DATABASE_URL="postgresql://budgetpilot@db.example.lan:5432/budgetpilot?sslmode=verify-full"
+DATABASE_PASSWORD_FILE=/run/secrets/db_password
+```
+
+The app puts the password into the URL when the container starts, encoded so
+that any character works. It refuses to start if the URL already holds a
+password, or if `DATABASE_PASSWORD` is set as well. See [secrets in
+files](./configuration.md#secrets-in-files).
+
 Details of both variables, including the accepted spellings, are in
 [configuration](./configuration.md#database).
 

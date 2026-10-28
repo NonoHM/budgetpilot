@@ -774,7 +774,12 @@ export type IntegerSettingName = {
 	[K in SettingName]: (typeof SETTINGS)[K] extends { kind: 'integer' } ? K : never;
 }[SettingName];
 
-/** The names that existed before R13 ruled that new ones start with `BP_`. Frozen: never added to. */
+/**
+ * The names that existed before R13 ruled that new ones start with `BP_`. Frozen: never added to.
+ * A secret's file form is its name plus `_FILE` (owner, 2026-10-28, #826/#1099), whichever list the
+ * name is on: `TOTP_ENCRYPTION_KEY_FILE` for a frozen name, `BP_<NAME>_FILE` for a new one. The R13
+ * test in `settings.spec.ts` admits the first by that rule, and the second already starts with `BP_`.
+ */
 export const NAMES_BEFORE_THE_BP_PREFIX: readonly string[] = [
 	'ORIGIN',
 	'PUBLIC_INSTANCE',
