@@ -79,9 +79,18 @@ secrets:
     file: ./secrets/totp_key
 ```
 
+Compose mounts such a file with the owner and mode it has on the host, and the
+app runs as user 65532, so give the file to that user:
+
+```bash
+sudo chown 65532 secrets/totp_key && sudo chmod 600 secrets/totp_key
+```
+
 The app reads each file once when the container starts, before anything else,
 and removes line breaks at the end of it. A file that is empty after that
-counts as not set, like an empty variable.
+counts as not set, like an empty variable. After you change a secret file,
+restart the app: the commands in `scripts/` read the file when you run them,
+while the running server keeps the value it read at its start.
 
 The app refuses to start, and says why, when:
 
@@ -90,7 +99,8 @@ The app refuses to start, and says why, when:
   one you edit. An empty variable, as `.env.example` ships them, counts as not
   set;
 - the file cannot be read. The message names the variable and the error code,
-  never the path, in case the secret itself was written where the path belongs;
+  and not what the variable holds, in case the secret itself was written where
+  the path belongs;
 - `DATABASE_PASSWORD_FILE` is set and `DATABASE_URL` does not name a PostgreSQL
   or MySQL server with a user, or already holds a password, inside the address
   or as `?password=`. Write the URL with the user and no password, for example

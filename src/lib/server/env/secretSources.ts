@@ -19,8 +19,10 @@ import { inspect, secretFileProblems } from './secretFileFacts.ts';
  * the docker-library `file_env` that the convention comes from unsets it, so a second run is a no-op
  * and the server can tell a `_FILE` nothing resolved (`assertSecretSourcesConfigured`).
  *
- * A refusal names variables and error codes, never a value, never the configured path (an operator
- * who writes the secret where the path belongs has written it there), never the database URL.
+ * A refusal names variables and error codes, never a value, never the database URL, and never what a
+ * `_FILE` variable holds when its file cannot be read (an operator who writes the secret where the
+ * path belongs has written it there). Under strict mode, #901's sentences name the RESOLVED path of
+ * a file that exists, which is a fact about the filesystem and not a secret.
  */
 
 /**

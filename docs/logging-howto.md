@@ -274,6 +274,10 @@ rotation, give the command the old secret without writing it on the command line
    docker compose exec -e RATE_LIMIT_HASH_SECRET budgetpilot /nodejs/bin/node scripts/log-pseudonym.mjs --user PSEUDONYM
    ```
 
+   If your install gives the secret as a file ([`RATE_LIMIT_HASH_SECRET_FILE`](./configuration.md#secrets-in-files)),
+   also add `-e RATE_LIMIT_HASH_SECRET_FILE=`, which empties the file setting for this one command so
+   the old secret is the only one set.
+
 3. Remove the old secret from your shell:
 
    ```bash
