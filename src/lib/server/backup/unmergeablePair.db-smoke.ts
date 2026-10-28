@@ -248,9 +248,9 @@ describe('a restore and two file accounts whose names share a key (#1090)', () =
 	it('cuts a long name by characters so the suffixed name fits and keeps whole characters', async () => {
 		// SEPARATES « cut on code points » FROM « cut on UTF-16 units », and FROM « no cut », which
 		// exceeds the name cap. The name is 70 emoji then ASCII: 120 code points in 190 units,
-		// inside the file's 200-unit bound. A code-point cut keeps all 70 emoji; a unit cut keeps at
-		// most 112 units, so at most 56 of them, whatever the suffix length (`hashFingerprint` is not
-		// zero padded). Asserted on what the base IS, because a lone surrogate reads back as U+FFFD.
+		// inside the file's 200-unit bound. A code-point cut keeps all 70 emoji; a unit cut keeps
+		// 111 to 116 units (the suffix is 4 to 9 characters: `hashFingerprint` is not zero padded),
+		// so at most 58. Asserted on what the base IS, because a lone surrogate reads back as U+FFFD.
 		const long = `${'🏦'.repeat(70)}${'b'.repeat(MAX_ACCOUNT_NAME_LENGTH - 71)}`;
 		const { userId, file } = await seed([
 			{ ...LIVRET, name: `${long}A` },
@@ -262,7 +262,7 @@ describe('a restore and two file accounts whose names share a key (#1090)', () =
 		const restored = await names(userId);
 		expect(restored).toHaveLength(2);
 		const suffixed = restored.find((row) => row.name.includes(' · '))!.name;
-		expect(Array.from(suffixed).length).toBeLessThanOrEqual(MAX_ACCOUNT_NAME_LENGTH);
+		expect(Array.from(suffixed).length).toBe(MAX_ACCOUNT_NAME_LENGTH);
 		expect(suffixed.startsWith('🏦'.repeat(70))).toBe(true);
 		expect(suffixed).toMatch(/^(?:🏦)+b* · [0-9a-f]+$/u);
 		expect(new Set(restored.map((row) => row.nameKey)).size).toBe(2);
