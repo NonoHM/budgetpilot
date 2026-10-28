@@ -109,10 +109,14 @@ async function seed(accounts: SeedAccount[]): Promise<{ userId: string; file: Ba
 		});
 	}
 	const exported = (await buildBackupExport(userId)) as BackupExport;
-	// Parsed, so no fixture here can hold a file the restore route would refuse.
+	// Parsed, so no fixture here can hold a file the restore route would refuse. In SEED order,
+	// because the export has no orderBy and which account keeps the bare name follows file order.
+	const order = [...fileName.keys()];
 	const file = backupExportSchema.parse({
 		...exported,
-		accounts: exported.accounts.map((row) => ({ ...row, name: fileName.get(row.id)! }))
+		accounts: exported.accounts
+			.map((row) => ({ ...row, name: fileName.get(row.id)! }))
+			.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id))
 	});
 	return { userId, file };
 }
@@ -243,30 +247,24 @@ describe('a restore and two file accounts whose names share a key (#1090)', () =
 
 	it('cuts a long name by characters so the suffixed name fits and keeps whole characters', async () => {
 		// SEPARATES « cut on code points » FROM « cut on UTF-16 units », and FROM « no cut », which
-		// exceeds the name cap. A unit cut leaves a lone surrogate, which the driver stores as U+FFFD,
-		// so the name reads back well formed: the assertion is on what the base IS, emoji only. Two
-		// pairs, one shifted by a one-unit « x », so a unit cut lands mid-pair in one of them
-		// whatever the length of the suffix (`hashFingerprint` is not zero padded). 120 code points
-		// in 190 units, inside the file's 200-unit bound, with the cut inside the emoji run.
+		// exceeds the name cap. The name is 70 emoji then ASCII: 120 code points in 190 units,
+		// inside the file's 200-unit bound. A code-point cut keeps all 70 emoji; a unit cut keeps at
+		// most 112 units, so at most 56 of them, whatever the suffix length (`hashFingerprint` is not
+		// zero padded). Asserted on what the base IS, because a lone surrogate reads back as U+FFFD.
 		const long = `${'🏦'.repeat(70)}${'b'.repeat(MAX_ACCOUNT_NAME_LENGTH - 71)}`;
-		const shifted = `x${'🏦'.repeat(70)}${'b'.repeat(MAX_ACCOUNT_NAME_LENGTH - 72)}`;
 		const { userId, file } = await seed([
 			{ ...LIVRET, name: `${long}A` },
-			{ ...LIVRET_USD, name: `${long}a` },
-			{ ...LIVRET, name: `${shifted}A`, amount: 700n },
-			{ ...LIVRET_USD, name: `${shifted}a`, amount: 300n }
+			{ ...LIVRET_USD, name: `${long}a` }
 		]);
 
 		await restoreBackup(userId, file);
 
 		const restored = await names(userId);
-		expect(restored).toHaveLength(4);
-		const suffixed = restored.filter((row) => row.name.includes(' · ')).map((row) => row.name);
-		expect(suffixed).toHaveLength(2);
-		for (const name of suffixed) {
-			expect(Array.from(name).length).toBeLessThanOrEqual(MAX_ACCOUNT_NAME_LENGTH);
-			expect(name).toMatch(/^x?(?:🏦)+b* · [0-9a-f]+$/u);
-		}
-		expect(new Set(restored.map((row) => row.nameKey)).size).toBe(4);
+		expect(restored).toHaveLength(2);
+		const suffixed = restored.find((row) => row.name.includes(' · '))!.name;
+		expect(Array.from(suffixed).length).toBeLessThanOrEqual(MAX_ACCOUNT_NAME_LENGTH);
+		expect(suffixed.startsWith('🏦'.repeat(70))).toBe(true);
+		expect(suffixed).toMatch(/^(?:🏦)+b* · [0-9a-f]+$/u);
+		expect(new Set(restored.map((row) => row.nameKey)).size).toBe(2);
 	});
 });
