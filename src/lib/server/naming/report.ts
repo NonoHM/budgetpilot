@@ -126,11 +126,21 @@ function renderAccounts(user: UserNameKeyReport, lines: string[]): void {
 				`[source ${blocked.source}]`
 		);
 		lines.push(`      ${describeBlockReason(blocked.reason)}`);
-		lines.push('      Rename one of them if they are meant to be one bucket.');
+		lines.push(
+			blocked.reason.kind === 'already-keyed'
+				? '      Rename one of them if they are separate accounts.'
+				: '      Rename one of them if they are meant to be one bucket.'
+		);
 	}
 }
 
 function describeBlockReason(reason: AccountMergeBlockReason): string {
+	if (reason.kind === 'already-keyed') {
+		return (
+			'all of them already carry a name key, so this command cannot tell a duplicate an ' +
+			'earlier run left apart from accounts given the same name since, and never merges them.'
+		);
+	}
 	if (reason.kind === 'multiple-linked-rows') {
 		return (
 			'more than one of them is linked to something (a net worth account, a bank ' +

@@ -216,7 +216,7 @@ const NOT_A_DOOR: [path: string, reason: string][] = [
 	],
 	[
 		'src/lib/server/naming/backfill.ts',
-		'the boot merge of duplicate names: no actor, logs its rowsMerged; what an account merge drops through the cascade is #1086'
+		'the boot merge of duplicate names: no actor, logs its rowsMerged; it repoints every relation onto a loser before deleting it (mergeRepointsEveryRelation.spec.ts, #1086)'
 	],
 	[
 		'src/routes/admin/+page.server.ts',
