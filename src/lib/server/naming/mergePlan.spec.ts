@@ -31,6 +31,7 @@ function account(overrides: Partial<AccountRow> & { id: string; name: string }):
 		bankConnectionId: null,
 		providerAccountId: null,
 		providerCashAccountType: null,
+		nameKey: null,
 		transactionCount: 0,
 		...overrides
 	};
@@ -236,6 +237,32 @@ describe('planAccountMerges', () => {
 
 		expect(plan.blocked).toEqual([]);
 		expect(plan.merges[0].adoptedLinks.bankConnectionId).toBe('conn-1');
+	});
+
+	// #1086. Every writer since the keys existed refuses a second account under a key, so a pair
+	// whose keys are ALL written did not come from before the keys: two concurrent renames to
+	// « Livret » and « LIVRET » produce one, and those are two accounts the user meant as two.
+	it('leaves alone a pair whose keys are all written, since no legacy row is in it (#1086)', () => {
+		expect.assertions(2);
+
+		const plan = planAccountMerges([
+			account({ id: 'old', name: 'Livret', createdAt: OLD, nameKey: 'livret' }),
+			account({ id: 'young', name: 'LIVRET', createdAt: NEW, nameKey: 'livret' })
+		]);
+
+		expect(plan.merges).toEqual([]);
+		expect(plan.blocked[0].reason).toEqual({ kind: 'already-keyed' });
+	});
+
+	it('still merges a pair in which one row predates the keys (#1086)', () => {
+		expect.assertions(1);
+
+		const plan = planAccountMerges([
+			account({ id: 'old', name: 'Livret', createdAt: OLD, nameKey: 'livret' }),
+			account({ id: 'young', name: 'LIVRET', createdAt: NEW })
+		]);
+
+		expect(plan.merges.map((merge) => merge.survivorId)).toEqual(['old']);
 	});
 });
 

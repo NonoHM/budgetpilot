@@ -511,7 +511,7 @@ describe(`cross-provider database behavior (${provider})`, () => {
 		);
 	});
 
-	// The two tests here are the only ones that reach outside their own user: `hasPending*` and
+	// The tests here are the only ones that reach outside their own user: `hasPending*` and
 	// `runNameKeyBackfill` ask about, and rewrite, the whole database, because that is what they
 	// do at boot. It holds because every other test in this file writes its keys eagerly, so
 	// nothing else is ever pending. A future test that creates a deliberately unkeyed row and
@@ -589,6 +589,80 @@ describe(`cross-provider database behavior (${provider})`, () => {
 			});
 			expect(row?.dedupeKeyHash).toBe(computeDedupeKeyHash(dedupeKey));
 			expect(await hasPendingDedupeKeyHashes(prisma)).toBe(false);
+		});
+
+		// #1086. Two pairs. KEYED: two concurrent renames to « Livret » and « LIVRET » both pass the
+		// read-then-write check and the (name, source) index on SQLite and PostgreSQL, and
+		// `npm run db:normalize-names` merges with no pending-key gate; those are two accounts the
+		// user meant as two. UNKEYED: the legacy duplicate the merge exists for, whose batches and
+		// remembered answers cascade from `Account` unless they are moved first. One figure per test.
+		async function sameKeyPair(keyed: boolean): Promise<{ survivorId: string; loserId: string }> {
+			const create = (name: string, createdAt: string) =>
+				prisma.account.create({
+					data: {
+						...DEFAULT_DENOMINATION,
+						userId,
+						name,
+						nameKey: keyed ? computeNameKey(name) : null,
+						source: 'csv',
+						createdAt: new Date(createdAt)
+					},
+					select: { id: true }
+				});
+			const survivor = await create('Livret', '2026-01-01T00:00:00.000Z');
+			const loser = await create('LIVRET', '2026-02-01T00:00:00.000Z');
+			return { survivorId: survivor.id, loserId: loser.id };
+		}
+
+		it('a merge leaves two accounts whose keys are both written, each with its own import (#1086)', async () => {
+			const { loserId } = await sameKeyPair(true);
+			const batch = await prisma.importBatch.create({
+				data: { userId, accountId: loserId, fileName: 'synthetic.csv', rowCount: 1 },
+				select: { id: true }
+			});
+
+			await runNameKeyBackfill({ prisma });
+
+			expect(
+				await prisma.importBatch.findMany({
+					where: { userId },
+					select: { id: true, accountId: true }
+				})
+			).toEqual([{ id: batch.id, accountId: loserId }]);
+		});
+
+		it('a merge files the losing account’s import batches under the survivor (#1086)', async () => {
+			const { survivorId, loserId } = await sameKeyPair(false);
+			const batch = await prisma.importBatch.create({
+				data: { userId, accountId: loserId, fileName: 'synthetic.csv', rowCount: 1 },
+				select: { id: true }
+			});
+
+			await runNameKeyBackfill({ prisma });
+
+			expect(
+				await prisma.importBatch.findMany({
+					where: { userId },
+					select: { id: true, accountId: true }
+				})
+			).toEqual([{ id: batch.id, accountId: survivorId }]);
+		});
+
+		it('a merge keeps the losing account’s remembered answers, now naming the survivor (#1086)', async () => {
+			const { survivorId, loserId } = await sameKeyPair(false);
+			const answer = await prisma.rememberedAccount.create({
+				data: { userId, accountId: loserId, identifierKey: 'ab'.repeat(32), fragment: '0000' },
+				select: { id: true }
+			});
+
+			await runNameKeyBackfill({ prisma });
+
+			expect(
+				await prisma.rememberedAccount.findMany({
+					where: { userId },
+					select: { id: true, accountId: true }
+				})
+			).toEqual([{ id: answer.id, accountId: survivorId }]);
 		});
 	});
 });

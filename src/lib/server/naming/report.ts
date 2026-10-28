@@ -131,6 +131,12 @@ function renderAccounts(user: UserNameKeyReport, lines: string[]): void {
 }
 
 function describeBlockReason(reason: AccountMergeBlockReason): string {
+	if (reason.kind === 'already-keyed') {
+		return (
+			'each of them was saved after names began to be compared this way, so they are two ' +
+			'accounts that happen to be named alike rather than an older duplicate.'
+		);
+	}
 	if (reason.kind === 'multiple-linked-rows') {
 		return (
 			'more than one of them is linked to something (a net worth account, a bank ' +
