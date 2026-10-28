@@ -103,6 +103,10 @@ full, so how long a line lasts depends on how busy the instance is. If the perso
 instance copies the log elsewhere, they set the retention there. The French data protection
 authority recommends between six months and a year.
 
+The person who runs the instance can also have the log signed as it is written, so that a copy of
+it can later be checked for lines removed or changed. Signing changes nothing about what is
+recorded.
+
 ## Questions
 
 Ask the person who runs your instance. They can show you what the log holds and change how long it
