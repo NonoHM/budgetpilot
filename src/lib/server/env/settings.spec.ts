@@ -23,7 +23,10 @@ describe('the settings registry', () => {
 			.filter((name) => !name.startsWith('BP_') && !NAMES_BEFORE_THE_BP_PREFIX.includes(name))
 			// The file form of a frozen name (owner, 2026-10-28, #826/#1099): the docker-library
 			// `<NAME>_FILE` convention, which collides with nothing its base name does not.
-			.filter((name) => !(name.endsWith('_FILE') && NAMES_BEFORE_THE_BP_PREFIX.includes(name.slice(0, -5))));
+			.filter(
+				(name) =>
+					!(name.endsWith('_FILE') && NAMES_BEFORE_THE_BP_PREFIX.includes(name.slice(0, -5)))
+			);
 		expect(unprefixed).toStrictEqual([]);
 	});
 

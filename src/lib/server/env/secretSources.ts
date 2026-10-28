@@ -46,7 +46,10 @@ const errorCode = (caught: unknown) => {
 };
 
 /** The URL with the password in its userinfo, percent-encoded, or why it cannot take one. */
-function withPassword(databaseUrl: string | undefined, password: string): { url: string } | { problem: string } {
+function withPassword(
+	databaseUrl: string | undefined,
+	password: string
+): { url: string } | { problem: string } {
 	let url: URL;
 	try {
 		url = new URL(databaseUrl ?? '');
@@ -70,7 +73,9 @@ function withPassword(databaseUrl: string | undefined, password: string): { url:
 		};
 	}
 	if (!url.username) {
-		return { problem: 'DATABASE_PASSWORD_FILE is set, but DATABASE_URL names no user for the password.' };
+		return {
+			problem: 'DATABASE_PASSWORD_FILE is set, but DATABASE_URL names no user for the password.'
+		};
 	}
 	// The setter leaves `+` and `%` as they are (WHATWG userinfo percent-encode set), and a driver can
 	// read `+` as a space: encode the whole password first.
@@ -104,7 +109,9 @@ export function applySecretSources(env: NodeJS.ProcessEnv = process.env): void {
 		if (strict) {
 			const inspection = inspect(fileName, path!);
 			if (inspection && 'error' in inspection) {
-				problems.push(`${fileName} names a file that could not be inspected (${inspection.error}).`);
+				problems.push(
+					`${fileName} names a file that could not be inspected (${inspection.error}).`
+				);
 				continue;
 			}
 			if (inspection) {

@@ -84,7 +84,8 @@ export function secretFileProblems(files: SecretFileFacts[], processUid: number)
 }
 
 /** What inspecting one file found: its facts, or the error code that stopped the inspection. */
-export type Inspection = { facts: SecretFileFacts } | { label: string; path: string; error: string };
+export type Inspection =
+	{ facts: SecretFileFacts } | { label: string; path: string; error: string };
 
 /**
  * Stats the file and every directory above it. `null` only when the file does not exist: no `.env`

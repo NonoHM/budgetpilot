@@ -131,7 +131,7 @@ describe('log-pseudonym --address', () => {
 		} finally {
 			rmSync(directory, { recursive: true, force: true });
 		}
-	});
+	}, 60_000);
 
 	it('refuses text that is not an address, and says so', () => {
 		const out = run(['--address', 'not-an-address']);

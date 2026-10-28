@@ -31,7 +31,6 @@ export { secretFileProblems, type DirectoryFacts, type SecretFileFacts } from '.
  * key file is checked there, and it is read by uid 65532.
  */
 
-
 /**
  * The secret files this instance loads: `.env` in the working directory, and the first candidate
  * for the key path that is not absent, in the order `jwt.ts` looks for it.

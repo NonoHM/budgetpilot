@@ -261,9 +261,7 @@ describe('applySecretSources: DATABASE_PASSWORD_FILE', () => {
 describe('applySecretSources: BP_STRICT_SECRET_FILES (decision 4)', () => {
 	it('under strict, refuses a _FILE target others can read, with the #901 sentence', () => {
 		const path = secretFile('totp', KEY, 0o644);
-		expect(
-			refusal({ BP_STRICT_SECRET_FILES: 'on', TOTP_ENCRYPTION_KEY_FILE: path })
-		).toBe(
+		expect(refusal({ BP_STRICT_SECRET_FILES: 'on', TOTP_ENCRYPTION_KEY_FILE: path })).toBe(
 			heading +
 				`     - TOTP_ENCRYPTION_KEY_FILE (${path}) can be read or written by other accounts (mode 644).`
 		);

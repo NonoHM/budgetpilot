@@ -169,8 +169,7 @@ export const SETTINGS = {
 		readBy: 'app',
 		secret: true,
 		format: 'the path of a file holding the value; set this or TOTP_ENCRYPTION_KEY, never both',
-		summary:
-			'TOTP_ENCRYPTION_KEY read from a file, such as a Compose or systemd secret.',
+		summary: 'TOTP_ENCRYPTION_KEY read from a file, such as a Compose or systemd secret.',
 		page: 'configuration.md#secrets-in-files'
 	},
 	RATE_LIMIT_HASH_SECRET: {
@@ -191,8 +190,7 @@ export const SETTINGS = {
 		readBy: 'app',
 		secret: true,
 		format: 'the path of a file holding the value; set this or RATE_LIMIT_HASH_SECRET, never both',
-		summary:
-			'RATE_LIMIT_HASH_SECRET read from a file, such as a Compose or systemd secret.',
+		summary: 'RATE_LIMIT_HASH_SECRET read from a file, such as a Compose or systemd secret.',
 		page: 'configuration.md#secrets-in-files'
 	},
 	BOOTSTRAP_TOKEN: {
@@ -213,8 +211,7 @@ export const SETTINGS = {
 		readBy: 'app',
 		secret: true,
 		format: 'the path of a file holding the value; set this or BOOTSTRAP_TOKEN, never both',
-		summary:
-			'BOOTSTRAP_TOKEN read from a file, such as a Compose or systemd secret.',
+		summary: 'BOOTSTRAP_TOKEN read from a file, such as a Compose or systemd secret.',
 		page: 'configuration.md#secrets-in-files'
 	},
 	BP_STRICT_SECRET_FILES: {
