@@ -239,10 +239,11 @@ describe('planAccountMerges', () => {
 		expect(plan.merges[0].adoptedLinks.bankConnectionId).toBe('conn-1');
 	});
 
-	// #1086. Every writer since the keys existed refuses a second account under a key, so a pair
-	// whose keys are ALL written did not come from before the keys: two concurrent renames to
-	// « Livret » and « LIVRET » produce one, and those are two accounts the user meant as two.
-	it('leaves alone a pair whose keys are all written, since no legacy row is in it (#1086)', () => {
+	// #1086. A pair whose keys are ALL written is either a legacy pair an earlier run left apart
+	// (that run writes every surviving key) or one made since, such as two concurrent renames to
+	// « Livret » and « LIVRET ». Nothing stored tells the two apart, so it is never merged (owner
+	// ruling): every comparable product read merges two accounts only when the user picks both.
+	it('never merges a pair whose keys are all written (#1086)', () => {
 		expect.assertions(2);
 
 		const plan = planAccountMerges([

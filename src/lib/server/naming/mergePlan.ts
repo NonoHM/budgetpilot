@@ -204,9 +204,11 @@ export function planAccountMerges(accounts: AccountRow[]): AccountMergePlan {
 	for (const group of groups) {
 		const members = [group.survivor, ...group.losers];
 		// First, because it decides whether this is the duplicate the merge exists for at all
-		// (#1086). Every writer since the keys existed refuses a second account under a key, so a
-		// group whose keys are ALL written came from a race, not from before the keys: two
-		// concurrent renames to « Livret » and « LIVRET » are two accounts the user meant as two.
+		// (#1086). A group whose keys are ALL written is either a legacy pair an earlier run left
+		// apart (that run writes every surviving key, blocked ones included) or one made since: two
+		// concurrent renames to « Livret » and « LIVRET », or a writer checking exact spelling
+		// (#1092). Nothing stored tells them apart, so they are never merged (owner ruling on #1086):
+		// every comparable product read merges two accounts only when the user picks both.
 		if (members.every((row) => row.nameKey !== null)) {
 			blocked.push({
 				key: group.key,

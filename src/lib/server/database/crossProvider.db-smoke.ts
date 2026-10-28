@@ -593,9 +593,12 @@ describe(`cross-provider database behavior (${provider})`, () => {
 
 		// #1086. Two pairs. KEYED: two concurrent renames to « Livret » and « LIVRET » both pass the
 		// read-then-write check and the (name, source) index on SQLite and PostgreSQL, and
-		// `npm run db:normalize-names` merges with no pending-key gate; those are two accounts the
-		// user meant as two. UNKEYED: the legacy duplicate the merge exists for, whose batches and
+		// `npm run db:normalize-names` runs with no pending-key gate. Once keys are written the data
+		// cannot tell such a pair from a legacy one the merge left apart, so it is never merged
+		// (owner ruling). UNKEYED: the legacy duplicate the merge exists for, whose batches and
 		// remembered answers cascade from `Account` unless they are moved first. One figure per test.
+		// Skipped on MySQL: its case-insensitive (name, source) index refuses the second row, so
+		// neither pair can exist there, and MySQL support postdates the keys.
 		async function sameKeyPair(keyed: boolean): Promise<{ survivorId: string; loserId: string }> {
 			const create = (name: string, createdAt: string) =>
 				prisma.account.create({
@@ -614,55 +617,64 @@ describe(`cross-provider database behavior (${provider})`, () => {
 			return { survivorId: survivor.id, loserId: loser.id };
 		}
 
-		it('a merge leaves two accounts whose keys are both written, each with its own import (#1086)', async () => {
-			const { loserId } = await sameKeyPair(true);
-			const batch = await prisma.importBatch.create({
-				data: { userId, accountId: loserId, fileName: 'synthetic.csv', rowCount: 1 },
-				select: { id: true }
-			});
+		it.skipIf(provider === 'mysql')(
+			'a merge leaves two accounts whose keys are both written, each with its own import (#1086)',
+			async () => {
+				const { loserId } = await sameKeyPair(true);
+				const batch = await prisma.importBatch.create({
+					data: { userId, accountId: loserId, fileName: 'synthetic.csv', rowCount: 1 },
+					select: { id: true }
+				});
 
-			await runNameKeyBackfill({ prisma });
+				await runNameKeyBackfill({ prisma });
 
-			expect(
-				await prisma.importBatch.findMany({
-					where: { userId },
-					select: { id: true, accountId: true }
-				})
-			).toEqual([{ id: batch.id, accountId: loserId }]);
-		});
+				expect(
+					await prisma.importBatch.findMany({
+						where: { userId },
+						select: { id: true, accountId: true }
+					})
+				).toEqual([{ id: batch.id, accountId: loserId }]);
+			}
+		);
 
-		it('a merge files the losing account’s import batches under the survivor (#1086)', async () => {
-			const { survivorId, loserId } = await sameKeyPair(false);
-			const batch = await prisma.importBatch.create({
-				data: { userId, accountId: loserId, fileName: 'synthetic.csv', rowCount: 1 },
-				select: { id: true }
-			});
+		it.skipIf(provider === 'mysql')(
+			'a merge files the losing account’s import batches under the survivor (#1086)',
+			async () => {
+				const { survivorId, loserId } = await sameKeyPair(false);
+				const batch = await prisma.importBatch.create({
+					data: { userId, accountId: loserId, fileName: 'synthetic.csv', rowCount: 1 },
+					select: { id: true }
+				});
 
-			await runNameKeyBackfill({ prisma });
+				await runNameKeyBackfill({ prisma });
 
-			expect(
-				await prisma.importBatch.findMany({
-					where: { userId },
-					select: { id: true, accountId: true }
-				})
-			).toEqual([{ id: batch.id, accountId: survivorId }]);
-		});
+				expect(
+					await prisma.importBatch.findMany({
+						where: { userId },
+						select: { id: true, accountId: true }
+					})
+				).toEqual([{ id: batch.id, accountId: survivorId }]);
+			}
+		);
 
-		it('a merge keeps the losing account’s remembered answers, now naming the survivor (#1086)', async () => {
-			const { survivorId, loserId } = await sameKeyPair(false);
-			const answer = await prisma.rememberedAccount.create({
-				data: { userId, accountId: loserId, identifierKey: 'ab'.repeat(32), fragment: '0000' },
-				select: { id: true }
-			});
+		it.skipIf(provider === 'mysql')(
+			'a merge keeps the losing account’s remembered answers, now naming the survivor (#1086)',
+			async () => {
+				const { survivorId, loserId } = await sameKeyPair(false);
+				const answer = await prisma.rememberedAccount.create({
+					data: { userId, accountId: loserId, identifierKey: 'ab'.repeat(32), fragment: '0000' },
+					select: { id: true }
+				});
 
-			await runNameKeyBackfill({ prisma });
+				await runNameKeyBackfill({ prisma });
 
-			expect(
-				await prisma.rememberedAccount.findMany({
-					where: { userId },
-					select: { id: true, accountId: true }
-				})
-			).toEqual([{ id: answer.id, accountId: survivorId }]);
-		});
+				expect(
+					await prisma.rememberedAccount.findMany({
+						where: { userId },
+						select: { id: true, accountId: true }
+					})
+				).toEqual([{ id: answer.id, accountId: survivorId }]);
+			}
+		);
 	});
 });
