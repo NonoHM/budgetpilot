@@ -52,6 +52,17 @@ describe('openCheckpoint, on a checkpoint signed by torchwood', () => {
 		expect(openCheckpoint(forged, parseVkey(GO_VKEY))).toEqual({ refused: 'bad-signature' });
 	});
 
+	// Break B2 (timestamp left out of the signed message) stayed green without this: the signed time
+	// is what dates a checkpoint, so a copy re-dated by someone without the key must be refused.
+	it('refuses it once the timestamp in its signature is changed', () => {
+		const [text, signatureLine] = GO_NOTE.split('\n\n');
+		const [dash, name, value] = signatureLine.trim().split(' ');
+		const bytes = Buffer.from(value, 'base64');
+		bytes[11] ^= 1;
+		const redated = `${text}\n\n${dash} ${name} ${bytes.toString('base64')}\n`;
+		expect(openCheckpoint(redated, parseVkey(GO_VKEY))).toEqual({ refused: 'bad-signature' });
+	});
+
 	it('refuses a note with no signature from the given key', () => {
 		const { publicKey } = generateKeyPairSync('ml-dsa-44');
 		expect(openCheckpoint(GO_NOTE, parseVkey(vkeyOf('example.com/mldsa-log', publicKey)))).toEqual({
@@ -68,7 +79,12 @@ describe('signCheckpoint', () => {
 			{ origin: 'budgetpilot/log/abc', size: 12, root, timestamp: 1_800_000_000 },
 			{ name: 'budgetpilot/log', privateKey }
 		);
-		expect(note.split('\n').slice(0, 4)).toEqual(['budgetpilot/log/abc', '12', root.toString('base64'), '']);
+		expect(note.split('\n').slice(0, 4)).toEqual([
+			'budgetpilot/log/abc',
+			'12',
+			root.toString('base64'),
+			''
+		]);
 		expect(openCheckpoint(note, parseVkey(vkeyOf('budgetpilot/log', publicKey)))).toEqual({
 			origin: 'budgetpilot/log/abc',
 			size: 12,

@@ -10,7 +10,16 @@ import { createMerkleTree } from './merkle';
  * the tree it checks.
  */
 
-const LEAVES = ['', '00', '10', '2021', '3031', '40414243', '5051525354555657', '606162636465666768696a6b6c6d6e6f'];
+const LEAVES = [
+	'',
+	'00',
+	'10',
+	'2021',
+	'3031',
+	'40414243',
+	'5051525354555657',
+	'606162636465666768696a6b6c6d6e6f'
+];
 const ROOTS = [
 	'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
 	'6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d',
