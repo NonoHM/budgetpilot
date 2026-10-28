@@ -240,7 +240,7 @@ const NOT_OPERATOR_BOUNDS = new Map<unknown, string>([
 	[assertRateLimitSecretConfigured, 'a secret key'],
 	[assertBootstrapTokenConfigured, 'a secret token'],
 	[assertForwardingConfigSafe, 'two variables that must not be set at all'],
-	[assertLoggingConfigured, 'two variables, each a closed set of words'],
+	[assertLoggingConfigured, 'three variables, each a closed set of words'],
 	[assertSecretFilesSafe, 'a switch, on or off'],
 	[assertSecretSourcesConfigured, 'file paths, read before the server starts'],
 	[assertLlmModelDigestConfigured, 'a model digest, compared exactly']
@@ -342,9 +342,9 @@ describe('operator bounds', () => {
 		}
 		// Eleven since #754 added the six settings that used to read `Number()` or `parseInt()`;
 		// twelve since #221 added `BP_SESSION_IDLE_TIMEOUT_HOURS`; thirteen with
-		// `BP_RATE_LIMIT_IPV6_PREFIX`.
+		// `BP_RATE_LIMIT_IPV6_PREFIX`; sixteen with `BP_LOG_SEAL_INTERVAL` (#875).
 		expect({ boundsProbed: OPERATOR_BOUNDS.length, readings }).toStrictEqual({
-			boundsProbed: 15,
+			boundsProbed: 16,
 			readings: Object.fromEntries(OPERATOR_BOUNDS.map(([name]) => [name, expectedReadings(name)]))
 		});
 	});

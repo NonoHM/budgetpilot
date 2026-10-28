@@ -114,7 +114,7 @@ it too.
 
 Each line carries its number and the SHA-256 of the previous line, per start of the server. Someone
 who removes or edits a line in a copy of the log breaks the chain at the next line, and a script
-finds the break ([how to check it](../logging-howto.md#check-that-no-line-was-removed-or-edited)).
+finds the break ([how to check it](../logging-howto.md#seal-the-log)).
 
 The chain has no key, because there is no place to keep one that the host does not control. That
 sets what it can prove. It cannot stop anyone who controls the host from rewriting the whole file and

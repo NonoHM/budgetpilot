@@ -467,7 +467,8 @@ To go back, delete the line from `.env`, save a copy of the log and run `docker 
 Each line carries its number (`budgetpilot.log.seq`) and the SHA-256 hash of the line before it
 (`budgetpilot.log.prev`). A script can check both on a copy of the log. The numbering restarts at 1,
 under a new `budgetpilot.log.boot_id`, at every start of the server, so the script checks each start
-on its own.
+on its own. If sealing is on, [verify the copy](#verify-a-copy-of-the-log) instead: that command
+checks the chain as well.
 
 1. Save the log to a file.
 
@@ -636,6 +637,194 @@ someone who controls the machine. It cannot detect:
 
 For the last case, the copy that matters is the one held somewhere the host cannot change. See
 [Send the log to a collector](./logging-collectors.md).
+
+## Seal the log
+
+Each line carries its number (`budgetpilot.log.seq`) and the SHA-256 hash of the line before it
+(`budgetpilot.log.prev`). That chain has no key, so anyone who edits a copy can recompute it. With
+`BP_LOG_SEAL=on`, the server also signs the log as it writes it: every `BP_LOG_SEAL_INTERVAL`
+seconds (900, that is 15 minutes, by default) when lines were written, and when it stops, it writes
+a `budgetpilot.log.checkpoint` line. A checkpoint is a timestamped ML-DSA-44 signature over the
+lines written since the previous one, in the C2SP checkpoint format. The verify command checks the
+signatures and the chain together.
+
+### Turn sealing on
+
+1. Add the setting to the `.env` file next to your Compose file.
+
+   ```text
+   BP_LOG_SEAL=on
+   ```
+
+1. Recreate the container.
+
+   ```bash
+   docker compose up -d
+   ```
+
+   On its first start with sealing on, the server creates a key in `/data/log-seal`, inside the data
+   volume, and writes its verification key beside it as `verification.vkey`.
+
+1. Check that sealing started. This prints the 8-character ID of the key:
+
+   ```bash
+   docker compose logs --no-log-prefix budgetpilot | jq -rR 'fromjson? | select(.event_name == "budgetpilot.log.seal_started") | .["budgetpilot.log.seal.key_id"]'
+   ```
+
+   If it prints nothing, look for `budgetpilot.log.seal_unavailable` in the log: the server could
+   not use the key, and writes every line unsealed. [What to do](./logging.md#what-to-do) says how
+   to fix each reason.
+
+### Seal the log without Docker
+
+If you run `node build` yourself, set `BP_LOG_SEAL=on` and `BP_LOG_SEAL_DIR` in the server's
+environment. Only the Docker image sets the directory for you, so without it the start logs
+`budgetpilot.log.seal_unavailable` with the reason `dir_unset`. The directory must exist, and the
+user that runs the server must be able to write it. The server keeps its key and
+`verification.vkey` there. Send the server's standard output to a file, and check it with the same
+`jq` filter as above. To verify, run `node scripts/log-seal.mjs verify --vkey "$(cat verification.vkey)" < capture.log`
+from the repository root, with the Node version in `.nvmrc`.
+
+### Keep the verification key somewhere else
+
+The verification key is public: anyone may see it, and it cannot sign anything. Copy it off the
+machine, so that someone who later takes over the host cannot replace it with their own.
+
+```bash
+docker compose cp budgetpilot:/data/log-seal/verification.vkey ./verification.vkey
+```
+
+Keep the file with your backups, or on another machine. The key ID is the 8 characters between the
+first two `+` signs of the file; write it down to recognise the key later.
+
+### Change the key
+
+Replace the key when it may have been copied. Delete the key file alone and keep the rest of the
+seal directory, so that the next start still links to the last one:
+
+1. Copy the current verification key off the machine, as in
+   [Keep the verification key somewhere else](#keep-the-verification-key-somewhere-else). Lines
+   signed before the change can be verified only with it.
+1. Delete the key file. The image has no shell, so its own Node deletes it.
+
+   ```bash
+   docker compose exec budgetpilot /nodejs/bin/node -e "require('node:fs').rmSync('/data/log-seal/key.pem')"
+   ```
+
+1. Restart the container. The server creates a new key and writes a new `verification.vkey`.
+
+   ```bash
+   docker compose restart budgetpilot
+   ```
+
+1. Copy the new verification key off the machine.
+
+To verify a copy that spans the change, give both keys, each with its own `--vkey`. Do not delete
+the whole directory: the next start then links to nothing, and a copy that spans the change reads
+`unverified`.
+
+### Verify a copy of the log
+
+1. Save the log to a file. The command needs each line exactly as the server wrote it, so keep
+   `--no-log-prefix`. A copy from a collector works if the collector keeps the original line.
+
+   ```bash
+   docker compose logs --no-log-prefix budgetpilot > capture.log
+   ```
+
+1. Run the check inside the container, with the verification key you kept.
+
+   ```bash
+   docker compose exec -T budgetpilot /nodejs/bin/node scripts/log-seal.mjs verify --vkey "$(cat verification.vkey)" < capture.log
+   ```
+
+   For a log that has not been touched, it prints a report like this one, and exits with status 0:
+
+   ```text
+   status: verified
+   lines read: 30
+   lines not from the writer: 1
+   starts: 2
+   checkpoints verified: 3
+   lines no checkpoint covers: 6
+   newest checkpoint signed at: 2026-10-28T09:05:15.000Z
+   host 6e49dbbb59d4: 6 line(s) after its newest checkpoint, signed at 2026-10-28T09:05:15.000Z
+   ```
+
+   The 6 lines after the newest checkpoint are the ones the running server wrote since then. They
+   are not sealed yet, so they are not evidence. If the instance changed its key, give each
+   verification key with its own `--vkey`.
+
+| Status       | Exit status | What it means                                                                                                                                                                                                          |
+| ------------ | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `verified`   | 0           | Every line is covered by a checkpoint signed by your key, apart from the newest lines and, after rotation, the first lines of the copy.                                                                                |
+| `broken`     | 1           | The copy contradicts a signature: a line was removed, edited or moved within its start, a checkpoint is missing or is not signed by a key you gave, or a start was removed. Each `BREAK` line names the line it found. |
+| `unverified` | 3           | Nothing contradicts a signature, but some lines or starts are not covered. The list after this table gives each case.                                                                                                  |
+| `nothing`    | 2           | No checkpoint verified: sealing was off or unavailable, or the copy holds no checkpoint whose lines are all in it, such as a short copy cut by rotation. Also the status of a command it could not run.                |
+
+A copy reads `unverified` when it holds any of these:
+
+- A start with sealing off.
+- A start that stopped without its last checkpoint, such as after a crash.
+- A start whose first lines are missing although it is not the first start in the copy.
+- A start that links to a start the copy does not hold, such as a copy of one container when two
+  share the seal directory.
+- A start that links to nothing although the copy holds an earlier sealed start: a restart before
+  the first checkpoint was written, or a seal directory that was emptied.
+- A start that continues a state restored from a backup.
+
+### Check that the command finds a removed line
+
+A check that has never reported a problem has not been shown to work. Remove one line from a copy
+of your capture and run the check on it.
+
+```bash
+sed '6d' capture.log > deleted.log
+docker compose exec -T budgetpilot /nodejs/bin/node scripts/log-seal.mjs verify --vkey "$(cat verification.vkey)" < deleted.log
+```
+
+On the capture above, it printed this and exited with status 1:
+
+```text
+status: broken
+lines read: 29
+lines not from the writer: 1
+starts: 2
+checkpoints verified: 2
+lines no checkpoint covers: 6
+newest checkpoint signed at: 2026-10-28T09:05:15.000Z
+host 6e49dbbb59d4: 6 line(s) after its newest checkpoint, signed at 2026-10-28T09:05:15.000Z
+BREAK chain at line 6
+BREAK root at line 8
+```
+
+The `chain` break is the line after the gap. The `root` break is the checkpoint that covered the
+removed line: it no longer matches the lines in the copy, even if someone recomputes the chain.
+
+### What sealing cannot show
+
+- **The newest lines, and the first lines of a cut copy.** Lines after a start's last checkpoint,
+  and the lines before the first checkpoint of a copy cut by rotation, are not evidence, and
+  deleting them shows nowhere. The interval is the window in which the newest lines stay unsealed.
+- **Anything after a takeover.** Someone who controls the host holds the key and can sign what they
+  write, so only a copy kept elsewhere before then is evidence.
+- **The time.** The signed time is the host's clock, so a clock set wrong signs a wrong time.
+- **A copy cut back to an earlier checkpoint.** Someone can remove everything after any checkpoint,
+  whole starts included, and rewrite the newest lines that no checkpoint covers yet so that they
+  follow it. It shows only as the newest signed time lagging behind the clock, so compare that time
+  with when you took the copy.
+- **The order of two starts' lines.** Each start's lines are sealed in their own order, not against
+  another start's: lines of two starts mixed together, each start keeping its own order, still
+  verify. Each line keeps its own `time`. With a copy cut by rotation as well, the copy's first
+  start can be cut later than the checkpoint a newer start links to.
+- **A start removed while two containers share one seal directory.** When two containers write to
+  the same seal directory at the same time, removing all of one container's start from a merged
+  copy can still read `verified`. Give each container that runs alongside another its own
+  `BP_LOG_SEAL_DIR`, and verify with each directory's key.
+- **A copy with nothing kept elsewhere.** Sealing then shows edits by people without the key, and
+  nothing more: ship the log to a collector on another machine as well.
+
+See [Send the log to a collector](./logging-collectors.md).
 
 ---
 

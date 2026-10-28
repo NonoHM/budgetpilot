@@ -36,6 +36,13 @@ export const MAX_OPERATOR_MESSAGE_LENGTH = 2048;
  */
 export const MAX_LINE_BYTES = 8192;
 
+/**
+ * A checkpoint note (#875): three body lines, a blank line and one ML-DSA-44 signature line of
+ * about 3250 characters, about 3400 in all with the longest origin (255 bytes). Sized to the whole
+ * note, so a note is never cut, which would make it unverifiable rather than short.
+ */
+export const MAX_CHECKPOINT_NOTE_LENGTH = 4096;
+
 /** Cut on a code point boundary, so a cap never leaves half a surrogate pair. */
 export function capString(value: string, max = MAX_VALUE_LENGTH): string {
 	if (value.length <= max) return value;
@@ -44,16 +51,16 @@ export function capString(value: string, max = MAX_VALUE_LENGTH): string {
 
 /**
  * Attribute values as written: strings capped, numbers only when finite, absent values dropped.
- * `longKeys` names the attributes allowed the operator-message length.
+ * `longKeys` names the attributes allowed a longer cap than `MAX_VALUE_LENGTH`, and that cap.
  */
 export function capAttributes(
 	attributes: object,
-	longKeys: ReadonlySet<string>
+	longKeys: ReadonlyMap<string, number>
 ): Record<string, string | number | boolean> {
 	const written: Record<string, string | number | boolean> = {};
 	for (const [key, value] of Object.entries(attributes)) {
 		if (typeof value === 'string') {
-			written[key] = capString(value, longKeys.has(key) ? MAX_OPERATOR_MESSAGE_LENGTH : undefined);
+			written[key] = capString(value, longKeys.get(key));
 		} else if (typeof value === 'number') {
 			if (Number.isFinite(value)) written[key] = value;
 		} else if (typeof value === 'boolean') {

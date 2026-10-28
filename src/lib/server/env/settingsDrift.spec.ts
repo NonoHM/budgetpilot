@@ -74,7 +74,7 @@ const COMPUTED_READS_EXPLAINED: Record<string, string> = {
 	'src/lib/server/env/readSetting.ts#name':
 		'the shared reader of choices; its parameter is typed to the registry names whose unknown values are refused',
 	'src/lib/server/logging/settings.ts#name':
-		'reads `BP_LOG_LEVEL` and `BP_SECURITY_LOG` through two constants in the same file, both registered',
+		'reads `BP_LOG_LEVEL`, `BP_SECURITY_LOG` and the three `BP_LOG_SEAL*` names through constants in the same file, all registered',
 	'src/lib/server/net/clientAddress.ts#TRUSTED_PROXIES_ENV': 'a constant holding `TRUSTED_PROXIES`',
 	'src/lib/server/net/clientAddress.ts#name':
 		'`ADDRESS_HEADER` and `XFF_DEPTH`, listed as literals beside the read',

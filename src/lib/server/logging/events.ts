@@ -39,6 +39,15 @@ export interface ErrorFields {
 	[A.errorOperatorMessage]?: string;
 }
 
+/** Why sealing is off for this start although `BP_LOG_SEAL=on` (#875). */
+export type SealUnavailableReason =
+	| 'dir_unset'
+	| 'key_unreadable'
+	| 'key_exposed'
+	| 'key_invalid'
+	| 'keygen_failed'
+	| 'dir_unwritable';
+
 export type BackfillName =
 	'name_keys' | 'dedupe_key_hashes' | 'dedupe_key_recompute' | 'statement_accounts';
 
@@ -284,6 +293,7 @@ export type LogEvent =
 				[A.configOriginSet]: boolean;
 				[A.configSecurityLog]: 'on' | 'off' | 'refused';
 				[A.configLogLevel]: 'debug' | 'info' | 'warn' | 'refused';
+				[A.configLogSeal]: 'off' | 'on' | 'refused';
 			};
 	  }
 	| {
@@ -456,6 +466,24 @@ export type LogEvent =
 			event: typeof E.logLineTooLong;
 			attributes: { [A.suppressedEvent]: string; [A.droppedBytes]: number };
 	  }
+	| { event: typeof E.logCheckpoint; attributes: { [A.logCheckpointNote]: string } }
+	| {
+			event: typeof E.logSealStarted;
+			attributes: {
+				[A.logSealKeyId]: string;
+				[A.logSealHost]: string;
+				[A.logSealPreviousOrigin]: string;
+				[A.logSealPreviousSize]?: number;
+				[A.logSealPreviousRoot]?: string;
+				[A.logSealVolumePreviousOrigin]: string;
+				[A.logSealVolumePreviousSize]?: number;
+				[A.logSealVolumePreviousRoot]?: string;
+			};
+	  }
+	| {
+			event: typeof E.logSealUnavailable;
+			attributes: { [A.logSealReason]: SealUnavailableReason; [A.errorCode]?: string };
+	  }
 	| {
 			event: typeof E.authnLoginSuccess;
 			attributes: ClientFields & UserFields & { [A.authnFactor]: SignInFactor };
@@ -589,7 +617,8 @@ export const REGISTRY: { [N in EventName]: EventSpec<AttributesOf<N>> } = {
 			[A.configTrustedProxyRanges]: 'Operational',
 			[A.configOriginSet]: 'Operational',
 			[A.configSecurityLog]: 'Operational',
-			[A.configLogLevel]: 'Operational'
+			[A.configLogLevel]: 'Operational',
+			[A.configLogSeal]: 'Operational'
 		}
 	},
 	[E.sysCrash]: {
@@ -1144,6 +1173,36 @@ export const REGISTRY: { [N in EventName]: EventSpec<AttributesOf<N>> } = {
 		flood: false,
 		security: false,
 		attributes: { [A.suppressedEvent]: 'Operational', [A.droppedBytes]: 'Operational' }
+	},
+	[E.logCheckpoint]: {
+		severity: 'INFO',
+		body: 'A signed checkpoint of the lines written since the previous one (BP_LOG_SEAL=on).',
+		flood: false,
+		security: false,
+		attributes: { [A.logCheckpointNote]: 'Operational' }
+	},
+	[E.logSealStarted]: {
+		severity: 'INFO',
+		body: 'Log sealing started for this process, with this key, after this checkpoint of the previous start.',
+		flood: false,
+		security: false,
+		attributes: {
+			[A.logSealKeyId]: 'Operational',
+			[A.logSealHost]: 'Operational',
+			[A.logSealPreviousOrigin]: 'Operational',
+			[A.logSealPreviousSize]: 'Operational',
+			[A.logSealPreviousRoot]: 'Operational',
+			[A.logSealVolumePreviousOrigin]: 'Operational',
+			[A.logSealVolumePreviousSize]: 'Operational',
+			[A.logSealVolumePreviousRoot]: 'Operational'
+		}
+	},
+	[E.logSealUnavailable]: {
+		severity: 'WARN',
+		body: 'BP_LOG_SEAL is on but the seal key cannot be used, so this start writes every line unsealed.',
+		flood: false,
+		security: false,
+		attributes: { [A.logSealReason]: 'Operational', [A.errorCode]: 'Operational' }
 	},
 	[E.consoleOutput]: {
 		severity: 'WARN',

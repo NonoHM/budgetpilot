@@ -692,18 +692,19 @@ describe('startupEvents', () => {
 				[A.configTrustedProxyRanges]: over.trustedProxyRanges,
 				[A.configOriginSet]: over.originSet,
 				[A.configSecurityLog]: 'on',
-				[A.configLogLevel]: 'info'
+				[A.configLogLevel]: 'info',
+				[A.configLogSeal]: 'off'
 			}
 		};
 	}
 
-	it('reports a refused BP_LOG_LEVEL or BP_SECURITY_LOG as refused, not as the default it falls back to', async () => {
+	it('reports a refused BP_LOG_LEVEL, BP_SECURITY_LOG or BP_LOG_SEAL as refused, not as the default it falls back to', async () => {
 		// The boot collector refuses to start on either a moment later. Until then the writer runs
 		// on the default, and a startup line saying `info` would describe a setting nobody chose
 		// (contradiction pass on L2).
 		const { startupEvents } = await import('./hooks.server');
 		const [line] = startupEvents(
-			{ BP_LOG_LEVEL: 'loud', BP_SECURITY_LOG: 'maybe' },
+			{ BP_LOG_LEVEL: 'loud', BP_SECURITY_LOG: 'maybe', BP_LOG_SEAL: 'yes' },
 			{ secureCookies: true, trustedProxyRanges: 1, exposedEnvFileMode: null }
 		);
 		expect(line).toEqual({
@@ -711,8 +712,22 @@ describe('startupEvents', () => {
 			attributes: {
 				...startup({ originSet: false, secureCookies: true, trustedProxyRanges: 1 }).attributes,
 				[A.configLogLevel]: 'refused',
-				[A.configSecurityLog]: 'refused'
+				[A.configSecurityLog]: 'refused',
+				[A.configLogSeal]: 'refused'
 			}
+		});
+	});
+
+	// #875: the only change BP_LOG_SEAL makes to a line written with sealing off is this attribute.
+	it('reports BP_LOG_SEAL=on as on', async () => {
+		const { startupEvents } = await import('./hooks.server');
+		const [line] = startupEvents(
+			{ BP_LOG_SEAL: 'on' },
+			{ secureCookies: true, trustedProxyRanges: 1, exposedEnvFileMode: null }
+		);
+		expect(line.attributes).toEqual({
+			...startup({ originSet: false, secureCookies: true, trustedProxyRanges: 1 }).attributes,
+			[A.configLogSeal]: 'on'
 		});
 	});
 
