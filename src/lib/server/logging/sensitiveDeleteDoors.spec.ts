@@ -30,13 +30,18 @@ import { describe, expect, it } from 'vitest';
  * other delete was a door). The regex reads every model table A deletes from, the restore's purge
  * included, and `session`, whose deletes are part of the two account deletes.
  *
+ * REV 3c (contradiction pass F1, owner ruling 7, 2026-10-28): the regex reads EVERY model a
+ * production delete reaches, the system ones and the two that cascade from Transaction included,
+ * so a new site on any of them fails the count; and a soft delete (`deletedAt: new Date(`) counts
+ * as a writer site, because the member pressed Delete and has no undo.
+ *
  * The writers that destroy no member data are named in NOT_A_DOOR with the reason, rather than
  * silently excluded.
  */
 
 const ROOT = process.cwd();
 const WRITER =
-	/\b(?:transaction|user|account|session|importBatch|tag|category|categoryRule|categorizationRule|monthlyBudget|columnMapping|rememberedAccount|categoryNatureMapping|bankConnection|recurringStreamAction|savingsGoal|netWorthSnapshot|netWorthAccount)\.delete(?:Many)?\(/g;
+	/\b(?:transaction|user|account|session|importBatch|tag|category|categoryRule|categorizationRule|monthlyBudget|columnMapping|rememberedAccount|categoryNatureMapping|bankConnection|recurringStreamAction|savingsGoal|netWorthSnapshot|netWorthAccount|transactionSplit|transactionTag|recoveryCode|pendingMfaChallenge|inferenceHalt|bankAuthorizationRequest|loginAttempt)\.delete(?:Many)?\(|\bdeletedAt:\s*new Date\(/g;
 
 const files = execFileSync('git', ['ls-files', 'src'], { cwd: ROOT, encoding: 'utf8' })
 	.split('\n')
@@ -60,7 +65,13 @@ const writerSites = Object.fromEntries(
 const WRITER_SITES: Record<string, number> = {
 	// The purge: sixteen models, one restore.
 	'src/lib/server/backup/import.ts': 16,
-	'src/lib/server/banking/sync/service.ts': 1,
+	'src/lib/server/ai/inferenceHalt.ts': 1,
+	// The pending challenges a sign-in ends with the account's sessions.
+	'src/lib/server/auth.ts': 1,
+	'src/lib/server/auth/mfaChallenge.ts': 3,
+	'src/lib/server/auth/rateLimit.ts': 1,
+	// deleteBankConnection, and the expired authorization requests.
+	'src/lib/server/banking/sync/service.ts': 2,
 	// deleteBudget, and the merge in updateBudget.
 	'src/lib/server/budget/dashboard.ts': 2,
 	// The overrule in rememberAnsweredAccount, and forgetRememberedAccount.
@@ -70,9 +81,14 @@ const WRITER_SITES: Record<string, number> = {
 	'src/lib/server/import/mapping/store.ts': 1,
 	'src/lib/server/import/persist.ts': 1,
 	'src/lib/server/naming/backfill.ts': 4,
-	// deleteTag and pruneOrphanTags.
-	'src/lib/server/tags/service.ts': 2,
+	'src/lib/server/net-worth/service.ts': 1,
+	'src/lib/server/savings-goals/service.ts': 1,
+	'src/lib/server/tags/bulk.ts': 1,
+	// deleteTag, pruneOrphanTags, and setTransactionTags's unlinking.
+	'src/lib/server/tags/service.ts': 3,
 	'src/lib/server/transactions/nature.ts': 1,
+	// replaceSplits and clearSplits.
+	'src/lib/server/transactions/splits.ts': 2,
 	// The prune in recordStreamAction, and undoStreamAction.
 	'src/lib/server/upcoming-bills/service.ts': 2,
 	// deleteUser: sessions, transactions, user; resetPassword: sessions.
@@ -80,8 +96,8 @@ const WRITER_SITES: Record<string, number> = {
 	// deleteCategory: nature mapping, budget, category.
 	'src/routes/categories/+page.server.ts': 3,
 	'src/routes/rules/+page.server.ts': 1,
-	// deleteAccount: sessions, transactions, user.
-	'src/routes/settings/+page.server.ts': 3,
+	// deleteAccount: sessions, transactions, user; the two recovery-code replacements.
+	'src/routes/settings/+page.server.ts': 5,
 	'src/routes/transactions/+page.server.ts': 1
 };
 
@@ -158,6 +174,17 @@ const HELPERS: { module: string; name: string; doors: Door[]; importers?: string
 		name: 'undoStreamAction',
 		doors: [['src/routes/upcoming-bills/+page.server.ts', 'undo_bill_action']]
 	},
+	// Owner ruling 7: the two soft deletes.
+	{
+		module: 'src/lib/server/net-worth/service.ts',
+		name: 'deleteNetWorthAccount',
+		doors: [['src/routes/net-worth/+page.server.ts', 'delete_net_worth_account']]
+	},
+	{
+		module: 'src/lib/server/savings-goals/service.ts',
+		name: 'deleteSavingsGoal',
+		doors: [['src/routes/net-worth/+page.server.ts', 'delete_savings_goal']]
+	},
 	// Rev 3b: three helpers that log themselves, each the only place that knows it deleted.
 	{
 		module: 'src/lib/server/budget/dashboard.ts',
@@ -192,6 +219,30 @@ const NOT_A_DOOR: [path: string, reason: string][] = [
 	[
 		'src/routes/admin/+page.server.ts',
 		"resetPassword ends the target's sessions: not member data, recorded by authz_admin reset_password"
+	],
+	[
+		'src/lib/server/ai/inferenceHalt.ts',
+		'the admin AI kill switch lifted: budgetpilot.ai.inference_resumed'
+	],
+	[
+		'src/lib/server/auth.ts',
+		'pending second-factor challenges: sign-in material, the L3 sign-in events'
+	],
+	[
+		'src/lib/server/auth/mfaChallenge.ts',
+		'pending second-factor challenges, expired or spent: the L3 sign-in events'
+	],
+	[
+		'src/lib/server/auth/rateLimit.ts',
+		'expired sign-in attempts purged: system retention, no actor'
+	],
+	[
+		'src/lib/server/tags/bulk.ts',
+		'undoBulkTag unlinks tags from transactions: an edit, owner ruling 4, #1080'
+	],
+	[
+		'src/lib/server/transactions/splits.ts',
+		"replaceSplits and clearSplits replace a transaction's splits: an edit, owner ruling 4, #1080"
 	]
 ];
 
@@ -234,13 +285,13 @@ function importersOf(module: string, name: string): string[] {
 const doors = [...ROUTE_DOORS, ...HELPERS.flatMap((helper) => helper.doors)];
 
 describe('every deletion a member or admin triggers logs sensitive_delete', () => {
-	// The first figures calibrate: the files were read, and the sites found are the 46 pinned.
+	// The first figures calibrate: the files were read, and the sites found are the 61 pinned.
 	it('reads the files and finds exactly the known writer sites, file by file', () => {
 		expect([
 			files.length > 100,
 			Object.values(writerSites).reduce((total, sites) => total + sites, 0),
 			writerSites
-		]).toEqual([true, 46, WRITER_SITES]);
+		]).toEqual([true, 61, WRITER_SITES]);
 	});
 
 	// Every writer file is a door, a helper's module or a named non-door, and nothing else.
@@ -257,15 +308,15 @@ describe('every deletion a member or admin triggers logs sensitive_delete', () =
 	});
 
 	// The operation literal is matched inside a `logSensitiveDelete(` call, so a file with several
-	// doors needs every call. The first two figures calibrate: nineteen doors were read, one per
-	// operation of table A (rev 3b).
+	// doors needs every call. The first two figures calibrate: twenty-one doors were read, one per
+	// operation of table A (rev 3c).
 	it('each door calls logSensitiveDelete with its own operation', () => {
 		const call = (operation: string) => new RegExp(`logSensitiveDelete\\([^;]*'${operation}'`, 's');
 		expect([
 			doors.length,
 			new Set(doors.map(([, operation]) => operation)).size,
 			doors.filter(([path, operation]) => !call(operation).test(code(path))).map(String)
-		]).toEqual([19, 19, []]);
+		]).toEqual([21, 21, []]);
 	});
 
 	// By module, not by local name. The settings door imports `deleteTag` as `deleteTagService`: a

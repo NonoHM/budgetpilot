@@ -168,6 +168,8 @@ describe('logSensitiveDelete, table A rev 3 (L4b-2)', () => {
 		data.logSensitiveDelete(ACTOR, 'merge_budget');
 		data.logSensitiveDelete(ACTOR, 'overrule_remembered_account');
 		data.logSensitiveDelete(ACTOR, 4, 'prune_bill_actions');
+		data.logSensitiveDelete(ACTOR, 'delete_net_worth_account');
+		data.logSensitiveDelete(ACTOR, 'delete_savings_goal');
 		expect(
 			lines().map((line) => {
 				const {
@@ -206,7 +208,9 @@ describe('logSensitiveDelete, table A rev 3 (L4b-2)', () => {
 				true,
 				'prune_bill_actions',
 				{ 'budgetpilot.data.scope': 'bill_action', 'budgetpilot.data.records_deleted': '2-9' }
-			]
+			],
+			[true, 'delete_net_worth_account', { 'budgetpilot.data.scope': 'net_worth_account' }],
+			[true, 'delete_savings_goal', { 'budgetpilot.data.scope': 'savings_goal' }]
 		]);
 	});
 

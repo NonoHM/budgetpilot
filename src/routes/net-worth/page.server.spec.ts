@@ -585,3 +585,55 @@ describe('L4a: a refused savings goal delete writes one authz_fail line, malform
 		});
 	});
 });
+
+/**
+ * The two soft deletes write `sensitive_delete` (L4b-2, owner ruling 7, 2026-10-28): the member
+ * pressed Delete and has no undo, so the row kept under `deletedAt` is still a deletion from their
+ * side. Separates « written once the service returned » from « written before or whatever it
+ * answers »: a service that refuses writes none.
+ */
+describe('/net-worth soft deletes write sensitive_delete', () => {
+	const deletes = () =>
+		logged.filter((line) => (line as { event: string }).event === E.sensitiveDelete);
+	const line = (operation: string, scope: string) => ({
+		event: E.sensitiveDelete,
+		attributes: {
+			[A.userPseudonym]: logUserPseudonym(testUser.id),
+			[A.dataOperation]: operation,
+			[A.dataScope]: scope
+		}
+	});
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		logged.length = 0;
+	});
+
+	it('delete: one line, scope net_worth_account', async () => {
+		service.deleteNetWorthAccount.mockResolvedValue(undefined);
+		await actions.delete(buildEvent({ id: 'acc-1' }) as never);
+		expect(deletes()).toEqual([line('delete_net_worth_account', 'net_worth_account')]);
+	});
+
+	it('delete refused by the service writes none', async () => {
+		service.deleteNetWorthAccount.mockImplementation(() => {
+			throw error(404, 'introuvable');
+		});
+		await actions.delete(buildEvent({ id: 'acc-other-user' }) as never);
+		expect(deletes()).toEqual([]);
+	});
+
+	it('deleteSavingsGoal: one line, scope savings_goal', async () => {
+		savingsGoalsService.deleteSavingsGoal.mockResolvedValue(undefined);
+		await actions.deleteSavingsGoal(buildEvent({ id: 'goal-1' }) as never);
+		expect(deletes()).toEqual([line('delete_savings_goal', 'savings_goal')]);
+	});
+
+	it('deleteSavingsGoal refused by the service writes none', async () => {
+		savingsGoalsService.deleteSavingsGoal.mockImplementation(() => {
+			throw error(404, 'introuvable');
+		});
+		await actions.deleteSavingsGoal(buildEvent({ id: 'goal-other-user' }) as never);
+		expect(deletes()).toEqual([]);
+	});
+});

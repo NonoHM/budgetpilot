@@ -53,7 +53,10 @@ const SCOPE: { [O in SensitiveDeleteOperation]: DataScope } = {
 	forget_remembered_account: 'remembered_account',
 	delete_nature_mapping: 'nature_mapping',
 	delete_bank_connection: 'bank_connection',
-	undo_bill_action: 'bill_action'
+	undo_bill_action: 'bill_action',
+	// Soft deletes: the row stays under `deletedAt`, the member has no undo (owner ruling 7).
+	delete_net_worth_account: 'net_worth_account',
+	delete_savings_goal: 'savings_goal'
 };
 
 const EXPORT_SCOPE: { [X in DataExport]: DataScope } = {

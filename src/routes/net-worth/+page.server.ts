@@ -23,6 +23,7 @@ import {
 	readSavingsGoals,
 	updateSavingsGoal
 } from '$lib/server/savings-goals/service';
+import { logSensitiveDelete } from '$lib/server/logging/data';
 import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals }) => {
@@ -120,6 +121,7 @@ export const actions: Actions = {
 		} catch (caught) {
 			return fail(getErrorStatus(caught), { error: getErrorMessage(caught) });
 		}
+		logSensitiveDelete(user.id, 'delete_net_worth_account');
 
 		return { success: m.net_worth_success_deleted() };
 	},
@@ -170,6 +172,7 @@ export const actions: Actions = {
 		} catch (caught) {
 			return fail(getErrorStatus(caught), { error: getErrorMessage(caught) });
 		}
+		logSensitiveDelete(user.id, 'delete_savings_goal');
 
 		return { success: m.savings_goal_success_deleted() };
 	},

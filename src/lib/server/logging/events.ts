@@ -200,7 +200,9 @@ export type UncountedDeleteOperation =
 	| 'delete_bank_connection'
 	| 'undo_bill_action'
 	| 'merge_budget'
-	| 'overrule_remembered_account';
+	| 'overrule_remembered_account'
+	| 'delete_net_worth_account'
+	| 'delete_savings_goal';
 /** The prunes: records an edit or a write left with no use, counted under one field (rev 3b). */
 export type PruneOperation = 'prune_tags' | 'prune_bill_actions';
 export type SensitiveDeleteOperation =
@@ -220,6 +222,8 @@ export type DataScope =
 	| 'nature_mapping'
 	| 'bank_connection'
 	| 'bill_action'
+	| 'net_worth_account'
+	| 'savings_goal'
 	| 'selection';
 
 export type DataExport = 'backup' | 'transactions_csv';
