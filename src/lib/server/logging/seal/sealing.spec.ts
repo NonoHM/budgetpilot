@@ -164,8 +164,8 @@ describe('sealing unavailable', () => {
 	});
 
 	// Narrow pass 3, N13: PostgreSQL also refuses a key owned by anyone but the server's user or root.
-	// A key of another user's, 0644, is read through the others bit. Separates « the owner is checked »
-	// from « only our own key's mode ».
+	// Written 0600 here, with the effective uid mocked to another user's, so only the owner can refuse
+	// it. Separates « the owner is checked » from « only our own key's mode ».
 	it('names key_exposed when key.pem belongs to another user, whatever its mode', () => {
 		const dir = sealDir();
 		const key = generateKeyPairSync('ml-dsa-44').privateKey.export({

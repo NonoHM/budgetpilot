@@ -760,7 +760,7 @@ the whole directory: the next start then links to nothing, and a copy that spans
 | `verified`   | 0           | Every line is covered by a checkpoint signed by your key, apart from the newest lines and, after rotation, the first lines of the copy.                                                                                |
 | `broken`     | 1           | The copy contradicts a signature: a line was removed, edited or moved within its start, a checkpoint is missing or is not signed by a key you gave, or a start was removed. Each `BREAK` line names the line it found. |
 | `unverified` | 3           | Nothing contradicts a signature, but some lines or starts are not covered. The list after this table gives each case.                                                                                                  |
-| `nothing`    | 2           | No checkpoint verified: sealing was off, or no checkpoint was written yet in the lines this copy holds. Also the status of a command it could not run.                                                                 |
+| `nothing`    | 2           | No checkpoint verified: sealing was off or unavailable, or the copy holds no checkpoint whose lines are all in it, such as a short copy cut by rotation. Also the status of a command it could not run.                |
 
 A copy reads `unverified` when it holds any of these:
 

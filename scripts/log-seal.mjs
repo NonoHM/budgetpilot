@@ -92,7 +92,7 @@ try {
 	process.stdout.write(render(report));
 	if (report.status === 'nothing') {
 		process.stderr.write(
-			'No checkpoint verified: sealing was off, the log holds no checkpoint, or the key is not the one that signed it.\n'
+			'No checkpoint verified: sealing was off or unavailable, or the copy holds no checkpoint whose lines are all in it, such as a short copy cut by rotation.\n'
 		);
 	}
 	process.exitCode = EXIT[report.status];
