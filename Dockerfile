@@ -16,10 +16,10 @@
 # it back.
 #
 # Builder and runtime are the same Debian release on purpose (trixie = Debian 13, glibc 2.41,
-# Node 24.21.0 in both, verified by running both images). better-sqlite3, bcrypt and Prisma's
+# Node 24.22.1 in both, verified by running both images). better-sqlite3, bcrypt and Prisma's
 # schema-engine are native ELFs compiled in the builder stages and executed in the runtime one;
 # a base pair that drifted apart in glibc or in NODE_MODULE_VERSION would break them at boot.
-FROM node:24.21.0-trixie-slim@sha256:8ec5d7557396cfe32d21c3f9c13072355ceab22b584578ca4bb28af31120cffe AS deps
+FROM node:24.22.1-trixie-slim@sha256:89c5244bc22a9bc3287d89ebc7e49b9cb5bb84cd40e6175ac3421d5a9f68b95a AS deps
 WORKDIR /app
 
 RUN apt-get update \
@@ -37,7 +37,7 @@ COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
 
 
-FROM node:24.21.0-trixie-slim@sha256:8ec5d7557396cfe32d21c3f9c13072355ceab22b584578ca4bb28af31120cffe AS builder
+FROM node:24.22.1-trixie-slim@sha256:89c5244bc22a9bc3287d89ebc7e49b9cb5bb84cd40e6175ac3421d5a9f68b95a AS builder
 WORKDIR /app
 
 COPY --from=deps /app/node_modules ./node_modules
@@ -131,7 +131,7 @@ RUN npm run build
 RUN mkdir -p /out/data && chown 65532:65532 /out/data
 
 
-FROM node:24.21.0-trixie-slim@sha256:8ec5d7557396cfe32d21c3f9c13072355ceab22b584578ca4bb28af31120cffe AS prod-deps
+FROM node:24.22.1-trixie-slim@sha256:89c5244bc22a9bc3287d89ebc7e49b9cb5bb84cd40e6175ac3421d5a9f68b95a AS prod-deps
 WORKDIR /app
 
 RUN apt-get update \
@@ -176,7 +176,7 @@ COPY src/lib/server/database/provider.ts ./src/lib/server/database/provider.ts
 # Debugging: `docker compose exec budgetpilot sh` no longer exists. Use the same base's
 # debug-nonroot variant locally (`--entrypoint /busybox/sh`), never in production; see
 # docs/operations.md. `docker compose logs budgetpilot` is unchanged.
-FROM gcr.io/distroless/nodejs24-debian13:nonroot@sha256:9eeb7f5887d0e239e78264b06f7f11d2e14be534050481803a9e4728fcdd278e AS runner
+FROM gcr.io/distroless/nodejs24-debian13:nonroot@sha256:cb606325b7ec4af55462cb0b424a53b452a5b4a894ffe841fcf1048d216fb9f8 AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
