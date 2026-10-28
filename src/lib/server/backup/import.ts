@@ -4,6 +4,8 @@ import { prisma } from '$lib/server/db';
 import { LONG_TRANSACTION_OPTIONS } from '$lib/server/dbTransaction';
 import { UNCLASSIFIED_CATEGORY } from '$lib/domain/categories';
 import { computeNameKey } from '$lib/server/naming/nameKey';
+import { hashFingerprint } from '$lib/server/import/utils/safety';
+import { MAX_ACCOUNT_NAME_LENGTH } from '$lib/domain/account';
 import { manualCategoryUpdate } from '$lib/server/transactions/manualCategory';
 import { dedupeKeyUpdate } from '$lib/server/import/dedupeKey';
 import { assignDedupeKeys } from '$lib/server/import/dedupeRecompute';
@@ -232,34 +234,26 @@ export async function restoreBackup(
 		// Account/Category/ImportBatch next (ids regenerated, one by one to know the new id
 		// and build the Maps oldId(file) → newId).
 		const accountIdMap = new Map<string, string>();
-		const accountKeyMap = new Map<string, string>();
-		// Keyed on the RESTORED account rather than on the file's, because two file accounts whose
-		// names fold together are merged into one bucket above and the second one's transactions
-		// follow the first. A map keyed on the file's id would hand a merged row the provider
-		// account of a bucket it does not live in, and the deduplication key would name a
-		// provider account that never held it.
+		// `source + nameKey` of every account restored so far, generated names included.
+		const takenAccountKeys = new Set<string>();
 		const providerAccountIdByBucket = new Map<string, string | null>();
-		// D4's participants, collected as the buckets are created rather than read off the payload.
-		// The loop below MERGES two file accounts whose names fold together, so the payload's rows
-		// and the rows that end up existing are not the same set: counting the payload would report
-		// a contest between a bucket and a duplicate that was never recreated.
 		const restoredLinkRows: NetWorthLinkRow[] = [];
 		for (const account of payload.accounts) {
-			// First spelling wins: an older export can hold two buckets whose names fold
-			// together, and recreating both would rebuild the duplicate the app no longer
-			// accepts. The second one's transactions follow the first through the id map.
-			const accountKey = `${account.source} ${computeNameKey(account.name)}`;
-			const alreadyRestored = accountKeyMap.get(accountKey);
-			if (alreadyRestored) {
-				accountIdMap.set(account.id, alreadyRestored);
-				continue;
-			}
+			// NEVER FOLDED (#1090). This loop used to merge two file accounts whose names share a key,
+			// so a « Livret » EUR and a « LIVRET » USD came back as one EUR account holding both
+			// currencies' rows, and the second one's links were dropped. The file carries no key, so
+			// it cannot tell a duplicate from before the keys from two real accounts the rename race
+			// produced (#1089), and those are never merged (owner ruling on #1086). The second one
+			// is restored under a suffixed name instead, so no two restored accounts share a key.
+			const name = restoredAccountName(account, takenAccountKeys);
+			const nameKey = computeNameKey(name);
+			takenAccountKeys.add(`${account.source} ${nameKey}`);
 
 			const created = await tx.account.create({
 				data: {
 					...restoredDenomination(account),
 					userId,
-					name: account.name,
+					name,
 					source: account.source,
 					netWorthAccountId: account.netWorthAccountId
 						? (netWorthAccountIdMap.get(account.netWorthAccountId) ?? null)
@@ -269,12 +263,11 @@ export async function restoreBackup(
 						: null,
 					providerAccountId: account.providerAccountId ?? null,
 					providerCashAccountType: account.providerCashAccountType ?? null,
-					nameKey: computeNameKey(account.name)
+					nameKey
 				},
 				select: { id: true }
 			});
 			accountIdMap.set(account.id, created.id);
-			accountKeyMap.set(accountKey, created.id);
 			providerAccountIdByBucket.set(created.id, account.providerAccountId ?? null);
 			restoredLinkRows.push({
 				accountId: created.id,
@@ -1014,6 +1007,32 @@ function assertReferentialIntegrity(payload: BackupExport): void {
 			);
 		}
 	}
+}
+
+/**
+ * The file account's own name, or, when an account restored earlier already holds its key, the
+ * name with an opaque suffix: the shape `resolveImportBucketAccount` gives a bank-sync bucket whose
+ * name is taken. Derived from the file account's id alone, so restoring one file twice gives the
+ * same names. The base is cut on code points, as `capBucketName` does: slicing UTF-16 units can
+ * leave a lone surrogate that MySQL's utf8mb4 rejects.
+ */
+function restoredAccountName(
+	account: { id: string; name: string; source: string },
+	takenAccountKeys: ReadonlySet<string>
+): string {
+	let name = account.name;
+	for (
+		let attempt = 0;
+		takenAccountKeys.has(`${account.source} ${computeNameKey(name)}`);
+		attempt++
+	) {
+		const suffix = ` · ${hashFingerprint(`${account.id}#${attempt}`).slice(0, 6)}`;
+		const base = Array.from(account.name)
+			.slice(0, MAX_ACCOUNT_NAME_LENGTH - Array.from(suffix).length)
+			.join('');
+		name = `${base}${suffix}`;
+	}
+	return name;
 }
 
 /**
