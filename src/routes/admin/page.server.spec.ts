@@ -1051,6 +1051,23 @@ describe('L4b-2: deleteUser writes sensitive_delete', () => {
 		expect(deletes()).toEqual([]);
 	});
 
+	// Separates « the committed attempt's own answer » from « a count gathered across attempts »:
+	// the commit retries whole, the aborted attempt saw 900, the committed one 3.
+	it('a commit retried after an abort logs the committed attempt count', async () => {
+		accountsAre({ id: 'user-b' });
+		tx.transaction.deleteMany
+			.mockResolvedValueOnce({ count: 900 })
+			.mockResolvedValueOnce({ count: 3 });
+		vi.mocked(commitWithRotatedToken).mockImplementationOnce(async (_user, _cookies, change) => {
+			await change(tx as never);
+			return change(tx as never);
+		});
+		await runDeleteUser({ targetUserId: 'user-b', currentPassword: ADMIN_PASSWORD }, ADMIN);
+		expect(
+			deletes().map((line) => line.attributes['budgetpilot.data.transactions_deleted'])
+		).toEqual(['2-9']);
+	});
+
 	// Green today; red if the line is written before the target resolves.
 	it('a missing target writes none', async () => {
 		accountsAre(null);

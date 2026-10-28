@@ -2456,6 +2456,23 @@ describe('L4b-2: settings writes sensitive_delete and input_validation_fail', ()
 		expect(dataLines()).toEqual([]);
 	});
 
+	// Separates « the committed attempt's own answer » from « a count gathered across attempts »:
+	// the commit retries whole (`withConcurrentWriteRetry`), the aborted attempt saw 900, the
+	// committed one 37, and a variable summed or kept outside the callback logs `100-999`.
+	it('deleteAccount retried after an abort logs the committed attempt count', async () => {
+		tx.transaction.deleteMany
+			.mockResolvedValueOnce({ count: 900 })
+			.mockResolvedValueOnce({ count: 37 });
+		vi.mocked(commitEndingSession).mockImplementationOnce(async (_user, _cookies, change) => {
+			await change(tx as never);
+			return change(tx as never);
+		});
+		await expect(deleteAccount('SUPPRIMER')).rejects.toMatchObject({ status: 303 });
+		expect(
+			dataLines().map((line) => line.attributes['budgetpilot.data.transactions_deleted'])
+		).toEqual(['10-99']);
+	});
+
 	// Green today; red if the line is written before the confirmation or the commit.
 	it('deleteAccount refused on its phrase writes no sensitive_delete', async () => {
 		const result = (await deleteAccount('mauvaise phrase')) as { status: number };
