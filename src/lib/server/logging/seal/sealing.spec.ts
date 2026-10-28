@@ -292,10 +292,10 @@ describe('the volume link (design note A14)', () => {
 	}
 
 	// A whole start from another seal directory, every line signed by a key the verifier accepts:
-	// nothing is unverified, so only the volume link of `none` after a sealed start can tell.
-	// Separates « a host's first start must link an earlier start » from « any first start may say
-	// none ».
-	it('a host first seen after a sealed start, linking none through the volume: missing-start', () => {
+	// only the volume link of `none` after a start holding checkpoints can tell. A rolling restart in
+	// the first interval signs the same `none` (pass 2, F2), so it is unverified, not a break.
+	// Separates « none after a start holding checkpoints is reported » from « any start may say none ».
+	it('a host first seen after a sealed start, linking none through the volume: unlinked-start', () => {
 		const home = sealDir();
 		const elsewhere = sealDir();
 		const a = stoppedStart(home, 'host-a');
@@ -305,7 +305,7 @@ describe('the volume link (design note A14)', () => {
 			readFileSync(join(dir, 'verification.vkey'), 'utf8').trim()
 		);
 		const report = verifyLog([...a, ...inserted, ...b].join(''), vkeys);
-		expect(report.breaks.map((found) => found.kind)).toEqual(['missing-start']);
+		expect([report.breaks, report.unverified.map((u) => u.kind)]).toEqual([[], ['unlinked-start']]);
 	});
 });
 

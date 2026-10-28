@@ -86,6 +86,28 @@ function runStart(
 	return out;
 }
 
+/** A start left running, for one that overlaps another: write lines, tick its timer, stop it. */
+function openStart(dir: string, host: string) {
+	const out: string[] = [];
+	const scheduled: (() => void)[] = [];
+	const { proc, stop } = fakeProcess();
+	const write = createLogWriter({
+		level: 'info',
+		securityLog: 'on',
+		sink: (line) => out.push(line),
+		chain: newChain(),
+		seal: 'on',
+		schedule: (run) => scheduled.push(run)
+	});
+	write.startSeal({ dir, intervalSeconds: 900, host, proc });
+	let written = 0;
+	const lines = (n: number) => {
+		for (let i = 0; i < n; i++) write(event((written += 1)));
+	};
+	const tick = () => scheduled.splice(0).forEach((run) => run());
+	return { out, lines, tick, stop };
+}
+
 const vkeyIn = (dir: string) => readFileSync(join(dir, 'verification.vkey'), 'utf8').trim();
 const text = (lines: string[]) => lines.join('');
 const eventOf = (line: string) => (JSON.parse(line) as Record<string, unknown>)[FIELD.eventName];
@@ -409,31 +431,73 @@ describe('a copy edited by someone without the key', () => {
 	it('a link into a later start cut before the checkpoint it names: link-outside-copy', () => {
 		const dir = sealDir();
 		const x1 = runStart(dir, 2, undefined, 'host-x');
-		const y: string[] = [];
-		const scheduled: (() => void)[] = [];
-		const { proc, stop } = fakeProcess();
-		const writeY = createLogWriter({
-			level: 'info',
-			securityLog: 'on',
-			sink: (line) => y.push(line),
-			chain: newChain(),
-			seal: 'on',
-			schedule: (run) => scheduled.push(run)
-		});
-		writeY.startSeal({ dir, intervalSeconds: 900, host: 'host-y', proc });
-		const linesThenTick = (from: number) => {
-			for (let i = from; i < from + 3; i++) writeY(event(i));
-			scheduled.splice(0).forEach((run) => run());
-		};
-		linesThenTick(1);
+		const y = openStart(dir, 'host-y');
+		y.lines(3);
+		y.tick();
 		const x2 = runStart(dir, 2, undefined, 'host-x');
-		linesThenTick(4);
-		stop();
-		const cutY = y.slice(y.findIndex((line) => eventOf(line) === E.logCheckpoint) + 1);
+		y.lines(3);
+		y.tick();
+		y.stop();
+		const cutY = y.out.slice(y.out.findIndex((line) => eventOf(line) === E.logCheckpoint) + 1);
 		const report = verifyLog(text([...x1, ...cutY, ...x2]), vkeyIn(dir));
 		expect([report.breaks, report.unverified.map((u) => u.kind)]).toEqual([
 			[],
 			['begins-inside', 'link-outside-copy']
+		]);
+	});
+
+	// Narrow pass 2, F1: the copy's first start cut at its head (allowed: rotation) AND after its
+	// first checkpoint, two signed segments gone. b's link names a's stop checkpoint, which the A17
+	// notice excused. Separates « the notice needs the named segment to precede every segment the
+	// target holds » (both signed) from « any checkpoint a cut first start lacks ».
+	it('the first start of the copy cut at both ends, the next linking its lost stop: broken', () => {
+		const dir = sealDir();
+		const a = runStart(dir, 10, 4);
+		const b = runStart(dir, 2);
+		const first = a.findIndex((line) => eventOf(line) === E.logCheckpoint);
+		const report = verifyLog(text([...a.slice(1, first + 1), ...b]), vkeyIn(dir));
+		expect(kinds(report)).toEqual(['missing-checkpoint']);
+	});
+
+	it('the same through the volume link of a recreated container: broken', () => {
+		const dir = sealDir();
+		const a = runStart(dir, 10, 4, 'container-1');
+		const b = runStart(dir, 2, undefined, 'container-2');
+		const first = a.findIndex((line) => eventOf(line) === E.logCheckpoint);
+		const report = verifyLog(text([...a.slice(1, first + 1), ...b]), vkeyIn(dir));
+		expect(kinds(report)).toEqual(['missing-checkpoint']);
+	});
+
+	// Narrow pass 2, F2: a rolling restart in the first interval. n starts while o runs and before
+	// o's first checkpoint, so no volume file exists and n signs `none`; o checkpoints later. A
+	// signed `none` and an earlier start holding checkpoints are both true of an untouched log.
+	// Separates « none after a sealed start is unverified » from « a removed start ».
+	it('a rolling restart before the first checkpoint ever: not broken', () => {
+		const dir = sealDir();
+		const o = openStart(dir, 'host-o');
+		o.lines(2);
+		const n = runStart(dir, 2, undefined, 'host-n');
+		o.lines(2);
+		o.tick();
+		o.stop();
+		const report = verifyLog(text([...o.out, ...n]), vkeyIn(dir));
+		expect([report.breaks, report.status]).toEqual([[], 'unverified']);
+	});
+
+	// Narrow pass 2, F5: a crash between the first checkpoint line and its state file, simulated by
+	// removing the state files. The next start signs `none` through both links.
+	it('a start whose state files were never written: not broken', () => {
+		const dir = sealDir();
+		const a = runStart(dir, 2);
+		for (const name of readdirSync(dir).filter((f) => f.startsWith('last-checkpoint.'))) {
+			rmSync(join(dir, name));
+		}
+		const b = runStart(dir, 2);
+		const report = verifyLog(text([...a, ...b]), vkeyIn(dir));
+		// One per link: the volume's and the host's state file were both absent.
+		expect([report.breaks, report.unverified.map((u) => u.kind)]).toEqual([
+			[],
+			['unlinked-start', 'unlinked-start']
 		]);
 	});
 
