@@ -302,7 +302,8 @@ export async function restoreBackup(
 		const categoryKeyMap = new Map<string, string>();
 		for (const category of payload.categories) {
 			const name = normalizeCategoryName(category.name);
-			// Same first-wins rule as accounts above.
+			// First wins on the folded name: Category.nameKey is unique, and a category carries no
+			// currency or link that a merge could misstate. Accounts are never folded (#1090).
 			const nameKey = computeNameKey(name);
 			const alreadyRestored = categoryKeyMap.get(nameKey);
 			if (alreadyRestored) {

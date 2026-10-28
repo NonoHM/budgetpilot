@@ -286,9 +286,10 @@ model Account {
   // rejected here, and the `userId_name_source` lookup in server/import/persist.ts finds the
   // first one instead of missing it.
   //
-  // Not reachable through the app today: every write path resolves the bucket by `nameKey`
-  // first (persist.ts) or de-duplicates by it before inserting (backup/import.ts), and both
-  // treat those pairs as distinct names, so the folded row is never the one being written.
+  // Not reachable through the app's own writes: every write path resolves the bucket by
+  // `nameKey` first (persist.ts) or suffixes a taken key before inserting (backup/import.ts),
+  // and both treat those pairs as distinct names. A restore onto MySQL of a file from another
+  // engine holding such a pair does reach it, and is refused (#1103).
   // Left as is rather than swapped for a `nameKey` unique, because this table cannot carry
   // one: the backfill legitimately leaves two buckets sharing a key when their bank or
   // net-worth links conflict (see `nameKey` above). Closing it means deciding what should

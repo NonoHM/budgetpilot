@@ -4,17 +4,20 @@ import { computeNameKey } from '$lib/server/naming/nameKey';
 import { MAX_ACCOUNT_NAME_LENGTH } from '$lib/domain/account';
 import { buildBackupExport } from './export';
 import { restoreBackup } from './import';
-import type { BackupExport } from './schema';
+import { backupExportSchema, type BackupExport } from './schema';
 
 /**
  * #1090: a restore must not fold two file accounts whose names share a key.
  *
- * The seeded pair is the state the concurrent-rename race leaves (#1089, measured 40 of 40 on
- * SQLite): two accounts of one source whose names differ only by case. The seed writes it
- * directly because the race is the route and is measured there; this suite measures what the
- * RESTORE does with a file holding it. Measured before the fix: the currency pair came back as
- * one EUR account holding `1000 EUR, 500 USD`, the linked pair as one unlinked account.
- * See vitest.db.config.ts for how to run this.
+ * The pair is the state the concurrent-rename race leaves (#1089, measured 40 of 40 on SQLite):
+ * two accounts of one source whose names differ only by case. Measured before the fix: the
+ * currency pair came back as one EUR account holding `1000 EUR, 500 USD`, the linked pair as one
+ * unlinked account.
+ *
+ * The NAMES ARE WRITTEN INTO THE FILE, not into the seed. MySQL's collation refuses « Livret » and
+ * « LIVRET » under `@@unique([userId, name, source])`, so the pair cannot be seeded there; a file
+ * exported from SQLite or PostgreSQL carries it onto any engine, and that is the route this suite
+ * takes on all three. See vitest.db.config.ts for how to run this.
  */
 
 if (!process.env.DATABASE_URL) {
@@ -40,13 +43,16 @@ afterAll(async () => {
 });
 
 interface SeedAccount {
+	/** The name the FILE carries. The database row is seeded under a distinct placeholder. */
 	name: string;
 	currency: string;
 	linked: boolean;
 	amount: bigint;
+	source?: string;
 }
 
-async function seed(accounts: SeedAccount[]) {
+/** Seeds the accounts and returns the user and the file whose accounts carry the given names. */
+async function seed(accounts: SeedAccount[]): Promise<{ userId: string; file: BackupExport }> {
 	const user = await prisma.user.create({
 		data: {
 			email: `pair-${crypto.randomUUID()}@budgetpilot.invalid`,
@@ -72,19 +78,22 @@ async function seed(accounts: SeedAccount[]) {
 		},
 		select: { id: true }
 	});
+	const fileName = new Map<string, string>();
 	for (const [i, a] of accounts.entries()) {
+		const placeholder = `Seed ${i}`;
 		const account = await prisma.account.create({
 			data: {
 				userId,
-				name: a.name,
-				nameKey: computeNameKey(a.name),
-				source: 'csv',
+				name: placeholder,
+				nameKey: computeNameKey(placeholder),
+				source: a.source ?? 'csv',
 				currency: a.currency,
 				exponent: 2,
 				netWorthAccountId: a.linked ? netWorth.id : null
 			},
 			select: { id: true }
 		});
+		fileName.set(account.id, a.name);
 		await prisma.transaction.create({
 			data: {
 				userId,
@@ -99,7 +108,13 @@ async function seed(accounts: SeedAccount[]) {
 			}
 		});
 	}
-	return userId;
+	const exported = (await buildBackupExport(userId)) as BackupExport;
+	// Parsed, so no fixture here can hold a file the restore route would refuse.
+	const file = backupExportSchema.parse({
+		...exported,
+		accounts: exported.accounts.map((row) => ({ ...row, name: fileName.get(row.id)! }))
+	});
+	return { userId, file };
 }
 
 /** Each account by what it holds, sorted on its rows, which are distinct per seeded account. */
@@ -125,30 +140,20 @@ async function holdings(userId: string) {
 }
 
 async function names(userId: string) {
-	const rows = await prisma.account.findMany({
-		where: { userId },
-		select: { name: true, nameKey: true }
-	});
-	return rows;
-}
-
-async function roundTrip(userId: string) {
-	await restoreBackup(userId, (await buildBackupExport(userId)) as BackupExport);
+	return prisma.account.findMany({ where: { userId }, select: { name: true, nameKey: true } });
 }
 
 const LIVRET = { name: 'Livret', currency: 'EUR', linked: false, amount: 1000n };
+const LIVRET_USD = { name: 'LIVRET', currency: 'USD', linked: false, amount: 500n };
 
 describe('a restore and two file accounts whose names share a key (#1090)', () => {
 	it('keeps two accounts of different currencies apart, each holding its own rows', async () => {
 		// SEPARATES « the restore keeps the pair » FROM « it files USD rows under the EUR account ».
-		const userId = await seed([
-			LIVRET,
-			{ name: 'LIVRET', currency: 'USD', linked: false, amount: 500n }
-		]);
+		const { userId, file } = await seed([LIVRET, LIVRET_USD]);
 		const before = await holdings(userId);
 		expect(before).toHaveLength(2);
 
-		await roundTrip(userId);
+		await restoreBackup(userId, file);
 
 		expect(await holdings(userId)).toStrictEqual(before);
 	});
@@ -156,14 +161,14 @@ describe('a restore and two file accounts whose names share a key (#1090)', () =
 	it('keeps two accounts apart when only one is linked to net worth, keeping the link', async () => {
 		// SEPARATES « the link survives with its own rows » FROM « the second account's link is
 		// dropped and its rows land on the unlinked first one ».
-		const userId = await seed([
+		const { userId, file } = await seed([
 			LIVRET,
 			{ name: 'LIVRET', currency: 'EUR', linked: true, amount: 500n }
 		]);
 		const before = await holdings(userId);
 		expect(before).toHaveLength(2);
 
-		await roundTrip(userId);
+		await restoreBackup(userId, file);
 
 		expect(await holdings(userId)).toStrictEqual(before);
 	});
@@ -171,35 +176,53 @@ describe('a restore and two file accounts whose names share a key (#1090)', () =
 	it('restores the second under a suffixed name, so no two accounts share a key', async () => {
 		// SEPARATES « two accounts, two keys » FROM « two accounts recreated under one key », the
 		// state the app's own writers refuse (persist.ts resolves by key).
-		const userId = await seed([
-			LIVRET,
-			{ name: 'LIVRET', currency: 'USD', linked: false, amount: 500n }
-		]);
+		const { userId, file } = await seed([LIVRET, LIVRET_USD]);
 
-		await roundTrip(userId);
+		await restoreBackup(userId, file);
 
 		const restored = await names(userId);
-		expect(restored).toHaveLength(2);
+		expect(restored.map((row) => row.name)).toContain('Livret');
+		expect(restored.find((row) => row.name !== 'Livret')!.name).toMatch(/^LIVRET · [0-9a-f]+$/);
 		expect(new Set(restored.map((row) => row.nameKey)).size).toBe(2);
-		const [bare, suffixed] = ['Livret', 'LIVRET'].includes(restored[0].name)
-			? [restored[0], restored[1]]
-			: [restored[1], restored[0]];
-		expect(['Livret', 'LIVRET']).toContain(bare.name);
-		expect(suffixed.name).toMatch(/^(Livret|LIVRET) · [0-9a-f]+$/);
-		expect(suffixed.name.startsWith(bare.name)).toBe(false);
+	});
+
+	it('gives the same names when the same file is restored twice', async () => {
+		// SEPARATES « the suffix is a function of the file » FROM « it reads a clock or a random
+		// source », which would rename the account on every restore of one backup.
+		const { userId, file } = await seed([LIVRET, LIVRET_USD]);
+
+		await restoreBackup(userId, file);
+		const first = (await names(userId)).map((row) => row.name).sort();
+		await restoreBackup(userId, file);
+
+		expect((await names(userId)).map((row) => row.name).sort()).toStrictEqual(first);
+	});
+
+	it('keeps both bare names when the two accounts come from different imports', async () => {
+		// SEPARATES « a key is taken per source » FROM « per user », which would suffix a CSV
+		// « Livret » for sitting beside a Revolut « LIVRET ». Per source, as persist.ts resolves.
+		const { userId, file } = await seed([LIVRET, { ...LIVRET_USD, source: 'revolut' }]);
+
+		await restoreBackup(userId, file);
+
+		expect((await names(userId)).map((row) => row.name).sort()).toStrictEqual(['LIVRET', 'Livret']);
 	});
 
 	it('suffixes again when a later file account already holds the suffixed name', async () => {
 		// SEPARATES « a generated name registers its own key » FROM « only file names are tracked »,
-		// where the third create hits @@unique([userId, name, source]) and aborts the restore.
-		const userId = await seed([
-			LIVRET,
-			{ name: 'LIVRET', currency: 'USD', linked: false, amount: 500n }
-		]);
-		const file = (await buildBackupExport(userId)) as BackupExport;
+		// where the third create hits @@unique([userId, name, source]) and aborts the restore, and
+		// FROM « the next candidate is built from the previous one » (« X · h0 · h1 »).
+		const { userId, file } = await seed([LIVRET, LIVRET_USD]);
 		await restoreBackup(userId, file);
 		const generated = (await names(userId)).find((row) => row.name.includes(' · '))!.name;
-		const third = { ...file.accounts[0], id: 'third-account', name: generated };
+		// Pinned to EUR so the USD account, the one that is suffixed, can be found by currency.
+		const third = {
+			...file.accounts[0],
+			id: 'third-account',
+			name: generated,
+			currency: 'EUR',
+			exponent: 2
+		};
 
 		for (const accounts of [
 			[...file.accounts, third],
@@ -210,6 +233,11 @@ describe('a restore and two file accounts whose names share a key (#1090)', () =
 			const restored = await names(userId);
 			expect(restored).toHaveLength(3);
 			expect(new Set(restored.map((row) => row.nameKey)).size).toBe(3);
+			const usd = await prisma.account.findFirstOrThrow({
+				where: { userId, currency: 'USD' },
+				select: { name: true }
+			});
+			expect(usd.name).toMatch(/^LIVRET · [0-9a-f]+$/);
 		}
 	});
 
@@ -218,16 +246,18 @@ describe('a restore and two file accounts whose names share a key (#1090)', () =
 		// exceeds the name cap. A unit cut leaves a lone surrogate, which the driver stores as U+FFFD,
 		// so the name reads back well formed: the assertion is on what the base IS, emoji only. Two
 		// pairs, one shifted by a one-unit « x », so a unit cut lands mid-pair in one of them
-		// whatever the length of the suffix (`hashFingerprint` is not zero padded).
-		const long = '🏦'.repeat(MAX_ACCOUNT_NAME_LENGTH - 1);
-		const userId = await seed([
+		// whatever the length of the suffix (`hashFingerprint` is not zero padded). 120 code points
+		// in 190 units, inside the file's 200-unit bound, with the cut inside the emoji run.
+		const long = `${'🏦'.repeat(70)}${'b'.repeat(MAX_ACCOUNT_NAME_LENGTH - 71)}`;
+		const shifted = `x${'🏦'.repeat(70)}${'b'.repeat(MAX_ACCOUNT_NAME_LENGTH - 72)}`;
+		const { userId, file } = await seed([
 			{ ...LIVRET, name: `${long}A` },
-			{ name: `${long}a`, currency: 'USD', linked: false, amount: 500n },
-			{ ...LIVRET, name: `x${long}A`, amount: 700n },
-			{ name: `x${long}a`, currency: 'USD', linked: false, amount: 300n }
+			{ ...LIVRET_USD, name: `${long}a` },
+			{ ...LIVRET, name: `${shifted}A`, amount: 700n },
+			{ ...LIVRET_USD, name: `${shifted}a`, amount: 300n }
 		]);
 
-		await roundTrip(userId);
+		await restoreBackup(userId, file);
 
 		const restored = await names(userId);
 		expect(restored).toHaveLength(4);
@@ -235,7 +265,7 @@ describe('a restore and two file accounts whose names share a key (#1090)', () =
 		expect(suffixed).toHaveLength(2);
 		for (const name of suffixed) {
 			expect(Array.from(name).length).toBeLessThanOrEqual(MAX_ACCOUNT_NAME_LENGTH);
-			expect(name).toMatch(/^x?(?:🏦)+ · [0-9a-f]+$/u);
+			expect(name).toMatch(/^x?(?:🏦)+b* · [0-9a-f]+$/u);
 		}
 		expect(new Set(restored.map((row) => row.nameKey)).size).toBe(4);
 	});
