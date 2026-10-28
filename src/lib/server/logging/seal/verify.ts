@@ -229,12 +229,14 @@ export function verifyLog(text: string, vkeyText: string | readonly string[]): V
 			tree.append(Buffer.from(line.text, 'utf8'));
 			lastCheckpoint = i;
 		}
-		if (lastCheckpoint < 0) {
+		if (lastCheckpoint < 0 && startedAt < 0) {
 			// The copy's first start, cut by rotation before its first checkpoint.
 			report.notices.push({ kind: 'copy-begins-mid-segment', lines: start.lines.length });
 			return;
 		}
-		start.tailLines = start.lines.length - 1 - lastCheckpoint;
+		// With no checkpoint, every line from seal_started on is the tail: a running start's newest
+		// lines, or a start that died before its first checkpoint. Never a notice, which hid them.
+		start.tailLines = start.lines.length - 1 - Math.max(lastCheckpoint, startedAt - 1);
 		report.unsealedLines += start.tailLines;
 	}
 
@@ -251,12 +253,16 @@ export function verifyLog(text: string, vkeyText: string | readonly string[]): V
 
 	// Links, followed per host (A10, A12).
 	const lastOfHost = new Map<string, Start>();
+	// What a link must name: the host's last start that HOLDS a checkpoint. One that died before
+	// its first never advanced the state file, so the next start rightly names the one before it.
+	const lastSealedOfHost = new Map<string, Start>();
 	const linked = new Map<string, Start>();
 	order.forEach((start, position) => {
 		if (start.host === undefined || start.link === undefined) return;
 		const at = start.lines[0].at;
-		const previous = lastOfHost.get(start.host);
+		const previous = lastSealedOfHost.get(start.host);
 		lastOfHost.set(start.host, start);
+		if (start.held.size > 0) lastSealedOfHost.set(start.host, start);
 		if (start.link === 'none') {
 			if (previous) broke('missing-start', at);
 			return;

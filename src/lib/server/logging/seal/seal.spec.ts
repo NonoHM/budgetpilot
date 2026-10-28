@@ -97,7 +97,7 @@ function rechain(lines: string[]): string[] {
 		const record = JSON.parse(line) as Record<string, unknown>;
 		const boot = record[A.logBootId];
 		const s = state.get(boot) ?? { seq: 0, prev: '0'.repeat(64) };
-		record[A.logSeq] = (s.seq += 1);
+		record[A.logSeq] = s.seq += 1;
 		record[A.logPrev] = s.prev;
 		const rewritten = JSON.stringify(record);
 		s.prev = sha256Hex(rewritten);
@@ -192,7 +192,9 @@ describe('a copy edited by someone without the key', () => {
 		const b = runStart(dir, 2);
 		const firstCheckpoint = a.findIndex((line) => eventOf(line) === E.logCheckpoint);
 		const truncated = a.slice(0, firstCheckpoint + 1);
-		expect(kinds(verifyLog(text([...truncated, ...b]), vkeyIn(dir)))).toEqual(['missing-checkpoint']);
+		expect(kinds(verifyLog(text([...truncated, ...b]), vkeyIn(dir)))).toEqual([
+			'missing-checkpoint'
+		]);
 	});
 
 	it('a whole start removed from the middle: missing-start', () => {
@@ -231,7 +233,12 @@ describe('a copy edited by someone without the key', () => {
 		const dir = sealDir();
 		const a = runStart(dir, 2);
 		const forged: string[] = [];
-		const plain = createLogWriter({ level: 'info', securityLog: 'on', sink: (l) => forged.push(l), chain: newChain() });
+		const plain = createLogWriter({
+			level: 'info',
+			securityLog: 'on',
+			sink: (l) => forged.push(l),
+			chain: newChain()
+		});
 		plain(event(99));
 		const b = runStart(dir, 2);
 		const report = verifyLog(text([...a, ...forged, ...b]), vkeyIn(dir));
@@ -248,6 +255,30 @@ describe('a copy edited by someone without the key', () => {
 		expect(report.breaks).toEqual([]);
 		expect(report.unverified).toEqual([{ kind: 'ended-without-checkpoint', lines: 2 }]);
 		expect(report.status).toBe('unverified');
+	});
+
+	// Security review of 717e024: a start killed before its FIRST checkpoint took the « copy begins
+	// mid-segment » branch, so its lines counted nowhere and the copy read verified; and the next
+	// start, whose link could not advance, read as a removed start. Separates « a sealed start with
+	// no checkpoint is a tail » from « it is a rotation notice ».
+	it('a start killed before its first checkpoint: unverified, not hidden, not a break', () => {
+		const dir = sealDir();
+		const a = runStart(dir, 2, undefined, 'host-a', false);
+		const b = runStart(dir, 2);
+		const report = verifyLog(text([...a, ...b]), vkeyIn(dir));
+		expect(report.breaks).toEqual([]);
+		expect(report.unverified).toEqual([{ kind: 'ended-without-checkpoint', lines: 3 }]);
+		expect(report.status).toBe('unverified');
+	});
+
+	it('the same after an earlier sealed start: the link names the checkpoint before it', () => {
+		const dir = sealDir();
+		const a0 = runStart(dir, 2);
+		const a = runStart(dir, 2, undefined, 'host-a', false);
+		const b = runStart(dir, 2);
+		const report = verifyLog(text([...a0, ...a, ...b]), vkeyIn(dir));
+		expect(report.breaks).toEqual([]);
+		expect(report.unverified).toEqual([{ kind: 'ended-without-checkpoint', lines: 3 }]);
 	});
 
 	it('two containers on one volume: each copy and the merged copy verify', () => {
@@ -283,6 +314,24 @@ describe('a copy edited by someone without the key', () => {
 		const b = runStart(dir, 2);
 		const c = runStart(dir, 2);
 		expect(kinds(verifyLog(text([...a, ...c, ...b]), vkeyIn(dir)))).toContain('start-order');
+	});
+
+	// Break B8 stayed green without this: the start that links a LATER start is its host's first in
+	// the copy, so the « previous start of this host » branch never sees it.
+	it('a copy whose first start links a start placed after it: start-order', () => {
+		const dir = sealDir();
+		runStart(dir, 2);
+		const b = runStart(dir, 2);
+		const c = runStart(dir, 2);
+		expect(kinds(verifyLog(text([...c, ...b]), vkeyIn(dir)))).toContain('start-order');
+	});
+
+	// Break B9 stayed green without this: every other chain test also moves `seq`.
+	it('a line edited in place, chain not recomputed: chain', () => {
+		const dir = sealDir();
+		const lines = runStart(dir, 4);
+		lines[2] = lines[2].replace('step-2', 'step-X');
+		expect(kinds(verifyLog(text(lines), vkeyIn(dir)))).toContain('chain');
 	});
 
 	it('a writer line with its boot_id removed: malformed', () => {
@@ -327,7 +376,10 @@ describe('a copy edited by someone without the key', () => {
 		proc.on('sveltekit:shutdown', write.flush);
 		proc.on('exit', write.flush);
 		for (let i = 0; i < FLOOD_ALLOWANCE + 3; i++) {
-			write({ event: E.consoleOutput, attributes: { [A.consoleMethod]: 'log', [A.consoleText]: 'x' } });
+			write({
+				event: E.consoleOutput,
+				attributes: { [A.consoleMethod]: 'log', [A.consoleText]: 'x' }
+			});
 		}
 		stop();
 		const b = runStart(dir, 1, undefined, 'h');
@@ -427,7 +479,12 @@ describe('the verifier refuses to report success over nothing', () => {
 		const dir = sealDir();
 		runStart(dir, 1);
 		const out: string[] = [];
-		const write = createLogWriter({ level: 'info', securityLog: 'on', sink: (l) => out.push(l), chain: newChain() });
+		const write = createLogWriter({
+			level: 'info',
+			securityLog: 'on',
+			sink: (l) => out.push(l),
+			chain: newChain()
+		});
 		write(event(1));
 		const report = verifyLog(text(out), vkeyIn(dir));
 		expect(report.checkpointsVerified).toBe(0);
