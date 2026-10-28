@@ -1,6 +1,15 @@
 import { generateKeyPairSync } from 'node:crypto';
 import { EventEmitter } from 'node:events';
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
+import {
+	chmodSync,
+	existsSync,
+	mkdtempSync,
+	readdirSync,
+	readFileSync,
+	rmSync,
+	statSync,
+	writeFileSync
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -8,6 +17,7 @@ import { createLogWriter, newChain, sha256Hex } from '../core';
 import type { LogEvent } from '../events';
 import { ATTRIBUTE as A, EVENT as E, FIELD } from '../names';
 import { MAX_LINE_BYTES } from '../serialize';
+import { FLOOD_ALLOWANCE } from '../flood';
 import { vkeyOf } from './note';
 import { verifyLog, type VerifyReport } from './verify';
 
@@ -49,7 +59,13 @@ const fakeProcess = () => {
  * One process start: `lines` events, a checkpoint every `every` lines if given (through the
  * interval timer the sealer schedules), then a clean stop through the process events.
  */
-function runStart(dir: string, lines: number, every?: number, host = 'host-a'): string[] {
+function runStart(
+	dir: string,
+	lines: number,
+	every?: number,
+	host = 'host-a',
+	stopped = true
+): string[] {
 	const out: string[] = [];
 	const scheduled: (() => void)[] = [];
 	const { proc, stop } = fakeProcess();
@@ -66,7 +82,7 @@ function runStart(dir: string, lines: number, every?: number, host = 'host-a'): 
 		write(event(i));
 		if (every && i % every === 0) scheduled.splice(0).forEach((run) => run());
 	}
-	stop();
+	if (stopped) stop();
 	return out;
 }
 
@@ -120,6 +136,7 @@ describe('BP_LOG_SEAL on', () => {
 		expect(lines.length).toBe(14);
 		expect(report.checkpointsVerified).toBe(3);
 		expect(report.unsealedLines).toBe(0);
+		expect(report.status).toBe('verified');
 	});
 
 	it('keeps the key 0600 in its directory and writes the matching vkey', () => {
@@ -207,24 +224,115 @@ describe('a copy edited by someone without the key', () => {
 		expect(report.checkpointsVerified).toBe(2);
 	});
 
-	it('an unsealed start between two sealed ones: unsealed-start', () => {
+	// The ruling of design note A9: lines nothing signed covers are UNVERIFIED, never a break. Pass 1
+	// showed an unsealed start can be forged, pass 2 that a clean toggle or an unreadable key looks
+	// the same; the status separates « contradicted » from « not covered », and exit 0 is neither.
+	it('an unsealed start between two sealed ones: unverified, not a break', () => {
 		const dir = sealDir();
 		const a = runStart(dir, 2);
 		const forged: string[] = [];
 		const plain = createLogWriter({ level: 'info', securityLog: 'on', sink: (l) => forged.push(l), chain: newChain() });
 		plain(event(99));
 		const b = runStart(dir, 2);
-		expect(kinds(verifyLog(text([...a, ...forged, ...b]), vkeyIn(dir)))).toEqual(['unsealed-start']);
+		const report = verifyLog(text([...a, ...forged, ...b]), vkeyIn(dir));
+		expect(report.breaks).toEqual([]);
+		expect(report.unverified.map((u) => u.kind)).toEqual(['unsealed-start']);
+		expect(report.status).toBe('unverified');
 	});
 
-	it('two containers on one volume: each copy verifies', () => {
+	it('a start killed before its stop checkpoint: unverified, not a break', () => {
+		const dir = sealDir();
+		const a = runStart(dir, 6, 4, 'host-a', false);
+		const b = runStart(dir, 2);
+		const report = verifyLog(text([...a, ...b]), vkeyIn(dir));
+		expect(report.breaks).toEqual([]);
+		expect(report.unverified).toEqual([{ kind: 'ended-without-checkpoint', lines: 2 }]);
+		expect(report.status).toBe('unverified');
+	});
+
+	it('two containers on one volume: each copy and the merged copy verify', () => {
 		const dir = sealDir();
 		const x1 = runStart(dir, 2, undefined, 'host-x');
 		const y1 = runStart(dir, 2, undefined, 'host-y');
 		const x2 = runStart(dir, 2, undefined, 'host-x');
 		const y2 = runStart(dir, 2, undefined, 'host-y');
-		expect(verifyLog(text([...x1, ...x2]), vkeyIn(dir)).breaks).toEqual([]);
-		expect(verifyLog(text([...y1, ...y2]), vkeyIn(dir)).breaks).toEqual([]);
+		expect(verifyLog(text([...x1, ...x2]), vkeyIn(dir)).status).toBe('verified');
+		expect(verifyLog(text([...y1, ...y2]), vkeyIn(dir)).status).toBe('verified');
+		expect(verifyLog(text([...x1, ...y1, ...x2, ...y2]), vkeyIn(dir)).status).toBe('verified');
+	});
+
+	it('a container recreated under a new host name: verified', () => {
+		const dir = sealDir();
+		const old = runStart(dir, 2, undefined, 'container-1');
+		const recreated = runStart(dir, 2, undefined, 'container-2');
+		expect(verifyLog(text([...old, ...recreated]), vkeyIn(dir)).status).toBe('verified');
+	});
+
+	it('the head of a start that is not the first in the copy removed: broken', () => {
+		const dir = sealDir();
+		const a = runStart(dir, 2);
+		const b = runStart(dir, 10, 4);
+		const firstCheckpoint = b.findIndex((line) => eventOf(line) === E.logCheckpoint);
+		const report = verifyLog(text(rechain([...a, ...b.slice(firstCheckpoint + 1)])), vkeyIn(dir));
+		expect(report.status).toBe('broken');
+	});
+
+	it('starts out of order: start-order', () => {
+		const dir = sealDir();
+		const a = runStart(dir, 2);
+		const b = runStart(dir, 2);
+		const c = runStart(dir, 2);
+		expect(kinds(verifyLog(text([...a, ...c, ...b]), vkeyIn(dir)))).toContain('start-order');
+	});
+
+	it('a writer line with its boot_id removed: malformed', () => {
+		const dir = sealDir();
+		const lines = runStart(dir, 4);
+		const record = JSON.parse(lines[2]) as Record<string, unknown>;
+		delete record[A.logBootId];
+		lines[2] = `${JSON.stringify(record)}\n`;
+		expect(kinds(verifyLog(text(lines), vkeyIn(dir)))).toContain('malformed');
+	});
+
+	it('two starts linking one checkpoint, as after a restored backup: unverified fork', () => {
+		const dir = sealDir();
+		const a = runStart(dir, 2);
+		const saved = readdirSync(dir)
+			.filter((name) => name.startsWith('last-checkpoint.'))
+			.map((name) => [name, readFileSync(join(dir, name))] as const);
+		const b = runStart(dir, 2);
+		for (const [name, bytes] of saved) writeFileSync(join(dir, name), bytes);
+		const c = runStart(dir, 2);
+		const report = verifyLog(text([...a, ...b, ...c]), vkeyIn(dir));
+		expect(report.breaks).toEqual([]);
+		expect(report.unverified.map((u) => u.kind)).toEqual(['fork']);
+	});
+
+	// Pass 2, F1: the sealer's stop listener is registered before the server's flood flush, so a
+	// summary written at stop must still be covered by a checkpoint after it.
+	it('flood summaries written at stop are covered', () => {
+		const dir = sealDir();
+		const out: string[] = [];
+		const { proc, stop } = fakeProcess();
+		const write = createLogWriter({
+			level: 'info',
+			securityLog: 'on',
+			sink: (line) => out.push(line),
+			chain: newChain(),
+			seal: 'on',
+			schedule: () => {}
+		});
+		write.startSeal({ dir, intervalSeconds: 900, host: 'h', proc });
+		// The server's flushOnStop, registered after the sealer's own listeners, as in the app.
+		proc.on('sveltekit:shutdown', write.flush);
+		proc.on('exit', write.flush);
+		for (let i = 0; i < FLOOD_ALLOWANCE + 3; i++) {
+			write({ event: E.consoleOutput, attributes: { [A.consoleMethod]: 'log', [A.consoleText]: 'x' } });
+		}
+		stop();
+		const b = runStart(dir, 1, undefined, 'h');
+		expect(out.map(eventOf)).toContain(E.logSuppressed);
+		expect(verifyLog(text([...out, ...b]), vkeyIn(dir)).status).toBe('verified');
 	});
 
 	it('a key replaced between two starts verifies with both vkeys', () => {
@@ -324,6 +432,7 @@ describe('the verifier refuses to report success over nothing', () => {
 		const report = verifyLog(text(out), vkeyIn(dir));
 		expect(report.checkpointsVerified).toBe(0);
 		expect(report.unsealedLines).toBe(1);
+		expect(report.status).toBe('nothing');
 	});
 });
 
