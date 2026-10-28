@@ -1,4 +1,4 @@
-import { generateKeyPairSync } from 'node:crypto';
+import { createHash, generateKeyPairSync } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import {
 	chmodSync,
@@ -279,6 +279,81 @@ describe('a copy edited by someone without the key', () => {
 		const report = verifyLog(text([...a0, ...a, ...b]), vkeyIn(dir));
 		expect(report.breaks).toEqual([]);
 		expect(report.unverified).toEqual([{ kind: 'ended-without-checkpoint', lines: 3 }]);
+	});
+
+	// Final pass A, F1: a forged start under an unseen host, no checkpoint, in the middle of a copy.
+	it('a forged start under a host never seen: not verified', () => {
+		const dir = sealDir();
+		const a = runStart(dir, 2);
+		const forged = runStart(sealDir(), 3, undefined, 'host-forged', false);
+		const b = runStart(dir, 2);
+		expect(verifyLog(text([...a, ...forged, ...b]), vkeyIn(dir)).status).not.toBe('verified');
+	});
+
+	// Design note A13: a tail followed by a verified checkpoint of ANY start is not « the newest
+	// lines ». Separates the exemption by position from the exemption by host tag.
+	it('a killed start on one host followed by sealed lines of another: unverified', () => {
+		const dir = sealDir();
+		const x = runStart(dir, 6, 4, 'host-x', false);
+		const y = runStart(dir, 6, 4, 'host-y');
+		const report = verifyLog(text([...x, ...y]), vkeyIn(dir));
+		expect(report.breaks).toEqual([]);
+		expect(report.unverified).toEqual([{ kind: 'ended-without-checkpoint', lines: 2 }]);
+	});
+
+	// Final passes A (F2) and B (node 1): every recreated container is a new host, so per-host links
+	// alone let a start between two recreations vanish.
+	it('a start removed across container recreations: broken', () => {
+		const dir = sealDir();
+		const s1 = runStart(dir, 2, undefined, 'container-1');
+		runStart(dir, 2, undefined, 'container-2');
+		const s3 = runStart(dir, 2, undefined, 'container-3');
+		expect(verifyLog(text([...s1, ...s3]), vkeyIn(dir)).status).toBe('broken');
+	});
+
+	it('the old container cut back before a recreation: broken', () => {
+		const dir = sealDir();
+		const old1 = runStart(dir, 2, undefined, 'container-1');
+		runStart(dir, 2, undefined, 'container-1');
+		const fresh = runStart(dir, 2, undefined, 'container-2');
+		expect(verifyLog(text([...old1, ...fresh]), vkeyIn(dir)).status).toBe('broken');
+	});
+
+	// Final passes A (F3) and B (node 5): rotation can cut the heads of two hosts' starts.
+	it('a copy cut by rotation through two hosts: not broken', () => {
+		const dir = sealDir();
+		const x = runStart(dir, 10, 4, 'host-x');
+		const y = runStart(dir, 10, 4, 'host-y');
+		expect(verifyLog(text([...x.slice(3), ...y.slice(3)]), vkeyIn(dir)).breaks).toEqual([]);
+	});
+
+	// Final pass A, F4: the copy begins inside a killed start's tail, after its last checkpoint.
+	it('a copy beginning inside a killed start after its last checkpoint: not broken', () => {
+		const dir = sealDir();
+		const a = runStart(dir, 6, 4, 'host-a', false);
+		const b = runStart(dir, 2);
+		expect(verifyLog(text([...a.slice(-2), ...b]), vkeyIn(dir)).breaks).toEqual([]);
+	});
+
+	// Final pass B, node 2: a line claiming to be the writer's without the chain fields.
+	it('a line with the writer envelope and no chain fields: malformed', () => {
+		const dir = sealDir();
+		const lines = runStart(dir, 4);
+		const forged = `${JSON.stringify({ [FIELD.eventName]: E.backfillLockWait, [A.serviceName]: 'budgetpilot' })}\n`;
+		lines.splice(3, 0, forged);
+		expect(kinds(verifyLog(text(lines), vkeyIn(dir)))).toContain('malformed');
+	});
+
+	// Final pass A residual: a hash of the host name alone can be reversed by trying names.
+	it('writes a host tag no one can compute from the host name without the key', () => {
+		const dir = sealDir();
+		const tagOf = (lines: string[]) =>
+			JSON.parse(lines.find((l) => eventOf(l) === E.logSealStarted)!)[A.logSealHost] as string;
+		const first = tagOf(runStart(dir, 1, undefined, 'host-a'));
+		expect(first).toMatch(/^[0-9a-f]{12}$/);
+		expect(first).not.toBe(createHash('sha256').update('host-a').digest('hex').slice(0, 12));
+		expect(tagOf(runStart(dir, 1, undefined, 'host-a'))).toBe(first);
+		expect(tagOf(runStart(sealDir(), 1, undefined, 'host-a'))).not.toBe(first);
 	});
 
 	it('two containers on one volume: each copy and the merged copy verify', () => {
