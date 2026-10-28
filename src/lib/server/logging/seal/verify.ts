@@ -47,7 +47,8 @@ export type UnverifiedKind =
 	| 'ended-without-checkpoint'
 	| 'fork'
 	| 'begins-inside'
-	| 'link-outside-copy';
+	| 'link-outside-copy'
+	| 'unlinked-start';
 export type NoticeKind = 'copy-begins-later' | 'copy-begins-mid-segment';
 export type VerifyStatus = 'verified' | 'broken' | 'unverified' | 'nothing';
 
@@ -301,14 +302,21 @@ export function verifyLog(text: string, vkeyText: string | readonly string[]): V
 	/**
 	 * The target of a link holds the checkpoint it names, unless it begins inside a segment: then the
 	 * checkpoint may precede its first line, a notice for the copy's first start (A17) and unverified
-	 * for a later one (A20).
+	 * for a later one (A20). « Precede » is read from signed segment indices: a checkpoint numbered
+	 * after one the target holds was in the copy's window, so its absence is a removal (pass 2, F1).
 	 */
-	function checkHeld(target: Start, key: string, at: number) {
-		if (target.held.has(key)) return;
-		if (target.cut === 'first') report.notices.push({ kind: 'copy-begins-later', lines: 0 });
-		else if (target.cut === 'later') report.unverified.push({ kind: 'link-outside-copy', lines: 0 });
-		else broke('missing-checkpoint', at);
+	function checkHeld(target: Start, link: Exclude<Link, 'none'>, at: number) {
+		if (target.held.has(keyOf(link))) return;
+		const held = [...target.held].map((key) => segmentOf(key.split(' ')[0]));
+		const precedesCopy = held.every((index) => segmentOf(link.origin) < index);
+		if (target.cut === 'first' && precedesCopy) {
+			report.notices.push({ kind: 'copy-begins-later', lines: 0 });
+		} else if (target.cut === 'later' && precedesCopy) {
+			report.unverified.push({ kind: 'link-outside-copy', lines: 0 });
+		} else broke('missing-checkpoint', at);
 	}
+
+	const segmentOf = (origin: string) => Number(ORIGIN.exec(origin)?.[2] ?? NaN);
 
 	const targetOf = (link: Exclude<Link, 'none'>) => starts.get(ORIGIN.exec(link.origin)?.[1] ?? '');
 	const keyOf = (link: Exclude<Link, 'none'>) => checkpointKey(link.origin, link.size, link.root);
@@ -335,9 +343,10 @@ export function verifyLog(text: string, vkeyText: string | readonly string[]): V
 			const volume = start.volumeLink;
 			const target = volume === 'none' ? undefined : targetOf(volume);
 			if (volume === 'none') {
-				// Only a checkpoint writes the volume file, so only a start holding one contradicts none.
+				// A signed none: no checkpoint was on the volume when this start began. An earlier start
+				// holding one may have written it later, while this one ran (pass 2, F2): unverified.
 				const earlierHeld = order.slice(0, position).some((earlier) => earlier.held.size > 0);
-				if (earlierHeld) broke('missing-start', at);
+				if (earlierHeld) report.unverified.push({ kind: 'unlinked-start', lines: 0 });
 			} else if (!target) {
 				// A host's first start names the start before its recreation (A14). A later start of a
 				// host may name another container's, which a one-container copy lacks (A21).
@@ -346,14 +355,15 @@ export function verifyLog(text: string, vkeyText: string | readonly string[]): V
 			} else if (order.indexOf(target) > position) {
 				broke('start-order', at);
 			} else {
-				checkHeld(target, keyOf(volume), at);
+				checkHeld(target, volume, at);
 			}
 		}
 		const previous = lastSealedOfHost.get(start.host);
 		lastOfHost.set(start.host, start);
 		if (start.held.size > 0) lastSealedOfHost.set(start.host, start);
 		if (start.link === 'none') {
-			if (previous) broke('missing-start', at);
+			// The host's state file was absent: a crash before its first write (pass 2, F5) or a reset.
+			if (previous) report.unverified.push({ kind: 'unlinked-start', lines: 0 });
 			return;
 		}
 		const key = keyOf(start.link);
@@ -375,7 +385,7 @@ export function verifyLog(text: string, vkeyText: string | readonly string[]): V
 			broke('start-order', at);
 			return;
 		}
-		checkHeld(target, key, at);
+		checkHeld(target, start.link, at);
 	});
 	// A13: a tail is the newest lines only while no verified checkpoint follows its first line in the
 	// copy. Otherwise its start ended without its stop checkpoint (killed, out of memory). By position

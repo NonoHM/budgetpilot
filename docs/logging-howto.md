@@ -720,8 +720,8 @@ seal directory, so that the next start still links to the last one:
 1. Copy the new verification key off the machine.
 
 To verify a copy that spans the change, give both keys, each with its own `--vkey`. Do not delete
-the whole directory: the next start then links to nothing, and the check reports the starts before
-it as removed.
+the whole directory: the next start then links to nothing, and a copy that spans the change reads
+`unverified`.
 
 ### Verify a copy of the log
 
@@ -755,12 +755,23 @@ it as removed.
    are not sealed yet, so they are not evidence. If the instance changed its key, give each
    verification key with its own `--vkey`.
 
-| Status       | Exit status | What it means                                                                                                                                                                                                                                                                                        |
-| ------------ | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `verified`   | 0           | Every line is covered by a checkpoint signed by your key, apart from the newest lines and, after rotation, the first lines of the copy.                                                                                                                                                              |
-| `broken`     | 1           | The copy contradicts a signature: a line was removed, edited or moved, a checkpoint is missing, or a start was removed. Each `BREAK` line names the line it found.                                                                                                                                   |
-| `unverified` | 3           | Nothing contradicts a signature, but some lines are not covered: a start with sealing off, a start that stopped without its last checkpoint, such as after a crash, a start whose first lines are missing although it is not the first in the copy, or a copy that lacks another container's starts. |
-| `nothing`    | 2           | No checkpoint verified: sealing was off, or the key is not the one that signed the log. Also the status of a command it could not run.                                                                                                                                                               |
+| Status       | Exit status | What it means                                                                                                                                                                                                          |
+| ------------ | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `verified`   | 0           | Every line is covered by a checkpoint signed by your key, apart from the newest lines and, after rotation, the first lines of the copy.                                                                                |
+| `broken`     | 1           | The copy contradicts a signature: a line was removed, edited or moved within its start, a checkpoint is missing or is not signed by a key you gave, or a start was removed. Each `BREAK` line names the line it found. |
+| `unverified` | 3           | Nothing contradicts a signature, but some lines or starts are not covered. The list after this table gives each case.                                                                                                  |
+| `nothing`    | 2           | No checkpoint verified: sealing was off for the whole copy. Also the status of a command it could not run.                                                                                                             |
+
+A copy reads `unverified` when it holds any of these:
+
+- A start with sealing off.
+- A start that stopped without its last checkpoint, such as after a crash.
+- A start whose first lines are missing although it is not the first start in the copy.
+- A start that links to a start the copy does not hold, such as a copy of one container when two
+  share the seal directory.
+- A start that links to nothing although the copy holds an earlier sealed start: a restart before
+  the first checkpoint was written, or a seal directory that was emptied.
+- A start that continues a state restored from a backup.
 
 ### Check that the command finds a removed line
 
@@ -798,8 +809,13 @@ removed line: it no longer matches the lines in the copy, even if someone recomp
 - **Anything after a takeover.** Someone who controls the host holds the key and can sign what they
   write, so only a copy kept elsewhere before then is evidence.
 - **The time.** The signed time is the host's clock, so a clock set wrong signs a wrong time.
-- **The end of the newest start cut back to an earlier checkpoint.** It shows only as the newest
-  signed time lagging behind the clock, so compare that time with when you took the copy.
+- **A copy cut back to an earlier checkpoint.** Someone can remove everything after any checkpoint,
+  whole starts included, and rewrite the newest lines that no checkpoint covers yet so that they
+  follow it. It shows only as the newest signed time lagging behind the clock, so compare that time
+  with when you took the copy.
+- **The order of two starts' lines.** Each start's lines are sealed in their own order, not against
+  another start's: lines of two starts mixed together, each start keeping its own order, still
+  verify. Each line keeps its own `time`.
 - **A start removed while two containers share one seal directory.** When two containers write to
   the same seal directory at the same time, removing all of one container's start from a merged
   copy can still read `verified`. Give each container that runs alongside another its own
