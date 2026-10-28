@@ -324,7 +324,14 @@ describe('a copy edited by someone without the key', () => {
 		const dir = sealDir();
 		const x = runStart(dir, 10, 4, 'host-x');
 		const y = runStart(dir, 10, 4, 'host-y');
-		expect(verifyLog(text([...x.slice(3), ...y.slice(3)]), vkeyIn(dir)).breaks).toEqual([]);
+		const report = verifyLog(text([...x.slice(3), ...y.slice(3)]), vkeyIn(dir));
+		// A20: only the copy's first start may begin inside a segment and stay verified. The second
+		// could be a concurrent host cut by rotation or a deleted head: the copy cannot tell.
+		expect([report.breaks, report.status, report.unverified.map((u) => u.kind)]).toEqual([
+			[],
+			'unverified',
+			['begins-inside']
+		]);
 	});
 
 	// Final pass A, F4: the copy begins inside a killed start's tail, after its last checkpoint.
@@ -362,9 +369,101 @@ describe('a copy edited by someone without the key', () => {
 		const y1 = runStart(dir, 2, undefined, 'host-y');
 		const x2 = runStart(dir, 2, undefined, 'host-x');
 		const y2 = runStart(dir, 2, undefined, 'host-y');
-		expect(verifyLog(text([...x1, ...x2]), vkeyIn(dir)).status).toBe('verified');
-		expect(verifyLog(text([...y1, ...y2]), vkeyIn(dir)).status).toBe('verified');
+		// A21: one container's copy lacks the other's starts, which its volume links name. Not
+		// covered, so unverified; only the merged copy can be verified.
+		const unverified = (report: VerifyReport) => [report.status, report.breaks];
+		expect(unverified(verifyLog(text([...x1, ...x2]), vkeyIn(dir)))).toEqual(['unverified', []]);
+		expect(unverified(verifyLog(text([...y1, ...y2]), vkeyIn(dir)))).toEqual(['unverified', []]);
 		expect(verifyLog(text([...x1, ...y1, ...x2, ...y2]), vkeyIn(dir)).status).toBe('verified');
+	});
+
+	// Review of 94b32e9, finding 2 (A21): the volume link was read only for a host's first start,
+	// so S3's per-host link (S1) held and the S2 it names through the volume was never looked for.
+	// Separates « every start's volume link is read » from « only a host's first ».
+	it('a start of another container on the volume removed between two of one host: not verified', () => {
+		const dir = sealDir();
+		const s1 = runStart(dir, 2, undefined, 'container-1');
+		runStart(dir, 2, undefined, 'container-2');
+		const s3 = runStart(dir, 2, undefined, 'container-1');
+		const report = verifyLog(text([...s1, ...s3]), vkeyIn(dir));
+		expect([report.status, report.unverified.map((u) => u.kind)]).toEqual([
+			'unverified',
+			['link-outside-copy']
+		]);
+	});
+
+	// A host's first start in the copy whose host link and volume link name the same removed start:
+	// the host link alone reads it as a copy beginning later. Separates « the volume check is skipped
+	// only where the host link already found its target » from « skipped whenever the two agree ».
+	it('a host first seen whose two links name one removed start: missing-start', () => {
+		const dir = sealDir();
+		const other = runStart(dir, 2, undefined, 'container-0');
+		runStart(dir, 2, undefined, 'container-1');
+		const s2 = runStart(dir, 2, undefined, 'container-1');
+		expect(kinds(verifyLog(text([...other, ...s2]), vkeyIn(dir)))).toEqual(['missing-start']);
+	});
+
+	// A20 on a link: host-x restarts while host-y runs, so x2's volume link names y's first
+	// checkpoint, which the copy cut away with y's head. Separates « a link into a later cut start is
+	// unverified » from « a notice », which only the copy's first start earns (A17).
+	it('a link into a later start cut before the checkpoint it names: link-outside-copy', () => {
+		const dir = sealDir();
+		const x1 = runStart(dir, 2, undefined, 'host-x');
+		const y: string[] = [];
+		const scheduled: (() => void)[] = [];
+		const { proc, stop } = fakeProcess();
+		const writeY = createLogWriter({
+			level: 'info',
+			securityLog: 'on',
+			sink: (line) => y.push(line),
+			chain: newChain(),
+			seal: 'on',
+			schedule: (run) => scheduled.push(run)
+		});
+		writeY.startSeal({ dir, intervalSeconds: 900, host: 'host-y', proc });
+		const linesThenTick = (from: number) => {
+			for (let i = from; i < from + 3; i++) writeY(event(i));
+			scheduled.splice(0).forEach((run) => run());
+		};
+		linesThenTick(1);
+		const x2 = runStart(dir, 2, undefined, 'host-x');
+		linesThenTick(4);
+		stop();
+		const cutY = y.slice(y.findIndex((line) => eventOf(line) === E.logCheckpoint) + 1);
+		const report = verifyLog(text([...x1, ...cutY, ...x2]), vkeyIn(dir));
+		expect([report.breaks, report.unverified.map((u) => u.kind)]).toEqual([
+			[],
+			['begins-inside', 'link-outside-copy']
+		]);
+	});
+
+	// Narrow pass 1, N14: A16 read the `seq` of an earlier start's first surviving line, which a
+	// forger deletes. S1 loses its first line, S2 its head through its first checkpoint, and S3's
+	// links both name S2's stop checkpoint, which S2 holds. Separates « only the copy's first start
+	// may begin inside » (A20) from « any start no seq-1 start precedes ».
+	it('two heads removed so the second looks rotated: not verified', () => {
+		const dir = sealDir();
+		const a = runStart(dir, 6, 3);
+		const b = runStart(dir, 6, 3);
+		const c = runStart(dir, 2);
+		const cutB = b.slice(b.findIndex((line) => eventOf(line) === E.logCheckpoint) + 1);
+		const report = verifyLog(text([...a.slice(1), ...cutB, ...c]), vkeyIn(dir));
+		expect([report.status, report.unverified.map((u) => u.kind)]).toEqual([
+			'unverified',
+			['begins-inside']
+		]);
+	});
+
+	// Narrow pass 1, N10, decided: the supported way to change the key is to delete key.pem alone.
+	// The next start links the previous one through the volume, and both keys verify the copy.
+	it('a new key after deleting key.pem alone: verified with both keys', () => {
+		const dir = sealDir();
+		const before = runStart(dir, 2);
+		const oldVkey = vkeyIn(dir);
+		rmSync(join(dir, 'key.pem'));
+		const after = runStart(dir, 2);
+		expect(vkeyIn(dir)).not.toBe(oldVkey);
+		expect(verifyLog(text([...before, ...after]), [oldVkey, vkeyIn(dir)]).status).toBe('verified');
 	});
 
 	it('a container recreated under a new host name: verified', () => {

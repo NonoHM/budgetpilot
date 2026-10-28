@@ -304,16 +304,19 @@ describe('what the verifier will not read as rotation or as another program', ()
 	}
 	const vkeyOfDir = (dir: string) => readFileSync(join(dir, 'verification.vkey'), 'utf8').trim();
 
-	// A16 on its own: the head of a later start cut WITHOUT recomputing the chain, so every
-	// remaining segment still verifies and only « a start beginning at seq 1 precedes it » can tell
-	// the cut from rotation. The seal.spec case rechains, which also breaks a root.
-	it('a later start cut at its head, chain left as written: missing-head', () => {
+	// A20: the head of a later start cut WITHOUT recomputing the chain, so every remaining segment
+	// still verifies. A concurrent host cut by rotation looks the same, so the copy proves neither:
+	// unverified, never verified. The seal.spec case rechains, which also breaks a root.
+	it('a later start cut at its head, chain left as written: begins-inside, unverified', () => {
 		const dir = sealDir();
 		const a = stoppedStart(dir, 2);
 		const b = stoppedStart(dir, 6, 3);
 		const cut = b.slice(b.findIndex((line) => eventOf(line) === E.logCheckpoint) + 1);
-		const kinds = verifyLog([...a, ...cut].join(''), vkeyOfDir(dir)).breaks.map((f) => f.kind);
-		expect(kinds).toContain('missing-head');
+		const report = verifyLog([...a, ...cut].join(''), vkeyOfDir(dir));
+		expect([report.status, report.unverified.map((u) => u.kind)]).toEqual([
+			'unverified',
+			['begins-inside']
+		]);
 	});
 
 	// A18, one claim each: a line carrying only `event_name`, and one carrying only
