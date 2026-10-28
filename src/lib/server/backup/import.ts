@@ -22,7 +22,7 @@ import type { BackupIntegrityReason } from '$lib/server/logging/data';
 
 /**
  * A file the integrity check refused. `reason` is the closed suffix of the message key, for the log
- * (L4b-2): the message itself names ids from the file and never leaves for the screen.
+ * (L4b-2): the message names ids from the file, so it goes to the member's screen and never to the log.
  */
 export class BackupImportError extends Error {
 	constructor(

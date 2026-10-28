@@ -30,10 +30,12 @@ import { describe, expect, it } from 'vitest';
  * other delete was a door). The regex reads every model table A deletes from, the restore's purge
  * included, and `session`, whose deletes are part of the two account deletes.
  *
- * REV 3c (contradiction pass F1, owner ruling 7, 2026-10-28): the regex reads EVERY model a
- * production delete reaches, the system ones and the two that cascade from Transaction included,
- * so a new site on any of them fails the count; and a soft delete (`deletedAt: new Date(`) counts
- * as a writer site, because the member pressed Delete and has no undo.
+ * REV 3c (contradiction pass F1, owner ruling 7, 2026-10-28): the regex reads EVERY model of
+ * schema.prisma a delete can reach, the system ones and the two that cascade from Transaction
+ * included, a nested `deleteMany:` inside an update, and a soft delete (`deletedAt: new Date(`),
+ * because the member pressed Delete and has no undo. NOT READ, and none exists today: a soft
+ * delete given a date through a variable (`deletedAt: now`), a delegate held in a variable, a
+ * dynamic `import()` of a helper's module.
  *
  * The writers that destroy no member data are named in NOT_A_DOOR with the reason, rather than
  * silently excluded.
@@ -41,7 +43,7 @@ import { describe, expect, it } from 'vitest';
 
 const ROOT = process.cwd();
 const WRITER =
-	/\b(?:transaction|user|account|session|importBatch|tag|category|categoryRule|categorizationRule|monthlyBudget|columnMapping|rememberedAccount|categoryNatureMapping|bankConnection|recurringStreamAction|savingsGoal|netWorthSnapshot|netWorthAccount|transactionSplit|transactionTag|recoveryCode|pendingMfaChallenge|inferenceHalt|bankAuthorizationRequest|loginAttempt)\.delete(?:Many)?\(|\bdeletedAt:\s*new Date\(/g;
+	/\b(?:transaction|user|account|session|importBatch|tag|category|categoryRule|categorizationRule|monthlyBudget|columnMapping|rememberedAccount|categoryNatureMapping|bankConnection|recurringStreamAction|savingsGoal|netWorthSnapshot|netWorthAccount|transactionSplit|transactionTag|recoveryCode|pendingMfaChallenge|inferenceHalt|bankAuthorizationRequest|loginAttempt|invitation)\.delete(?:Many)?\(|\bdeletedAt:\s*new Date\(|\bdeleteMany:/g;
 
 const files = execFileSync('git', ['ls-files', 'src'], { cwd: ROOT, encoding: 'utf8' })
 	.split('\n')
@@ -214,7 +216,7 @@ const NOT_A_DOOR: [path: string, reason: string][] = [
 	],
 	[
 		'src/lib/server/naming/backfill.ts',
-		'the boot merge deletes duplicates only after moving their rows to the survivor'
+		'the boot merge of duplicate names: no actor, logs its rowsMerged; what an account merge drops through the cascade is #1086'
 	],
 	[
 		'src/routes/admin/+page.server.ts',
@@ -264,7 +266,7 @@ function resolveSpecifier(from: string, specifier: string): string | null {
 function importersOf(module: string, name: string): string[] {
 	const target = module.replace(/\.ts$/, '');
 	const statement =
-		/\b(?:import|export)\s+(type\s+)?(?:\{([^}]*)\}|\*\s+as\s+\w+)\s+from\s+['"]([^'"]+)['"]/g;
+		/\b(?:import|export)\s+(type\s+)?(?:\w+\s*,\s*)?(?:\{([^}]*)\}|\*\s+as\s+\w+)\s+from\s+['"]([^'"]+)['"]/g;
 	const named = new RegExp(`^${name}(?:\\s+as\\s+\\w+)?$`);
 	return files
 		.filter((path) =>
