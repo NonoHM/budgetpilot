@@ -98,9 +98,10 @@ The app refuses to start, and says why, when:
   `TOTP_ENCRYPTION_KEY_FILE`: set one, so the value the app runs with is the
   one you edit. An empty variable, as `.env.example` ships them, counts as not
   set;
-- the file cannot be read. The message names the variable and the error code,
-  and not what the variable holds, in case the secret itself was written where
-  the path belongs;
+- the file cannot be found or read. The message names the variable and the
+  error code, and not what the variable holds, in case the secret itself was
+  written where the path belongs. With `BP_STRICT_SECRET_FILES=on`, a file that
+  exists but fails a check is named by its path, as described below;
 - `DATABASE_PASSWORD_FILE` is set and `DATABASE_URL` does not name a PostgreSQL
   or MySQL server with a user, or already holds a password, inside the address
   or as `?password=`. Write the URL with the user and no password, for example

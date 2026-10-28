@@ -125,15 +125,6 @@ describe('log-pseudonym --address', () => {
 				RATE_LIMIT_HASH_SECRET_FILE: file
 			});
 			expect(both.status).toBe(2);
-			// Pass 2A, F1: docs/logging-howto.md reads a line written under an OLD secret by passing it
-			// with `docker compose exec -e RATE_LIMIT_HASH_SECRET`, which on a file-form install also
-			// carries the container's _FILE. `-e RATE_LIMIT_HASH_SECRET_FILE=` empties it, and empty is
-			// unset, so the passed secret wins.
-			const old = run(['--address', '192.0.2.10'], SECRET, undefined, {
-				RATE_LIMIT_HASH_SECRET_FILE: ''
-			});
-			expect(old.stderr).toBe('');
-			expect(old.stdout).toBe(expected);
 			expect(both.stderr).toBe(
 				'A secret could not be read from its file:\n     - RATE_LIMIT_HASH_SECRET and RATE_LIMIT_HASH_SECRET_FILE are both set. Set one of them, so that the value the app runs with is the one you edit.\n'
 			);
@@ -141,6 +132,22 @@ describe('log-pseudonym --address', () => {
 			rmSync(directory, { recursive: true, force: true });
 		}
 	}, 60_000);
+
+	// Pass 2A, F1: docs/logging-howto.md reads a line written under an OLD secret by passing it with
+	// `docker compose exec -e RATE_LIMIT_HASH_SECRET`, which on a file-form install also carries the
+	// container's _FILE. `-e RATE_LIMIT_HASH_SECRET_FILE=` empties it (measured: `docker exec -e X=`
+	// sets ""), and empty is unset, so the passed secret wins. Separates an empty _FILE read as unset
+	// from one read as a path, which is refused as unreadable. Its own test, so its figures are
+	// observed whatever the test above reports (pass 3).
+	it('lets a passed secret win over an emptied RATE_LIMIT_HASH_SECRET_FILE', () => {
+		env.RATE_LIMIT_HASH_SECRET = SECRET;
+		const expected = `${logPseudonym('192.0.2.10')}\n`;
+		const old = run(['--address', '192.0.2.10'], SECRET, undefined, {
+			RATE_LIMIT_HASH_SECRET_FILE: ''
+		});
+		expect(old.stderr).toBe('');
+		expect(old.stdout).toBe(expected);
+	});
 
 	it('refuses text that is not an address, and says so', () => {
 		const out = run(['--address', 'not-an-address']);
