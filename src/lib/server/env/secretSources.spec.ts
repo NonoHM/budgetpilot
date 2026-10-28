@@ -1,5 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { chmodSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+	chmodSync,
+	mkdirSync,
+	mkdtempSync,
+	realpathSync,
+	rmSync,
+	symlinkSync,
+	writeFileSync
+} from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { OperatorFacingError } from '$lib/server/operatorFacingError';
@@ -145,6 +153,19 @@ describe('applySecretSources: refusals', () => {
 });
 
 describe('applySecretSources: DATABASE_PASSWORD_FILE', () => {
+	// Pass 2A, node 6: the URL is the one value computed before the refusal is decided. Separates a
+	// resolver that writes DATABASE_URL only once nothing is wrong from one that writes it first.
+	it('leaves DATABASE_URL as it was when another secret is refused', () => {
+		const env: NodeJS.ProcessEnv = {
+			DATABASE_URL: 'postgresql://budgetpilot@db:5432/budgetpilot',
+			DATABASE_PASSWORD_FILE: secretFile('db', KEY),
+			BOOTSTRAP_TOKEN_FILE: join(directory, 'absent')
+		};
+		const before = { ...env };
+		expect(() => applySecretSources(env)).toThrow(OperatorFacingError);
+		expect(env).toEqual(before);
+	});
+
 	it('puts the password into the URL, percent-encoded, and the driver decodes the same password', () => {
 		const password = 'a/b+c@d:e%f';
 		const env: NodeJS.ProcessEnv = {
@@ -275,6 +296,25 @@ describe('applySecretSources: BP_STRICT_SECRET_FILES (decision 4)', () => {
 			heading +
 				`     - TOTP_ENCRYPTION_KEY_FILE (${target}) is reached through a symbolic link, so the file checked might not be the file read. Point the setting at the file itself.`
 		);
+	});
+
+	// Pass 2A, node 13: a file whose directory cannot be searched exists but cannot be judged.
+	// Separates a strict mode that refuses what it could not inspect, naming the variable and the
+	// code, from one that reads past it.
+	it('under strict, refuses a file it cannot inspect, naming the code and not the path', () => {
+		const locked = join(directory, 'locked');
+		mkdirSync(locked);
+		const path = join(locked, 'totp');
+		writeFileSync(path, KEY, { mode: 0o600 });
+		chmodSync(locked, 0o000);
+		try {
+			expect(refusal({ BP_STRICT_SECRET_FILES: 'on', TOTP_ENCRYPTION_KEY_FILE: path })).toBe(
+				heading +
+					'     - TOTP_ENCRYPTION_KEY_FILE names a file that could not be inspected (EACCES).'
+			);
+		} finally {
+			chmodSync(locked, 0o700);
+		}
 	});
 
 	it('with strict off, reads a file others can read, exactly as the bank-key file today', () => {

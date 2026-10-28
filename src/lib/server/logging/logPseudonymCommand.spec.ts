@@ -125,6 +125,15 @@ describe('log-pseudonym --address', () => {
 				RATE_LIMIT_HASH_SECRET_FILE: file
 			});
 			expect(both.status).toBe(2);
+			// Pass 2A, F1: docs/logging-howto.md reads a line written under an OLD secret by passing it
+			// with `docker compose exec -e RATE_LIMIT_HASH_SECRET`, which on a file-form install also
+			// carries the container's _FILE. `-e RATE_LIMIT_HASH_SECRET_FILE=` empties it, and empty is
+			// unset, so the passed secret wins.
+			const old = run(['--address', '192.0.2.10'], SECRET, undefined, {
+				RATE_LIMIT_HASH_SECRET_FILE: ''
+			});
+			expect(old.stderr).toBe('');
+			expect(old.stdout).toBe(expected);
 			expect(both.stderr).toBe(
 				'A secret could not be read from its file:\n     - RATE_LIMIT_HASH_SECRET and RATE_LIMIT_HASH_SECRET_FILE are both set. Set one of them, so that the value the app runs with is the one you edit.\n'
 			);
