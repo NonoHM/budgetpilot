@@ -462,6 +462,182 @@ and recreates the container again.
 
 To go back, delete the line from `.env`, save a copy of the log and run `docker compose up -d` again.
 
+## Check that no line was removed or edited
+
+Each line carries its number (`budgetpilot.log.seq`) and the SHA-256 hash of the line before it
+(`budgetpilot.log.prev`). A script can check both on a copy of the log. The numbering restarts at 1,
+under a new `budgetpilot.log.boot_id`, at every start of the server, so the script checks each start
+on its own. If sealing is on, [verify the copy](#verify-a-copy-of-the-log) instead: that command
+checks the chain as well.
+
+1. Save the log to a file.
+
+   ```bash
+   docker compose logs --no-log-prefix budgetpilot > capture.log
+   ```
+
+1. Save this script as `verify_chain.py`. It needs Python 3 and nothing else.
+
+   ```python
+   #!/usr/bin/env python3
+   """Check the BudgetPilot log chain in a captured log. Usage: verify_chain.py FILE"""
+   import hashlib
+   import json
+   import sys
+
+   ZERO = "0" * 64
+   SEQ, PREV, BOOT = "budgetpilot.log.seq", "budgetpilot.log.prev", "budgetpilot.log.boot_id"
+
+   problems = []
+   skipped = 0
+   boots = {}  # boot_id -> what has been seen of that start of the server
+   order = []
+
+   with open(sys.argv[1], "rb") as handle:
+       lines = handle.read().split(b"\n")
+   if lines and lines[-1] == b"":
+       lines.pop()  # the newline that ends the file is not a line
+
+   for number, raw in enumerate(lines, start=1):
+       try:
+           record = json.loads(raw)
+           boot, seq, prev = record[BOOT], record[SEQ], record[PREV]
+       except (ValueError, KeyError, TypeError):
+           skipped += 1  # not one of ours, such as prisma migrate deploy's text
+           continue
+       state = boots.get(boot)
+       if state is None:
+           order.append(boot)
+           if seq != 1:
+               print(f"note: boot {boot} starts at seq {seq}, so earlier lines are not in this file")
+           elif prev != ZERO:
+               problems.append(f"line {number}: first line of boot {boot} should carry 64 zeros in prev")
+           state = boots[boot] = {"first": seq, "last": seq, "lines": 0, "hash": None}
+       else:
+           if seq != state["last"] + 1:
+               problems.append(
+                   f"line {number}: seq jumps from {state['last']} to {seq}, "
+                   f"so {seq - state['last'] - 1} line(s) are missing before it"
+               )
+           if prev != state["hash"]:
+               if seq == state["last"] + 1:
+                   problems.append(
+                       f"line {number}: prev does not match line {state['number']} (seq {state['last']}), "
+                       "so that line was changed after it was written"
+                   )
+               else:
+                   problems.append(f"line {number}: prev does not match the line before it")
+       state["last"], state["number"] = seq, number
+       state["lines"] += 1
+       state["hash"] = hashlib.sha256(raw).hexdigest()
+
+   for boot in order:
+       s = boots[boot]
+       print(f"boot {boot}: {s['lines']} lines, seq {s['first']} to {s['last']}")
+   print(f"{skipped} line(s) skipped because they are not BudgetPilot log lines")
+   for problem in problems:
+       print("PROBLEM", problem)
+   print("chain intact" if not problems else f"{len(problems)} problem(s) found")
+   sys.exit(1 if problems else 0)
+   ```
+
+   The hash is taken over each line as written, without its closing newline, which is what the
+   server hashes.
+
+1. Run it.
+
+   ```bash
+   python3 verify_chain.py capture.log
+   ```
+
+   For a log that has not been touched, it prints:
+
+   ```text
+   boot 917d7fb1-0a3d-47be-83ca-d758710274f4: 26 lines, seq 1 to 26
+   177 line(s) skipped because they are not BudgetPilot log lines
+   chain intact
+   ```
+
+   The exit status is 0. A log with several starts in it lists each one:
+
+   ```text
+   boot 917d7fb1-0a3d-47be-83ca-d758710274f4: 26 lines, seq 1 to 26
+   boot 69b74857-f687-4cf6-952a-ffd103b3ba5d: 5 lines, seq 1 to 5
+   186 line(s) skipped because they are not BudgetPilot log lines
+   chain intact
+   ```
+
+   A file that starts in the middle of a start, such as the output of `--tail 4`, is checked from its
+   first line on, and the script says so:
+
+   ```text
+   note: boot 69b74857-f687-4cf6-952a-ffd103b3ba5d starts at seq 2, so earlier lines are not in this file
+   boot 69b74857-f687-4cf6-952a-ffd103b3ba5d: 4 lines, seq 2 to 5
+   0 line(s) skipped because they are not BudgetPilot log lines
+   chain intact
+   ```
+
+### Check that the script finds a removed or edited line
+
+A check that has never reported a problem has not been shown to work. Make damaged copies of your
+capture and run the script on each. The commands below remove the line numbered 10 and, in another
+copy, change a status code in the line numbered 15. They apply to a capture that has at least 16
+numbered lines whose 15th is a "page not found".
+
+```bash
+sed '/"budgetpilot.log.seq":10,/d' capture.log > deleted.log
+sed '/"budgetpilot.log.seq":15,/s/"http.response.status_code":404/"http.response.status_code":200/' capture.log > edited.log
+python3 verify_chain.py deleted.log
+python3 verify_chain.py edited.log
+```
+
+On the capture above, the script printed this for the copy with a line removed, and exited with
+status 1:
+
+```text
+boot 917d7fb1-0a3d-47be-83ca-d758710274f4: 25 lines, seq 1 to 26
+177 line(s) skipped because they are not BudgetPilot log lines
+PROBLEM line 187: seq jumps from 9 to 11, so 1 line(s) are missing before it
+PROBLEM line 187: prev does not match the line before it
+2 problem(s) found
+```
+
+For the copy with a line edited:
+
+```text
+boot 917d7fb1-0a3d-47be-83ca-d758710274f4: 26 lines, seq 1 to 26
+177 line(s) skipped because they are not BudgetPilot log lines
+PROBLEM line 193: prev does not match line 192 (seq 15), so that line was changed after it was written
+1 problem(s) found
+```
+
+The line numbers are positions in the file, counting the lines that are not JSON. The script does not
+point at the damaged line itself: it points at the line after it, which is the one whose `prev` no
+longer matches.
+
+### What a problem means, and what the check cannot see
+
+- **A gap in `seq`** means one or more lines are missing between two that are there.
+- **A `prev` that does not match** means the line before it was changed after it was written, or a
+  line was removed or inserted before this one.
+- **Both on the same line** is what a removal looks like, as in the first example above.
+
+The chain has no secret key, so it protects against someone changing a copy of the log, not against
+someone who controls the machine. It cannot detect:
+
+- **A change to the last line of a capture.** Nothing follows it to disagree. In the capture above,
+  the last numbered line is 26. Changing a value in that line only
+  (`sed '/"budgetpilot.log.seq":26,/s/"budgetpilot.log.suppressed_count":9/"budgetpilot.log.suppressed_count":1/' capture.log > edited-last.log`)
+  made the script print `chain intact` and exit with status 0. Keep a later capture to confirm the
+  end of an earlier one.
+- **Lines cut off the end.** A capture that stops early is still a valid chain.
+- **Lines before the start of a capture.** The script only says that the capture starts at a line
+  other than 1.
+- **A rewrite of the whole file.** Whoever can write the file can recompute every hash.
+
+For the last case, the copy that matters is the one held somewhere the host cannot change. See
+[Send the log to a collector](./logging-collectors.md).
+
 ## Seal the log
 
 Each line carries its number (`budgetpilot.log.seq`) and the SHA-256 hash of the line before it
