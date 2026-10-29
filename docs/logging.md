@@ -395,7 +395,11 @@ below asks nothing.
 
 Every deletion a member or an admin makes is logged, one row included, and so is every record a
 member creates. These writes are not, and
-each list item says why or where the trace is instead:
+each list item says why or where the trace is instead. For a contributor: the
+`src/lib/server/logging/writeDecisions.spec.ts` test file holds this decision for every file that
+writes to the database. A new file that writes, or a change in a file's number of writes, fails it
+until the change names its event, the issue that decides it, or why no line is owed. A write
+replaced by another in the same file keeps the number, so the test does not see it.
 
 - **An edit that changes stored data without deleting it**, such as an amount set to 0, the splits
   replaced or cleared, or a tag removed from a transaction. Planned in
@@ -403,6 +407,9 @@ each list item says why or where the trace is instead:
 - **A form field the server refuses**, such as a mistyped amount. Only a refused backup file writes
   `input_validation_fail`; deciding which form refusals can only come from a forged request is
   [#1081](https://github.com/NonoHM/budgetpilot/issues/1081).
+- **A password change**, from Settings or the change an admin's password reset forces, and the sessions
+  it ends: [#938](https://github.com/NonoHM/budgetpilot/issues/938). From Settings,
+  `budgetpilot.authn.reauth_success` with `changePassword` records the confirmation before it.
 - **Turning two-step verification on or off**, which also replaces the recovery codes:
   [#1082](https://github.com/NonoHM/budgetpilot/issues/1082).
 - **A backup file that passes every check and then fails in the database** for a reason other than
@@ -441,6 +448,8 @@ each list item says why or where the trace is instead:
 - **What a page stores while it is read**: the date a savings goal was first seen reached, and the
   balance of the net worth account it follows, kept for when that account is removed. No member
   action writes them.
+- **A dismissed banner or prompt**: the savings goal reached banner and the category rename prompt.
+  They change what the page shows, not the member's data.
 - **What an import remembers for the next file**: the column layout and the destination account.
   The import writes `sensitive_create` with `import_file`, and forgetting either writes
   `sensitive_delete`.
