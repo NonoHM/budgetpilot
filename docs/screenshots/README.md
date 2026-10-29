@@ -71,7 +71,7 @@ SCRATCH_DIR=/tmp/bp-demo node scripts/demo-screenshots.mjs
 
 The script builds the app, starts it against a throwaway SQLite database,
 seeds a fictional dataset through the real HTTP form actions, and writes
-`dashboard-desktop.png`, `budgets-desktop.png` and `net-worth-desktop.png`.
+`dashboard-desktop.png`, the README's only screenshot. Each feature page carries its own.
 No real financial data is involved anywhere: every merchant, amount and
 account name is invented.
 
