@@ -60,7 +60,12 @@ const netWorthMock = vi.hoisted(() => ({
 }));
 
 vi.mock('$lib/server/db', () => ({ prisma: prismaMock }));
-vi.mock('$lib/server/import/persist', () => persistMock);
+// The real error class, so a test throws exactly what the write step throws (#1087).
+vi.mock('$lib/server/import/persist', async (importOriginal) => ({
+	...persistMock,
+	ImportWriteError: (await importOriginal<typeof import('$lib/server/import/persist')>())
+		.ImportWriteError
+}));
 vi.mock('$lib/server/net-worth/service', () => netWorthMock);
 
 // Every line the service writes, captured instead of printed; the L4a block reads it.
@@ -1714,6 +1719,182 @@ describe('L4a: completeBankAuthorization logs a missing or foreign state as one 
 				thrown: { isBankSyncError: true, code: 'invalid_state', message: expect.any(String) },
 				lines: []
 			}
+		});
+	});
+});
+
+/**
+ * #1087: every write the bank doors make is logged after it commits. Each case names the two states
+ * it separates. The sync counts are chosen so that the accumulator alone and the committed rows
+ * fall in DIFFERENT buckets: a count read from the loop's variable reddens them.
+ */
+const { ImportWriteError } = await import('$lib/server/import/persist');
+
+describe('#1087: the bank writes leave a data line', () => {
+	const request = {
+		id: 'req-1',
+		userId: 'user-1',
+		provider: 'mock',
+		stateHash: createHash('sha256').update('raw-state').digest('hex'),
+		stateEncrypted: encryptSecret('raw-state'),
+		aspspName: 'Bank A',
+		aspspCountry: 'FR',
+		expiresAt: new Date(NOW.getTime() + 60_000),
+		consumedAt: null
+	};
+	const established = {
+		providerSessionId: 'sess-1',
+		credentialsEncrypted: 'enc-blob',
+		consentExpiresAt: null,
+		accounts: [{ id: 'acc-1', name: 'Compte courant', currency: 'EUR' }]
+	};
+	const dataLines = () =>
+		logged.filter((line) => line.event === 'sensitive_create' || line.event === 'sensitive_update');
+	const line = (event: string, operation: string, extra: Record<string, unknown> = {}) => ({
+		event,
+		attributes: {
+			[A.userPseudonym]: logUserPseudonym('user-1'),
+			'budgetpilot.data.operation': operation,
+			'budgetpilot.data.scope': 'bank_connection',
+			...extra
+		}
+	});
+	const complete = () =>
+		completeBankAuthorization(
+			{ userId: 'user-1', params: { state: 'raw-state', code: 'auth-code' } },
+			{
+				env: ENABLED_ENV,
+				now: () => NOW,
+				getConnector: () =>
+					fakeConnector({ completeAuthorization: vi.fn().mockResolvedValue(established) })
+			}
+		);
+
+	beforeEach(() => {
+		logged.length = 0;
+		prismaMock.bankAuthorizationRequest.updateMany.mockResolvedValue({ count: 1 });
+		prismaMock.account.findMany.mockResolvedValue([]);
+	});
+
+	// A connection stored vs. none logged; and the line written right after the connection, so a
+	// bucket resolution failing afterwards cannot leave a stored connection unlogged.
+	it('a new connection writes sensitive_create connect_bank, even when a bucket then fails', async () => {
+		prismaMock.bankAuthorizationRequest.findUnique.mockResolvedValueOnce(request);
+		prismaMock.bankConnection.create.mockResolvedValueOnce({ id: 'conn-1' });
+		persistMock.resolveImportBucketAccount.mockRejectedValueOnce(new Error('bucket'));
+
+		await expect(complete()).rejects.toThrow('bucket');
+		expect(dataLines()).toEqual([line('sensitive_create', 'connect_bank')]);
+	});
+
+	// In place vs. created: a renewal changed an existing connection.
+	it('a renewal in place writes sensitive_update renew_bank_connection', async () => {
+		prismaMock.bankAuthorizationRequest.findUnique.mockResolvedValueOnce({
+			...request,
+			renewsConnectionId: 'conn-1'
+		});
+		prismaMock.bankConnection.updateMany.mockResolvedValue({ count: 1 });
+		persistMock.resolveImportBucketAccount.mockResolvedValue({ accountId: 'x', created: false });
+
+		await complete();
+		expect(dataLines()).toEqual([line('sensitive_update', 'renew_bank_connection')]);
+	});
+
+	// The fallthrough is a creation, and says so: the renewal target was gone.
+	it('a renewal whose connection was deleted meanwhile writes connect_bank, not a renewal', async () => {
+		prismaMock.bankAuthorizationRequest.findUnique.mockResolvedValueOnce({
+			...request,
+			renewsConnectionId: 'conn-deleted'
+		});
+		prismaMock.bankConnection.updateMany.mockResolvedValueOnce({ count: 0 });
+		prismaMock.bankConnection.create.mockResolvedValueOnce({ id: 'conn-fresh' });
+		persistMock.resolveImportBucketAccount.mockResolvedValue({ accountId: 'x', created: true });
+
+		await complete();
+		expect(dataLines()).toEqual([line('sensitive_create', 'connect_bank')]);
+	});
+
+	describe('sync', () => {
+		const connection = {
+			id: 'conn-1',
+			userId: 'user-1',
+			provider: 'mock',
+			providerSessionId: 'sess-1',
+			credentialsEncrypted: null,
+			status: 'active' as const,
+			aspspName: 'Bank A',
+			consentExpiresAt: new Date(NOW.getTime() + 1000 * 60 * 60 * 24 * 30),
+			lastSyncAt: null as Date | null,
+			lastCompleteSyncAt: null as Date | null
+		};
+		const twoBuckets = [
+			{ id: 'account-1', providerAccountId: 'acc-1' },
+			{ id: 'account-2', providerAccountId: 'acc-2' }
+		];
+		const sync = (fetchTransactions = vi.fn().mockResolvedValue([{ id: 't' }])) =>
+			syncBankConnection(
+				{ userId: 'user-1', connectionId: 'conn-1' },
+				{
+					env: ENABLED_ENV,
+					now: () => NOW,
+					getConnector: () => fakeConnector({ fetchTransactions })
+				}
+			);
+		const created = (bucket: string) =>
+			line('sensitive_create', 'sync_bank_connection', {
+				'budgetpilot.data.transactions_created': bucket
+			});
+
+		beforeEach(() => {
+			prismaMock.bankConnection.findFirst.mockResolvedValueOnce(connection);
+			prismaMock.account.findMany.mockResolvedValue(twoBuckets);
+			prismaMock.bankConnection.update.mockResolvedValue({});
+			persistMock.createImportBatch.mockResolvedValue('batch-1');
+		});
+
+		it('a sync writes the transactions it created, bucketed', async () => {
+			persistMock.persistImportedTransactions.mockResolvedValue({
+				importedRows: 3,
+				duplicateRows: 0
+			});
+			await sync();
+			expect(dataLines()).toEqual([created('2-9')]);
+		});
+
+		// The accumulator alone gives 9 ('2-9'); with the failing bucket's landed row, 10 ('10-99').
+		it('a sync failing inside a bucket counts the rows that bucket committed (F1)', async () => {
+			persistMock.persistImportedTransactions
+				.mockResolvedValueOnce({ importedRows: 9, duplicateRows: 0 })
+				.mockRejectedValueOnce(new ImportWriteError({ kind: 'failed', landedRows: 1 }));
+			expect(await sync()).toEqual({ outcome: 'error' });
+			expect(dataLines()).toEqual([created('10-99')]);
+		});
+
+		// An unreadable ledger is unknown, never the accumulator's figure dressed as a count.
+		it('a ledger that could not be read writes unknown', async () => {
+			persistMock.persistImportedTransactions
+				.mockResolvedValueOnce({ importedRows: 9, duplicateRows: 0 })
+				.mockRejectedValueOnce(new ImportWriteError({ kind: 'failed', landedRows: null }));
+			await sync();
+			expect(dataLines()).toEqual([created('unknown')]);
+		});
+
+		// A failure before any write still reached the bank with the stored consent: 0, not silence.
+		it('a sync that failed at the bank before writing writes 0', async () => {
+			await sync(vi.fn().mockRejectedValue(new Error('bank down')));
+			expect(dataLines()).toEqual([created('0')]);
+		});
+
+		// The line does not depend on the status write: a connection deleted during the sync makes
+		// that `update` throw on both paths, while the rows are already in the ledger (F4).
+		it('the line survives a status write that throws', async () => {
+			persistMock.persistImportedTransactions.mockResolvedValue({
+				importedRows: 3,
+				duplicateRows: 0
+			});
+			prismaMock.bankConnection.update.mockRejectedValue(new Error('row gone'));
+			await expect(sync()).rejects.toThrow('row gone');
+			expect(dataLines()).toEqual([created('2-9')]);
 		});
 	});
 });

@@ -334,3 +334,64 @@ describe('the registry rows the contract fixes', () => {
 		]);
 	});
 });
+
+describe('logSensitiveCreate and logSensitiveUpdate (#1087)', () => {
+	// Separates « a bank connection stored writes the contract's line » from « writes nothing ».
+	it('connect_bank: the bank_connection scope and no count', () => {
+		data.logSensitiveCreate(ACTOR, 'connect_bank');
+		expect(logged).toEqual([
+			{
+				event: 'sensitive_create',
+				attributes: {
+					'budgetpilot.user.pseudonym': logUserPseudonym(ACTOR),
+					'budgetpilot.data.operation': 'connect_bank',
+					'budgetpilot.data.scope': 'bank_connection'
+				}
+			}
+		]);
+	});
+
+	// Separates a bucketed count from a raw one, and from none.
+	it('sync_bank_connection: the transactions written, bucketed', () => {
+		data.logSensitiveCreate(ACTOR, 37, 'sync_bank_connection');
+		expect(logged).toEqual([
+			{
+				event: 'sensitive_create',
+				attributes: {
+					'budgetpilot.user.pseudonym': logUserPseudonym(ACTOR),
+					'budgetpilot.data.operation': 'sync_bank_connection',
+					'budgetpilot.data.scope': 'bank_connection',
+					'budgetpilot.data.transactions_created': '10-99'
+				}
+			}
+		]);
+	});
+
+	// Separates « the ledger could not be read » from a figure: null is not 0.
+	it('sync_bank_connection: an unknown count is the closed value unknown, never 0', () => {
+		data.logSensitiveCreate(ACTOR, null, 'sync_bank_connection');
+		expect(attribute('budgetpilot.data.transactions_created')).toEqual(['unknown']);
+	});
+
+	// Separates the update event from the create one: a renewal changed a connection in place.
+	it('renew_bank_connection: sensitive_update, the bank_connection scope', () => {
+		data.logSensitiveUpdate(ACTOR, 'renew_bank_connection');
+		expect(logged).toEqual([
+			{
+				event: 'sensitive_update',
+				attributes: {
+					'budgetpilot.user.pseudonym': logUserPseudonym(ACTOR),
+					'budgetpilot.data.operation': 'renew_bank_connection',
+					'budgetpilot.data.scope': 'bank_connection'
+				}
+			}
+		]);
+	});
+
+	it('both are WARN records, kept under BP_SECURITY_LOG=off and summarised when repeated', () => {
+		for (const name of ['sensitive_create', 'sensitive_update'] as const) {
+			const spec = REGISTRY[name];
+			expect([spec.severity, spec.flood, spec.security]).toEqual(['WARN', true, false]);
+		}
+	});
+});

@@ -122,6 +122,8 @@ export const ATTRIBUTE = {
 	rateLimitKind: 'budgetpilot.ratelimit.kind',
 	rateLimitCounter: 'budgetpilot.ratelimit.counter',
 	sessionReason: 'budgetpilot.session.reason',
+	// How many stored sessions the startup step shortened to the settings in force (#1087).
+	sessionShortened: 'budgetpilot.session.shortened',
 	cryptPurpose: 'budgetpilot.crypt.purpose',
 
 	// Authorization events (L4a). The target as a keyed hash under the same key as the actor's, so a
@@ -143,6 +145,7 @@ export const ATTRIBUTE = {
 	dataTransactionsRestored: 'budgetpilot.data.transactions_restored',
 	dataRecordsDeleted: 'budgetpilot.data.records_deleted',
 	dataTransactionsExported: 'budgetpilot.data.transactions_exported',
+	dataTransactionsCreated: 'budgetpilot.data.transactions_created',
 	restoreReason: 'budgetpilot.restore.reason',
 
 	// The container start, `boot.mjs`.
@@ -196,6 +199,7 @@ export const EVENT = {
 	authnReauthSuccess: 'budgetpilot.authn.reauth_success',
 	authnReauthFail: 'budgetpilot.authn.reauth_fail',
 	sessionInvalid: 'budgetpilot.session.invalid',
+	sessionSettingsApplied: 'budgetpilot.session.settings_applied',
 
 	// OWASP Logging Vocabulary, authorization, without the user the vocabulary appends (L4a).
 	authzFail: 'authz_fail',
@@ -207,6 +211,9 @@ export const EVENT = {
 	// OWASP Logging Vocabulary, data events (L4b-2), without the user the vocabulary appends.
 	sensitiveDelete: 'sensitive_delete',
 	sensitiveRead: 'sensitive_read',
+	// #1087: a bank connection stored or renewed, and what a sync wrote.
+	sensitiveCreate: 'sensitive_create',
+	sensitiveUpdate: 'sensitive_update',
 	inputValidationFail: 'input_validation_fail',
 
 	configOriginSet: 'budgetpilot.config.origin_set',
