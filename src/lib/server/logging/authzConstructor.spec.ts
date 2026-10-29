@@ -214,14 +214,15 @@ describe('every 404 in shipped src is a logged refusal or says why not (L4a inva
 
 	// The population the contract measured on main 356917d with its own grep command, and the same
 	// figure through this multi-line matcher: the tree's two wrapped `error(` calls answer 400 and
-	// fail a stream, and no `status: 404` exists. A changed figure means a 404 was added or removed:
-	// read the diff before moving the number.
-	it('reads every file and the 44 lines of the 404 class', () => {
+	// fail a stream. Since then one `status: 404`, `handleDoubleSlash` in hooks.server.ts (exempt: a
+	// path no route matches). A changed figure means a 404 was added or removed: read the diff before
+	// moving the number.
+	it('reads every file and the 45 lines of the 404 class', () => {
 		expect({
 			filesRead: files.length > 100,
 			lines404: scanned.reduce((sum, file) => sum + file.lines.length, 0),
 			filesWith404: scanned.filter((file) => file.lines.length > 0).length
-		}).toEqual({ filesRead: true, lines404: 44, filesWith404: 12 });
+		}).toEqual({ filesRead: true, lines404: 45, filesWith404: 13 });
 	});
 
 	it('finds no 404 line that is neither preceded by its log call nor exempt with a reason', () => {
