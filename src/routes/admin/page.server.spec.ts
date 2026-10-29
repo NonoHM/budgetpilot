@@ -1,4 +1,5 @@
-import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { env } from '$env/dynamic/private';
 
 const tx = vi.hoisted(() => ({
 	session: {
@@ -456,6 +457,16 @@ describe('/admin action resetPassword', () => {
 	});
 });
 
+// Pinned for every test in the file: `$env/dynamic/private` loads the developer's `.env` here, and
+// CI has none, so an invitation test would pass or refuse depending on the machine (#1147).
+const originalOrigin = env.ORIGIN;
+beforeEach(() => {
+	env.ORIGIN = 'https://budget.example.test';
+});
+afterEach(() => {
+	env.ORIGIN = originalOrigin;
+});
+
 describe('/admin action createInvitation', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
@@ -507,6 +518,63 @@ describe('/admin action createInvitation', () => {
 
 		expect(result.status).toBe(400);
 		expect(invitations.createInvitation).not.toHaveBeenCalled();
+	});
+
+	// #1147: the link carries the token, so its origin is the configured one. With ORIGIN unset,
+	// adapter-node builds request.url from the Host header; the request here arrives as evil.test.
+	describe('the origin of the link', () => {
+		beforeEach(() => {
+			invitations.createInvitation.mockResolvedValue({
+				id: 'invite-c',
+				token: 'the-raw-token',
+				email: null,
+				expiresAt: new Date('2026-07-11T00:00:00.000Z')
+			});
+		});
+
+		it('is the configured ORIGIN, not the host the request arrived with', async () => {
+			expect.assertions(1);
+			env.ORIGIN = 'https://budget.example.test';
+
+			const result = await invokeAction('createInvitation', {}, ADMIN, 'http://evil.test/admin');
+
+			expect(result.inviteUrl).toBe('https://budget.example.test/register?invite=the-raw-token');
+		});
+
+		// The credentials are what separates "the origin" from "the value as written": `new URL` drops
+		// a base's path on its own, but carries its user:password into the link.
+		it('keeps only the origin of an ORIGIN written with credentials, a path and spaces', async () => {
+			expect.assertions(1);
+			env.ORIGIN = ' https://admin:secret@budget.example.test/some/path/ ';
+
+			const result = await invokeAction('createInvitation', {}, ADMIN, 'http://evil.test/admin');
+
+			expect(result.inviteUrl).toBe('https://budget.example.test/register?invite=the-raw-token');
+		});
+
+		// Unset is the `node build` case. Empty and invalid values reach this code only under `vite
+		// dev` and `preview`: adapter-node's parse_origin refuses them at boot.
+		for (const [label, value] of [
+			['unset', undefined],
+			['empty', '  '],
+			['not http(s)', 'ftp://budget.example.test'],
+			['not a URL', 'budget.example.test']
+		] as const) {
+			it(`refuses before creating anything when ORIGIN is ${label}`, async () => {
+				expect.assertions(3);
+				if (value === undefined) Reflect.deleteProperty(env, 'ORIGIN');
+				else env.ORIGIN = value;
+
+				const result = await invokeAction('createInvitation', {}, ADMIN, 'http://evil.test/admin');
+
+				expect(invitations.createInvitation).not.toHaveBeenCalled();
+				expect(result.inviteUrl).toBeUndefined();
+				expect({ status: result.status, reason: result.data?.inviteError }).toEqual({
+					status: 503,
+					reason: m.admin_error_invite_origin_unset()
+				});
+			});
+		}
 	});
 });
 
@@ -716,7 +784,8 @@ async function runRevokeInvitation(
 async function invokeAction(
 	name: keyof typeof actions,
 	input: Record<string, string>,
-	user: typeof ADMIN | typeof USER
+	user: typeof ADMIN | typeof USER,
+	url = 'http://localhost/admin'
 ) {
 	const formData = new FormData();
 	for (const [key, value] of Object.entries(input)) formData.set(key, value);
@@ -730,7 +799,7 @@ async function invokeAction(
 	)({
 		getClientAddress: () => '203.0.113.20',
 		locals: { user },
-		request: new Request('http://localhost/admin', { method: 'POST', body: formData })
+		request: new Request(url, { method: 'POST', body: formData })
 	})) as {
 		status: number;
 		data: {

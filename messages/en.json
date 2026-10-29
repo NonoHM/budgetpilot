@@ -123,6 +123,7 @@
 	"admin_error_self_reset": "You cannot reset your own password from this panel. Use Settings > Change password.",
 	"admin_delete_success": "Account deleted.",
 	"admin_error_invalid_email": "Invalid email.",
+	"admin_error_invite_origin_unset": "Invitation links need ORIGIN. Set it to the address people type to reach the app, then restart.",
 	"admin_error_email_non_ascii": "This address contains non-ASCII characters (accents, a non-Latin alphabet). Account addresses have to be ASCII.",
 	"admin_error_invitation_not_found": "Invitation not found.",
 	"admin_invitations_heading": "Invitations",
