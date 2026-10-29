@@ -69,7 +69,24 @@ const SCOPE: { [O in SensitiveDeleteOperation]: DataScope } = {
 const CREATE_SCOPE: { [O in SensitiveCreateOperation]: DataScope } = {
 	connect_bank: 'bank_connection',
 	// The transactions, and the balances recorded for the accounts linked to net worth.
-	sync_bank_connection: 'bank_connection'
+	sync_bank_connection: 'bank_connection',
+	// The transactions, the account `/import` created for them, and any category a row named.
+	import_file: 'import',
+	// With the account manual entries are filed under, and the category, when either is new.
+	create_transaction: 'transaction',
+	// The upsert creates the budget, or replaces the limit the category already has.
+	save_budget: 'budget',
+	create_category: 'category',
+	restore_default_categories: 'category',
+	create_rule: 'rule',
+	restore_default_rules: 'rule',
+	create_net_worth_account: 'net_worth_account',
+	create_savings_goal: 'savings_goal',
+	// The record `undo_bill_action` deletes.
+	mark_bill_paid: 'bill_action',
+	ignore_bill_occurrence: 'bill_action',
+	exclude_bill_stream: 'bill_action',
+	create_statement_account: 'statement_account'
 };
 const UPDATE_SCOPE: { [O in SensitiveUpdateOperation]: DataScope } = {
 	renew_bank_connection: 'bank_connection'
@@ -130,8 +147,8 @@ export function logSensitiveDelete(
 }
 
 /**
- * Stored data was created (#1087): a bank connection, with no count, or what a sync wrote, with the
- * transactions it created, `null` when the ledger could not be read.
+ * Stored data was created (#1087): a record, with no count, or what a sync or a file import wrote,
+ * with the transactions it created, `null` when the ledger could not be read.
  */
 export function logSensitiveCreate(
 	userId: string,

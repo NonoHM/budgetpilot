@@ -307,6 +307,14 @@ vi.mock('$lib/server/logging', async (importOriginal) => ({
 	}
 }));
 
+// The #1087 block decides what the restore answers (a count, 0, or a throw); the fake table above
+// models neither the mapping upsert nor a failure, and the route only reads the count.
+const restoreDefaults = vi.hoisted(() => vi.fn(async (_userId: string) => 0));
+vi.mock('$lib/server/categories/defaults', async (importOriginal) => ({
+	...(await importOriginal<typeof import('$lib/server/categories/defaults')>()),
+	restoreMissingDefaultCategories: restoreDefaults
+}));
+
 // Must stay aligned with UNCLASSIFIED_CATEGORY ($lib/domain/categories).
 const UNCLASSIFIED_CATEGORY = 'uncategorized';
 
@@ -914,5 +922,77 @@ describe('L4b-2: categories writes sensitive_delete', () => {
 			mappingId: 'mapping-absent-l4b2'
 		});
 		expect(deletes()).toEqual([]);
+	});
+});
+
+/**
+ * #1087 piece 2: a created category and a restore press write `sensitive_create`, scope category,
+ * after the write returns. The restore line is written on every successful press, 0 included: the
+ * press is the request, and a count of 0 is its answer. Wire names as literals.
+ */
+describe('#1087: createCategory and restoreDefaults write sensitive_create', () => {
+	type Line = { event: string; attributes: Record<string, unknown> };
+	const creates = () => (logged as Line[]).filter((line) => line.event === 'sensitive_create');
+	const line = (operation: string) => ({
+		event: 'sensitive_create',
+		attributes: {
+			'budgetpilot.user.pseudonym': logUserPseudonym(testUser.id),
+			'budgetpilot.data.operation': operation,
+			'budgetpilot.data.scope': 'category'
+		}
+	});
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		logged.length = 0;
+		db.categories.length = 0;
+		db.categories.push(
+			{ id: 'cat-alimentation', userId: 'user-a', name: 'Alimentation', defaultKey: 'food' },
+			{ id: 'cat-non-classe', userId: 'user-a', name: UNCLASSIFIED_CATEGORY, defaultKey: null }
+		);
+	});
+
+	afterEach(() => {
+		restoreDefaults.mockReset();
+		restoreDefaults.mockImplementation(async () => 0);
+	});
+
+	// Separates "the route logs a created category" from "the route writes nothing on create".
+	it('createCategory on a free name: one line, operation create_category', async () => {
+		await runAction('createCategory', { name: 'Voyages' });
+		expect(creates()).toEqual([line('create_category')]);
+	});
+
+	// Green today; separates "line after the create" from "line before the name checks".
+	it('createCategory on a name already taken writes none', async () => {
+		const result = await runAction('createCategory', { name: 'ALIMENTATION' });
+		expect({ status: result.status, lines: creates() }).toEqual({ status: 400, lines: [] });
+	});
+
+	// Green today; separates "line after the create" from "line before the name checks".
+	it('createCategory on an empty name writes none', async () => {
+		const result = await runAction('createCategory', { name: '   ' });
+		expect({ status: result.status, lines: creates() }).toEqual({ status: 400, lines: [] });
+	});
+
+	// Separates "the route logs a restore press" from "the route writes nothing on restore".
+	it('restoreDefaults creating 3: one line, operation restore_default_categories', async () => {
+		restoreDefaults.mockResolvedValueOnce(3);
+		await runAction('restoreDefaults', {});
+		expect(creates()).toEqual([line('restore_default_categories')]);
+	});
+
+	// Separates "a line on every successful press" from "a line only when the count is positive".
+	it('restoreDefaults creating 0: still one line', async () => {
+		restoreDefaults.mockResolvedValueOnce(0);
+		await runAction('restoreDefaults', {});
+		expect(creates()).toEqual([line('restore_default_categories')]);
+	});
+
+	// Green today; separates "line after the restore returned" from "line before the call".
+	it('restoreDefaults that throws writes none', async () => {
+		restoreDefaults.mockRejectedValueOnce(new Error('database unavailable'));
+		await expect(runAction('restoreDefaults', {})).rejects.toThrow('database unavailable');
+		expect(creates()).toEqual([]);
 	});
 });

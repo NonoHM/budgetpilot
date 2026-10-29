@@ -23,7 +23,7 @@ import {
 	readSavingsGoals,
 	updateSavingsGoal
 } from '$lib/server/savings-goals/service';
-import { logSensitiveDelete } from '$lib/server/logging/data';
+import { logSensitiveCreate, logSensitiveDelete } from '$lib/server/logging/data';
 import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals }) => {
@@ -76,6 +76,8 @@ export const actions: Actions = {
 				balance: getFormValue(formData, 'balance'),
 				asOfDate: getFormValue(formData, 'asOfDate') || undefined
 			});
+			// Before the link, which can fail with the account already stored.
+			logSensitiveCreate(user.id, 'create_net_worth_account');
 			if (connectToTransactions) {
 				await setManualAccountNetWorthLink(user.id, created.id);
 			}
@@ -138,6 +140,7 @@ export const actions: Actions = {
 				currentAmount: getFormValue(formData, 'currentAmount') || undefined,
 				targetDate: getFormValue(formData, 'targetDate') || undefined
 			});
+			logSensitiveCreate(user.id, 'create_savings_goal');
 		} catch (caught) {
 			return fail(getErrorStatus(caught), { error: getErrorMessage(caught) });
 		}

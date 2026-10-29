@@ -5,6 +5,7 @@ import { splitIndicatorsByTransactionId } from '$lib/domain/allocation';
 import { requireUser } from '$lib/server/auth';
 import { prisma } from '$lib/server/db';
 import { createManualTransaction, readAccountTransactionSpan } from '$lib/server/budget/dashboard';
+import { logSensitiveCreate } from '$lib/server/logging/data';
 import { parseDateRange } from '$lib/server/date-range';
 import { readDashboardPeriodData } from '$lib/server/dashboard/periodData';
 import { loadDashboardInsights } from '$lib/server/dashboard/insights';
@@ -93,6 +94,7 @@ export const actions: Actions = {
 				amount: getFormValue(formData, 'amount'),
 				category: getFormValue(formData, 'category')
 			});
+			logSensitiveCreate(user.id, 'create_transaction');
 		} catch (caught) {
 			return fail(400, { createTransactionError: getErrorMessage(caught) });
 		}

@@ -24,7 +24,7 @@ import {
 import { planDefaultCategoryRenames } from '$lib/server/categories/renamePrompt';
 import type { PageServerLoad } from './$types';
 import { logReferenceRefused } from '$lib/server/logging/authz';
-import { logSensitiveDelete } from '$lib/server/logging/data';
+import { logSensitiveCreate, logSensitiveDelete } from '$lib/server/logging/data';
 
 export type CategoryRow = {
 	id: string;
@@ -143,6 +143,7 @@ export const actions: Actions = {
 			await prisma.category.create({
 				data: { userId: user.id, name, nameKey: computeNameKey(name) }
 			});
+			logSensitiveCreate(user.id, 'create_category');
 		} catch (err: unknown) {
 			if (isPrismaUniqueError(err)) return fail(400, { error: m.categories_error_duplicate() });
 			throw err;
@@ -436,6 +437,8 @@ export const actions: Actions = {
 	restoreDefaults: async ({ locals }) => {
 		const user = requireUser(locals.user);
 		const created = await restoreMissingDefaultCategories(user.id);
+		// Every press: `created` counts the missing categories, and the natures can be written without one.
+		logSensitiveCreate(user.id, 'restore_default_categories');
 		return {
 			success:
 				created > 0

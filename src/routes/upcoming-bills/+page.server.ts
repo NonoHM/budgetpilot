@@ -12,7 +12,7 @@ import {
 	undoStreamAction
 } from '$lib/server/upcoming-bills/service';
 import type { Actions, PageServerLoad } from './$types';
-import { logSensitiveDelete } from '$lib/server/logging/data';
+import { logSensitiveCreate, logSensitiveDelete } from '$lib/server/logging/data';
 
 /**
  * Read-only month view plus the four row mutations.
@@ -96,6 +96,13 @@ export const actions: Actions = {
 
 type ActionEvent = Parameters<NonNullable<Actions['markPaid']>>[0];
 
+/** What each decision is called in the log (#1087); `undo_bill_action` deletes the record. */
+const BILL_OPERATION = {
+	paid: 'mark_bill_paid',
+	ignore: 'ignore_bill_occurrence',
+	exclude: 'exclude_bill_stream'
+} as const satisfies Record<StreamActionKind, string>;
+
 async function recordAction(kind: StreamActionKind, { locals, request }: ActionEvent) {
 	const user = requireUser(locals.user);
 	const formData = await request.formData();
@@ -125,6 +132,7 @@ async function recordAction(kind: StreamActionKind, { locals, request }: ActionE
 			dueDate: dueDate || null,
 			anchorTransactionIds
 		});
+		logSensitiveCreate(user.id, BILL_OPERATION[kind]);
 
 		const result: BillActionResult = {
 			kind,

@@ -3,6 +3,7 @@ import * as m from '$lib/paraglide/messages';
 import { requireUser } from '$lib/server/auth';
 import { isImportRateLimited, recordImportAttempt } from '$lib/server/auth/rateLimit';
 import { logWorkRateLimited } from '$lib/server/logging/authn';
+import { logSensitiveCreate } from '$lib/server/logging/data';
 import { resolveClientAddress } from '$lib/server/net/clientAddress';
 import { exceedsCsvProductLimit } from '$lib/server/import/resourceBounds';
 import {
@@ -120,6 +121,7 @@ export const POST: RequestHandler = async ({ locals, request, getClientAddress }
 			discriminant,
 			denomination
 		});
+		logSensitiveCreate(user.id, 'create_statement_account');
 		return json({
 			account: {
 				id: account.id,
