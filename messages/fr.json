@@ -874,7 +874,7 @@
 	"settings_delete_confirm_code_label": "Code d’authentification",
 	"settings_delete_confirm_submit": "Supprimer mon compte",
 	"settings_password_modal_title": "Modifier le mot de passe",
-	"settings_password_modal_description": "Les autres sessions du compte seront révoquées.",
+	"settings_other_sessions_logged_out_notice": "Vos autres sessions seront déconnectées.",
 	"settings_current_password_label": "Mot de passe actuel",
 	"settings_new_password_label": "Nouveau mot de passe",
 	"settings_confirm_password_label": "Confirmer",
