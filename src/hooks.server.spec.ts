@@ -1004,3 +1004,64 @@ describe('handleError', () => {
 		]);
 	});
 });
+
+/**
+ * GHSA-pfhg-q3qv-9q6r (kit < 3, #1148): an enhanced form rendered on a path beginning with `//`
+ * can navigate to another origin. The advisory's own workaround is to refuse such a pathname
+ * before anything renders. The URL is built the way adapter-node builds it, origin plus the raw
+ * request target, so the WHATWG parser's own rewriting (`/\x` becomes `//x`) is what is tested.
+ */
+describe('hooks handleDoubleSlash', () => {
+	type LoggedEvent = { event: string; attributes: Record<string, unknown> };
+	const notFoundEvents = () =>
+		(logged as LoggedEvent[]).filter((line) => line.event === E.requestNotFound);
+
+	async function request(target: string) {
+		const { handleDoubleSlash } = await import('./hooks.server');
+		const resolve = vi.fn(async () => new Response('rendered'));
+		const response = await handleDoubleSlash({
+			event: { url: new URL(`http://localhost:3000${target}`) } as never,
+			resolve
+		});
+		return { response, resolve };
+	}
+
+	// The calibration of the filter: it names a real event, or « one line » below could be any line.
+	it('names the request.not_found event', () => {
+		expect(E.requestNotFound).toBe('budgetpilot.request.not_found');
+	});
+
+	it.each(['//evil.example/', '//evil.example', '///evil.example/', '/\\evil.example/'])(
+		'refuses %s as a plain-text 404 without rendering anything',
+		async (target) => {
+			const { response, resolve } = await request(target);
+
+			expect(resolve).not.toHaveBeenCalled();
+			expect(response.status).toBe(404);
+			expect(response.headers.get('content-type')).toBe('text/plain; charset=utf-8');
+			expect(await response.text()).toBe('Not Found');
+		}
+	);
+
+	// The event and attributes handleError writes for kit's own 404; whether the id is the request's
+	// own needs the request store, which only a running server has.
+	it('writes one request.not_found line with status 404 and an error id', async () => {
+		await request('//evil.example/');
+
+		expect(notFoundEvents()).toEqual([
+			{
+				event: E.requestNotFound,
+				attributes: { [A.httpStatus]: 404, [A.errorId]: expect.any(String) }
+			}
+		]);
+	});
+
+	// The boundary: one slash is an ordinary path, and an encoded slash is not the workaround's
+	// claim (its pathname keeps `%2F`, so no client builds a `//` action URL from it).
+	it.each(['/login', '/', '/%2Fevil.example/'])('hands %s to the app', async (target) => {
+		const { response, resolve } = await request(target);
+
+		expect(resolve).toHaveBeenCalledOnce();
+		expect(await response.text()).toBe('rendered');
+	});
+});

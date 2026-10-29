@@ -280,6 +280,27 @@ export const handleSecurityHeaders: Handle = async ({ event, resolve }) => {
 };
 
 /**
+ * GHSA-pfhg-q3qv-9q6r (kit < 3, held by #1148): an enhanced form on a page served at a path
+ * beginning with `//` can navigate to another origin. The advisory's own workaround: refuse such a
+ * pathname before anything renders. No route here matches one, so the answer was already a 404, but
+ * a RENDERED one, with the layout and whatever form it carries. Plain text renders nothing. The
+ * parsed pathname is read, so `/\x` and `///x` are refused too; `/%2Fx` keeps its encoding and
+ * produces no `//` action URL. Last in `handle`, so the refusal still gets the log context and the
+ * security headers, and writes the same line kit's own 404 writes in `handleError`.
+ */
+export const handleDoubleSlash: Handle = ({ event, resolve }) => {
+	if (!event.url.pathname.startsWith('//')) return resolve(event);
+	log({
+		event: E.requestNotFound,
+		attributes: { [A.httpStatus]: 404, [A.errorId]: requestErrorId() ?? crypto.randomUUID() }
+	});
+	return new Response('Not Found', {
+		status: 404, // authz-exempt: a path no route matches, not a refused object reference
+		headers: { 'content-type': 'text/plain; charset=utf-8' }
+	});
+};
+
+/**
  * The request half of #816: SvelteKit's default printed `error.stack`, message first, and a database
  * message can quote the row it refused. The error is reduced to its class and code by the one rule
  * in server/errors.ts (`errorFields` calls `loggableError` and nothing else reads the error).
@@ -313,5 +334,6 @@ export const handle: Handle = sequence(
 	handleLogContext,
 	handleParaglide,
 	handleAuth,
-	handleSecurityHeaders
+	handleSecurityHeaders,
+	handleDoubleSlash
 );

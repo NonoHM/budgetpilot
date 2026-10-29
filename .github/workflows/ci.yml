@@ -156,6 +156,10 @@ jobs:
           TOTP_ENCRYPTION_KEY: 'c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1'
           RATE_LIMIT_HASH_SECRET: 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef'
 
+      # GHSA-27mw-82g8-phjj (kit 2, #1148) needs a prerendered page; read what this build produced.
+      - name: Nothing is prerendered
+        run: node scripts/assert-nothing-prerendered.mjs
+
       - name: E2E tests
         run: npm run test:e2e
 
