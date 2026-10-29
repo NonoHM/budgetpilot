@@ -215,7 +215,7 @@ describe('Settings — the Comptes section', () => {
 		try {
 			await render(Page, { params: {}, data: baseData(), form: null });
 			await page
-				.getByRole('button', {
+				.getByRole('combobox', {
 					name: m.accounts_net_worth_aria({ name: m.accounts_generic_bucket() })
 				})
 				.click();
@@ -288,7 +288,7 @@ describe('Settings — the Comptes section', () => {
 			const posted = () =>
 				document.querySelectorAll<HTMLInputElement>('[data-testid="posted-net-worth"]')[1];
 			const trigger = () =>
-				page.getByRole('button', { name: m.accounts_net_worth_aria({ name: 'BP ···4417' }) });
+				page.getByRole('combobox', { name: m.accounts_net_worth_aria({ name: 'BP ···4417' }) });
 			// Calibration: the row starts on the link the load reported, so a change is a CHANGE.
 			expect(posted().value).toBe('nwa-1');
 
