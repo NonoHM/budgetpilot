@@ -237,12 +237,18 @@ Data-to-text faithfulness and constrained output (read 2026-10-11, evidence for 
 ## Documentation
 
 - Google developer documentation style guide, UI elements: https://developers.google.com/style/ui-elements
-- Microsoft Writing Style Guide: URL to record at first use
-- Diátaxis: URL to record at first use
+- Google developer documentation style guide, timeless documentation (time words belong in release notes, not product docs): https://developers.google.com/style/timeless-documentation
+- Microsoft Writing Style Guide, top 10 tips: https://learn.microsoft.com/en-us/style-guide/top-10-tips-style-voice
+- Microsoft Writing Style Guide, simple words and concise sentences: https://learn.microsoft.com/en-us/style-guide/word-choice/use-simple-words-concise-sentences
+- Diátaxis, reference: https://diataxis.fr/reference/
+- Keep a Changelog 1.1.0: https://keepachangelog.com/en/1.1.0/
+- release-please (no release-body preamble option; `BEGIN_COMMIT_OVERRIDE`, `draft`): https://raw.githubusercontent.com/googleapis/release-please/main/README.md, https://raw.githubusercontent.com/googleapis/release-please/main/docs/manifest-releaser.md
 - Write the Docs, docs as code: https://www.writethedocs.org/guide/docs-as-code/
 - Vale: https://docs.vale.sh/
 
 ## GitHub Docs
+
+- Managing releases (release notes stay editable under immutable releases): https://raw.githubusercontent.com/github/docs/main/content/repositories/releasing-projects-on-github/managing-releases-in-a-repository.md
 
 - Rulesets: https://raw.githubusercontent.com/github/docs/main/content/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/about-rulesets.md
 - Actions: script injections: https://raw.githubusercontent.com/github/docs/main/content/actions/concepts/security/script-injections.md
