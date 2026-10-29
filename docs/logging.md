@@ -395,7 +395,10 @@ below asks nothing.
 
 Every deletion a member or an admin makes is logged, one row included, and so is every record a
 member creates. These writes are not, and
-each list item says why or where the trace is instead:
+each list item says why or where the trace is instead. For a contributor: the
+`src/lib/server/logging/writeDecisions.spec.ts` test file holds this decision for every file that
+writes to the database, so a new write fails it until the change names its event, the issue that
+decides it, or why no line is owed.
 
 - **An edit that changes stored data without deleting it**, such as an amount set to 0, the splits
   replaced or cleared, or a tag removed from a transaction. Planned in
