@@ -121,6 +121,14 @@ updates:
       # upstream ships a fix past 9.3.4.
       - dependency-name: 'read-excel-file'
         versions: ['>=9.3.0']
+      # Held on SvelteKit 2 by ruling (#1148): adapter-node 6 drops the runtime ORIGIN, and kit 3's
+      # origin check then refuses every form on a plain-HTTP install. Majors only, and only version
+      # updates: GitHub documents that `update-types` never reaches security updates. Lift both
+      # entries in the PR that closes #1148.
+      - dependency-name: '@sveltejs/kit'
+        update-types: ['version-update:semver-major']
+      - dependency-name: '@sveltejs/adapter-node'
+        update-types: ['version-update:semver-major']
 
   # Covers every `uses:` in .github/workflows — the major-tag pins on trusted orgs
   # (actions/*, docker/*, github/*) and the SHA pins on third-party actions
