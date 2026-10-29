@@ -301,26 +301,6 @@ async function assertDepictsIncome(page) {
 	}
 }
 
-/** A budgets image has to show both sides of the feature, or it teaches only half of it. */
-async function assertDepictsBudgetsBothWays(page) {
-	const over = await page.getByText(/Over by/).count();
-	const remaining = await page.getByText(/remaining/).count();
-	if (!over || !remaining) {
-		throw new Error(
-			`[demo] budgets page shows ${over} over-budget and ${remaining} under-budget rows; ` +
-				`the image is meant to show at least one of each`
-		);
-	}
-}
-
-/** The net worth image is about the history chart, which needs more than one point to exist. */
-async function assertDepictsNetWorthHistory(page) {
-	const points = await page.locator('svg circle, svg path[d]').count();
-	if (points < 2) {
-		throw new Error(`[demo] net worth page has no history chart to show (${points} svg nodes)`);
-	}
-}
-
 // One convention for every screenshot in this repo: `<state>-<viewport>.png`, desktop being
 // 1920x1080 and mobile 393x852. See docs/screenshots/README.md.
 const DESKTOP_VIEWPORT = { width: 1920, height: 1080 };
@@ -346,29 +326,6 @@ async function assertPaulIsFirst(page) {
 		);
 	}
 	console.log(`[demo] first row: ${first.replace(/\n/g, ' · ')}`);
-}
-
-/**
- * These two pages are short, so a viewport capture is mostly white below the last card — and
- * the README renders them side by side at 49% width, where that emptiness is the largest thing
- * in the image. Clip to where the content actually ends instead of to the viewport.
- */
-async function captureContent(page, fileName) {
-	const bottom = await page.evaluate(() => {
-		const root = document.querySelector('main') ?? document.body;
-		let lowest = 0;
-		for (const el of root.querySelectorAll('*')) {
-			const box = el.getBoundingClientRect();
-			if (box.width > 0 && box.height > 0) lowest = Math.max(lowest, box.bottom);
-		}
-		return Math.ceil(lowest + window.scrollY);
-	});
-	const height = Math.min(DESKTOP_VIEWPORT.height, bottom + 32);
-	await page.screenshot({
-		path: path.join(SCREENSHOT_DIR, fileName),
-		clip: { x: 0, y: 0, width: DESKTOP_VIEWPORT.width, height }
-	});
-	console.log(`[demo] ${fileName}: ${DESKTOP_VIEWPORT.width}x${height}`);
 }
 
 async function captureScreenshots() {
@@ -411,16 +368,6 @@ async function captureScreenshots() {
 			path: path.join(SCREENSHOT_DIR, 'dashboard-desktop.png'),
 			fullPage: true
 		});
-
-		await gotoAndSettle(desktopPage, '/budgets');
-		await assertEnglish(desktopPage, 'budgets');
-		await assertDepictsBudgetsBothWays(desktopPage);
-		await captureContent(desktopPage, 'budgets-desktop.png');
-
-		await gotoAndSettle(desktopPage, '/net-worth');
-		await assertEnglish(desktopPage, 'net worth');
-		await assertDepictsNetWorthHistory(desktopPage);
-		await captureContent(desktopPage, 'net-worth-desktop.png');
 
 		await desktop.close();
 	} finally {
