@@ -101,6 +101,16 @@ function baseTransaction(overrides: Partial<ImportedTransaction> = {}): Imported
 	} as ImportedTransaction;
 }
 
+/**
+ * An upsert that CREATED its row, which names itself as asked. The resolver compares the returned
+ * name with the requested one (#1104), and a fake answering `{ id }` alone reads as a collation
+ * match; the matched case is measured against MySQL in `collationBucket.db-smoke.ts`, not faked.
+ */
+function createdAs(id: string) {
+	return ({ create }: { create: { name: string; providerAccountId: string | null } }) =>
+		Promise.resolve({ id, name: create.name, providerAccountId: create.providerAccountId });
+}
+
 describe('resolveImportBucketAccount', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
@@ -149,7 +159,7 @@ describe('resolveImportBucketAccount', () => {
 
 	it('creates a new account with created: true, defaulting the denomination and links to null', async () => {
 		prismaMock.account.findFirst.mockResolvedValueOnce(null);
-		prismaMock.account.upsert.mockResolvedValueOnce({ id: 'account-2' });
+		prismaMock.account.upsert.mockImplementationOnce(createdAs('account-2'));
 
 		const result = await resolveImportBucketAccount({
 			userId: 'user-1',
@@ -178,13 +188,14 @@ describe('resolveImportBucketAccount', () => {
 				bankConnectionId: null,
 				providerAccountId: null,
 				providerCashAccountType: null
-			}
+			},
+			select: { id: true, name: true, providerAccountId: true }
 		});
 	});
 
 	it('applies netWorthAccountId/bankConnectionId/denomination when provided on creation', async () => {
 		prismaMock.account.findFirst.mockResolvedValueOnce(null);
-		prismaMock.account.upsert.mockResolvedValueOnce({ id: 'account-3' });
+		prismaMock.account.upsert.mockImplementationOnce(createdAs('account-3'));
 
 		await resolveImportBucketAccount({
 			userId: 'user-1',
@@ -281,7 +292,7 @@ describe('resolveImportBucketAccount', () => {
 	it('creates a new bucket under the exact requested name when providerAccountId lookup misses and the name is free', async () => {
 		prismaMock.account.findFirst.mockResolvedValueOnce(null);
 		prismaMock.account.findFirst.mockResolvedValueOnce(null);
-		prismaMock.account.upsert.mockResolvedValueOnce({ id: 'account-new' });
+		prismaMock.account.upsert.mockImplementationOnce(createdAs('account-new'));
 
 		await resolveImportBucketAccount({
 			userId: 'user-1',
@@ -310,7 +321,7 @@ describe('resolveImportBucketAccount', () => {
 	it('disambiguates with a hashed suffix (never the raw provider uid) when the name is already held by another bucket', async () => {
 		prismaMock.account.findFirst.mockResolvedValueOnce(null);
 		prismaMock.account.findFirst.mockResolvedValueOnce({ id: 'account-existing' });
-		prismaMock.account.upsert.mockResolvedValueOnce({ id: 'account-disambiguated' });
+		prismaMock.account.upsert.mockImplementationOnce(createdAs('account-disambiguated'));
 
 		const result = await resolveImportBucketAccount({
 			userId: 'user-1',

@@ -288,9 +288,35 @@ export async function resolveImportBucketAccount(
 		name = `${name} · ${hashFingerprint(input.providerAccountId).slice(0, 6)}`;
 	}
 
+	let account = await upsertBucket(input, name);
+	// #1104. The upsert can answer with a row this call did not create. On MySQL the index compares
+	// `name` under `utf8mb4_unicode_ci`, which equates names the folded lookup above rightly keeps
+	// apart ("Straße"/"Strasse", any two emoji); on every engine a renamed bucket can hold the exact
+	// name asked for. The provider path checks the answer on its provider id; the by-source path,
+	// which has no identifier to check, on its name.
+	if (!input.providerAccountId) {
+		// Only the by-source door, where a row of another name is archived by elimination, and
+		// `created: false` is what sends the question back to the user there. Byte equality,
+		// because it holds under any collation.
+		return { accountId: account.id, created: account.name === name };
+	}
+	// B's own bucket was looked up first, so a row not carrying B's provider id belongs to someone
+	// else: disambiguate as the folded hit does, once more if that hit already did. A second miss
+	// refuses rather than files B anywhere.
+	if (account.providerAccountId !== input.providerAccountId) {
+		name = `${name} · ${hashFingerprint(input.providerAccountId).slice(0, 6)}`;
+		account = await upsertBucket(input, name);
+		if (account.providerAccountId !== input.providerAccountId) {
+			throw new Error('Import bucket name is held by another account');
+		}
+	}
+	return { accountId: account.id, created: true };
+}
+
+function upsertBucket(input: ImportBucketInput, name: string) {
 	// Upsert (not create) so a concurrent first import of the same bucket cannot throw, wrapped
 	// because the empty update below costs it Prisma's atomic form (server/database/upsert.ts).
-	const account = await withConcurrentWriteRetry(() =>
+	return withConcurrentWriteRetry(() =>
 		prisma.account.upsert({
 			where: { userId_name_source: { userId: input.userId, name, source: input.source } },
 			update: {},
@@ -305,10 +331,10 @@ export async function resolveImportBucketAccount(
 				bankConnectionId: input.bankConnectionId ?? null,
 				providerAccountId: input.providerAccountId ?? null,
 				providerCashAccountType: input.providerCashAccountType ?? null
-			}
+			},
+			select: { id: true, name: true, providerAccountId: true }
 		})
 	);
-	return { accountId: account.id, created: true };
 }
 
 /**
