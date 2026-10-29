@@ -291,11 +291,14 @@ export async function recordBankSyncStartAttempt(userId: string, ip: string): Pr
  * after another; a concurrent burst exceeds it, because the limiter checks then records (#714), as
  * it did under the old keys.
  *
- * One case is left, #885: a thief holding a COPY of the owner's cookie shares this counter and can
- * keep it tripped, because a refused attempt records nothing. Logging out ends it (it revokes the
- * token for both holders). The refusal sentence still says only to wait, because an owner whose own
- * failure repeats (a forgotten password, a drifted authenticator) sees the same refusal, and for
- * them logging out throws away their only session. Telling the two apart is #885.
+ * One case is left: a thief holding a COPY of the owner's cookie shares this counter and can keep
+ * it tripped, because a refused attempt records nothing. Logging out ends it (it revokes the token
+ * for both holders), but an owner whose own failure repeats (a forgotten password, a drifted
+ * authenticator) sees the same refusal, and for them logging out throws away their only session.
+ * The server cannot tell the two apart: the copy IS the session, and the address that differs for
+ * a thief also differs for one owner on two interfaces or two IP families (#885, found by reading
+ * the address keying). The reader can: they know whether they made the attempts. So the sentence
+ * asks them, and advises logging out only on « that was not you ».
  *
  * Shared ACROSS actions, never per action: all of them test the same password, so a per-action
  * counter would multiply the guessing budget by the number of actions. Callers record ONLY on a wrong

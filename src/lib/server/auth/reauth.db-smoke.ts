@@ -224,6 +224,45 @@ describe('the re-authentication counter belongs to the session that guessed', ()
 			data: { sessionsError: m.settings_error_reauth_too_many() }
 		});
 	});
+
+	// #885: what the refusal tells the owner to do, done through the real handler. A COPY of the
+	// cookie is the same session, so it keeps the owner refused whatever they type. Which assertion
+	// separates what: the `toBeNull` separates « logging out ends the copy » from « it only clears
+	// this browser's cookie »; the last one separates « the counter is the session's » from « it is
+	// the account's », and holds with or without the logout, since a new session has its own.
+	it('a copy of the cookie keeps the owner refused, and logging out ends it for both', async () => {
+		expect.assertions(4);
+		const a = await seedAccount('copied', PASSWORD_A);
+		const owner = await mintSession(a.id);
+		const thief = owner.token;
+
+		for (let attempt = 0; attempt < 5; attempt++) {
+			await revokeOthers(thief, 'wrong', freshAddress());
+		}
+		const refused = await revokeOthers(owner.token, PASSWORD_A, freshAddress());
+		// The literal, not the message function, so the English catalogue is pinned too: this
+		// suite renders in the base locale, while the route specs pin the French one.
+		expect(refused).toMatchObject({
+			status: 400,
+			data: {
+				sessionsError:
+					'Too many attempts. Try again in a few minutes, or log out if that was not you.'
+			}
+		});
+
+		const { POST } = await import('../../../routes/logout/+server');
+		await expect(
+			POST({
+				cookies: { delete: () => {}, set: () => {} },
+				locals: { user: await readSessionUser(owner.token) }
+			} as never)
+		).rejects.toMatchObject({ status: 303, location: '/login' });
+		expect(await readSessionUser(thief)).toBeNull();
+
+		const again = await mintSession(a.id);
+		const result = await revokeOthers(again.token, PASSWORD_A, freshAddress());
+		expect(result.sessionsSuccess).toEqual(expect.any(String));
+	});
 });
 
 describe('the helper against real rows', () => {
