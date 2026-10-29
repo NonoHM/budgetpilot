@@ -6,6 +6,11 @@ import { UNCLASSIFIED_CATEGORY } from '$lib/domain/categories';
 import { manualCategoryUpdate } from '$lib/server/transactions/manualCategory';
 import * as m from '$lib/paraglide/messages';
 import { actions, load } from '../../../routes/categories/+page.server';
+import { env } from '$env/dynamic/private';
+
+// L4b-2: the code this suite drives writes data events whose user pseudonym is keyed by this
+// secret, and db-smoke's `$env` is an empty stub, so the secret is a fixture of the file.
+env.RATE_LIMIT_HASH_SECRET ??= 'f6'.repeat(32);
 
 /**
  * `/categories` counts a category's transactions, and the delete dialog and its success message

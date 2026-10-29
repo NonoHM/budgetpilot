@@ -24,6 +24,7 @@ import { ATTRIBUTE, EVENT } from '$lib/server/logging/names';
 import { logUserPseudonym } from '$lib/server/logging/pseudonym';
 import type { PageServerLoad } from './$types';
 import { logAdminAction } from '$lib/server/logging/authz';
+import { logSensitiveDelete } from '$lib/server/logging/data';
 
 const PAGE_SIZE = 20;
 
@@ -113,16 +114,19 @@ export const actions: Actions = {
 		if (!target) return fail(404, { deleteError: m.admin_error_user_not_found() });
 
 		// The ADMIN's session token is replaced in the same commit (#249).
-		await commitWithRotatedToken(admin, cookies, async (tx) => {
+		// The count is returned from the callback, the committed attempt's own answer (L4b-2).
+		const deleted = await commitWithRotatedToken(admin, cookies, async (tx) => {
 			await tx.session.deleteMany({ where: { userId: targetUserId } });
 			// Transactions before the user — see the identical comment in settings/+page.server.ts's
 			// deleteAccount. Deleting the user cascades into Category and Transaction in an order
 			// the engine chooses, and TransactionSplit is RESTRICT on Category, so on PostgreSQL
 			// the delete fails outright for any user who has ever split a transaction.
-			await tx.transaction.deleteMany({ where: { userId: targetUserId } });
+			const { count } = await tx.transaction.deleteMany({ where: { userId: targetUserId } });
 			await tx.user.delete({ where: { id: targetUserId } });
+			return count;
 		});
 		logAdminAction(admin.id, 'delete_user', target.id);
+		logSensitiveDelete(admin.id, deleted, 'delete_user', target.id);
 		return { deleteSuccess: m.admin_delete_success() };
 	},
 	resetPassword: async ({ cookies, getClientAddress, locals, request }) => {

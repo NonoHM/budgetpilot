@@ -137,7 +137,7 @@ with.
    | `body`                                    | One fixed English sentence for the event.                                                                                    |
 
    The fields `boot_id`, `seq` and `prev` chain the lines together. You use them in
-   [Check that no line was removed or edited](./logging-howto.md#check-that-no-line-was-removed-or-edited).
+   [Seal the log](./logging-howto.md#seal-the-log).
 
 ## 3. Cause a "page not found" and find its line
 

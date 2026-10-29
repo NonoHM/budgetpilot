@@ -140,6 +140,8 @@ export interface AccountRow extends NameKeyedRow {
 	bankConnectionId: string | null;
 	providerAccountId: string | null;
 	providerCashAccountType: string | null;
+	/** Null on a row from before the keys, which is the only row the merge is for (#1086). */
+	nameKey: string | null;
 	transactionCount: number;
 }
 
@@ -165,7 +167,9 @@ export interface AccountMerge {
  *   belonged to two different things.
  */
 export type AccountMergeBlockReason =
-	{ kind: 'conflicting-value'; field: AccountConflictField } | { kind: 'multiple-linked-rows' };
+	| { kind: 'conflicting-value'; field: AccountConflictField }
+	| { kind: 'multiple-linked-rows' }
+	| { kind: 'already-keyed' };
 
 type AccountConflictField = AccountLinkField | 'currency';
 
@@ -199,6 +203,21 @@ export function planAccountMerges(accounts: AccountRow[]): AccountMergePlan {
 
 	for (const group of groups) {
 		const members = [group.survivor, ...group.losers];
+		// First, because it decides whether this is the duplicate the merge exists for at all
+		// (#1086). A group whose keys are ALL written is either a legacy pair an earlier run left
+		// apart (that run writes every surviving key, blocked ones included) or one made since: two
+		// concurrent renames to « Livret » and « LIVRET », or a writer checking exact spelling
+		// (#1092). Nothing stored tells them apart, so they are never merged (owner ruling on #1086):
+		// every comparable product read merges two accounts only when the user picks both.
+		if (members.every((row) => row.nameKey !== null)) {
+			blocked.push({
+				key: group.key,
+				source: group.survivor.source,
+				names: members.map((row) => row.name),
+				reason: { kind: 'already-keyed' }
+			});
+			continue;
+		}
 		const conflictingField: AccountConflictField | undefined =
 			// Currency first: it is the one field where merging would misstate money rather than
 			// only lose a link. Two buckets in different currencies are two buckets, full stop,

@@ -9,6 +9,7 @@ import {
 	schemaPathFor,
 	toPrismaConnectionUrl
 } from './src/lib/server/database/provider.ts';
+import { applySecretSources } from './src/lib/server/env/secretSources.ts';
 
 const envPath = '.env';
 
@@ -20,6 +21,12 @@ if (existsSync(envPath)) {
 		process.env[match[1]] = match[2].replace(/^["']|["']$/g, '');
 	}
 }
+
+// `<NAME>_FILE` (#826, #1099): a no-op under `boot.mjs`, which resolved them and removed the
+// variables, and the resolver for a CLI run that replaced the image's command (`docs/operations.md`
+// sends an operator to `migrate resolve` that way), which would otherwise connect with no password.
+// After the `.env` read above, so a password file meets the DATABASE_URL that file supplies.
+applySecretSources(process.env);
 
 // The Prisma CLI reads the same two variables the app does, so `npx prisma migrate deploy`
 // targets the schema and the migration history of the configured provider with nothing passed

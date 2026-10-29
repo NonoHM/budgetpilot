@@ -9,7 +9,9 @@ import { ATTRIBUTE as A, EVENT as E } from './names.ts';
 import {
 	DEFAULT_LOG_LEVEL,
 	readLogSettings,
+	readSealSettings,
 	resolveLogLevel,
+	resolveLogSeal,
 	resolveSecurityLog
 } from './settings.ts';
 
@@ -48,12 +50,41 @@ const KNOWN_METHODS = new Set([
 let writer: LogWriter | undefined;
 
 function current(): LogWriter {
-	writer ??= createLogWriter({
-		...readLogSettings(process.env),
-		sink: stdoutSink(),
-		context: () => requests.getStore()
-	});
+	if (!writer) {
+		const { seal, dir, intervalSeconds } = readSealSettings(process.env);
+		writer = createLogWriter({
+			...readLogSettings(process.env),
+			seal,
+			sink: stdoutSink(),
+			context: () => requests.getStore()
+		});
+		// Before the first line, so a start boot.mjs did not seal (`vite dev`, a bare `node build`)
+		// is sealed from its first line; under boot.mjs the chain is sealed already and this does
+		// nothing (#875).
+		writer.startSeal({ dir, intervalSeconds });
+		flushOnStop(writer);
+	}
 	return writer;
+}
+
+/**
+ * Writes the open flood windows when the process stops (#866, #1085), as Python's `logging`
+ * (atexit), Monolog's BufferHandler (register_shutdown_function) and pino's transports ('exit') flush
+ * what they hold. Two events, because 'exit' alone missed two engines: after SIGTERM adapter-node
+ * closes the server and waits for the loop, and the PostgreSQL and MariaDB pools kept it running
+ * past Docker's 10 s grace (measured on 4fb08df). 'sveltekit:shutdown' arrives once the server has
+ * closed; 'exit' follows `sys_crash`'s `process.exit(1)`. No signal listener, which would remove
+ * Node's default exit on SIGINT under `vite dev`. `boot.mjs`'s writer needs none: no event it
+ * writes is summarised. A kill that runs no handler (SIGKILL, out of memory) still loses them.
+ * `flush` also seals what was written since the last checkpoint (#875, design note A8), so the
+ * summaries it writes at stop are covered.
+ */
+export function flushOnStop(
+	target: Pick<LogWriter, 'flush'>,
+	proc: Pick<NodeJS.EventEmitter, 'on'> = process
+): void {
+	proc.on('sveltekit:shutdown', target.flush);
+	proc.on('exit', target.flush);
 }
 
 export function log(event: LogEvent): void {
@@ -140,14 +171,16 @@ export function installConsoleBridge(
 }
 
 /**
- * Boot check for the two settings, registered in `env/assertConfigured.ts`: refuses a value outside
- * the domain, and writes the departure from each default.
+ * Boot check for the three closed settings, registered in `env/assertConfigured.ts`: refuses a value
+ * outside the domain, and writes the departure from each default. `BP_LOG_SEAL=on` needs no line of
+ * its own: `sys_startup` carries it, and the seal writes `seal_started` or `seal_unavailable`.
  */
 export function assertLoggingConfigured(
 	env: Record<string, string | undefined> = process.env
 ): void {
 	const level = resolveLogLevel(env);
 	const securityLog = resolveSecurityLog(env);
+	resolveLogSeal(env);
 	if (level !== DEFAULT_LOG_LEVEL) {
 		log({ event: E.configLogLevelChanged, attributes: { [A.configLogLevel]: level } });
 	}

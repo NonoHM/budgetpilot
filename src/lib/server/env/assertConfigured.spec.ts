@@ -232,6 +232,7 @@ const { assertDatabaseConfigured } = await import('$lib/server/database/bootChec
 const { assertForwardingConfigSafe } = await import('$lib/server/net/clientAddress');
 const { assertLoggingConfigured } = await import('$lib/server/logging');
 const { assertSecretFilesSafe } = await import('./secretFiles');
+const { assertSecretSourcesConfigured } = await import('./secretSources');
 const { assertLlmModelDigestConfigured } = await import('$lib/server/insights/modelHostConfig');
 const NOT_OPERATOR_BOUNDS = new Map<unknown, string>([
 	[assertDatabaseConfigured, 'a connection string and an engine name'],
@@ -239,8 +240,9 @@ const NOT_OPERATOR_BOUNDS = new Map<unknown, string>([
 	[assertRateLimitSecretConfigured, 'a secret key'],
 	[assertBootstrapTokenConfigured, 'a secret token'],
 	[assertForwardingConfigSafe, 'two variables that must not be set at all'],
-	[assertLoggingConfigured, 'two variables, each a closed set of words'],
+	[assertLoggingConfigured, 'three variables, each a closed set of words'],
 	[assertSecretFilesSafe, 'a switch, on or off'],
+	[assertSecretSourcesConfigured, 'file paths, read before the server starts'],
 	[assertLlmModelDigestConfigured, 'a model digest, compared exactly']
 ]);
 const OPERATOR_BOUNDS = ENVIRONMENT_CHECKS.filter(([, run]) => !NOT_OPERATOR_BOUNDS.has(run));
@@ -340,9 +342,9 @@ describe('operator bounds', () => {
 		}
 		// Eleven since #754 added the six settings that used to read `Number()` or `parseInt()`;
 		// twelve since #221 added `BP_SESSION_IDLE_TIMEOUT_HOURS`; thirteen with
-		// `BP_RATE_LIMIT_IPV6_PREFIX`.
+		// `BP_RATE_LIMIT_IPV6_PREFIX`; sixteen with `BP_LOG_SEAL_INTERVAL` (#875).
 		expect({ boundsProbed: OPERATOR_BOUNDS.length, readings }).toStrictEqual({
-			boundsProbed: 15,
+			boundsProbed: 16,
 			readings: Object.fromEntries(OPERATOR_BOUNDS.map(([name]) => [name, expectedReadings(name)]))
 		});
 	});

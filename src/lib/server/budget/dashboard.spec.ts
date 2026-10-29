@@ -30,6 +30,18 @@ const db = vi.hoisted(() => ({
 
 vi.mock('$lib/server/db', () => ({ prisma: db.prisma }));
 
+// The L4b-2 block reads the `sensitive_delete` lines a merging edit writes.
+vi.hoisted(() => {
+	process.env.RATE_LIMIT_HASH_SECRET ??= 'a1'.repeat(32);
+});
+const logged = vi.hoisted(() => [] as unknown[]);
+vi.mock('$lib/server/logging', async (importOriginal) => ({
+	...(await importOriginal<typeof import('$lib/server/logging')>()),
+	log: (event: unknown) => {
+		logged.push(event);
+	}
+}));
+
 const {
 	createManualTransaction,
 	deleteBudget,
@@ -46,6 +58,7 @@ const {
 	updateBudget
 } = await import('./dashboard');
 import type { CategorySpending } from './dashboard';
+const { logUserPseudonym } = await import('$lib/server/logging/pseudonym');
 
 describe('parseManualAmountCents', () => {
 	it('convertit un montant manuel en centimes', () => {
@@ -684,5 +697,62 @@ describe('getCurrentMonth — the /budgets header month', () => {
 		// Locally it is still August 31st; UTC has already turned.
 		expect(new Date().getMonth() + 1).toBe(8);
 		expect(getCurrentMonth()).toBe('2026-09');
+	});
+});
+
+/**
+ * L4b-2 rev 3b (#250, owner rule « every deletion a member triggers is traced »): an edit that
+ * moves a budget onto a category another budget already holds folds the edited row into that one
+ * and deletes it, so it writes `sensitive_delete` merge_budget, scope budget, no count, only when
+ * the delete removed the row. Wire names as literals.
+ */
+describe('updateBudget merging into another budget writes sensitive_delete', () => {
+	const userId = 'user-a';
+	const deletes = () =>
+		logged.filter((line) => (line as { event: string }).event === 'sensitive_delete');
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		logged.length = 0;
+		db.prisma.category.findFirst.mockResolvedValue(null);
+		db.prisma.category.upsert.mockResolvedValue({ id: 'category-m', name: 'Maison' });
+		db.prisma.category.findMany.mockResolvedValue([]);
+		db.prisma.monthlyBudget.findFirst.mockResolvedValue({
+			id: 'budget-a',
+			userId,
+			categoryName: 'Alimentation',
+			amountCents: 50_000
+		});
+		// Another budget already holds « Maison »: the upsert answers its id, not the edited one's.
+		db.prisma.monthlyBudget.upsert.mockResolvedValue({ id: 'budget-b' });
+	});
+
+	it('the edited budget deleted: one line, merge_budget, scope budget', async () => {
+		db.prisma.monthlyBudget.deleteMany.mockResolvedValue({ count: 1 });
+		await updateBudget(userId, 'budget-a', { category: 'Maison', limit: '300' });
+		expect(deletes()).toEqual([
+			{
+				event: 'sensitive_delete',
+				attributes: {
+					'budgetpilot.user.pseudonym': logUserPseudonym(userId),
+					'budgetpilot.data.operation': 'merge_budget',
+					'budgetpilot.data.scope': 'budget'
+				}
+			}
+		]);
+	});
+
+	// A concurrent delete got there first: nothing was destroyed here. Green today.
+	it('a delete that removed nothing writes none', async () => {
+		db.prisma.monthlyBudget.deleteMany.mockResolvedValue({ count: 0 });
+		await updateBudget(userId, 'budget-a', { category: 'Maison', limit: '300' });
+		expect(deletes()).toEqual([]);
+	});
+
+	// No merge at all: the upsert answers the edited row itself. Green today.
+	it('a budget moved onto a free category deletes nothing and writes none', async () => {
+		db.prisma.monthlyBudget.upsert.mockResolvedValue({ id: 'budget-a' });
+		await updateBudget(userId, 'budget-a', { category: 'Maison', limit: '300' });
+		expect(deletes()).toEqual([]);
 	});
 });

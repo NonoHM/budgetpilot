@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { env } from '$env/dynamic/private';
 import { prisma } from '$lib/server/db';
 import {
@@ -10,6 +10,16 @@ import {
 } from './accountMemory';
 import { resolveStatementAccount } from './sourceSignature';
 import type { ParsedCsvRow } from './types';
+import { logUserPseudonym } from '$lib/server/logging/pseudonym';
+
+// The L4b-2 block reads the `sensitive_delete` lines the writer emits, rather than printing them.
+const logged = vi.hoisted(() => [] as unknown[]);
+vi.mock('$lib/server/logging', async (importOriginal) => ({
+	...(await importOriginal<typeof import('$lib/server/logging')>()),
+	log: (event: unknown) => {
+		logged.push(event);
+	}
+}));
 
 /**
  * The remembered accounts (#599, #696) against a real engine: every read, write and delete is
@@ -331,5 +341,49 @@ describe('the removal is scoped to its owner (third contradiction pass)', () => 
 
 		expect(await prisma.rememberedAccount.count({ where: { userId: b } })).toBe(0);
 		expect(await prisma.rememberedAccount.count({ where: { userId: a } })).toBe(1);
+	});
+});
+
+/**
+ * L4b-2 rev 3b (#250): when the file overrules a remembered answer (the answered account holds the
+ * identifier), the writer deletes the row, so it writes `sensitive_delete`
+ * overrule_remembered_account, scope remembered_account, no count, only when a row went. Against a
+ * real engine, so the count is the engine's. Wire names as literals.
+ */
+describe('the file overruling a remembered answer writes sensitive_delete (L4b-2)', () => {
+	const deletes = () =>
+		logged.filter((line) => (line as { event: string }).event === 'sensitive_delete');
+
+	it('a remembered row removed: one line, overrule_remembered_account', async () => {
+		const userId = await freshUser();
+		const holder = await account(userId, 'Compte joint', '0185');
+		const key = accountMemoryKeyOf(userId, statement(IDENTIFIER), [])!;
+		await prisma.rememberedAccount.create({
+			data: { userId, identifierKey: key.identifierKey, fragment: '0185', accountId: holder.id }
+		});
+		logged.length = 0;
+		await rememberAnsweredAccount({ userId, rows: statement(IDENTIFIER), accountId: holder.id });
+		expect([await prisma.rememberedAccount.count({ where: { userId } }), deletes()]).toEqual([
+			0,
+			[
+				{
+					event: 'sensitive_delete',
+					attributes: {
+						'budgetpilot.user.pseudonym': logUserPseudonym(userId),
+						'budgetpilot.data.operation': 'overrule_remembered_account',
+						'budgetpilot.data.scope': 'remembered_account'
+					}
+				}
+			]
+		]);
+	});
+
+	// Nothing remembered, so nothing removed. Green today.
+	it('no remembered row to remove writes none', async () => {
+		const userId = await freshUser();
+		const holder = await account(userId, 'Compte joint', '0185');
+		logged.length = 0;
+		await rememberAnsweredAccount({ userId, rows: statement(IDENTIFIER), accountId: holder.id });
+		expect(deletes()).toEqual([]);
 	});
 });

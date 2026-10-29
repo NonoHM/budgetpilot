@@ -5,18 +5,11 @@
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/NonoHM/budgetpilot/badge)](https://securityscorecards.dev/viewer/?uri=github.com/NonoHM/budgetpilot)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/14059/badge)](https://www.bestpractices.dev/projects/14059)
 
-<sub>The Scorecard score measures supply-chain and repository posture, not application security, and a few checks are structurally out of reach for a single maintainer: Code-Review and Contributors need a second person, Branch-Protection is capped at tier 1 because tier 2 requires a mandatory reviewer, and Maintained rises on its own as the repository ages. [Full results](https://securityscorecards.dev/viewer/?uri=github.com/NonoHM/budgetpilot).</sub>
-
 A local-first, privacy-first personal budgeting app. Think Monarch or YNAB, but self-hosted, and your bank data never leaves your own machine.
 
 ![Dashboard](docs/screenshots/dashboard-desktop.png)
 
-<p align="center">
-  <img src="docs/screenshots/net-worth-desktop.png" alt="Net worth tracking with history chart" width="49%" />
-  <img src="docs/screenshots/budgets-desktop.png" alt="Monthly budgets, one over and one under" width="49%" />
-</p>
-
-All screenshots use fake demo data, not a real user's finances.
+The screenshot uses fake demo data, not a real user's finances.
 
 ## What it does
 
@@ -152,6 +145,7 @@ Reaching it from another device on your LAN takes two extra lines in `.env` (`OR
 - **[Reverse proxy](docs/reverse-proxy.md)**: optional Caddy overlay for a real domain with automatic HTTPS.
 - **[PostgreSQL or MySQL](docs/database-providers.md)**: optional overlays for installs that already run a database server. SQLite is the default and needs nothing.
 - **[Running it day to day](docs/operations.md)**: updating, backups, moving machines.
+- **[Logs](docs/logging-tutorial.md)**: a first look at the log, then [reading and checking it](docs/logging-howto.md), [sending it to a collector](docs/logging-collectors.md), [every event it records](docs/logging.md), [why it looks this way](docs/explanation/logging-design.md), and [banning an address after failed sign-ins](docs/ban-failed-sign-ins.md).
 - **[Bank sync](docs/bank-sync.md)**: the optional automatic PSD2 connection.
 - **[Troubleshooting](docs/troubleshooting.md)**: when something's broken.
 
@@ -173,13 +167,13 @@ SvelteKit, TypeScript, Prisma, SQLite by default (PostgreSQL and MySQL/MariaDB o
 
 Bug reports, feature ideas, and pull requests are all welcome. See [CONTRIBUTING.md](./CONTRIBUTING.md) for setup, tests, and commit conventions. If you're using an AI coding assistant, there's an [AGENTS.md](./AGENTS.md) with project context it should read first.
 
-Release notes live in [CHANGELOG.md](./CHANGELOG.md).
+Release notes are on the [Releases page](https://github.com/NonoHM/budgetpilot/releases), and [CHANGELOG.md](./CHANGELOG.md) lists the changes in each version.
 
 ## Security
 
 This is a finance app, so security gets taken seriously. See [SECURITY.md](./SECURITY.md) for what's supported and how to report a vulnerability privately (please don't open a public issue for that one).
 
-For what has actually been verified, by whom, and what is not covered, see [how this project's security is verified](./docs/explanation/security-verification.md). No independent third party has audited this project, and that page says so first.
+For what has actually been verified, by whom, and what is not covered, see [how this project's security is verified](./docs/explanation/security-verification.md). No independent third party has audited this project, and that page says so first. It also explains [what the two OpenSSF badges at the top measure, and what they don't](./docs/explanation/security-verification.md#the-two-badges-and-what-each-does-not-mean).
 
 ## License
 

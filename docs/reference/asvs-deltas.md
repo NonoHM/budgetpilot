@@ -25,6 +25,39 @@ construction, `X` an argued exception, `N/A` not applicable with a stated reason
 
 ---
 
+## 2026-10-28, secrets from files
+
+Pull request #1111 (#826, #1099, decision record on #1099). **The letters below are quoted from
+the local L2 assessment report (untracked, not in a clone, #601)**, which describes the assessment
+of 2026-08-13 and not a current state. No row moves.
+
+### `v5.0.0-13.3.1`: `X` unchanged, progress recorded
+
+> Verify that a secrets management solution, such as a key vault, is used to securely create,
+> store, control access to, and destroy backend secrets. These could include passwords, key
+> material, integrations with databases and third-party systems, keys and seeds for time-based
+> tokens, other internal secrets, and API keys. Secrets must not be included in application source
+> code or included in build artifacts. For an L3 application, this must involve a hardware-backed
+> solution such as an HSM.
+
+The exception argued that a key vault is a dependency most single-household installs cannot run.
+The app now reads `TOTP_ENCRYPTION_KEY`, `RATE_LIMIT_HASH_SECRET`, `BOOTSTRAP_TOKEN` and the
+database password from a file named by `<NAME>_FILE`, which is what Docker and Compose `secrets:`,
+Kubernetes secrets, systemd credentials and a vault agent writing a file deliver, so an operator who
+runs such a solution can use it without the app calling a network service. The value is then absent
+from the container's configuration (`docker inspect`, measured on the built image). It stays an
+exception: the app neither creates nor destroys a secret, `npm run setup` still writes the plain
+form into `.env`, and the bundled database overlays still take the plain password (#1109).
+
+### `v5.0.0-13.3.2`: `C` unchanged, held by one more check
+
+> Verify that access to secret assets adheres to the principle of least privilege.
+
+With `BP_STRICT_SECRET_FILES=on`, every file a `<NAME>_FILE` names is judged by the same rules as
+`.env` and the bank-signing key before it is read: owner, mode, every folder up to `/`, and no
+symbolic link. The switch is off by default, as before, so the letter rests on the same ground it
+did.
+
 ## 2026-10-09, a change to two-factor ends the other sessions
 
 Branch `fix/949-sign-in-change-ends-other-sessions` (#949, ruled on the issue). **The letter below
@@ -127,7 +160,8 @@ spent before the disable can be accepted once more; it grants nothing, because p
 means knowing it, and knowing it already mints every code.
 
 Recovery codes were already single use, consumed by a conditional update on sign-in. Re-authentication
-accepts no recovery code at all (#886).
+accepts one only to turn two-factor off, with the password, and spends it by the same update (#904,
+#886); every other action refuses it.
 
 ### `v5.0.0-6.5.5`: `C` recorded; `X` now, argued
 

@@ -36,21 +36,22 @@ import { prisma } from '$lib/server/db';
  * the replace path says it on the correction notice's control rather than in a dialog that path
  * never shows.
  */
-export async function deleteImportBatch(userId: string, batchId: string): Promise<boolean> {
+export async function deleteImportBatch(userId: string, batchId: string): Promise<number | null> {
 	// Resolved against this user before anything is written. An id that decides which rows are
 	// destroyed is verified, never carried.
 	const batch = await prisma.importBatch.findFirst({
 		where: { id: batchId, userId },
 		select: { id: true }
 	});
-	if (!batch) return false;
+	if (!batch) return null;
 
-	await prisma.$transaction([
+	// The engine's own count of the transactions removed, which `sensitive_delete` buckets (L4b-2).
+	const [removed] = await prisma.$transaction([
 		// The transactions first, and `userId` restated on the deleteMany rather than trusted from
 		// the lookup above: a filter on the rows being destroyed is not inherited from a filter on
 		// the row that named them.
 		prisma.transaction.deleteMany({ where: { userId, importBatchId: batch.id } }),
 		prisma.importBatch.delete({ where: { id: batch.id } })
 	]);
-	return true;
+	return removed.count;
 }

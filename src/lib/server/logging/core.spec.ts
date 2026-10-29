@@ -397,6 +397,63 @@ describe('flood summarisation', () => {
 		).toEqual([E.logSuppressed, E.requestNotFound]);
 	});
 
+	// #866, #1085: measured on the built server, a SIGTERM inside the window wrote 0 summary lines for
+	// 5 counted repeats. `flush` is what the exit hook calls; the scheduler here never fires on its own.
+	it('writes an open window when flushed, before its minute ends', () => {
+		const { write, parsed } = harness();
+		for (let index = 0; index < FLOOD_ALLOWANCE + 5; index += 1) write(notFound());
+		write.flush();
+		const summary = parsed().at(-1)!;
+		expect([summary[FIELD.eventName], summary[A.suppressedCount], parsed().length]).toEqual([
+			E.logSuppressed,
+			5,
+			FLOOD_ALLOWANCE + 1
+		]);
+	});
+
+	it('writes a flushed window once: its own timer firing afterwards adds no line', () => {
+		const { write, parsed, advance, runScheduled } = harness();
+		for (let index = 0; index < FLOOD_ALLOWANCE + 5; index += 1) write(notFound());
+		write.flush();
+		advance(FLOOD_WINDOW_MS);
+		runScheduled();
+		write.flush();
+		expect(parsed()).toHaveLength(FLOOD_ALLOWANCE + 1);
+	});
+
+	// Owner rulings 2026-10-28 on #866: window_seconds is the time the window ran from its first line,
+	// rounded up, 1 to 60, so a window cut short by a stop is no longer reported as a full minute.
+	const flushedSeconds = (elapsedMs: number) => {
+		const { write, parsed, advance } = harness();
+		for (let index = 0; index < FLOOD_ALLOWANCE + 1; index += 1) write(notFound());
+		advance(elapsedMs);
+		write.flush();
+		return parsed().at(-1)![A.suppressedWindowSeconds];
+	};
+
+	it('names the seconds a flushed window covered, rounded up', () => {
+		expect(flushedSeconds(1500)).toBe(2);
+	});
+
+	it('names at least one second for a window flushed in the millisecond it opened', () => {
+		expect(flushedSeconds(0)).toBe(1);
+	});
+
+	it('names the full window, never more, for a window closed late by the next line', () => {
+		const { write, parsed, advance } = harness();
+		for (let index = 0; index < FLOOD_ALLOWANCE + 1; index += 1) write(notFound());
+		advance(FLOOD_WINDOW_MS + 30_000);
+		write(notFound());
+		expect(parsed().at(-2)![A.suppressedWindowSeconds]).toBe(FLOOD_WINDOW_MS / 1000);
+	});
+
+	it('writes nothing when flushed with no repeat counted', () => {
+		const { write, parsed } = harness();
+		for (let index = 0; index < FLOOD_ALLOWANCE; index += 1) write(notFound());
+		write.flush();
+		expect(parsed()).toHaveLength(FLOOD_ALLOWANCE);
+	});
+
 	it('never summarises an event the registry does not mark as reachable without a session', () => {
 		const { write, parsed } = harness();
 		for (let index = 0; index < FLOOD_ALLOWANCE + 5; index += 1) write(crash(String(index)));
@@ -531,5 +588,54 @@ describe("floodBy: a victim's refusal survives a window one address filled (seco
 			FLOOD_ALLOWANCE + 1,
 			'subject'
 		]);
+	});
+});
+
+describe('floodBy: control-bypass events keep their kind and their member apart (L4b)', () => {
+	// The window key was the event, status, route, class, kind and counter. One member's import loop
+	// filled `excess_rate_limit_exceeded`'s window and a second member's refusal on the same route
+	// became an anonymous count (note pass on L4b-1, finding 2).
+	const user = (hex: string) => hex.repeat(64) as LogUserPseudonym;
+	const imported = (pseudonym: LogUserPseudonym): LogEvent => ({
+		event: E.rateLimitExceeded,
+		attributes: {
+			[A.userPseudonym]: pseudonym,
+			[A.rateLimitKind]: 'IMPORT',
+			[A.rateLimitCounter]: 'both'
+		}
+	});
+	const refused = (reason: 'target_not_allowed' | 'too_many_redirects'): LogEvent => ({
+		event: E.redirectRefused,
+		attributes: { [A.redirectReason]: reason, [A.redirectUpstream]: 'bank_provider' }
+	});
+	const onRoute = {
+		context: () => ({ traceId: 'a'.repeat(32), method: 'POST', route: '/import' })
+	};
+
+	it("writes a second member's import refusal inside the window a first member filled", () => {
+		const { write, parsed } = harness(onRoute);
+		for (let index = 0; index < FLOOD_ALLOWANCE + 1; index += 1) write(imported(user('a')));
+		write(imported(user('b')));
+		expect([parsed().length, parsed().at(-1)?.[A.userPseudonym]]).toEqual([
+			FLOOD_ALLOWANCE + 1,
+			user('b')
+		]);
+	});
+
+	it('names the reason and upstream it counted in a redirect summary line', () => {
+		const { write, parsed, advance, runScheduled } = harness(onRoute);
+		for (let index = 0; index < FLOOD_ALLOWANCE + 2; index += 1)
+			write(refused('too_many_redirects'));
+		write(refused('target_not_allowed'));
+		advance(FLOOD_WINDOW_MS);
+		runScheduled();
+		const summary = parsed().at(-1)!;
+		expect([
+			parsed().filter((line) => line[A.redirectReason] === 'target_not_allowed').length,
+			summary[A.suppressedEvent],
+			summary[A.redirectReason],
+			summary[A.redirectUpstream],
+			summary[A.suppressedCount]
+		]).toEqual([1, E.redirectRefused, 'too_many_redirects', 'bank_provider', 2]);
 	});
 });

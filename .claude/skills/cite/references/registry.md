@@ -30,6 +30,7 @@ The list is tracked; the copies are not. Which of these bind the project, and ho
 - AISVS Appendix C, AI for code generation: https://raw.githubusercontent.com/OWASP/AISVS/main/1.0/en/0x92-Appendix-C_AI_for_Code_Generation.md
 - WSTG, Web Security Testing Guide: https://owasp.org/www-project-web-security-testing-guide/
 - Top 10 for LLM Applications 2025 (tracked in `docs/reference/standards/owasp-llm-top10-2025/`, pin commit eb87ba80e0698de911dcdb8af60830e97723e3fc, folder `2_0_vulns/`): https://github.com/OWASP/www-project-top-10-for-large-language-model-applications
+- Logging Vocabulary Cheat Sheet (pin commit 9d41c054686e35fb56070b4b6271ae2829edea6a, read 2026-10-27; not tracked: its examples trip gitleaks and the private-reference gate): https://github.com/OWASP/CheatSheetSeries/blob/9d41c054686e35fb56070b4b6271ae2829edea6a/cheatsheets/Logging_Vocabulary_Cheat_Sheet.md
 - Top 10 for LLM Applications 2025, LLM06 Excessive Agency: https://owasp.github.io/www-project-top-10-for-large-language-model-applications/2_0_vulns/LLM06_ExcessiveAgency.html
 - Top 10 CI/CD Security Risks, CICD SEC 01 Insufficient Flow Control Mechanisms: https://raw.githubusercontent.com/OWASP/www-project-top-10-ci-cd-security-risks/main/CICD-SEC-01-Insufficient-Flow-Control-Mechanisms.md
 - Top 10 CI/CD Security Risks, CICD SEC 02 Inadequate Identity And Access Management: https://raw.githubusercontent.com/OWASP/www-project-top-10-ci-cd-security-risks/main/CICD-SEC-02-Inadequate-Identity-And-Access-Management.md
@@ -116,6 +117,7 @@ The list is tracked; the copies are not. Which of these bind the project, and ho
 
 - SLSA v1.2, source requirements: https://raw.githubusercontent.com/slsa-framework/slsa/v1.2/docs/spec/v1.2/source-requirements.md
 - OpenSSF Scorecard checks: https://raw.githubusercontent.com/ossf/scorecard/main/docs/checks.md
+- npm `package.json` reference, « overrides » (pin commit 158315cd9d83768f2c7bd2e68281cc7dca2d7352, read 2026-10-29): https://raw.githubusercontent.com/npm/cli/158315cd9d83768f2c7bd2e68281cc7dca2d7352/docs/lib/content/configuring-npm/package-json.md
 
 ## IETF
 
@@ -154,6 +156,14 @@ table can disagree by one version.
 
 An academic question goes through `literature-review` or `paper-lookup`. Rows record what a paper
 was read FOR, so nobody re-reads it to find out. Copies in `guardrails/` and `data-to-text/`.
+
+Attacking a claim's premises, for the `contradiction-pass` agent (read 2026-10-27). Copy in `gates/`:
+
+- Goodenough, Weinstock, Klein, « Eliminative Argumentation: A Basis for Arguing Confidence in System
+  Properties », CMU/SEI-2015-TR-005, 2015. The three defeaters (p. 7: rebutting on a claim,
+  undermining on evidence, undercutting on an inference), « m|n » confidence (p. 5), the
+  challengeable « Assumed OK » terminator (p. 10):
+  https://doi.org/10.1184/R1/6573413.v1 (PDF: https://www.sei.cmu.edu/documents/1248/2015_005_001_434813.pdf)
 
 Character-level attacks on filters (read 2026-10-11, #998, #996, #250):
 
@@ -228,12 +238,18 @@ Data-to-text faithfulness and constrained output (read 2026-10-11, evidence for 
 ## Documentation
 
 - Google developer documentation style guide, UI elements: https://developers.google.com/style/ui-elements
-- Microsoft Writing Style Guide: URL to record at first use
-- Diátaxis: URL to record at first use
+- Google developer documentation style guide, timeless documentation (time words belong in release notes, not product docs): https://developers.google.com/style/timeless-documentation
+- Microsoft Writing Style Guide, top 10 tips: https://learn.microsoft.com/en-us/style-guide/top-10-tips-style-voice
+- Microsoft Writing Style Guide, simple words and concise sentences: https://learn.microsoft.com/en-us/style-guide/word-choice/use-simple-words-concise-sentences
+- Diátaxis, reference: https://diataxis.fr/reference/
+- Keep a Changelog 1.1.0: https://keepachangelog.com/en/1.1.0/
+- release-please (no release-body preamble option; `BEGIN_COMMIT_OVERRIDE`, `draft`): https://raw.githubusercontent.com/googleapis/release-please/main/README.md, https://raw.githubusercontent.com/googleapis/release-please/main/docs/manifest-releaser.md
 - Write the Docs, docs as code: https://www.writethedocs.org/guide/docs-as-code/
 - Vale: https://docs.vale.sh/
 
 ## GitHub Docs
+
+- Managing releases (release notes stay editable under immutable releases): https://raw.githubusercontent.com/github/docs/main/content/repositories/releasing-projects-on-github/managing-releases-in-a-repository.md
 
 - Rulesets: https://raw.githubusercontent.com/github/docs/main/content/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/about-rulesets.md
 - Actions: script injections: https://raw.githubusercontent.com/github/docs/main/content/actions/concepts/security/script-injections.md

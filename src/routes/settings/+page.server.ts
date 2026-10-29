@@ -57,6 +57,7 @@ import {
 import { readLinkableNetWorthAccounts } from '$lib/server/net-worth/service';
 import type { PageServerLoad } from './$types';
 import { logReferenceRefused } from '$lib/server/logging/authz';
+import { logRestoreRefused, logSensitiveDelete } from '$lib/server/logging/data';
 
 const BACKUP_MAX_BYTES = 20_000_000;
 
@@ -302,7 +303,9 @@ export const actions: Actions = {
 
 		// The session is claimed first and deleted with the rest (#249): one that ended before the
 		// claim deletes nothing.
-		await commitEndingSession(user, cookies, async (tx) => {
+		// The count is the committed attempt's own answer, returned from the callback: a commit retries
+		// whole, so a variable assigned inside an attempt could hold one that rolled back (L4b-2).
+		const deleted = await commitEndingSession(user, cookies, async (tx) => {
 			await tx.session.deleteMany({
 				where: { userId: user.id }
 			});
@@ -319,11 +322,13 @@ export const actions: Actions = {
 			// `Foreign key constraint violated on the constraint: TransactionSplit_categoryId_fkey`.
 			// Without this line a PostgreSQL user who has ever split a transaction cannot delete
 			// their own account at all.
-			await tx.transaction.deleteMany({ where: { userId: user.id } });
+			const { count } = await tx.transaction.deleteMany({ where: { userId: user.id } });
 			await tx.user.delete({
 				where: { id: user.id }
 			});
+			return count;
 		});
+		logSensitiveDelete(user.id, deleted, 'delete_account');
 		clearSessionCookie(cookies);
 		throw redirect(303, '/login');
 	},
@@ -338,6 +343,8 @@ export const actions: Actions = {
 		}
 
 		if (backupFile.size > BACKUP_MAX_BYTES) {
+			// Before re-authentication on purpose: the size is all that was read (L4b-2).
+			logRestoreRefused(user.id, 'too_large');
 			return fail(400, {
 				restoreError: m.settings_error_restore_too_large({ max: BACKUP_MAX_BYTES / 1_000_000 })
 			});
@@ -364,6 +371,7 @@ export const actions: Actions = {
 		const maxJsonNodes = resolveBackupMaxJsonNodes();
 		const jsonNodes = countJsonNodes(rawText);
 		if (jsonNodes > maxJsonNodes) {
+			logRestoreRefused(user.id, 'too_complex');
 			return fail(400, {
 				restoreError: m.settings_error_restore_too_complex({ max: maxJsonNodes })
 			});
@@ -373,6 +381,7 @@ export const actions: Actions = {
 		try {
 			rawJson = JSON.parse(rawText);
 		} catch {
+			logRestoreRefused(user.id, 'invalid_json');
 			return fail(400, { restoreError: m.settings_error_restore_invalid_json() });
 		}
 
@@ -382,6 +391,7 @@ export const actions: Actions = {
 			!('formatVersion' in rawJson) ||
 			(rawJson as { formatVersion?: unknown }).formatVersion !== 1
 		) {
+			logRestoreRefused(user.id, 'unsupported_format');
 			return fail(400, { restoreError: m.settings_error_restore_unsupported_format() });
 		}
 
@@ -391,6 +401,10 @@ export const actions: Actions = {
 			// accepted such a row before the import parser refused it, and exported it faithfully;
 			// the sentence names the kinds of record to look in.
 			const refusal = restoreRefusal(parsed.error);
+			logRestoreRefused(
+				user.id,
+				refusal.reason === 'date-out-of-range' ? 'date_out_of_range' : 'schema_invalid'
+			);
 			return fail(400, {
 				restoreError:
 					refusal.reason === 'date-out-of-range'
@@ -402,21 +416,25 @@ export const actions: Actions = {
 			});
 		}
 
+		let counts: Awaited<ReturnType<typeof restoreBackup>>;
 		try {
 			// The restore and the new session token commit together (#249). A refusal above, about the
 			// file, changes nothing, the token included.
-			await restoreBackup(user.id, parsed.data, (change, options) =>
+			counts = await restoreBackup(user.id, parsed.data, (change, options) =>
 				commitWithRotatedToken(user, cookies, change, options)
 			);
 		} catch (caught) {
 			if (caught instanceof BackupImportError) {
+				logRestoreRefused(user.id, caught.reason);
 				return fail(400, { restoreError: caught.message });
 			}
 			if (isPrismaUniqueError(caught)) {
+				logRestoreRefused(user.id, 'duplicate');
 				return fail(400, { restoreError: m.settings_error_restore_duplicate() });
 			}
 			throw caught;
 		}
+		logSensitiveDelete(user.id, counts.deleted, 'restore', counts.restored);
 
 		return {
 			restoreSuccess: m.settings_success_restored()
@@ -586,6 +604,7 @@ export const actions: Actions = {
 			logReferenceRefused(user.id, 'tag');
 			return fail(404, { tagsError: m.tags_error_not_found() });
 		}
+		logSensitiveDelete(user.id, 'delete_tag');
 
 		return { tagsSuccess: m.tags_success_deleted() };
 	},
@@ -696,6 +715,7 @@ export const actions: Actions = {
 			logReferenceRefused(user.id, 'column_mapping');
 			return fail(404, { columnMappingError: m.settings_mappings_error_not_found() });
 		}
+		logSensitiveDelete(user.id, 'delete_column_mapping');
 
 		return { columnMappingSuccess: m.settings_mappings_success_deleted() };
 	},
@@ -719,6 +739,7 @@ export const actions: Actions = {
 				rememberedAccountError: m.settings_remembered_accounts_error_not_found()
 			});
 		}
+		logSensitiveDelete(user.id, 'forget_remembered_account');
 		return { rememberedAccountSuccess: m.settings_remembered_accounts_success_forgotten() };
 	}
 };

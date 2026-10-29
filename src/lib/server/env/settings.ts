@@ -1,7 +1,12 @@
 import {
 	DEFAULT_LOG_LEVEL,
+	DEFAULT_LOG_SEAL,
+	DEFAULT_LOG_SEAL_INTERVAL,
 	DEFAULT_SECURITY_LOG,
 	LOG_LEVELS,
+	LOG_SEAL_VALUES,
+	MAX_LOG_SEAL_INTERVAL,
+	MIN_LOG_SEAL_INTERVAL,
 	SECURITY_LOG_VALUES
 } from '../logging/settings.ts';
 
@@ -21,7 +26,7 @@ import {
  *
  * **What it is not.** It is not a loader: it holds no value and reads no environment. Each reader
  * still lives beside the code that uses the value, and asks this table for its bounds. A leaf
- * module on purpose, importing nothing but the logger's two domains, so the five bound modules can
+ * module on purpose, importing nothing but the logger's domains, so the five bound modules can
  * import their numbers from here without a cycle and without pulling Prisma into anything that only
  * wants a default.
  *
@@ -162,6 +167,16 @@ export const SETTINGS = {
 			'Encrypts every two-factor secret at rest. Changing it locks every user with two-factor out.',
 		page: 'configuration.md#the-three-secrets'
 	},
+	TOTP_ENCRYPTION_KEY_FILE: {
+		kind: 'text',
+		tier: 'advanced',
+		group: 'Secrets',
+		readBy: 'app',
+		secret: true,
+		format: 'the path of a file holding the value; set this or TOTP_ENCRYPTION_KEY, never both',
+		summary: 'TOTP_ENCRYPTION_KEY read from a file, such as a Compose or systemd secret.',
+		page: 'configuration.md#secrets-in-files'
+	},
 	RATE_LIMIT_HASH_SECRET: {
 		kind: 'text',
 		tier: 'essential',
@@ -173,6 +188,16 @@ export const SETTINGS = {
 			'Keys the hashes that stand in for addresses and account names in rate limits and logs.',
 		page: 'configuration.md#the-three-secrets'
 	},
+	RATE_LIMIT_HASH_SECRET_FILE: {
+		kind: 'text',
+		tier: 'advanced',
+		group: 'Secrets',
+		readBy: 'app',
+		secret: true,
+		format: 'the path of a file holding the value; set this or RATE_LIMIT_HASH_SECRET, never both',
+		summary: 'RATE_LIMIT_HASH_SECRET read from a file, such as a Compose or systemd secret.',
+		page: 'configuration.md#secrets-in-files'
+	},
 	BOOTSTRAP_TOKEN: {
 		kind: 'text',
 		tier: 'essential',
@@ -183,6 +208,16 @@ export const SETTINGS = {
 		summary:
 			'Required to create the first administrator account. May be left blank once one exists.',
 		page: 'configuration.md#the-three-secrets'
+	},
+	BOOTSTRAP_TOKEN_FILE: {
+		kind: 'text',
+		tier: 'advanced',
+		group: 'Secrets',
+		readBy: 'app',
+		secret: true,
+		format: 'the path of a file holding the value; set this or BOOTSTRAP_TOKEN, never both',
+		summary: 'BOOTSTRAP_TOKEN read from a file, such as a Compose or systemd secret.',
+		page: 'configuration.md#secrets-in-files'
 	},
 	BP_STRICT_SECRET_FILES: {
 		kind: 'choice',
@@ -304,6 +339,17 @@ export const SETTINGS = {
 		summary:
 			'Password of the database server the PostgreSQL and MySQL Compose overlays start. SQLite ignores it.',
 		page: 'database-providers.md'
+	},
+	DATABASE_PASSWORD_FILE: {
+		kind: 'text',
+		tier: 'advanced',
+		group: 'Database',
+		readBy: 'app',
+		secret: true,
+		format: 'the path of a file holding the value; set this or DATABASE_PASSWORD, never both',
+		summary:
+			'The database password read from a file and put into DATABASE_URL, which then holds the user and no password.',
+		page: 'configuration.md#secrets-in-files'
 	},
 
 	// ── Reverse proxy ───────────────────────────────────────────────────────────────────────────
@@ -694,6 +740,44 @@ export const SETTINGS = {
 			'Whether security events are written. Off is announced at every start, and cannot be hidden.',
 		page: 'logging.md'
 	},
+	BP_LOG_SEAL: {
+		kind: 'choice',
+		tier: 'common',
+		group: 'Logging',
+		readBy: 'app',
+		values: LOG_SEAL_VALUES,
+		default: DEFAULT_LOG_SEAL,
+		otherwise: 'refused',
+		summary:
+			'Whether the log is sealed: signed, timestamped checkpoints that let a copy of the log be verified.',
+		page: 'logging-howto.md#seal-the-log'
+	},
+	BP_LOG_SEAL_DIR: {
+		kind: 'text',
+		tier: 'advanced',
+		group: 'Logging',
+		readBy: 'app',
+		format: 'a directory the app can write to',
+		default: '/data/log-seal in the image; unset elsewhere',
+		summary:
+			'Where the seal key, its verification key and the link between starts are kept. Mount a directory here to keep the key outside the data volume.',
+		page: 'logging-howto.md#seal-the-log'
+	},
+	BP_LOG_SEAL_INTERVAL: {
+		kind: 'integer',
+		tier: 'advanced',
+		group: 'Logging',
+		readBy: 'app',
+		default: DEFAULT_LOG_SEAL_INTERVAL,
+		min: MIN_LOG_SEAL_INTERVAL,
+		max: MAX_LOG_SEAL_INTERVAL,
+		unit: 'seconds',
+		ceiling:
+			'The lines of the last interval are not sealed yet, so above a day a copy taken daily could hold a whole day of lines no signature covers.',
+		summary:
+			'Seconds between two log checkpoints: the window in which the newest lines are not yet sealed.',
+		page: 'logging-howto.md#seal-the-log'
+	},
 
 	// ── Server process ──────────────────────────────────────────────────────────────────────────
 	NODE_ENV: {
@@ -733,7 +817,12 @@ export type IntegerSettingName = {
 	[K in SettingName]: (typeof SETTINGS)[K] extends { kind: 'integer' } ? K : never;
 }[SettingName];
 
-/** The names that existed before R13 ruled that new ones start with `BP_`. Frozen: never added to. */
+/**
+ * The names that existed before R13 ruled that new ones start with `BP_`. Frozen: never added to.
+ * A secret's file form is its name plus `_FILE` (owner, 2026-10-28, #826/#1099), whichever list the
+ * name is on: `TOTP_ENCRYPTION_KEY_FILE` for a frozen name, `BP_<NAME>_FILE` for a new one. The R13
+ * test in `settings.spec.ts` admits the first by that rule, and the second already starts with `BP_`.
+ */
 export const NAMES_BEFORE_THE_BP_PREFIX: readonly string[] = [
 	'ORIGIN',
 	'PUBLIC_INSTANCE',

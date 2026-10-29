@@ -483,7 +483,9 @@ describe('isBankSyncStartRateLimited', () => {
 			.mockResolvedValueOnce(5) // par userId
 			.mockResolvedValueOnce(0); // par ip
 
-		await expect(isBankSyncStartRateLimited('user-1', '127.0.0.1')).resolves.toBe(true);
+		await expect(isBankSyncStartRateLimited('user-1', '127.0.0.1')).resolves.toEqual({
+			counter: 'subject'
+		});
 	});
 
 	it('retourne true si >= 5 tentatives par IP, même sur des comptes différents', async () => {
@@ -493,7 +495,9 @@ describe('isBankSyncStartRateLimited', () => {
 			.mockResolvedValueOnce(0) // par userId
 			.mockResolvedValueOnce(5); // par ip
 
-		await expect(isBankSyncStartRateLimited('user-1', '127.0.0.1')).resolves.toBe(true);
+		await expect(isBankSyncStartRateLimited('user-1', '127.0.0.1')).resolves.toEqual({
+			counter: 'address'
+		});
 	});
 
 	it("retourne false sous le seuil pour le userId et pour l'IP", async () => {
@@ -501,7 +505,7 @@ describe('isBankSyncStartRateLimited', () => {
 
 		db.prisma.loginAttempt.count.mockResolvedValueOnce(4).mockResolvedValueOnce(4);
 
-		await expect(isBankSyncStartRateLimited('user-1', '127.0.0.1')).resolves.toBe(false);
+		await expect(isBankSyncStartRateLimited('user-1', '127.0.0.1')).resolves.toBeNull();
 	});
 
 	it("filtre par kind: 'BANK_SYNC_START', isolé de LOGIN/REGISTER/INVITE/MFA", async () => {
@@ -689,12 +693,12 @@ describe('isImportRateLimited', () => {
 	it('does not trip below its own maximum, which is above the authentication maximum', async () => {
 		expect(IMPORT_DEFAULT_MAX_ATTEMPTS).toBeGreaterThan(5);
 		db.prisma.loginAttempt.count.mockResolvedValue(IMPORT_DEFAULT_MAX_ATTEMPTS - 1);
-		await expect(isImportRateLimited('user-1', '10.0.0.1')).resolves.toBe(false);
+		await expect(isImportRateLimited('user-1', '10.0.0.1')).resolves.toBeNull();
 	});
 
 	it('trips at its maximum', async () => {
 		db.prisma.loginAttempt.count.mockResolvedValue(IMPORT_DEFAULT_MAX_ATTEMPTS);
-		await expect(isImportRateLimited('user-1', '10.0.0.1')).resolves.toBe(true);
+		await expect(isImportRateLimited('user-1', '10.0.0.1')).resolves.toEqual({ counter: 'both' });
 	});
 
 	// Separates "keyed by both dimensions" from "keyed by one", which is what lets an attacker
@@ -788,11 +792,11 @@ describe('the import limit is configurable, and the configuration cannot remove 
 		process.env[IMPORT_MAX_ATTEMPTS_ENV] = '100';
 		try {
 			db.prisma.loginAttempt.count.mockResolvedValue(IMPORT_DEFAULT_MAX_ATTEMPTS);
-			await expect(isImportRateLimited('user-1', '10.0.0.1')).resolves.toBe(false);
+			await expect(isImportRateLimited('user-1', '10.0.0.1')).resolves.toBeNull();
 			db.prisma.loginAttempt.count.mockResolvedValue(99);
-			await expect(isImportRateLimited('user-1', '10.0.0.1')).resolves.toBe(false);
+			await expect(isImportRateLimited('user-1', '10.0.0.1')).resolves.toBeNull();
 			db.prisma.loginAttempt.count.mockResolvedValue(100);
-			await expect(isImportRateLimited('user-1', '10.0.0.1')).resolves.toBe(true);
+			await expect(isImportRateLimited('user-1', '10.0.0.1')).resolves.toEqual({ counter: 'both' });
 		} finally {
 			delete process.env[IMPORT_MAX_ATTEMPTS_ENV];
 		}
@@ -1004,20 +1008,6 @@ describe('the authentication wrappers say which counter tripped, and log nothing
 		await expect(check()).resolves.toBeNull();
 	});
 
-	it('BANK_SYNC_START and IMPORT stay boolean', async () => {
-		fill({ address: true, subject: true });
-		const refused = [
-			await isBankSyncStartRateLimited('user-1', IP),
-			await isImportRateLimited('user-1', IP)
-		];
-		fill({ address: false, subject: false });
-		const allowed = [
-			await isBankSyncStartRateLimited('user-1', IP),
-			await isImportRateLimited('user-1', IP)
-		];
-		expect({ refused, allowed }).toEqual({ refused: [true, true], allowed: [false, false] });
-	});
-
 	// The route writes the refusal's line; a second one here would be two events for one outcome.
 	// `writes` proves the calls ran: seven records and nine checks, every check refused.
 	it('the limiter module writes no log line on any check or record', async () => {
@@ -1041,4 +1031,52 @@ describe('the authentication wrappers say which counter tripped, and log nothing
 			logged: []
 		});
 	});
+});
+
+// #250 L4b: the route logs a work-kind refusal (decision above), so the limiter must hand it the
+// counter that was full, as it does for the authentication kinds. A counter written as a constant
+// fails two of the three rows; a wrapper still answering a boolean fails all of them.
+describe('a refused import or bank-sync start names its counter and logs nothing itself', () => {
+	const wrappers = {
+		IMPORT: { refuse: isImportRateLimited, max: IMPORT_DEFAULT_MAX_ATTEMPTS },
+		BANK_SYNC_START: { refuse: isBankSyncStartRateLimited, max: 5 }
+	} as const;
+	const counters = {
+		subject: [true, false],
+		address: [false, true],
+		both: [true, true]
+	} as const;
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		logged.length = 0;
+	});
+
+	it.each(
+		(Object.keys(wrappers) as (keyof typeof wrappers)[]).flatMap((kind) =>
+			(Object.keys(counters) as (keyof typeof counters)[]).map(
+				(counter) => [kind, counter] as const
+			)
+		)
+	)('%s refused by the %s counter answers that counter', async (kind, counter) => {
+		const { refuse, max } = wrappers[kind];
+		const [subjectFull, addressFull] = counters[counter];
+		// tripOf counts the subject (the user) first, then the address.
+		db.prisma.loginAttempt.count
+			.mockResolvedValueOnce(subjectFull ? max : 0)
+			.mockResolvedValueOnce(addressFull ? max : 0);
+		expect({ trip: await refuse('user-1', '10.0.0.1'), logged }).toEqual({
+			trip: { counter },
+			logged: []
+		});
+	});
+
+	it.each(Object.keys(wrappers) as (keyof typeof wrappers)[])(
+		'%s under its maximum answers null',
+		async (kind) => {
+			const { refuse, max } = wrappers[kind];
+			db.prisma.loginAttempt.count.mockResolvedValue(max - 1);
+			expect(await refuse('user-1', '10.0.0.1')).toBeNull();
+		}
+	);
 });

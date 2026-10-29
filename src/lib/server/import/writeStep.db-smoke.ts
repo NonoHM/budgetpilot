@@ -1,3 +1,4 @@
+import { env } from '$env/dynamic/private';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from '$lib/server/db';
 import {
@@ -103,6 +104,10 @@ async function attempt(input: Parameters<typeof persistImportedTransactions>[0])
 		return caught as Error & { failure?: unknown };
 	}
 }
+
+// writeImport writes a line naming the member (#1087), so the pseudonym needs the secret; the
+// db-smoke $env is an empty stub on purpose (vitest.db.env-stub.ts), so the fixture is explicit.
+env.RATE_LIMIT_HASH_SECRET = 'e5'.repeat(32);
 
 describe('#660: the batch count is what the ledger holds, whatever threw', () => {
 	it('records 3 on the batch when the third row throws after its parent committed', async () => {
@@ -358,7 +363,8 @@ describe('#662: what the partial-import sentence tells the user to do', () => {
 		expect(failed.ok ? null : failed.failure).toMatchObject({
 			createdAt: partial.createdAt.toISOString()
 		});
-		expect(await deleteImportBatch(userA, partial.id)).toBe(true);
+		// The three rows that landed, as the engine counts them (L4b-2).
+		expect(await deleteImportBatch(userA, partial.id)).toBe(3);
 
 		// A file whose cause is FIXED lands every row, none miscounted as a duplicate of a row the
 		// delete removed. This measures a corrected file, not the literal retry: see the next test.

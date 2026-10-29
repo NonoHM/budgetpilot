@@ -31,6 +31,7 @@ function account(overrides: Partial<AccountRow> & { id: string; name: string }):
 		bankConnectionId: null,
 		providerAccountId: null,
 		providerCashAccountType: null,
+		nameKey: null,
 		transactionCount: 0,
 		...overrides
 	};
@@ -236,6 +237,33 @@ describe('planAccountMerges', () => {
 
 		expect(plan.blocked).toEqual([]);
 		expect(plan.merges[0].adoptedLinks.bankConnectionId).toBe('conn-1');
+	});
+
+	// #1086. A pair whose keys are ALL written is either a legacy pair an earlier run left apart
+	// (that run writes every surviving key) or one made since, such as two concurrent renames to
+	// « Livret » and « LIVRET ». Nothing stored tells the two apart, so it is never merged (owner
+	// ruling): every comparable product read merges two accounts only when the user picks both.
+	it('never merges a pair whose keys are all written (#1086)', () => {
+		expect.assertions(2);
+
+		const plan = planAccountMerges([
+			account({ id: 'old', name: 'Livret', createdAt: OLD, nameKey: 'livret' }),
+			account({ id: 'young', name: 'LIVRET', createdAt: NEW, nameKey: 'livret' })
+		]);
+
+		expect(plan.merges).toEqual([]);
+		expect(plan.blocked[0].reason).toEqual({ kind: 'already-keyed' });
+	});
+
+	it('still merges a pair in which one row predates the keys (#1086)', () => {
+		expect.assertions(1);
+
+		const plan = planAccountMerges([
+			account({ id: 'old', name: 'Livret', createdAt: OLD, nameKey: 'livret' }),
+			account({ id: 'young', name: 'LIVRET', createdAt: NEW })
+		]);
+
+		expect(plan.merges.map((merge) => merge.survivorId)).toEqual(['old']);
 	});
 });
 

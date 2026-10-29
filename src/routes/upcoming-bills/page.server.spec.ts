@@ -6,6 +6,18 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 // replace the behaviour under test — the same trap CLAUDE.md records for query-shaped checks.
 vi.mock('$lib/server/db', () => ({ prisma: {} }));
 
+// The L4b-2 block at the foot of this file reads the `sensitive_delete` lines the route writes.
+vi.hoisted(() => {
+	process.env.RATE_LIMIT_HASH_SECRET ??= 'a1'.repeat(32);
+});
+const logged = vi.hoisted(() => [] as unknown[]);
+vi.mock('$lib/server/logging', async (importOriginal) => ({
+	...(await importOriginal<typeof import('$lib/server/logging')>()),
+	log: (event: unknown) => {
+		logged.push(event);
+	}
+}));
+
 const service = vi.hoisted(() => ({
 	loadUpcomingBillsMonth: vi.fn(async (_userId: string, month: string) => ({
 		month,
@@ -37,6 +49,7 @@ const service = vi.hoisted(() => ({
 vi.mock('$lib/server/upcoming-bills/service', () => service);
 
 const { load, actions } = await import('./+page.server');
+const { logUserPseudonym } = await import('$lib/server/logging/pseudonym');
 
 const testUser = { id: 'user-a', email: 'a@example.test', role: 'USER' as const };
 
@@ -308,5 +321,96 @@ describe('/upcoming-bills actions', () => {
 			} as unknown as Parameters<typeof action>[0])
 		).rejects.toMatchObject({ status: 303, location: '/login' });
 		expect(service.recordStreamAction).not.toHaveBeenCalled();
+	});
+});
+
+/**
+ * L4b-2 (#250, owner ruling 3): undoing a bill decision deletes its row, so it writes
+ * `sensitive_delete`, scope bill_action, no count, after the service returns. Wire names as literals.
+ */
+describe('L4b-2: undoAction writes sensitive_delete', () => {
+	const deletes = () =>
+		logged.filter((line) => (line as { event: string }).event === 'sensitive_delete');
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		logged.length = 0;
+	});
+
+	it('a decision that resolved: one line, scope bill_action', async () => {
+		service.undoStreamAction.mockResolvedValueOnce(undefined);
+		await runAction('undoAction', { actionId: 'action-1' });
+		expect(deletes()).toEqual([
+			{
+				event: 'sensitive_delete',
+				attributes: {
+					'budgetpilot.user.pseudonym': logUserPseudonym(testUser.id),
+					'budgetpilot.data.operation': 'undo_bill_action',
+					'budgetpilot.data.scope': 'bill_action'
+				}
+			}
+		]);
+	});
+
+	// The service's own 404 is the refusal; green today, red if the line is written before it.
+	it('a decision that does not resolve writes none', async () => {
+		service.undoStreamAction.mockRejectedValueOnce(httpError(404, 'Introuvable.'));
+		await runAction('undoAction', { actionId: 'someone-elses-id' });
+		expect(deletes()).toEqual([]);
+	});
+});
+
+/**
+ * #1087 piece 2: each bill decision writes `sensitive_create`, scope bill_action, after
+ * `recordStreamAction` returns, on every press: a decision repeating one already stored creates no
+ * row and still writes the line, as docs/logging.md says. One operation per action. Wire names as literals.
+ */
+describe('#1087: markPaid, ignoreOccurrence and excludeStream write sensitive_create', () => {
+	const creates = () =>
+		logged.filter((line) => (line as { event: string }).event === 'sensitive_create');
+	const line = (operation: string) => ({
+		event: 'sensitive_create',
+		attributes: {
+			'budgetpilot.user.pseudonym': logUserPseudonym(testUser.id),
+			'budgetpilot.data.operation': operation,
+			'budgetpilot.data.scope': 'bill_action'
+		}
+	});
+	const { dueDate: _dueDate, ...EXCLUDE_FIELDS } = CREATOR_FIELDS;
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		logged.length = 0;
+		service.recordStreamAction.mockResolvedValue({ actionId: 'action-1' });
+	});
+
+	// Separates "each decision logs its own operation" from "writes nothing" or "one operation for
+	// all three".
+	it.each([
+		['markPaid', 'mark_bill_paid', CREATOR_FIELDS],
+		['ignoreOccurrence', 'ignore_bill_occurrence', CREATOR_FIELDS],
+		['excludeStream', 'exclude_bill_stream', EXCLUDE_FIELDS]
+	] as const)('%s: one line, operation %s', async (name, operation, fields) => {
+		await runAction(name, fields);
+		expect(creates()).toEqual([line(operation)]);
+	});
+
+	// Green today; separates "line after the service accepted" from "line before the call".
+	it.each(['markPaid', 'ignoreOccurrence', 'excludeStream'] as const)(
+		'%s refused by the service writes none',
+		async (name) => {
+			service.recordStreamAction.mockRejectedValueOnce(httpError(404, 'Introuvable.'));
+			const result = (await runAction(name, CREATOR_FIELDS)) as { status?: number };
+			expect({ status: result.status, lines: creates() }).toEqual({ status: 404, lines: [] });
+		}
+	);
+
+	// Green today; separates "line after the service accepted" from "line before the anchors parse".
+	it('markPaid with unparseable anchors writes none', async () => {
+		const result = (await runAction('markPaid', {
+			...CREATOR_FIELDS,
+			anchorTransactionIds: '[not json'
+		})) as { status?: number };
+		expect({ status: result.status, lines: creates() }).toEqual({ status: 400, lines: [] });
 	});
 });

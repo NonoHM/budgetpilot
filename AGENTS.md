@@ -230,6 +230,10 @@ Tooling enforces formatting; do not restate it. What tooling cannot check:
 - Prefer the existing component and the existing helper. Check before adding either.
 - Any number an operator might need to move is read from the environment: a default, a hard
   ceiling, refusal rather than clamping, and a boot warning when it differs.
+- **A new environment variable is named `BP_<NAME>`** (R13, #841). The names that predate the
+  rule keep theirs and are listed, frozen, in `NAMES_BEFORE_THE_BP_PREFIX` (`settings.ts`). A
+  secret's file form is its own name plus `_FILE`: `TOTP_ENCRYPTION_KEY_FILE`, `BP_<NAME>_FILE`.
+  `settings.spec.ts` fails on a name outside both.
 
 ## Writing a sentence for the interface
 
@@ -463,6 +467,18 @@ and citing it as established practice without checking is how a wrong requiremen
 session briefed #464's fix on a "UUIDs preserved same-instance, stripped cross-instance"
 conflict-resolution pattern that neither comparable actually implements, checked directly against
 both afterward.
+
+**Read them before the design is settled, not when a citation is written.** A design whose problem
+has a common form elsewhere is checked against the leading reference method before any code, and
+the PR says where ours differs and why. Found after the code, a difference is a rewrite.
+
+**For a security mechanism, the frameworks are the reference, beside the products.** Auth,
+sessions, MFA, passwords and tokens are decided in **Django**, **Laravel**, **ASP.NET Identity** and
+**Devise**, read as source at a pinned commit; the budgeting products often implement no such
+control, and an absence is not a practice. For #923 neither Actual nor Firefly had anything
+comparable, while two frameworks bound a session to its password hash and a third had fixed the
+same race upstream. An upstream PR or issue a reading cites is verified directly before it is
+quoted.
 
 ## References
 

@@ -106,15 +106,29 @@ describe('Settings, two-factor whose secret no longer decrypts (#904)', () => {
 		}).toEqual({ unreadable: 1, disabled: 0 });
 	});
 
-	it('the calibration: a readable factor keeps the six-digit field and its numeric keyboard', async () => {
-		expect.assertions(2);
+	// #886, owner ruling 2026-10-29: over a READABLE secret the field also takes a recovery code, so
+	// it is labelled and keyed as the sign-in field is (« Code », a text keyboard, since a recovery
+	// code holds A to F), still offers the one-time code, and the description names both. Separates
+	// that from #904's numeric six-digit field, on which a phone cannot type a recovery code.
+	it('a readable factor: the disable field takes either code, on a text keyboard', async () => {
+		expect.assertions(4);
 
 		await render(Page, { params: {}, data: baseData('enabled'), form: disableRefused as never });
 
-		const field = page.getByRole('textbox', { name: m.settings_mfa_setup_code_label() });
-		await expect.element(field).toHaveAttribute('inputmode', 'numeric');
-		expect(
-			page.getByRole('textbox', { name: m.settings_mfa_recovery_code_label() }).elements()
-		).toHaveLength(0);
+		const field = page.getByRole('textbox', { name: m.mfa_verify_code_label(), exact: true });
+		await expect.element(field).toHaveAttribute('inputmode', 'text');
+		await expect.element(field).toHaveAttribute('autocomplete', 'one-time-code');
+		await expect
+			.element(page.getByText(m.settings_mfa_disable_modal_description()).first())
+			.toBeInTheDocument();
+		// The sentence itself, both catalogues: a description that still named the app alone would
+		// leave the owner who lost it nothing to try.
+		expect({
+			en: m.settings_mfa_disable_modal_description({}, { locale: 'en' }),
+			fr: m.settings_mfa_disable_modal_description({}, { locale: 'fr' })
+		}).toEqual({
+			en: 'Confirm with your password and a code from your authenticator app, or one of your recovery codes.',
+			fr: "Confirmez avec votre mot de passe et un code de votre application d'authentification, ou l'un de vos codes de récupération."
+		});
 	});
 });

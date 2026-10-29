@@ -15,7 +15,8 @@ const db = vi.hoisted(() => ({
 			findMany: vi.fn(),
 			count: vi.fn(),
 			create: vi.fn(),
-			deleteMany: vi.fn()
+			// What the engine answers by default: no inert decision to prune.
+			deleteMany: vi.fn(async (_args: { where: PruneWhere }) => ({ count: 0 }))
 		},
 		// The cap check and the insert share one transaction; the mock runs the callback against the
 		// same client, which is what the interactive form does.
@@ -24,6 +25,18 @@ const db = vi.hoisted(() => ({
 }));
 
 vi.mock('$lib/server/db', () => ({ prisma: db.prisma }));
+
+// The L4b-2 block reads the `sensitive_delete` lines the prune writes.
+vi.hoisted(() => {
+	process.env.RATE_LIMIT_HASH_SECRET ??= 'a1'.repeat(32);
+});
+const logged = vi.hoisted(() => [] as unknown[]);
+vi.mock('$lib/server/logging', async (importOriginal) => ({
+	...(await importOriginal<typeof import('$lib/server/logging')>()),
+	log: (event: unknown) => {
+		logged.push(event);
+	}
+}));
 // No checking NetWorthAccount for this user in any fixture below: only used so
 // `loadCashFlowForecast` (imported purely to compare its detector's tier against the two
 // upcoming-bills surfaces — task 1, detection-window upper bound) can run against the SAME
@@ -45,6 +58,7 @@ const {
 	getOldestNavigableBillsMonth,
 	MAX_ANCHOR_ID_CHARS
 } = await import('./service');
+const { logUserPseudonym } = await import('$lib/server/logging/pseudonym');
 const { MAX_ANCHOR_CELL_CHARS, MAX_ANCHOR_IDS, MAX_PORTABLE_STRING, MAX_RECURRING_STREAM_ACTIONS } =
 	await import('$lib/server/backup/schema');
 const { STORED_LABEL_MAX_CHARS } = await import('$lib/domain/recurrence');
@@ -1661,5 +1675,67 @@ describe('shared bounds', () => {
 		);
 		// Still clears a cuid, so no real id is ever dropped by this bound.
 		expect(MAX_ANCHOR_ID_CHARS).toBeGreaterThanOrEqual(25);
+	});
+});
+
+/**
+ * L4b-2 rev 3b (#250): `recordStreamAction` prunes inert ignore and paid decisions inside its
+ * transaction, which deletes rows a member made, so it writes `sensitive_delete`
+ * prune_bill_actions, scope bill_action, with the bucket of the count the prune answered, AFTER the
+ * transaction returns: the cap can refuse the write and roll the prune back. Wire names as literals.
+ */
+describe('recordStreamAction prune writes sensitive_delete', () => {
+	const deletes = () =>
+		logged.filter((line) => (line as { event: string }).event === 'sensitive_delete');
+	const write = () =>
+		recordStreamAction(userId, {
+			kind: 'ignore',
+			direction: 'expense',
+			label: SUBSCRIPTION_LABEL,
+			dueDate: '2026-07-10',
+			anchorTransactionIds: ['sub-0']
+		});
+
+	beforeEach(() => {
+		logged.length = 0;
+		db.prisma.transaction.findMany.mockResolvedValue([
+			{ id: 'sub-0', date: new Date(`${MONTHLY_ANCHOR_DATES[0]}T00:00:00.000Z`) }
+		]);
+		db.prisma.recurringStreamAction.findMany.mockResolvedValue([]);
+		db.prisma.recurringStreamAction.count.mockResolvedValue(0);
+		db.prisma.recurringStreamAction.create.mockResolvedValue({ id: 'created-1' });
+	});
+
+	it('decisions pruned: one line, prune_bill_actions, the bucket of the pruned count', async () => {
+		db.prisma.recurringStreamAction.deleteMany.mockResolvedValueOnce({ count: 3 });
+		await write();
+		expect(deletes()).toEqual([
+			{
+				event: 'sensitive_delete',
+				attributes: {
+					'budgetpilot.user.pseudonym': logUserPseudonym(userId),
+					'budgetpilot.data.operation': 'prune_bill_actions',
+					'budgetpilot.data.scope': 'bill_action',
+					'budgetpilot.data.records_deleted': '2-9'
+				}
+			}
+		]);
+	});
+
+	// Green today.
+	it('nothing pruned writes none', async () => {
+		db.prisma.recurringStreamAction.deleteMany.mockResolvedValueOnce({ count: 0 });
+		await write();
+		expect(deletes()).toEqual([]);
+	});
+
+	// Separates « logged after the transaction returns » from « logged inside it »: the cap refuses
+	// after the prune ran, so the transaction rolls the prune back. Green today; red if the line
+	// moves inside the callback.
+	it('a write the cap refuses rolls the prune back and writes none', async () => {
+		db.prisma.recurringStreamAction.deleteMany.mockResolvedValueOnce({ count: 3 });
+		db.prisma.recurringStreamAction.count.mockResolvedValue(MAX_RECURRING_STREAM_ACTIONS);
+		await expectHttpError(write(), 400);
+		expect(deletes()).toEqual([]);
 	});
 });

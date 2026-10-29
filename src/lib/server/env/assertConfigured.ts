@@ -20,12 +20,14 @@ import {
 	assertLlmQueueDepthConfigured,
 	assertLlmTimeoutConfigured,
 	assertLlmUserHourlyConfigured,
+	assertLogSealIntervalConfigured,
 	assertPasswordHashCostConfigured,
 	assertSessionIdleTimeoutConfigured,
 	assertRateLimitIpv6PrefixConfigured,
 	assertSessionLifetimeConfigured
 } from '$lib/server/env/readSetting';
 import { assertSecretFilesSafe } from '$lib/server/env/secretFiles';
+import { assertSecretSourcesConfigured } from '$lib/server/env/secretSources';
 import { assertLlmModelDigestConfigured } from '$lib/server/insights/modelHostConfig';
 
 type Check = [name: string, run: () => void | Promise<void>];
@@ -116,7 +118,8 @@ export const ENVIRONMENT_CHECKS: Check[] = [
 	['CSV_MAX_COLUMNS', assertCsvColumnBoundConfigured],
 	['COLUMN_MAPPINGS_PER_USER', assertColumnMappingCapConfigured],
 	['IMPORT_RATE_LIMIT_MAX_ATTEMPTS', assertImportRateLimitConfigured],
-	['BP_LOG_LEVEL / BP_SECURITY_LOG', assertLoggingConfigured],
+	['BP_LOG_LEVEL / BP_SECURITY_LOG / BP_LOG_SEAL', assertLoggingConfigured],
+	['BP_LOG_SEAL_INTERVAL', assertLogSealIntervalConfigured],
 	['PASSWORD_HASH_COST', assertPasswordHashCostConfigured],
 	['SESSION_TTL_DAYS', assertSessionLifetimeConfigured],
 	['BP_SESSION_IDLE_TIMEOUT_HOURS', assertSessionIdleTimeoutConfigured],
@@ -128,7 +131,8 @@ export const ENVIRONMENT_CHECKS: Check[] = [
 	['BP_LLM_QUEUE_DEPTH', assertLlmQueueDepthConfigured],
 	['BP_LLM_USER_HOURLY', assertLlmUserHourlyConfigured],
 	['BP_LLM_MODEL_DIGEST', assertLlmModelDigestConfigured],
-	['BP_STRICT_SECRET_FILES', assertSecretFilesSafe]
+	['BP_STRICT_SECRET_FILES', assertSecretFilesSafe],
+	['<NAME>_FILE', assertSecretSourcesConfigured]
 ];
 
 /**

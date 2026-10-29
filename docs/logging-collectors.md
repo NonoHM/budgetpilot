@@ -845,7 +845,7 @@ Notes on the table:
 - **Why the copy matters.** The hash chain proves that a copy of the log was not edited. It cannot
   stop someone who controls the host from rewriting the file and the chain together. A copy held
   on another machine, where that person has no access, is what makes the chain mean something. Run
-  [the check](./logging-howto.md#check-that-no-line-was-removed-or-edited) against the copy, not
+  [the check](./logging-howto.md#seal-the-log) against the copy, not
   against the host's file.
 - **The application sends nothing.** BudgetPilot never contacts the collector. The collector reads,
   or is sent, what the container wrote. The only network connection in these recipes is the one the

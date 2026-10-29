@@ -52,8 +52,9 @@ Write the protocol version in the report.
   only what you created, by exact name.
 - **Secrets generated fresh** for the run; assert each one's LENGTH and never print a value
   (`cut -d= -f2` truncates a base64 secret at its padding; use `sed -n 's/^KEY=//p'`).
-- **Blinding**: a coin flip assigns baseline and candidate to X and Y. The key sits in the
-  scratchpad, is never named to a tester or a rater, and is read only after every finding is rated.
+- **Blinding**: a coin flip assigns baseline and candidate to X and Y. The key sits in
+  `docs/superpowers/<date>-blind/<run>/key.txt` (a scratchpad dies with a crash and the run can then
+  never be unblinded), is never named to a tester or a rater, and is read only after every finding is rated.
 - **The browser**: the Playwright MCP. Adding a dedicated, isolated server changes the owner's MCP
   configuration, so it needs the owner's approval at run time. If the browser hangs at startup, drive
   scripted headless Playwright instead and say so in the report.

@@ -67,6 +67,7 @@ export const ATTRIBUTE = {
 	configOrigin: 'budgetpilot.config.origin',
 	configSecurityLog: 'budgetpilot.config.security_log',
 	configLogLevel: 'budgetpilot.config.log_level',
+	configLogSeal: 'budgetpilot.config.log_seal',
 	configName: 'budgetpilot.config.name',
 	configValue: 'budgetpilot.config.value',
 	configDefault: 'budgetpilot.config.default',
@@ -121,6 +122,8 @@ export const ATTRIBUTE = {
 	rateLimitKind: 'budgetpilot.ratelimit.kind',
 	rateLimitCounter: 'budgetpilot.ratelimit.counter',
 	sessionReason: 'budgetpilot.session.reason',
+	// How many stored sessions the startup step shortened to the settings in force (#1087).
+	sessionShortened: 'budgetpilot.session.shortened',
 	cryptPurpose: 'budgetpilot.crypt.purpose',
 
 	// Authorization events (L4a). The target as a keyed hash under the same key as the actor's, so a
@@ -129,6 +132,21 @@ export const ATTRIBUTE = {
 	authzReference: 'budgetpilot.authz.reference',
 	adminAction: 'budgetpilot.admin.action',
 	targetUserPseudonym: 'budgetpilot.target.user_pseudonym',
+
+	// Control bypass (L4b): a redirect the guard refused, as closed values only, never the host.
+	redirectReason: 'budgetpilot.redirect.reason',
+	redirectUpstream: 'budgetpilot.redirect.upstream',
+
+	// Data events (L4b-2): what went or left as a closed scope, counts only as buckets.
+	dataOperation: 'budgetpilot.data.operation',
+	dataScope: 'budgetpilot.data.scope',
+	dataExport: 'budgetpilot.data.export',
+	dataTransactionsDeleted: 'budgetpilot.data.transactions_deleted',
+	dataTransactionsRestored: 'budgetpilot.data.transactions_restored',
+	dataRecordsDeleted: 'budgetpilot.data.records_deleted',
+	dataTransactionsExported: 'budgetpilot.data.transactions_exported',
+	dataTransactionsCreated: 'budgetpilot.data.transactions_created',
+	restoreReason: 'budgetpilot.restore.reason',
 
 	// The container start, `boot.mjs`.
 	bootDirectory: 'budgetpilot.boot.directory',
@@ -145,6 +163,17 @@ export const ATTRIBUTE = {
 	suppressedErrorType: 'budgetpilot.log.suppressed_error_type',
 	suppressedStatus: 'budgetpilot.log.suppressed_status',
 	droppedBytes: 'budgetpilot.log.dropped_bytes',
+	// The log seal (#875): the checkpoint note, and what a start says about its key and its link.
+	logCheckpointNote: 'budgetpilot.log.checkpoint.note',
+	logSealKeyId: 'budgetpilot.log.seal.key_id',
+	logSealHost: 'budgetpilot.log.seal.host',
+	logSealPreviousOrigin: 'budgetpilot.log.seal.previous_origin',
+	logSealPreviousSize: 'budgetpilot.log.seal.previous_size',
+	logSealPreviousRoot: 'budgetpilot.log.seal.previous_root',
+	logSealVolumePreviousOrigin: 'budgetpilot.log.seal.volume_previous_origin',
+	logSealVolumePreviousSize: 'budgetpilot.log.seal.volume_previous_size',
+	logSealVolumePreviousRoot: 'budgetpilot.log.seal.volume_previous_root',
+	logSealReason: 'budgetpilot.log.seal.reason',
 	consoleMethod: 'budgetpilot.console.method',
 	consoleText: 'budgetpilot.console.text'
 } as const;
@@ -170,10 +199,22 @@ export const EVENT = {
 	authnReauthSuccess: 'budgetpilot.authn.reauth_success',
 	authnReauthFail: 'budgetpilot.authn.reauth_fail',
 	sessionInvalid: 'budgetpilot.session.invalid',
+	sessionSettingsApplied: 'budgetpilot.session.settings_applied',
 
 	// OWASP Logging Vocabulary, authorization, without the user the vocabulary appends (L4a).
 	authzFail: 'authz_fail',
 	authzAdmin: 'authz_admin',
+
+	// Control bypass (L4b). The vocabulary has no name for a refused redirect.
+	redirectRefused: 'budgetpilot.redirect.refused',
+
+	// OWASP Logging Vocabulary, data events (L4b-2), without the user the vocabulary appends.
+	sensitiveDelete: 'sensitive_delete',
+	sensitiveRead: 'sensitive_read',
+	// #1087: a bank connection stored or renewed, and what a sync wrote.
+	sensitiveCreate: 'sensitive_create',
+	sensitiveUpdate: 'sensitive_update',
+	inputValidationFail: 'input_validation_fail',
 
 	configOriginSet: 'budgetpilot.config.origin_set',
 	configOriginUnset: 'budgetpilot.config.origin_unset',
@@ -215,9 +256,13 @@ export const EVENT = {
 	bootDataDirNotWritable: 'budgetpilot.boot.data_dir_not_writable',
 	bootDataDirUnusable: 'budgetpilot.boot.data_dir_unusable',
 	bootMigrateFailed: 'budgetpilot.boot.migrate_failed',
+	bootSecretsRefused: 'budgetpilot.boot.secrets_refused',
 
 	logSuppressed: 'budgetpilot.log.suppressed',
 	logLineTooLong: 'budgetpilot.log.line_too_long',
+	logCheckpoint: 'budgetpilot.log.checkpoint',
+	logSealStarted: 'budgetpilot.log.seal_started',
+	logSealUnavailable: 'budgetpilot.log.seal_unavailable',
 	consoleOutput: 'budgetpilot.console.output'
 } as const;
 

@@ -33,8 +33,15 @@ const db = vi.hoisted(() => ({
 }));
 
 vi.mock('$lib/server/db', () => ({ prisma: db.prisma }));
+// Every line the route writes, captured instead of printed (L4b-2 reads `sensitive_read`).
+const logWriter = vi.hoisted(() => ({ log: vi.fn() }));
+vi.mock('$lib/server/logging', async (importOriginal) => ({
+	...(await importOriginal<typeof import('$lib/server/logging')>()),
+	log: logWriter.log
+}));
 
 const { GET } = await import('./+server');
+const { logUserPseudonym } = await import('$lib/server/logging/pseudonym');
 
 const testUser = { id: 'user-a', email: 'a@example.test', role: 'USER' as const };
 
@@ -333,5 +340,46 @@ describe('GET /transactions/export', () => {
 		expect(natureOf(rows[0])).toBe('fee');
 		expect(natureOf(rows[1])).toBe('investment');
 		expect(natureOf(rows[2])).toBe('spending');
+	});
+});
+
+/**
+ * L4b-2 (#250): a served export writes `sensitive_read` with the bucket of the transactions it
+ * read; a refused one writes none. Wire names as literals, as in `logging/data.spec.ts`.
+ */
+describe('L4b-2: the CSV export writes sensitive_read', () => {
+	const reads = () =>
+		logWriter.log.mock.calls
+			.map(([line]) => line as { event: string; attributes: Record<string, unknown> })
+			.filter((line) => line.event === 'sensitive_read');
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		db.prisma.categoryNatureMapping.findMany.mockResolvedValue([]);
+	});
+
+	it('one line with the bucket of the transactions exported', async () => {
+		respondWith(Array.from({ length: 12 }, (_, i) => makeTransaction({ id: `tx-l4b2-${i}` })));
+		await GET(makeRequest() as never);
+		expect(reads()).toEqual([
+			{
+				event: 'sensitive_read',
+				attributes: {
+					'budgetpilot.user.pseudonym': logUserPseudonym('user-a'),
+					'budgetpilot.data.export': 'transactions_csv',
+					'budgetpilot.data.scope': 'selection',
+					'budgetpilot.data.transactions_exported': '10-99'
+				}
+			}
+		]);
+	});
+
+	// Green today; red if the line is written before the scope is validated.
+	it('a refused scope writes none', async () => {
+		respondWith([]);
+		await expect(GET(makeRequest('?from=2026-12-31&to=2026-01-01') as never)).rejects.toMatchObject(
+			{ status: 400 }
+		);
+		expect(reads()).toEqual([]);
 	});
 });

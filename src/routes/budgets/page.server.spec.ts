@@ -246,3 +246,92 @@ describe('L4a: a refused budget delete writes one authz_fail line', () => {
 		});
 	});
 });
+
+/**
+ * L4b-2 (#250, owner ruling 3): a deleted budget writes `sensitive_delete`, scope budget, no count,
+ * after the service returns. Runs the REAL `deleteBudget` against a userId-scoped fake, as the L4a
+ * block does, so a refusal is the service's own 404. Wire names as literals.
+ */
+describe('L4b-2: delete writes sensitive_delete', () => {
+	type Line = { event: string; attributes: Record<string, unknown> };
+	const deletes = () => (logged as Line[]).filter((line) => line.event === 'sensitive_delete');
+	const table = db.prisma as unknown as Record<string, unknown>;
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		logged.length = 0;
+		budgetService.deleteBudget.mockImplementation(realDeleteBudget as never);
+		table.monthlyBudget = {
+			deleteMany: vi.fn(async ({ where }: { where: Record<string, unknown> }) => ({
+				count: where.id === 'budget-a' && where.userId === 'user-a' ? 1 : 0
+			}))
+		};
+	});
+
+	afterEach(() => {
+		budgetService.deleteBudget.mockReset();
+		budgetService.deleteBudget.mockImplementation(async () => undefined);
+		delete table.monthlyBudget;
+	});
+
+	it('an owned budget: one line, scope budget', async () => {
+		await runAction('delete', { id: 'budget-a' });
+		expect(deletes()).toEqual([
+			{
+				event: 'sensitive_delete',
+				attributes: {
+					'budgetpilot.user.pseudonym': logUserPseudonym(testUser.id),
+					'budgetpilot.data.operation': 'delete_budget',
+					'budgetpilot.data.scope': 'budget'
+				}
+			}
+		]);
+	});
+
+	// Green today; red if the line is written whatever the service answered.
+	it('a budget that does not resolve writes none', async () => {
+		await runAction('delete', { id: 'budget-foreign' });
+		expect(deletes()).toEqual([]);
+	});
+});
+
+/**
+ * #1087 piece 2: a saved budget writes `sensitive_create`, scope budget, after `saveBudget`
+ * returns. Wire names as literals.
+ */
+describe('#1087: create writes sensitive_create', () => {
+	type Line = { event: string; attributes: Record<string, unknown> };
+	const creates = () => (logged as Line[]).filter((line) => line.event === 'sensitive_create');
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		logged.length = 0;
+	});
+
+	afterEach(() => {
+		budgetService.saveBudget.mockReset();
+		budgetService.saveBudget.mockImplementation(async () => undefined);
+	});
+
+	// Separates "the route logs a saved budget" from "the route writes nothing on create".
+	it('a saved budget: one line, operation save_budget, scope budget', async () => {
+		await runAction('create', { category: 'Alimentation', amount: '250' });
+		expect(creates()).toEqual([
+			{
+				event: 'sensitive_create',
+				attributes: {
+					'budgetpilot.user.pseudonym': logUserPseudonym(testUser.id),
+					'budgetpilot.data.operation': 'save_budget',
+					'budgetpilot.data.scope': 'budget'
+				}
+			}
+		]);
+	});
+
+	// Green today; separates "line after saveBudget returned" from "line before the call".
+	it('a refused save writes none', async () => {
+		budgetService.saveBudget.mockRejectedValueOnce(new Error('refused'));
+		const result = await runAction('create', { category: 'Alimentation', amount: 'x' });
+		expect({ status: result.status, lines: creates() }).toEqual({ status: 400, lines: [] });
+	});
+});

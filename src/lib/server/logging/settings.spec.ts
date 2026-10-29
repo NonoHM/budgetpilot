@@ -6,7 +6,9 @@ import {
 	DEFAULT_SECURITY_LOG,
 	LOG_LEVELS,
 	readLogSettings,
+	readSealSettings,
 	resolveLogLevel,
+	resolveLogSeal,
 	resolveSecurityLog
 } from './settings';
 
@@ -88,5 +90,52 @@ describe('readLogSettings', () => {
 			level: 'warn',
 			securityLog: 'off'
 		});
+	});
+});
+
+describe('the log seal settings (#875)', () => {
+	it('refuses a BP_LOG_SEAL outside off and on, naming the domain', () => {
+		expect([resolveLogSeal({}), resolveLogSeal({ BP_LOG_SEAL: ' on ' })]).toEqual(['off', 'on']);
+		expect(() => resolveLogSeal({ BP_LOG_SEAL: 'true' })).toThrow(
+			new OperatorFacingError(
+				'BP_LOG_SEAL must be one of off, on (got "true"). The default is off.'
+			)
+		);
+	});
+
+	// The boundary values on each side: 59 and 86401 refused, 60 and 86400 read, through the boot
+	// check's reader, which takes the bounds from the registry.
+	it('refuses a BP_LOG_SEAL_INTERVAL outside 60 to 86400 seconds rather than clamping it', async () => {
+		const { readIntegerSetting } = await import('../env/readSetting');
+		const read = (value: string) => {
+			try {
+				return readIntegerSetting('BP_LOG_SEAL_INTERVAL', { BP_LOG_SEAL_INTERVAL: value });
+			} catch (error) {
+				return (error as Error).message.split('.')[0];
+			}
+		};
+		expect(['59', '60', '86400', '86401', ''].map(read)).toEqual([
+			'BP_LOG_SEAL_INTERVAL=59 is below the minimum of 60',
+			60,
+			86400,
+			'BP_LOG_SEAL_INTERVAL=86401 is above the ceiling of 86400',
+			900
+		]);
+	});
+
+	// What the writer runs on before the boot check: the default for a value the boot check will
+	// refuse, never a clamp, so a refused value can be written about.
+	it('reads the defaults for refused values at writer creation, and an empty directory as unset', () => {
+		expect(
+			[
+				{ BP_LOG_SEAL: 'yes', BP_LOG_SEAL_INTERVAL: '59', BP_LOG_SEAL_DIR: '' },
+				{ BP_LOG_SEAL: 'on', BP_LOG_SEAL_INTERVAL: '0x3c', BP_LOG_SEAL_DIR: '  ' },
+				{ BP_LOG_SEAL: 'on', BP_LOG_SEAL_INTERVAL: '60', BP_LOG_SEAL_DIR: '/data/log-seal' }
+			].map(readSealSettings)
+		).toEqual([
+			{ seal: 'off', dir: undefined, intervalSeconds: 900 },
+			{ seal: 'on', dir: undefined, intervalSeconds: 900 },
+			{ seal: 'on', dir: '/data/log-seal', intervalSeconds: 60 }
+		]);
 	});
 });

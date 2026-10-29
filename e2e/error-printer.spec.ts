@@ -5,6 +5,7 @@ import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { request as apiRequest, type APIRequestContext } from '@playwright/test';
 import { expect, test } from './fixtures';
+import { FLOOD_ALLOWANCE } from '../src/lib/server/logging/flood';
 
 /**
  * #816: an unexpected error writes its class and code to the log, never its message or stack, on
@@ -137,6 +138,8 @@ let actionFailure: Forced;
 let pageFailure: { status: number; html: string };
 let recomputeBoot: { exitCode: number | null; captured: string };
 let refusedBoot: { exitCode: number | null; captured: string };
+/** Requests answered 404 on the request-path server, the seeding control path included. */
+let notFoundSent = 0;
 
 async function untilExit(server: Server): Promise<number | null> {
 	const outcome = await Promise.race([
@@ -209,6 +212,7 @@ test.beforeAll(async () => {
 		if (seeded.join(',') !== 'redirect,redirect,success,404') {
 			throw new Error(`error-printer: seeding did not complete (${seeded.join(',')})`);
 		}
+		notFoundSent = 1;
 
 		// 1. An action whose write the database refuses, quoting the row.
 		sql(`CREATE TRIGGER errorprinter_category BEFORE INSERT ON "Category"
@@ -231,6 +235,11 @@ test.beforeAll(async () => {
 			pageFailure = { status: page.status(), html: await page.text() };
 		} finally {
 			sql('ALTER TABLE "Category_errorprinter" RENAME TO "Category"');
+		}
+		// 5. A flood of not-found pages, stopped by SIGTERM inside its minute (#866, #1085): past the
+		//    allowance the repeats are only counted, and the summary must still reach the log.
+		for (let index = 0; index < FLOOD_ALLOWANCE + 5; index += 1) {
+			if ((await api.get(`/errorprinter-flood-${index}`)).status() === 404) notFoundSent += 1;
 		}
 		// The two error lines are written before the responses complete, but give the pipe a moment.
 		await new Promise((resolve) => setTimeout(resolve, 300));
@@ -346,6 +355,30 @@ test.describe('request path', () => {
 			'GET',
 			'/categories'
 		]);
+	});
+});
+
+test.describe('a stop inside a flood window (#866, #1085)', () => {
+	// 26 not-found pages here (the seeding control path shares the flood key): 20 written, 6 counted.
+	// On the build of 4fb08df the summary was missing, so the 6 left no record; this test is red when
+	// the server writer's registration is removed. Every 404 not written as a line must be counted in
+	// a summary, which holds even if a window rolled over during beforeAll.
+	const notFoundWritten = () =>
+		events(requestCapture).filter((line) => line.event_name === 'budgetpilot.request.not_found')
+			.length;
+
+	test('calibration: the flood sent more not-found pages than were written as lines', () => {
+		expect(notFoundSent - notFoundWritten()).toBeGreaterThan(0);
+	});
+
+	test('every not-found page not written as a line is counted in a summary line', () => {
+		const counted = events(requestCapture)
+			.filter((line) => line.event_name === 'budgetpilot.log.suppressed')
+			.filter(
+				(line) => line['budgetpilot.log.suppressed_event'] === 'budgetpilot.request.not_found'
+			)
+			.reduce((sum, line) => sum + Number(line['budgetpilot.log.suppressed_count']), 0);
+		expect(counted).toBe(notFoundSent - notFoundWritten());
 	});
 });
 

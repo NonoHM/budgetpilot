@@ -23,7 +23,9 @@ journey, and every count it reads carries the byte length of the page it read it
 2. **Data is synthetic**: `node scripts/synthetic/make-synthetic.mjs <dir under scr/>` (holder Paul
    Mercier) or inline literals, never a real statement. A fresh database already holds one user, so
    freshness is « transactions = 0 », not a user count.
-3. **Drive it with a throwaway headless Playwright script** in your scratchpad, against your port.
+3. **Drive it with a headless Playwright script** at `docs/superpowers/walks/<pr or branch>.mjs`,
+   its printed output beside it, against your port: the script is the walk's evidence, and a
+   scratchpad does not survive a crash.
    The shared `playwright` MCP browser serves one session at a time and can hang at Chrome startup;
    `claude mcp list` reporting it connected says nothing about whether it can open a page.
 4. **Per route, a new browser context**, at 390x844 and at 1280x800. A long-lived page dies after a

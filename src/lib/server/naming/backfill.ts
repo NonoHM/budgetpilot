@@ -149,6 +149,7 @@ async function processUser(
 				bankConnectionId: true,
 				providerAccountId: true,
 				providerCashAccountType: true,
+				nameKey: true,
 				createdAt: true
 			}
 		}),
@@ -244,6 +245,19 @@ async function processUser(
 		for (const merge of accountPlan.merges) {
 			const loserIds = merge.losers.map((row) => row.id);
 			await tx.transaction.updateMany({
+				where: { userId, accountId: { in: loserIds } },
+				data: { accountId: merge.survivorId }
+			});
+			// Both cascade from `Account`, so the delete below would take them with it (#1086): the
+			// imports could no longer be cancelled as a unit, and the next file from that bank would
+			// ask again which account it is. Both still mean what they meant, now of the survivor.
+			// No unique index is reached: answers are unique on (userId, identifierKey), batches on
+			// nothing account-scoped. No log line of their own: `backfill_completed` reports the run.
+			await tx.importBatch.updateMany({
+				where: { userId, accountId: { in: loserIds } },
+				data: { accountId: merge.survivorId }
+			});
+			await tx.rememberedAccount.updateMany({
 				where: { userId, accountId: { in: loserIds } },
 				data: { accountId: merge.survivorId }
 			});

@@ -177,7 +177,7 @@ async function probeModelHost(
  * (contradiction pass on the final code). So every request to the host refuses every 3xx, which also
  * keeps the data on the base URL's host and nowhere else on the allowlist.
  */
-const NO_REDIRECT = { isRedirectTargetAllowed: () => false };
+const NO_REDIRECT = { isRedirectTargetAllowed: () => false, upstream: 'model_host' } as const;
 
 /** Raised by the capped reader: the model host sent more than the bound its request earned. */
 class ModelHostResponseTooLarge extends Error {

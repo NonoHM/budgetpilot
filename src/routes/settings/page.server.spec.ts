@@ -73,7 +73,15 @@ const netWorthService = vi.hoisted(() => ({
 }));
 
 const backupImport = vi.hoisted(() => {
-	class BackupImportError extends Error {}
+	// The production shape since L4b-2: a closed reason for the log, then the sentence for the screen.
+	class BackupImportError extends Error {
+		constructor(
+			readonly reason: string,
+			message: string
+		) {
+			super(message);
+		}
+	}
 	return {
 		restoreBackup: vi.fn(),
 		BackupImportError
@@ -162,7 +170,8 @@ vi.mock('$lib/server/auth/reauth', async (importOriginal) => {
 	return { ...actual, reauthenticate: vi.fn(actual.reauthenticate) };
 });
 
-const { commitWithRotatedToken, hashPassword, SESSION_COOKIE } = await import('$lib/server/auth');
+const { commitEndingSession, commitWithRotatedToken, hashPassword, SESSION_COOKIE } =
+	await import('$lib/server/auth');
 const reauth = await import('$lib/server/auth/reauth');
 const { actions, load } = await import('./+page.server');
 const { ATTRIBUTE: A, EVENT: E } = await import('$lib/server/logging/names');
@@ -727,7 +736,9 @@ describe('/settings', () => {
 			})) as { status: number; data: { deleteError: string } };
 
 			expect(result.status).toBe(400);
-			expect(result.data.deleteError).toBe('Trop de tentatives. Réessayez dans quelques minutes.');
+			expect(result.data.deleteError).toBe(
+				"Trop de tentatives. Réessayez plus tard, ou déconnectez-vous si ce n'était pas vous."
+			);
 			// Short-circuits before the expensive verify: findUnique is never reached.
 			expect(db.prisma.user.findUnique).not.toHaveBeenCalled();
 			expect(tx.user.delete).not.toHaveBeenCalled();
@@ -769,7 +780,7 @@ describe('/settings', () => {
 			})) as { status: number; data: { passwordError: string } };
 
 			expect(result.data.passwordError).toBe(
-				'Trop de tentatives. Réessayez dans quelques minutes.'
+				"Trop de tentatives. Réessayez plus tard, ou déconnectez-vous si ce n'était pas vous."
 			);
 			expect(db.prisma.user.findUnique).not.toHaveBeenCalled();
 		});
@@ -1088,7 +1099,7 @@ describe('/settings', () => {
 		it('appelle restoreBackup avec le userId du user connecté, pas un userId venant du fichier', async () => {
 			expect.assertions(4);
 
-			backupImport.restoreBackup.mockResolvedValue(undefined);
+			backupImport.restoreBackup.mockResolvedValue({ deleted: 0, restored: 0 });
 			const file = buildBackupFile(JSON.stringify(buildValidBackupPayload()));
 
 			const result = (await runRestoreAction(buildBackupFormData(file))) as {
@@ -1124,6 +1135,7 @@ describe('/settings', () => {
 
 			backupImport.restoreBackup.mockRejectedValue(
 				new backupImport.BackupImportError(
+					'unknown_account',
 					'Transaction "tx-1" référence un compte inconnu du fichier.'
 				)
 			);
@@ -1881,7 +1893,7 @@ describe('S1: each re-authenticating settings action, through the real action', 
 		});
 		db.prisma.session.findFirst.mockResolvedValue({ id: 'autre-session' });
 		tx.session.updateMany.mockResolvedValue({ count: 1 });
-		backupImport.restoreBackup.mockResolvedValue(undefined);
+		backupImport.restoreBackup.mockResolvedValue({ deleted: 0, restored: 0 });
 	});
 
 	it('has a case for exactly the settings half of REAUTH_FACTORS, each an action of this route', () => {
@@ -2150,33 +2162,38 @@ describe('#904: settings with a stored secret that does not decrypt', () => {
 		]);
 	});
 
-	// A pin of the ruling's « only in that state »: against a READABLE secret a recovery code is not
-	// a re-authentication factor (#886 stays separate). Separates « refused as a missing code, no
-	// recovery code read or spent » from a recovery-code path that does not check the secret first.
-	it('disableTotp with a readable secret refuses the same recovery code, reading and spending none', async () => {
+	// #886, owner ruling 2026-10-29, which amends #904's « only in that state »: the owner who lost the
+	// device turns the factor off with the password and a recovery code, then enrols again. Separates
+	// that from #904's door, which refused it here as `missing-totp` with nothing read or written.
+	it('disableTotp with a readable secret, the right password and a valid recovery code turns two-factor off', async () => {
 		db.prisma.user.findUnique.mockResolvedValue({
 			passwordHash,
 			totpEnabled: true,
 			totpSecretEncrypted: readableSecret()
 		});
 
-		const result = await runAction('disableTotp', {
+		await runAction('disableTotp', {
 			token: 'session-courante',
 			input: { currentPassword: PASSWORD, code: RECOVERY_CODE }
 		});
 
 		expect({
 			decided: await vi.mocked(reauth.reauthenticate).mock.results[0]?.value,
-			status: result.status,
-			codesRead: db.prisma.recoveryCode.findMany.mock.calls.length,
 			codesSpent: db.prisma.recoveryCode.updateMany.mock.calls.length,
-			factorWrites: tx.user.update.mock.calls.length
+			factorWrites: tx.user.update.mock.calls.map(
+				([args]) => (args as { data: Record<string, unknown> }).data
+			)
 		}).toEqual({
-			decided: { ok: false, reason: 'missing-totp', asked: 'password-and-code' },
-			status: 400,
-			codesRead: 0,
-			codesSpent: 0,
-			factorWrites: 0
+			decided: { ok: true },
+			codesSpent: 1,
+			factorWrites: [
+				{
+					totpEnabled: false,
+					totpSecretEncrypted: null,
+					totpEnabledAt: null,
+					totpLastUsedStep: null
+				}
+			]
 		});
 	});
 });
@@ -2375,5 +2392,249 @@ describe('L4a: a refused statement account rename writes one authz_fail line', (
 			result: { accountsSuccess: m.accounts_success_renamed() },
 			lines: []
 		});
+	});
+});
+
+/**
+ * L4b-2 (#250): what the settings actions write on the data events. The wire names are literals,
+ * as in `logging/data.spec.ts`. Each case separates « the line the contract names » from « no line »
+ * (the tree before L4b-2), and each refusal from a neighbour reporting another reason.
+ */
+describe('L4b-2: settings writes sensitive_delete and input_validation_fail', () => {
+	type Line = { event: string; attributes: Record<string, unknown> };
+	const dataLines = () =>
+		logWriter.log.mock.calls
+			.map(([line]) => line as unknown as Line)
+			.filter((line) => ['sensitive_delete', 'input_validation_fail'].includes(line.event));
+	const refused = (reason: string) => ({
+		event: 'input_validation_fail',
+		attributes: {
+			'budgetpilot.user.pseudonym': logUserPseudonym('user-a'),
+			'budgetpilot.restore.reason': reason
+		}
+	});
+
+	beforeEach(async () => {
+		vi.clearAllMocks();
+		db.prisma.user.findUnique.mockResolvedValue({
+			passwordHash: await hashPassword(RESTORE_PASSWORD),
+			totpEnabled: false,
+			totpSecretEncrypted: null
+		});
+	});
+
+	function deleteAccount(confirmation: string) {
+		return invokeAction('deleteAccount', {
+			cookies: buildCookies('session-courante'),
+			request: buildRequest({ confirmation, currentPassword: RESTORE_PASSWORD }),
+			locals: {
+				user: { id: 'user-a', email: 'user-a@example.test', role: 'USER', sessionId: 'session-a' }
+			}
+		});
+	}
+
+	it('deleteAccount writes one sensitive_delete with the bucket of transactions it deleted', async () => {
+		tx.session.deleteMany.mockResolvedValue({ count: 1 });
+		tx.transaction.deleteMany.mockResolvedValue({ count: 37 });
+		tx.user.delete.mockResolvedValue({ id: 'user-a' });
+		await expect(deleteAccount('SUPPRIMER')).rejects.toMatchObject({ status: 303 });
+		expect(dataLines()).toEqual([
+			{
+				event: 'sensitive_delete',
+				attributes: {
+					'budgetpilot.user.pseudonym': logUserPseudonym('user-a'),
+					'budgetpilot.data.operation': 'delete_account',
+					'budgetpilot.data.scope': 'account',
+					'budgetpilot.data.transactions_deleted': '10-99'
+				}
+			}
+		]);
+	});
+
+	// Separates « written after the commit returns » from « written inside the change »: the commit
+	// runs the change and then rolls back, as an ended session does (contradiction pass F3).
+	it('deleteAccount whose commit rolls back after the change writes no sensitive_delete', async () => {
+		tx.transaction.deleteMany.mockResolvedValue({ count: 37 });
+		vi.mocked(commitEndingSession).mockImplementationOnce(async (_user, _cookies, change) => {
+			await change(tx as never);
+			throw new Error('rolled back');
+		});
+		await expect(deleteAccount('SUPPRIMER')).rejects.toThrow('rolled back');
+		expect(dataLines()).toEqual([]);
+	});
+
+	// Separates « the committed attempt's own answer » from « a count gathered across attempts »:
+	// the commit retries whole (`withConcurrentWriteRetry`), the aborted attempt saw 900, the
+	// committed one 37, and a variable summed or kept outside the callback logs `100-999`.
+	it('deleteAccount retried after an abort logs the committed attempt count', async () => {
+		tx.transaction.deleteMany
+			.mockResolvedValueOnce({ count: 900 })
+			.mockResolvedValueOnce({ count: 37 });
+		vi.mocked(commitEndingSession).mockImplementationOnce(async (_user, _cookies, change) => {
+			await change(tx as never);
+			return change(tx as never);
+		});
+		await expect(deleteAccount('SUPPRIMER')).rejects.toMatchObject({ status: 303 });
+		expect(
+			dataLines().map((line) => line.attributes['budgetpilot.data.transactions_deleted'])
+		).toEqual(['10-99']);
+	});
+
+	// Green today; red if the line is written before the confirmation or the commit.
+	it('deleteAccount refused on its phrase writes no sensitive_delete', async () => {
+		const result = (await deleteAccount('mauvaise phrase')) as { status: number };
+		expect({ status: result.status, lines: dataLines() }).toEqual({ status: 400, lines: [] });
+	});
+
+	// The owner's case: an empty file over a full account reads as the wipe it is.
+	it('a restore writes one sensitive_delete with what it deleted and what it restored', async () => {
+		backupImport.restoreBackup.mockResolvedValue({ deleted: 1000, restored: 0 });
+		const file = buildBackupFile(JSON.stringify(buildValidBackupPayload()));
+		await runRestoreAction(buildBackupFormData(file));
+		expect(dataLines()).toEqual([
+			{
+				event: 'sensitive_delete',
+				attributes: {
+					'budgetpilot.user.pseudonym': logUserPseudonym('user-a'),
+					'budgetpilot.data.operation': 'restore',
+					'budgetpilot.data.scope': 'account_records',
+					'budgetpilot.data.transactions_deleted': '1000+',
+					'budgetpilot.data.transactions_restored': '0'
+				}
+			}
+		]);
+	});
+
+	// One case per refusal of the file, each with the reason it must name. A route that logged one
+	// fixed reason, or logged only the integrity refusals, fails a row of this table.
+	const payloadWithDate = (exportedAt: string) =>
+		JSON.stringify({ ...buildValidBackupPayload(), exportedAt });
+	const FILE_REFUSALS: [reason: string, content: string][] = [
+		['too_large', 'x'.repeat(20_000_001)],
+		['too_complex', '[' + '{},'.repeat(1_000_000) + '{}]'],
+		['invalid_json', '{ ceci nest pas du json'],
+		['unsupported_format', JSON.stringify({ formatVersion: 2 })],
+		['schema_invalid', payloadWithDate('pas-une-date')],
+		['date_out_of_range', payloadWithDate('0999-12-31T00:00:00.000Z')]
+	];
+	for (const [reason, content] of FILE_REFUSALS) {
+		it(`a file refused before the restore writes input_validation_fail ${reason}`, async () => {
+			const result = (await runRestoreAction(buildBackupFormData(buildBackupFile(content)))) as {
+				status: number;
+			};
+			expect({ status: result.status, lines: dataLines() }).toEqual({
+				status: 400,
+				lines: [refused(reason)]
+			});
+		});
+	}
+
+	it('an integrity refusal writes input_validation_fail with the error reason, and no sensitive_delete', async () => {
+		backupImport.restoreBackup.mockRejectedValue(
+			new backupImport.BackupImportError('unknown_account', 'Transaction inconnue.')
+		);
+		const file = buildBackupFile(JSON.stringify(buildValidBackupPayload()));
+		await runRestoreAction(buildBackupFormData(file));
+		expect(dataLines()).toEqual([refused('unknown_account')]);
+	});
+
+	it('a restore that fails for another reason writes neither line', async () => {
+		backupImport.restoreBackup.mockRejectedValue(new Error('panne disque'));
+		const file = buildBackupFile(JSON.stringify(buildValidBackupPayload()));
+		await expect(runRestoreAction(buildBackupFormData(file))).rejects.toThrow('panne disque');
+		expect(dataLines()).toEqual([]);
+	});
+
+	it('a duplicate in the file writes input_validation_fail duplicate', async () => {
+		backupImport.restoreBackup.mockRejectedValue(
+			Object.assign(new Error('Unique constraint failed'), { code: 'P2002' })
+		);
+		const file = buildBackupFile(JSON.stringify(buildValidBackupPayload()));
+		await runRestoreAction(buildBackupFormData(file));
+		expect(dataLines()).toEqual([refused('duplicate')]);
+	});
+
+	// Green today, and must stay so: nothing uploaded is not a file refused, and a wrong password is
+	// the re-authentication's line (L3), not this one.
+	it('no file, or a wrong password, writes no data line', async () => {
+		await runRestoreAction(new FormData());
+		const wrong = buildBackupFormData(buildBackupFile(JSON.stringify(buildValidBackupPayload())));
+		wrong.set('currentPassword', 'faux');
+		await runRestoreAction(wrong);
+		expect(dataLines()).toEqual([]);
+	});
+});
+
+/**
+ * L4b-2 rev 3 (#250, owner ruling 3): the three one-row deletes settings carries write
+ * `sensitive_delete` with no count, and none when the reference does not resolve. `deleteTag` is
+ * imported here under an alias (`deleteTagService`), which is why `sensitiveDeleteDoors.spec.ts`
+ * pins helpers by module. Wire names as literals.
+ */
+describe('L4b-2: settings one-row deletes write sensitive_delete', () => {
+	type Line = { event: string; attributes: Record<string, unknown> };
+	const deletes = () =>
+		logWriter.log.mock.calls
+			.map(([line]) => line as unknown as Line)
+			.filter((line) => line.event === 'sensitive_delete');
+	const line = (operation: string, scope: string) => ({
+		event: 'sensitive_delete',
+		attributes: {
+			'budgetpilot.user.pseudonym': logUserPseudonym('user-a'),
+			'budgetpilot.data.operation': operation,
+			'budgetpilot.data.scope': scope
+		}
+	});
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+	});
+
+	it('deleteTag: one line, scope tag', async () => {
+		tagsService.deleteTag.mockResolvedValue('ok');
+		await runAction('deleteTag', { token: 'session-courante', input: { id: 'tag-000001' } });
+		expect(deletes()).toEqual([line('delete_tag', 'tag')]);
+	});
+
+	it('deleteTag on a tag that does not resolve writes none', async () => {
+		tagsService.deleteTag.mockResolvedValue('not-found');
+		await runAction('deleteTag', { token: 'session-courante', input: { id: 'tag-000002' } });
+		expect(deletes()).toEqual([]);
+	});
+
+	it('deleteColumnMapping: one line, scope column_mapping', async () => {
+		mappingStore.deleteColumnMapping.mockResolvedValue('deleted');
+		await runAction('deleteColumnMapping', {
+			token: 'session-courante',
+			input: { id: 'mapping-1' }
+		});
+		expect(deletes()).toEqual([line('delete_column_mapping', 'column_mapping')]);
+	});
+
+	it('deleteColumnMapping on a mapping that does not resolve writes none', async () => {
+		mappingStore.deleteColumnMapping.mockResolvedValue('not-found');
+		await runAction('deleteColumnMapping', {
+			token: 'session-courante',
+			input: { id: 'mapping-2' }
+		});
+		expect(deletes()).toEqual([]);
+	});
+
+	it('forgetRememberedAccount: one line, scope remembered_account', async () => {
+		accountMemory.forgetRememberedAccount.mockResolvedValue('forgotten');
+		await runAction('forgetRememberedAccount', {
+			token: 'session-courante',
+			input: { id: 'remembered-1' }
+		});
+		expect(deletes()).toEqual([line('forget_remembered_account', 'remembered_account')]);
+	});
+
+	it('forgetRememberedAccount on an id that does not resolve writes none', async () => {
+		accountMemory.forgetRememberedAccount.mockResolvedValue('not-found');
+		await runAction('forgetRememberedAccount', {
+			token: 'session-courante',
+			input: { id: 'remembered-2' }
+		});
+		expect(deletes()).toEqual([]);
 	});
 });

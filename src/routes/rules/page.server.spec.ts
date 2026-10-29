@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const db = vi.hoisted(() => {
 	type Rule = {
@@ -152,6 +152,14 @@ vi.mock('$lib/server/logging', async (importOriginal) => ({
 	log: (event: unknown) => {
 		logged.push(event);
 	}
+}));
+
+// The #1087 block decides what the restore answers (a count, 0, or a throw); the route only reads
+// the count.
+const restoreDefaults = vi.hoisted(() => vi.fn(async (_userId: string) => 0));
+vi.mock('$lib/server/categorization/defaultRules', async (importOriginal) => ({
+	...(await importOriginal<typeof import('$lib/server/categorization/defaultRules')>()),
+	restoreMissingDefaultRules: restoreDefaults
 }));
 
 const { actions, load } = await import('./+page.server');
@@ -381,5 +389,107 @@ describe('L4a: a refused rule delete writes one authz_fail line', () => {
 			result: { success: m.rules_success_deleted() },
 			lines: []
 		});
+	});
+});
+
+/** L4b-2 (#250): a deleted rule writes `sensitive_delete`, scope rule, no count. Literal wire names. */
+describe('L4b-2: delete writes sensitive_delete', () => {
+	type Line = { event: string; attributes: Record<string, unknown> };
+	const deletes = () => (logged as Line[]).filter((line) => line.event === 'sensitive_delete');
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		logged.length = 0;
+	});
+
+	it('an owned rule: one line, scope rule, no count field', async () => {
+		db.rules.push({ ...db.rules[0], id: 'rule-l4b2-owned', userId: 'user-a' });
+		await runAction('delete', { id: 'rule-l4b2-owned' });
+		expect(deletes()).toEqual([
+			{
+				event: 'sensitive_delete',
+				attributes: {
+					'budgetpilot.user.pseudonym': logUserPseudonym(testUser.id),
+					'budgetpilot.data.operation': 'delete_rule',
+					'budgetpilot.data.scope': 'rule'
+				}
+			}
+		]);
+	});
+
+	// Green today; red if the line is written before the count is read.
+	it('a foreign rule deletes nothing and writes none', async () => {
+		await runAction('delete', { id: 'rule-user-b' });
+		expect(deletes()).toEqual([]);
+	});
+});
+
+/**
+ * #1087 piece 2: a created rule and a restore press write `sensitive_create`, scope rule, after the
+ * write returns. The restore line is written on every successful press, 0 included. Wire names as
+ * literals.
+ */
+describe('#1087: create and restoreDefaults write sensitive_create', () => {
+	type Line = { event: string; attributes: Record<string, unknown> };
+	const creates = () => (logged as Line[]).filter((line) => line.event === 'sensitive_create');
+	const line = (operation: string) => ({
+		event: 'sensitive_create',
+		attributes: {
+			'budgetpilot.user.pseudonym': logUserPseudonym(testUser.id),
+			'budgetpilot.data.operation': operation,
+			'budgetpilot.data.scope': 'rule'
+		}
+	});
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		logged.length = 0;
+	});
+
+	afterEach(() => {
+		restoreDefaults.mockReset();
+		restoreDefaults.mockImplementation(async () => 0);
+	});
+
+	// Separates "the route logs a created rule" from "the route writes nothing on create".
+	it('create with a valid rule: one line, operation create_rule', async () => {
+		await runAction('create', {
+			name: 'Patreon',
+			matchText: 'patreon',
+			targetCategory: 'Abonnements'
+		});
+		expect(creates()).toEqual([line('create_rule')]);
+	});
+
+	// Green today; separates "line after the create" from "line before the input is parsed".
+	it('create with an invalid regex writes none', async () => {
+		const result = await runAction('create', {
+			name: 'Invalide',
+			matchText: '(',
+			targetCategory: 'Abonnements',
+			isRegex: 'true'
+		});
+		expect({ status: result.status, lines: creates() }).toEqual({ status: 400, lines: [] });
+	});
+
+	// Separates "the route logs a restore press" from "the route writes nothing on restore".
+	it('restoreDefaults creating 2: one line, operation restore_default_rules', async () => {
+		restoreDefaults.mockResolvedValueOnce(2);
+		await runAction('restoreDefaults', {});
+		expect(creates()).toEqual([line('restore_default_rules')]);
+	});
+
+	// Separates "a line on every successful press" from "a line only when the count is positive".
+	it('restoreDefaults creating 0: still one line', async () => {
+		restoreDefaults.mockResolvedValueOnce(0);
+		await runAction('restoreDefaults', {});
+		expect(creates()).toEqual([line('restore_default_rules')]);
+	});
+
+	// Green today; separates "line after the restore returned" from "line before the call".
+	it('restoreDefaults that throws writes none', async () => {
+		restoreDefaults.mockRejectedValueOnce(new Error('database unavailable'));
+		await expect(runAction('restoreDefaults', {})).rejects.toThrow('database unavailable');
+		expect(creates()).toEqual([]);
 	});
 });

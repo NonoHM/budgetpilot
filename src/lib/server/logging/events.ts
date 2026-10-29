@@ -39,6 +39,15 @@ export interface ErrorFields {
 	[A.errorOperatorMessage]?: string;
 }
 
+/** Why sealing is off for this start although `BP_LOG_SEAL=on` (#875). */
+export type SealUnavailableReason =
+	| 'dir_unset'
+	| 'key_unreadable'
+	| 'key_exposed'
+	| 'key_invalid'
+	| 'keygen_failed'
+	| 'dir_unwritable';
+
 export type BackfillName =
 	'name_keys' | 'dedupe_key_hashes' | 'dedupe_key_recompute' | 'statement_accounts';
 
@@ -80,6 +89,19 @@ export interface UserFields {
 
 /** The limiter kinds that are authentication (R1): the only ones whose refusal carries the client. */
 export type AuthAttemptKind = 'LOGIN' | 'MFA' | 'REGISTER' | 'INVITE' | 'REAUTH';
+
+/**
+ * The refusals that bound a member's expensive work (L4b): their line names the user, never the
+ * client (R1). `BANK_SYNC` is not the limiter: it is the six-hour interval of one bank connection,
+ * whose `subject` counter is that connection's own.
+ */
+export type WorkAttemptKind = 'IMPORT' | 'BANK_SYNC_START' | 'BANK_SYNC';
+
+/** Why the redirect guard refused (L4b): closed, so the host the remote chose is never written. */
+export type RedirectRefusal = 'target_not_allowed' | 'unresolvable_location' | 'too_many_redirects';
+
+/** Which outbound path the guard was protecting. */
+export type RedirectUpstream = 'bank_provider' | 'model_host';
 
 /** Which of a refused attempt's counters was full: the client's, the subject's, or both. */
 export type RateLimitCounter = 'address' | 'subject' | 'both';
@@ -163,6 +185,127 @@ export type AdminActionFields =
 	| { [A.adminAction]: TargetedAdminAction; [A.targetUserPseudonym]: LogUserPseudonym }
 	| { [A.adminAction]: UntargetedAdminAction };
 
+/**
+ * THE DATA EVENTS (L4b-2, part of #250), built only in `logging/data.ts`. A line says WHAT WENT
+ * (or left, for an export) as a closed scope the constructor derives from the operation, and a
+ * count only qualifies it, as a bucket (owner ruling 2026-10-27: a restore or an account deletion
+ * that wipes everything else can log 0). No name, label, id or file name: only closed values and
+ * the pseudonyms.
+ */
+export type CountBucket = '0' | '1' | '2-9' | '10-99' | '100-999' | '1000+';
+
+/** The deletions whose line carries the transactions they destroyed. */
+export type CountedDeleteOperation =
+	'delete_account' | 'import_cancel' | 'import_replace' | 'delete_transaction';
+/** The deletions whose line carries no count. */
+export type UncountedDeleteOperation =
+	| 'delete_category'
+	| 'delete_rule'
+	| 'delete_tag'
+	| 'delete_budget'
+	| 'delete_column_mapping'
+	| 'forget_remembered_account'
+	| 'delete_nature_mapping'
+	| 'delete_bank_connection'
+	| 'undo_bill_action'
+	| 'merge_budget'
+	| 'overrule_remembered_account'
+	| 'delete_net_worth_account'
+	| 'delete_savings_goal';
+/** The prunes: records an edit or a write left with no use, counted under one field (rev 3b). */
+export type PruneOperation = 'prune_tags' | 'prune_bill_actions';
+export type SensitiveDeleteOperation =
+	CountedDeleteOperation | 'delete_user' | 'restore' | PruneOperation | UncountedDeleteOperation;
+
+export type DataScope =
+	| 'account'
+	| 'account_records'
+	| 'import'
+	| 'transaction'
+	| 'category'
+	| 'rule'
+	| 'tag'
+	| 'budget'
+	| 'column_mapping'
+	| 'remembered_account'
+	| 'nature_mapping'
+	| 'bank_connection'
+	| 'bill_action'
+	| 'net_worth_account'
+	| 'savings_goal'
+	| 'statement_account'
+	| 'selection';
+
+export type DataExport = 'backup' | 'transactions_csv';
+
+/**
+ * The creations and updates logged so far (#1087): a bank connection stored or renewed, what a sync
+ * or a file import wrote, and each record a member creates. #1080 extends the update set. A count is
+ * `unknown` when the ledger could not be read after a failure, never a figure taken from an
+ * accumulator.
+ */
+export type UncountedCreateOperation =
+	| 'connect_bank'
+	| 'create_transaction'
+	| 'save_budget'
+	| 'create_category'
+	| 'restore_default_categories'
+	| 'create_rule'
+	| 'restore_default_rules'
+	| 'create_net_worth_account'
+	| 'create_savings_goal'
+	| 'mark_bill_paid'
+	| 'ignore_bill_occurrence'
+	| 'exclude_bill_stream'
+	| 'create_statement_account';
+export type CountedCreateOperation = 'sync_bank_connection' | 'import_file';
+export type SensitiveCreateOperation = UncountedCreateOperation | CountedCreateOperation;
+export type SensitiveUpdateOperation = 'renew_bank_connection';
+
+/**
+ * Why a restore file was refused by its integrity check: the suffix of the message key each
+ * `BackupImportError` throw site uses (`settings_backup_error_<reason>`), closed so the log never
+ * carries the message, which names ids from the file.
+ */
+export type BackupIntegrityReason =
+	| 'invalid_column_mapping'
+	| 'too_many_column_mappings'
+	| 'duplicate_column_mapping'
+	| 'unknown_net_worth_account_link'
+	| 'unknown_bank_connection_link'
+	| 'unknown_account'
+	| 'unknown_category'
+	| 'unknown_import'
+	| 'unknown_tag_transaction'
+	| 'unknown_tag'
+	| 'tag_count'
+	| 'unknown_split_transaction'
+	| 'unknown_split_category'
+	| 'split_amount'
+	| 'split_sum_mismatch'
+	| 'split_count'
+	| 'unknown_net_worth_account'
+	| 'unknown_savings_goal_account';
+/** Why the restore route refused a file before or around the restore itself. */
+export type RestoreFileRefusal =
+	| 'too_large'
+	| 'too_complex'
+	| 'invalid_json'
+	| 'unsupported_format'
+	| 'schema_invalid'
+	| 'date_out_of_range'
+	| 'duplicate';
+export type RestoreRefusal = RestoreFileRefusal | BackupIntegrityReason;
+
+export interface SensitiveDeleteFields {
+	[A.dataOperation]: SensitiveDeleteOperation;
+	[A.dataScope]: DataScope;
+	[A.dataTransactionsDeleted]?: CountBucket;
+	[A.dataTransactionsRestored]?: CountBucket;
+	[A.dataRecordsDeleted]?: CountBucket;
+	[A.targetUserPseudonym]?: LogUserPseudonym;
+}
+
 export type LogEvent =
 	| {
 			event: typeof E.sysStartup;
@@ -175,6 +318,7 @@ export type LogEvent =
 				[A.configOriginSet]: boolean;
 				[A.configSecurityLog]: 'on' | 'off' | 'refused';
 				[A.configLogLevel]: 'debug' | 'info' | 'warn' | 'refused';
+				[A.configLogSeal]: 'off' | 'on' | 'refused';
 			};
 	  }
 	| {
@@ -312,6 +456,7 @@ export type LogEvent =
 			attributes: { [A.bootDirectory]: string; [A.bootUid]: number; [A.errorCode]?: string };
 	  }
 	| { event: typeof E.bootMigrateFailed; attributes: { [A.bootExitCode]: number } }
+	| { event: typeof E.bootSecretsRefused; attributes: { [A.errorOperatorMessage]: string } }
 	| {
 			event: typeof E.logSuppressed;
 			attributes: {
@@ -322,18 +467,49 @@ export type LogEvent =
 				[A.suppressedRoute]?: string;
 				[A.suppressedErrorType]?: string;
 				// The summarised event's own `floodBy` values, so a summary still says which kind it counted.
-				[A.rateLimitKind]?: AuthAttemptKind;
+				[A.rateLimitKind]?: AuthAttemptKind | WorkAttemptKind;
 				[A.rateLimitCounter]?: RateLimitCounter;
 				[A.authnReason]?: RegistrationFailure;
 				[A.sessionReason]?: DeadSessionReason;
 				[A.authzReason]?: AuthzReason;
 				[A.authzReference]?: AuthzReference;
 				[A.userPseudonym]?: LogUserPseudonym;
+				[A.redirectReason]?: RedirectRefusal;
+				[A.redirectUpstream]?: RedirectUpstream;
+				[A.dataOperation]?:
+					SensitiveDeleteOperation | SensitiveCreateOperation | SensitiveUpdateOperation;
+				[A.dataScope]?: DataScope;
+				[A.dataTransactionsDeleted]?: CountBucket;
+				[A.dataTransactionsRestored]?: CountBucket;
+				[A.dataRecordsDeleted]?: CountBucket;
+				[A.dataTransactionsCreated]?: CountBucket | 'unknown';
+				[A.targetUserPseudonym]?: LogUserPseudonym;
+				[A.dataExport]?: DataExport;
+				[A.dataTransactionsExported]?: CountBucket;
+				[A.restoreReason]?: RestoreRefusal;
 			};
 	  }
 	| {
 			event: typeof E.logLineTooLong;
 			attributes: { [A.suppressedEvent]: string; [A.droppedBytes]: number };
+	  }
+	| { event: typeof E.logCheckpoint; attributes: { [A.logCheckpointNote]: string } }
+	| {
+			event: typeof E.logSealStarted;
+			attributes: {
+				[A.logSealKeyId]: string;
+				[A.logSealHost]: string;
+				[A.logSealPreviousOrigin]: string;
+				[A.logSealPreviousSize]?: number;
+				[A.logSealPreviousRoot]?: string;
+				[A.logSealVolumePreviousOrigin]: string;
+				[A.logSealVolumePreviousSize]?: number;
+				[A.logSealVolumePreviousRoot]?: string;
+			};
+	  }
+	| {
+			event: typeof E.logSealUnavailable;
+			attributes: { [A.logSealReason]: SealUnavailableReason; [A.errorCode]?: string };
 	  }
 	| {
 			event: typeof E.authnLoginSuccess;
@@ -343,11 +519,17 @@ export type LogEvent =
 	| { event: typeof E.authnLoginFail; attributes: AttackClientFields & LoginFailure }
 	| {
 			event: typeof E.rateLimitExceeded;
-			attributes: AttackClientFields &
-				Partial<UserFields> & {
-					[A.rateLimitKind]: AuthAttemptKind;
-					[A.rateLimitCounter]: RateLimitCounter;
-				};
+			attributes:
+				| (AttackClientFields &
+						Partial<UserFields> & {
+							[A.rateLimitKind]: AuthAttemptKind;
+							[A.rateLimitCounter]: RateLimitCounter;
+						})
+				| (UserFields &
+						NoClientFields & {
+							[A.rateLimitKind]: WorkAttemptKind;
+							[A.rateLimitCounter]: RateLimitCounter;
+						});
 	  }
 	| { event: typeof E.authnLogout; attributes: UserFields & NoSubnetFields }
 	| {
@@ -360,7 +542,8 @@ export type LogEvent =
 	  }
 	| {
 			event: typeof E.authnReauthSuccess;
-			attributes: ClientFields & UserFields & { [A.authnAction]: ReauthAction };
+			attributes: ClientFields &
+				UserFields & { [A.authnAction]: ReauthAction; [A.authnFactor]: SignInFactor };
 	  }
 	| {
 			event: typeof E.authnReauthFail;
@@ -377,6 +560,51 @@ export type LogEvent =
 	  }
 	| { event: typeof E.authzFail; attributes: UserFields & NoClientFields & AuthzFailure }
 	| { event: typeof E.authzAdmin; attributes: UserFields & NoClientFields & AdminActionFields }
+	| {
+			event: typeof E.redirectRefused;
+			attributes: NoClientFields & {
+				[A.redirectReason]: RedirectRefusal;
+				[A.redirectUpstream]: RedirectUpstream;
+			};
+	  }
+	| {
+			event: typeof E.sensitiveDelete;
+			attributes: UserFields & NoClientFields & SensitiveDeleteFields;
+	  }
+	| {
+			event: typeof E.sensitiveCreate;
+			attributes: UserFields &
+				NoClientFields & {
+					[A.dataOperation]: SensitiveCreateOperation;
+					[A.dataScope]: DataScope;
+					[A.dataTransactionsCreated]?: CountBucket | 'unknown';
+				};
+	  }
+	| {
+			event: typeof E.sensitiveUpdate;
+			attributes: UserFields &
+				NoClientFields & {
+					[A.dataOperation]: SensitiveUpdateOperation;
+					[A.dataScope]: DataScope;
+				};
+	  }
+	| {
+			event: typeof E.sessionSettingsApplied;
+			attributes: { [A.sessionShortened]: number };
+	  }
+	| {
+			event: typeof E.sensitiveRead;
+			attributes: UserFields &
+				NoClientFields & {
+					[A.dataExport]: DataExport;
+					[A.dataScope]: DataScope;
+					[A.dataTransactionsExported]: CountBucket;
+				};
+	  }
+	| {
+			event: typeof E.inputValidationFail;
+			attributes: UserFields & NoClientFields & { [A.restoreReason]: RestoreRefusal };
+	  }
 	| {
 			event: typeof E.consoleOutput;
 			attributes: {
@@ -438,7 +666,8 @@ export const REGISTRY: { [N in EventName]: EventSpec<AttributesOf<N>> } = {
 			[A.configTrustedProxyRanges]: 'Operational',
 			[A.configOriginSet]: 'Operational',
 			[A.configSecurityLog]: 'Operational',
-			[A.configLogLevel]: 'Operational'
+			[A.configLogLevel]: 'Operational',
+			[A.configLogSeal]: 'Operational'
 		}
 	},
 	[E.sysCrash]: {
@@ -588,10 +817,10 @@ export const REGISTRY: { [N in EventName]: EventSpec<AttributesOf<N>> } = {
 	},
 	[E.rateLimitExceeded]: {
 		severity: 'WARN',
-		body: 'The rate limiter refused an authentication attempt. The counter says whether the client, or the account, challenge or session it aimed at, was full.',
+		body: 'An attempt was refused because it came too often. The kind says which: a sign-in step, an import, a bank connection or a bank sync. The counter says whether the client, or the account, challenge, session or connection it aimed at, was full.',
 		flood: true,
 		security: true,
-		floodBy: [A.rateLimitKind, A.rateLimitCounter],
+		floodBy: [A.rateLimitKind, A.rateLimitCounter, A.userPseudonym],
 		attributes: {
 			[A.clientPseudonym]: 'Pseudonymous',
 			[A.clientSubnetPseudonym]: 'Pseudonymous',
@@ -635,7 +864,8 @@ export const REGISTRY: { [N in EventName]: EventSpec<AttributesOf<N>> } = {
 		attributes: {
 			[A.clientPseudonym]: 'Pseudonymous',
 			[A.userPseudonym]: 'Pseudonymous',
-			[A.authnAction]: 'Operational'
+			[A.authnAction]: 'Operational',
+			[A.authnFactor]: 'Operational'
 		}
 	},
 	[E.authnReauthFail]: {
@@ -667,6 +897,13 @@ export const REGISTRY: { [N in EventName]: EventSpec<AttributesOf<N>> } = {
 		floodBy: [A.sessionReason, A.userPseudonym],
 		attributes: { [A.userPseudonym]: 'Pseudonymous', [A.sessionReason]: 'Operational' }
 	},
+	[E.sessionSettingsApplied]: {
+		severity: 'INFO',
+		body: 'The startup step brought the stored sessions within the session settings in force. The count says how many it shortened.',
+		flood: false,
+		security: false,
+		attributes: { [A.sessionShortened]: 'Operational' }
+	},
 	// A member, like a visitor, can repeat a refused reference cheaply, so it is summarised, and
 	// split by reason, kind and account so that one loop cannot summarise away another (L4a).
 	[E.authzFail]: {
@@ -693,6 +930,95 @@ export const REGISTRY: { [N in EventName]: EventSpec<AttributesOf<N>> } = {
 			[A.adminAction]: 'Operational',
 			[A.targetUserPseudonym]: 'Pseudonymous'
 		}
+	},
+	// A control-bypass event (L4b) with no actor: the party a refused redirect implicates is the
+	// upstream that sent it, not the member whose request reached it.
+	[E.redirectRefused]: {
+		severity: 'WARN',
+		body: 'An outbound request was answered with a redirect the guard refused to follow. The reason says why; the upstream says which service sent it.',
+		flood: true,
+		security: true,
+		floodBy: [A.redirectReason, A.redirectUpstream],
+		attributes: { [A.redirectReason]: 'Operational', [A.redirectUpstream]: 'Operational' }
+	},
+	// An audit record, like authz_admin: not a security event, so BP_SECURITY_LOG=off keeps it.
+	// Summarised because one-row deletes repeat at will (rev 3), keyed by every field that tells two
+	// kinds apart, so a burst of one cannot hide a line of another.
+	[E.sensitiveDelete]: {
+		severity: 'WARN',
+		body: 'A member or an admin deleted stored data. The scope says what went and a count only qualifies it: 0 beside the account scope still means every record went.',
+		flood: true,
+		security: false,
+		floodBy: [
+			A.dataOperation,
+			A.dataScope,
+			A.dataTransactionsDeleted,
+			A.dataTransactionsRestored,
+			A.dataRecordsDeleted,
+			A.userPseudonym,
+			A.targetUserPseudonym
+		],
+		attributes: {
+			[A.userPseudonym]: 'Pseudonymous',
+			[A.dataOperation]: 'Operational',
+			[A.dataScope]: 'Operational',
+			[A.dataTransactionsDeleted]: 'Operational',
+			[A.dataTransactionsRestored]: 'Operational',
+			[A.dataRecordsDeleted]: 'Operational',
+			[A.targetUserPseudonym]: 'Pseudonymous'
+		}
+	},
+	// #1087. Records like `sensitive_delete`, so `BP_SECURITY_LOG=off` keeps them; the bucket is in the
+	// key so that a sync writing nothing cannot summarise away one that wrote rows.
+	[E.sensitiveCreate]: {
+		severity: 'WARN',
+		body: 'A member or a bank sync created stored data, or ran a request that can. The operation says which, and an import or a sync carries how many transactions it created.',
+		flood: true,
+		security: false,
+		floodBy: [A.dataOperation, A.dataTransactionsCreated, A.userPseudonym],
+		attributes: {
+			[A.userPseudonym]: 'Pseudonymous',
+			[A.dataOperation]: 'Operational',
+			[A.dataScope]: 'Operational',
+			[A.dataTransactionsCreated]: 'Operational'
+		}
+	},
+	[E.sensitiveUpdate]: {
+		severity: 'WARN',
+		body: 'A member changed stored data in place. The operation says which change.',
+		flood: true,
+		security: false,
+		floodBy: [A.dataOperation, A.userPseudonym],
+		attributes: {
+			[A.userPseudonym]: 'Pseudonymous',
+			[A.dataOperation]: 'Operational',
+			[A.dataScope]: 'Operational'
+		}
+	},
+	// The bucket is in the key (contradiction pass F2): twenty empty exports must not summarise away
+	// the full one that follows them in the same minute.
+	[E.sensitiveRead]: {
+		severity: 'WARN',
+		body: 'A member exported data. The export says which file, the scope says what it holds, and the count how many transactions it carried.',
+		flood: true,
+		security: false,
+		floodBy: [A.dataExport, A.dataTransactionsExported, A.userPseudonym],
+		attributes: {
+			[A.userPseudonym]: 'Pseudonymous',
+			[A.dataExport]: 'Operational',
+			[A.dataScope]: 'Operational',
+			[A.dataTransactionsExported]: 'Operational'
+		}
+	},
+	// A control-bypass event (owner ruling 2026-10-27): only an uploaded backup's refusals, never a
+	// form field's.
+	[E.inputValidationFail]: {
+		severity: 'WARN',
+		body: 'A backup file uploaded for restore was refused, and nothing in the account changed. The reason says which check refused it.',
+		flood: true,
+		security: true,
+		floodBy: [A.restoreReason, A.userPseudonym],
+		attributes: { [A.userPseudonym]: 'Pseudonymous', [A.restoreReason]: 'Operational' }
 	},
 	[E.backfillStarted]: {
 		severity: 'INFO',
@@ -886,6 +1212,13 @@ export const REGISTRY: { [N in EventName]: EventSpec<AttributesOf<N>> } = {
 		security: false,
 		attributes: { [A.bootExitCode]: 'Operational' }
 	},
+	[E.bootSecretsRefused]: {
+		severity: 'FATAL',
+		body: 'A secret given as a file could not be used, so the app refuses to start. The message says which and why.',
+		flood: false,
+		security: false,
+		attributes: { [A.errorOperatorMessage]: 'Operational' }
+	},
 	[E.logSuppressed]: {
 		severity: 'WARN',
 		body: 'Repeats of one event were summarised instead of written, so the log cannot be used to fill the disk.',
@@ -904,7 +1237,19 @@ export const REGISTRY: { [N in EventName]: EventSpec<AttributesOf<N>> } = {
 			[A.sessionReason]: 'Operational',
 			[A.authzReason]: 'Operational',
 			[A.authzReference]: 'Operational',
-			[A.userPseudonym]: 'Pseudonymous'
+			[A.userPseudonym]: 'Pseudonymous',
+			[A.redirectReason]: 'Operational',
+			[A.redirectUpstream]: 'Operational',
+			[A.dataOperation]: 'Operational',
+			[A.dataScope]: 'Operational',
+			[A.dataTransactionsDeleted]: 'Operational',
+			[A.dataTransactionsRestored]: 'Operational',
+			[A.dataRecordsDeleted]: 'Operational',
+			[A.dataTransactionsCreated]: 'Operational',
+			[A.targetUserPseudonym]: 'Pseudonymous',
+			[A.dataExport]: 'Operational',
+			[A.dataTransactionsExported]: 'Operational',
+			[A.restoreReason]: 'Operational'
 		}
 	},
 	[E.logLineTooLong]: {
@@ -913,6 +1258,36 @@ export const REGISTRY: { [N in EventName]: EventSpec<AttributesOf<N>> } = {
 		flood: false,
 		security: false,
 		attributes: { [A.suppressedEvent]: 'Operational', [A.droppedBytes]: 'Operational' }
+	},
+	[E.logCheckpoint]: {
+		severity: 'INFO',
+		body: 'A signed checkpoint of the lines written since the previous one (BP_LOG_SEAL=on).',
+		flood: false,
+		security: false,
+		attributes: { [A.logCheckpointNote]: 'Operational' }
+	},
+	[E.logSealStarted]: {
+		severity: 'INFO',
+		body: 'Log sealing started for this process, with this key, after this checkpoint of the previous start.',
+		flood: false,
+		security: false,
+		attributes: {
+			[A.logSealKeyId]: 'Operational',
+			[A.logSealHost]: 'Operational',
+			[A.logSealPreviousOrigin]: 'Operational',
+			[A.logSealPreviousSize]: 'Operational',
+			[A.logSealPreviousRoot]: 'Operational',
+			[A.logSealVolumePreviousOrigin]: 'Operational',
+			[A.logSealVolumePreviousSize]: 'Operational',
+			[A.logSealVolumePreviousRoot]: 'Operational'
+		}
+	},
+	[E.logSealUnavailable]: {
+		severity: 'WARN',
+		body: 'BP_LOG_SEAL is on but the seal key cannot be used, so this start writes every line unsealed.',
+		flood: false,
+		security: false,
+		attributes: { [A.logSealReason]: 'Operational', [A.errorCode]: 'Operational' }
 	},
 	[E.consoleOutput]: {
 		severity: 'WARN',

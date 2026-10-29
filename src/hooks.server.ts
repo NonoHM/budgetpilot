@@ -131,7 +131,8 @@ export function startupEvents(
 				[A.configTrustedProxyRanges]: facts.trustedProxyRanges,
 				[A.configOriginSet]: Boolean(origin),
 				[A.configSecurityLog]: settings.securityLog,
-				[A.configLogLevel]: settings.level
+				[A.configLogLevel]: settings.level,
+				[A.configLogSeal]: settings.logSeal
 			}
 		},
 		origin

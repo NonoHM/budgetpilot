@@ -111,3 +111,8 @@ export function assertSessionIdleTimeoutConfigured(): void {
 export function assertRateLimitIpv6PrefixConfigured(): void {
 	checkIntegerSetting('BP_RATE_LIMIT_IPV6_PREFIX');
 }
+
+/** The log seal's interval (#875). `boot.mjs` reads it earlier, by the same rule, for its writer. */
+export function assertLogSealIntervalConfigured(): void {
+	checkIntegerSetting('BP_LOG_SEAL_INTERVAL');
+}

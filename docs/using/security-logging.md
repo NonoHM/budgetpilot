@@ -17,7 +17,11 @@ The log records how the server is running. For example:
   that could not be fetched;
 - a sign-in, a sign-out or a registration, as the next section describes;
 - a request the server refused because it named something your account cannot use, and an action
-  an admin carried out, as the section after it describes.
+  an admin carried out, as the section after it describes;
+- each time you or an admin deletes something from your account, each time you download an export,
+  and each time a backup file you upload is refused: the kind of thing, such as a transaction, an
+  import or the whole account, with a rough count of transactions such as « 10-99 », never what it
+  contained.
 
 If you report a problem, the reference on the error page lets the person who runs the instance find
 the matching line.
@@ -74,6 +78,10 @@ scrambled forms instead, made with a secret key that only the instance holds:
 Anyone without the key cannot turn these back into your address or your account. The person who
 runs the instance holds the key, so they can.
 
+The log also records when the server refuses an import, a bank connection or a bank sync because
+you tried it too often. That line holds only the scrambled form of your account, never your IP
+address or your network.
+
 ## Refused requests and admin actions
 
 When you ask for a transaction, a rule, an account or anything else that does not exist, or that is
@@ -94,6 +102,10 @@ The shipped setup keeps at most 50 MB of log for each program it runs and delete
 full, so how long a line lasts depends on how busy the instance is. If the person who runs the
 instance copies the log elsewhere, they set the retention there. The French data protection
 authority recommends between six months and a year.
+
+The person who runs the instance can also have the log signed as it is written, so that a copy of
+it can later be checked for lines removed or changed. Signing changes nothing about what is
+recorded.
 
 ## Questions
 

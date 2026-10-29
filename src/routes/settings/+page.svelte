@@ -242,11 +242,18 @@
 	// and still turned off rather than enrolled over.
 	const hasSecondFactor = $derived(data.mfa.status !== 'disabled');
 	const factorUnreadable = $derived(data.mfa.status === 'unreadable');
-	const disableModalDescription = $derived(
+	// Turning two-factor on or off ends every other session (#949), so both dialogs say so (#951).
+	// Below lg the sentence is a paragraph of its own (appended, it was the fourth line of the French
+	// disable dialog at 390 px); in Modal's header at lg it is appended, which stays at three lines.
+	const disableModalInstruction = $derived(
 		factorUnreadable
 			? m.settings_mfa_disable_modal_description_unreadable()
 			: m.settings_mfa_disable_modal_description()
 	);
+	const disableModalDescription = $derived(
+		`${disableModalInstruction} ${m.settings_other_sessions_logged_out_notice()}`
+	);
+	const setupModalDescription = `${m.settings_mfa_setup_modal_description()} ${m.settings_other_sessions_logged_out_notice()}`;
 
 	function closeMfaDisableModal() {
 		mfaDisableModalOpen = false;
@@ -1705,7 +1712,7 @@
 <Modal
 	open={passwordModalOpen}
 	title={m.settings_password_modal_title()}
-	description={m.settings_password_modal_description()}
+	description={m.settings_other_sessions_logged_out_notice()}
 	variant="compact"
 	onClose={closePasswordModal}
 >
@@ -1714,7 +1721,7 @@
 	     déjà portés par le header sr-only. -->
 	<div class="mb-4 lg:hidden" aria-hidden="true">
 		<p class="text-lg font-bold text-zinc-950">{m.settings_password_modal_title()}</p>
-		<p class="mt-1 text-sm text-zinc-500">{m.settings_password_modal_description()}</p>
+		<p class="mt-1 text-sm text-zinc-500">{m.settings_other_sessions_logged_out_notice()}</p>
 	</div>
 	<form class="space-y-4" method="POST" action="?/changePassword" autocomplete="off">
 		<div class="space-y-4">
@@ -1780,7 +1787,7 @@
 	title={form?.recoveryCodes
 		? m.settings_mfa_recovery_codes_title()
 		: m.settings_mfa_setup_modal_title()}
-	description={form?.recoveryCodes ? undefined : m.settings_mfa_setup_modal_description()}
+	description={form?.recoveryCodes ? undefined : setupModalDescription}
 	variant="compact"
 	onClose={closeMfaSetupModal}
 >
@@ -1803,6 +1810,7 @@
 		<div class="mb-4 lg:hidden" aria-hidden="true">
 			<p class="text-lg font-bold text-zinc-950">{m.settings_mfa_setup_modal_title()}</p>
 			<p class="mt-1 text-sm text-zinc-500">{m.settings_mfa_setup_modal_description()}</p>
+			<p class="mt-2 text-sm text-zinc-500">{m.settings_other_sessions_logged_out_notice()}</p>
 		</div>
 		<form class="space-y-4" method="POST" action="?/confirmTotpSetup">
 			<input type="hidden" name="secretBase32" value={form.totpSetupPending.secretBase32} />
@@ -1883,7 +1891,8 @@
 >
 	<div class="mb-4 lg:hidden" aria-hidden="true">
 		<p class="text-lg font-bold text-zinc-950">{m.settings_mfa_disable_modal_title()}</p>
-		<p class="mt-1 text-sm text-zinc-500">{disableModalDescription}</p>
+		<p class="mt-1 text-sm text-zinc-500">{disableModalInstruction}</p>
+		<p class="mt-2 text-sm text-zinc-500">{m.settings_other_sessions_logged_out_notice()}</p>
 	</div>
 	<form class="space-y-4" method="POST" action="?/disableTotp" autocomplete="off">
 		<label class="block space-y-1.5 text-sm">
@@ -1895,16 +1904,15 @@
 
 		<label class="block space-y-1.5 text-sm">
 			<span class="text-[11px] font-medium tracking-wide text-zinc-500 uppercase">
-				{factorUnreadable
-					? m.settings_mfa_recovery_code_label()
-					: m.settings_mfa_setup_code_label()}
+				{factorUnreadable ? m.settings_mfa_recovery_code_label() : m.mfa_verify_code_label()}
 			</span>
-			<!-- #904: over an unreadable secret the server takes a recovery code here, so the keyboard
-			     is a text one and the browser offers no one-time code. -->
+			<!-- The server takes a recovery code here in either state (#904, #886), so the keyboard is
+			     a text one, as at sign-in. Over an unreadable secret no one-time code can pass, so the
+			     browser offers none. -->
 			<input
 				class="w-full {inputBase}"
 				type="text"
-				inputmode={factorUnreadable ? 'text' : 'numeric'}
+				inputmode="text"
 				name={REAUTH_FIELDS.code}
 				required
 				autocomplete={factorUnreadable ? 'off' : 'one-time-code'}

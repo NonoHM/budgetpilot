@@ -16,6 +16,7 @@ import {
 	updateBudget
 } from '$lib/server/budget/dashboard';
 import type { PageServerLoad } from './$types';
+import { logSensitiveCreate, logSensitiveDelete } from '$lib/server/logging/data';
 
 export const load: PageServerLoad = async ({ locals }) => {
 	const user = requireUser(locals.user);
@@ -54,6 +55,7 @@ export const actions: Actions = {
 				category: getFormValue(formData, 'category'),
 				limit: getFormValue(formData, 'amount')
 			});
+			logSensitiveCreate(user.id, 'save_budget');
 		} catch (caught) {
 			return fail(getErrorStatus(caught), { error: getErrorMessage(caught) });
 		}
@@ -84,6 +86,7 @@ export const actions: Actions = {
 		} catch (caught) {
 			return fail(getErrorStatus(caught), { error: getErrorMessage(caught) });
 		}
+		logSensitiveDelete(user.id, 'delete_budget');
 
 		return { success: m.budgets_success_deleted() };
 	}

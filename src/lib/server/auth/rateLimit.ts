@@ -207,10 +207,6 @@ async function tripOf(kind: AttemptKind, keys: RateLimitKeys): Promise<RateLimit
 	return null;
 }
 
-async function isRateLimited(kind: AttemptKind, keys: RateLimitKeys): Promise<boolean> {
-	return (await tripOf(kind, keys)) !== null;
-}
-
 async function recordAttempt(kind: AttemptKind, ip: string, email?: string): Promise<void> {
 	const ipHash = hashAddress(ip);
 	const emailHash = email !== undefined ? hashRateLimitKey(email) : null;
@@ -264,8 +260,11 @@ export async function recordMfaAttempt(challengeId: string, ip: string): Promise
 // provider (createConnection). Limited by IP AND by hashed userId, same rationale
 // as MFA: an authenticated account can't be used to hammer the provider from a
 // single IP, nor from many IPs on a single account.
-export async function isBankSyncStartRateLimited(userId: string, ip: string): Promise<boolean> {
-	return isRateLimited('BANK_SYNC_START', { ip, subject: userId });
+export async function isBankSyncStartRateLimited(
+	userId: string,
+	ip: string
+): Promise<RateLimitTrip | null> {
+	return tripOf('BANK_SYNC_START', { ip, subject: userId });
 }
 
 export async function recordBankSyncStartAttempt(userId: string, ip: string): Promise<void> {
@@ -292,11 +291,14 @@ export async function recordBankSyncStartAttempt(userId: string, ip: string): Pr
  * after another; a concurrent burst exceeds it, because the limiter checks then records (#714), as
  * it did under the old keys.
  *
- * One case is left, #885: a thief holding a COPY of the owner's cookie shares this counter and can
- * keep it tripped, because a refused attempt records nothing. Logging out ends it (it revokes the
- * token for both holders). The refusal sentence still says only to wait, because an owner whose own
- * failure repeats (a forgotten password, a drifted authenticator) sees the same refusal, and for
- * them logging out throws away their only session. Telling the two apart is #885.
+ * One case is left: a thief holding a COPY of the owner's cookie shares this counter and can keep
+ * it tripped, because a refused attempt records nothing. Logging out ends it (it revokes the token
+ * for both holders), but an owner whose own failure repeats (a forgotten password, a drifted
+ * authenticator) sees the same refusal, and for them logging out throws away their only session.
+ * The server cannot tell the two apart: the copy IS the session, and the address that differs for
+ * a thief also differs for one owner on two interfaces or two IP families (#885, found by reading
+ * the address keying). The reader can: they know whether they made the attempts. So the sentence
+ * asks them, and advises logging out only on « that was not you ».
  *
  * Shared ACROSS actions, never per action: all of them test the same password, so a per-action
  * counter would multiply the guessing budget by the number of actions. Callers record ONLY on a wrong
@@ -318,8 +320,11 @@ export async function recordReauthAttempt(sessionId: string, ip: string): Promis
 //
 // Unlike LOGIN, EVERY attempt is recorded rather than only the failures: what is being limited here
 // is the RATE of expensive work, and a refused upload costs the same to reach as an accepted one.
-export async function isImportRateLimited(userId: string, ip: string): Promise<boolean> {
-	return isRateLimited('IMPORT', { ip, subject: userId });
+export async function isImportRateLimited(
+	userId: string,
+	ip: string
+): Promise<RateLimitTrip | null> {
+	return tripOf('IMPORT', { ip, subject: userId });
 }
 
 export async function recordImportAttempt(userId: string, ip: string): Promise<void> {

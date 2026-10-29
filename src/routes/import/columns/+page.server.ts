@@ -3,6 +3,7 @@ import { EVENT } from '$lib/server/logging/names';
 import { log } from '$lib/server/logging';
 import * as m from '$lib/paraglide/messages';
 import { isImportRateLimited, recordImportAttempt } from '$lib/server/auth/rateLimit';
+import { logWorkRateLimited } from '$lib/server/logging/authn';
 import { resolveClientAddress } from '$lib/server/net/clientAddress';
 import { requireUser } from '$lib/server/auth';
 import { prisma } from '$lib/server/db';
@@ -42,6 +43,7 @@ import type { ReplaceOutcome } from '$lib/import/completedImport.svelte';
 import type { ImportSummaryResult } from '$lib/domain/importSummary';
 import { readAccountDisplayName } from '$lib/server/accounts/service';
 import { logReferenceRefused } from '$lib/server/logging/authz';
+import { logSensitiveDelete } from '$lib/server/logging/data';
 
 /**
  * The import the designation screen submits, and the ONE place its choices become facts.
@@ -83,7 +85,9 @@ export const actions: Actions = {
 			return fail(400, { error: m.import_error_bad_extension() });
 		}
 		const importIp = resolveClientAddress({ getClientAddress, request });
-		if (await isImportRateLimited(user.id, importIp)) {
+		const trip = await isImportRateLimited(user.id, importIp);
+		if (trip) {
+			logWorkRateLimited('IMPORT', trip, user.id);
 			return fail(429, { error: m.import_error_too_many_attempts() });
 		}
 		await recordImportAttempt(user.id, importIp);
@@ -575,8 +579,13 @@ export const actions: Actions = {
 					replacedRows,
 					importedRows: persisted.importedRows
 				};
-			} else if (await deleteImportBatch(user.id, replacing.id)) {
-				replaced = { kind: 'deleted', replacedAt };
+			} else {
+				// `null` only when the batch no longer resolves; 0 transactions is still a delete.
+				const deleted = await deleteImportBatch(user.id, replacing.id);
+				if (deleted !== null) {
+					replaced = { kind: 'deleted', replacedAt };
+					logSensitiveDelete(user.id, deleted, 'import_replace');
+				}
 			}
 		}
 

@@ -12,7 +12,8 @@ import type {
 	RegistrationFailure,
 	RegistrationMethod,
 	SignInFactor,
-	UserFields
+	UserFields,
+	WorkAttemptKind
 } from './events.ts';
 
 /**
@@ -131,6 +132,23 @@ export function logRateLimited(
 }
 
 /**
+ * The limiter refused an import or a bank-connection start (L4b, #250). The same event as an
+ * authentication refusal, with the user and NO client: R1 (#841) keeps the address off every event
+ * that is not authentication. Written by the door, like `logRateLimited`; `workRateLimitDoors.spec.ts`
+ * holds every door to it.
+ */
+export function logWorkRateLimited(
+	kind: WorkAttemptKind,
+	trip: RateLimitTrip,
+	userId: string
+): void {
+	log({
+		event: E.rateLimitExceeded,
+		attributes: { ...user(userId), [A.rateLimitKind]: kind, [A.rateLimitCounter]: trip.counter }
+	});
+}
+
+/**
  * A code was judged against a stored second-factor secret that does not decrypt (#904): the
  * configured key is not the one it was stored with. Written where a code is JUDGED, at sign-in and
  * at re-authentication, never when a page merely shows the state. No client: the cause is the
@@ -161,10 +179,15 @@ export function logRegistrationFailed(ip: string, reason: RegistrationFailure): 
 	log({ event: E.authnRegisterFail, attributes: { ...client(ip), [A.authnReason]: reason } });
 }
 
-export function logReauthSucceeded(ip: string, userId: string, action: ReauthAction): void {
+export function logReauthSucceeded(
+	ip: string,
+	userId: string,
+	action: ReauthAction,
+	factor: SignInFactor
+): void {
 	log({
 		event: E.authnReauthSuccess,
-		attributes: { ...client(ip), ...user(userId), [A.authnAction]: action }
+		attributes: { ...client(ip), ...user(userId), [A.authnAction]: action, [A.authnFactor]: factor }
 	});
 }
 

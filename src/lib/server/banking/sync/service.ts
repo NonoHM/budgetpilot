@@ -7,6 +7,7 @@ import { getBankConnector } from '$lib/server/banking/connectors/registry';
 import { EnableBankingApiError } from '$lib/server/banking/enablebanking/http';
 import {
 	createImportBatch,
+	ImportWriteError,
 	persistImportedTransactions,
 	resolveImportBucketAccount
 } from '$lib/server/import/persist';
@@ -22,6 +23,7 @@ import type {
 	ConnectionContext
 } from '$lib/server/banking/connectors/types';
 import { logReferenceRefused } from '$lib/server/logging/authz';
+import { logSensitiveCreate, logSensitiveUpdate } from '$lib/server/logging/data';
 
 /**
  * Bank-sync orchestration: the ONLY layer that persists BankConnection /
@@ -336,7 +338,10 @@ export async function completeBankAuthorization(
 				lastSyncError: null
 			}
 		});
-		if (renewed.count === 1) connectionId = request.renewsConnectionId;
+		if (renewed.count === 1) {
+			connectionId = request.renewsConnectionId;
+			logSensitiveUpdate(input.userId, 'renew_bank_connection');
+		}
 		// Target deleted meanwhile: fall through to creation — the consent is not wasted.
 	}
 	if (!connectionId) {
@@ -354,6 +359,8 @@ export async function completeBankAuthorization(
 			select: { id: true }
 		});
 		connectionId = connection.id;
+		// Right after the write, so a bucket that fails below cannot leave a stored connection unlogged.
+		logSensitiveCreate(input.userId, 'connect_bank');
 	}
 
 	const source = resolveTransactionSource(request.provider);
@@ -571,8 +578,10 @@ export async function syncBankConnection(
 
 	const range = syncFetchRange(connection.lastCompleteSyncAt, currentTime, env);
 
+	// Outside the try, so the catch can log what the attempt wrote (#1087).
+	let importedRows = 0;
+	let rowsLogged = false;
 	try {
-		let importedRows = 0;
 		let duplicateRows = 0;
 		for (const bucket of buckets) {
 			const transactions = await fetchWithinBankHistory(
@@ -638,6 +647,11 @@ export async function syncBankConnection(
 			}
 		}
 
+		// Every row and balance is written by now. Once: if anything below throws (a status write
+		// throws when the connection was deleted meanwhile), the catch skips its own line.
+		logSensitiveCreate(input.userId, importedRows, 'sync_bank_connection');
+		rowsLogged = true;
+
 		// The ONE write of the fetch cursor on this path, and it is the last statement of the try:
 		// every bucket has been fetched and written by the time it runs. A throw anywhere above
 		// skips it, and so does a process that dies mid-sync, so the next window still starts from
@@ -661,6 +675,19 @@ export async function syncBankConnection(
 		});
 		return { outcome: 'synced', importedRows, duplicateRows };
 	} catch (caught) {
+		// The rows committed before the failure: the failing bucket's are read back from the ledger by
+		// the write step (`landedRows`, #660), and `null` there means nobody knows how many (#1087).
+		if (!rowsLogged) {
+			const landed =
+				caught instanceof ImportWriteError && caught.failure.kind === 'failed'
+					? caught.failure.landedRows
+					: 0;
+			logSensitiveCreate(
+				input.userId,
+				landed === null ? null : importedRows + landed,
+				'sync_bank_connection'
+			);
+		}
 		// `lastSyncAt` records the ATTEMPT, so the throttle counts a failed call against the PSD2
 		// budget like any other. The cursor is deliberately absent: a failure fetched nothing it
 		// can vouch for.

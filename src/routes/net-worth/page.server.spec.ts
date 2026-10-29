@@ -585,3 +585,140 @@ describe('L4a: a refused savings goal delete writes one authz_fail line, malform
 		});
 	});
 });
+
+/**
+ * The two soft deletes write `sensitive_delete` (L4b-2, owner ruling 7, 2026-10-28): the member
+ * pressed Delete and has no undo, so the row kept under `deletedAt` is still a deletion from their
+ * side. Separates « written once the service returned » from « written before or whatever it
+ * answers »: a service that refuses writes none.
+ */
+describe('/net-worth soft deletes write sensitive_delete', () => {
+	const deletes = () =>
+		logged.filter((line) => (line as { event: string }).event === E.sensitiveDelete);
+	const line = (operation: string, scope: string) => ({
+		event: E.sensitiveDelete,
+		attributes: {
+			[A.userPseudonym]: logUserPseudonym(testUser.id),
+			[A.dataOperation]: operation,
+			[A.dataScope]: scope
+		}
+	});
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		logged.length = 0;
+	});
+
+	it('delete: one line, scope net_worth_account', async () => {
+		service.deleteNetWorthAccount.mockResolvedValue(undefined);
+		await actions.delete(buildEvent({ id: 'acc-1' }) as never);
+		expect(deletes()).toEqual([line('delete_net_worth_account', 'net_worth_account')]);
+	});
+
+	it('delete refused by the service writes none', async () => {
+		service.deleteNetWorthAccount.mockImplementation(() => {
+			throw error(404, 'introuvable');
+		});
+		await actions.delete(buildEvent({ id: 'acc-other-user' }) as never);
+		expect(deletes()).toEqual([]);
+	});
+
+	it('deleteSavingsGoal: one line, scope savings_goal', async () => {
+		savingsGoalsService.deleteSavingsGoal.mockResolvedValue(undefined);
+		await actions.deleteSavingsGoal(buildEvent({ id: 'goal-1' }) as never);
+		expect(deletes()).toEqual([line('delete_savings_goal', 'savings_goal')]);
+	});
+
+	it('deleteSavingsGoal refused by the service writes none', async () => {
+		savingsGoalsService.deleteSavingsGoal.mockImplementation(() => {
+			throw error(404, 'introuvable');
+		});
+		await actions.deleteSavingsGoal(buildEvent({ id: 'goal-other-user' }) as never);
+		expect(deletes()).toEqual([]);
+	});
+});
+
+/**
+ * #1087 piece 2: a created net worth account and a created savings goal write `sensitive_create`
+ * right after the creating call returns. For an account the line comes BEFORE the optional link to
+ * the transactions account, so a link that fails cannot hide a row already stored. Wire names as
+ * literals.
+ */
+describe('#1087: create and createSavingsGoal write sensitive_create', () => {
+	type Line = { event: string; attributes: Record<string, unknown> };
+	const creates = () => (logged as Line[]).filter((line) => line.event === 'sensitive_create');
+	const line = (operation: string, scope: string) => ({
+		event: 'sensitive_create',
+		attributes: {
+			'budgetpilot.user.pseudonym': logUserPseudonym(testUser.id),
+			'budgetpilot.data.operation': operation,
+			'budgetpilot.data.scope': scope
+		}
+	});
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		logged.length = 0;
+		service.createNetWorthAccount.mockReset();
+		service.setManualAccountNetWorthLink.mockReset();
+		savingsGoalsService.createSavingsGoal.mockReset();
+	});
+
+	// Separates "the route logs a created account" from "the route writes nothing on create".
+	it('create: one line, operation create_net_worth_account', async () => {
+		service.createNetWorthAccount.mockResolvedValue({ id: 'acc-new' });
+		await actions.create(
+			buildEvent({ name: 'Livret A', type: 'savings', balance: '500' }) as never
+		);
+		expect(creates()).toEqual([line('create_net_worth_account', 'net_worth_account')]);
+	});
+
+	// Separates "line after the create" from "line at the end of the action": the account is stored
+	// when the link throws, and the action answers a failure.
+	it('create whose link fails after the account was stored: the line is still written', async () => {
+		service.createNetWorthAccount.mockResolvedValue({ id: 'acc-new' });
+		service.setManualAccountNetWorthLink.mockImplementation(() => {
+			throw error(500, 'link failed');
+		});
+		await actions.create(
+			buildEvent({
+				name: 'Compte courant',
+				type: 'checking',
+				balance: '100',
+				connectToTransactions: 'true'
+			}) as never
+		);
+		expect(creates()).toEqual([line('create_net_worth_account', 'net_worth_account')]);
+	});
+
+	// Green today; separates "line after the create returned" from "line before the call".
+	it('create refused by the service writes none', async () => {
+		service.createNetWorthAccount.mockImplementation(() => {
+			throw error(400, 'invalide');
+		});
+		const result = (await actions.create(
+			buildEvent({ name: 'X', type: 'checking', balance: 'abc' }) as never
+		)) as { status: number };
+		expect({ status: result.status, lines: creates() }).toEqual({ status: 400, lines: [] });
+	});
+
+	// Separates "the route logs a created goal" from "the route writes nothing on createSavingsGoal".
+	it('createSavingsGoal: one line, operation create_savings_goal', async () => {
+		savingsGoalsService.createSavingsGoal.mockResolvedValue({ id: 'goal-new' });
+		await actions.createSavingsGoal(
+			buildEvent({ name: 'Vacances', targetAmount: '1000', trackingMode: 'manual' }) as never
+		);
+		expect(creates()).toEqual([line('create_savings_goal', 'savings_goal')]);
+	});
+
+	// Green today; separates "line after the create returned" from "line before the call".
+	it('createSavingsGoal refused by the service writes none', async () => {
+		savingsGoalsService.createSavingsGoal.mockImplementation(() => {
+			throw error(400, 'invalide');
+		});
+		const result = (await actions.createSavingsGoal(
+			buildEvent({ name: 'X', targetAmount: 'abc', trackingMode: 'manual' }) as never
+		)) as { status: number };
+		expect({ status: result.status, lines: creates() }).toEqual({ status: 400, lines: [] });
+	});
+});

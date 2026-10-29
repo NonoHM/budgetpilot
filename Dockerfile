@@ -16,10 +16,10 @@
 # it back.
 #
 # Builder and runtime are the same Debian release on purpose (trixie = Debian 13, glibc 2.41,
-# Node 24.21.0 in both, verified by running both images). better-sqlite3, bcrypt and Prisma's
+# Node 24.22.1 in both, verified by running both images). better-sqlite3, bcrypt and Prisma's
 # schema-engine are native ELFs compiled in the builder stages and executed in the runtime one;
 # a base pair that drifted apart in glibc or in NODE_MODULE_VERSION would break them at boot.
-FROM node:24.21.0-trixie-slim@sha256:8ec5d7557396cfe32d21c3f9c13072355ceab22b584578ca4bb28af31120cffe AS deps
+FROM node:24.22.1-trixie-slim@sha256:89c5244bc22a9bc3287d89ebc7e49b9cb5bb84cd40e6175ac3421d5a9f68b95a AS deps
 WORKDIR /app
 
 RUN apt-get update \
@@ -37,7 +37,7 @@ COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
 
 
-FROM node:24.21.0-trixie-slim@sha256:8ec5d7557396cfe32d21c3f9c13072355ceab22b584578ca4bb28af31120cffe AS builder
+FROM node:24.22.1-trixie-slim@sha256:89c5244bc22a9bc3287d89ebc7e49b9cb5bb84cd40e6175ac3421d5a9f68b95a AS builder
 WORKDIR /app
 
 COPY --from=deps /app/node_modules ./node_modules
@@ -131,7 +131,7 @@ RUN npm run build
 RUN mkdir -p /out/data && chown 65532:65532 /out/data
 
 
-FROM node:24.21.0-trixie-slim@sha256:8ec5d7557396cfe32d21c3f9c13072355ceab22b584578ca4bb28af31120cffe AS prod-deps
+FROM node:24.22.1-trixie-slim@sha256:89c5244bc22a9bc3287d89ebc7e49b9cb5bb84cd40e6175ac3421d5a9f68b95a AS prod-deps
 WORKDIR /app
 
 RUN apt-get update \
@@ -176,7 +176,7 @@ COPY src/lib/server/database/provider.ts ./src/lib/server/database/provider.ts
 # Debugging: `docker compose exec budgetpilot sh` no longer exists. Use the same base's
 # debug-nonroot variant locally (`--entrypoint /busybox/sh`), never in production; see
 # docs/operations.md. `docker compose logs budgetpilot` is unchanged.
-FROM gcr.io/distroless/nodejs24-debian13:nonroot@sha256:9eeb7f5887d0e239e78264b06f7f11d2e14be534050481803a9e4728fcdd278e AS runner
+FROM gcr.io/distroless/nodejs24-debian13:nonroot@sha256:cb606325b7ec4af55462cb0b424a53b452a5b4a894ffe841fcf1048d216fb9f8 AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
@@ -190,6 +190,9 @@ ENV DATABASE_URL=file:/data/budgetpilot.db
 # home directory, so do not drop it as a mere network optimisation.
 ENV CHECKPOINT_DISABLE=1
 ENV PRISMA_HIDE_UPDATE_MESSAGE=1
+# The log seal's key, verification key and link state (#875), used only with BP_LOG_SEAL=on. Inside
+# /data, which every Compose file mounts; boot.mjs creates the directory on first use.
+ENV BP_LOG_SEAL_DIR=/data/log-seal
 
 # The apt-get layer the Debian-based runner used to need is gone with the base: ca-certificates
 # and openssl are both already in distroless (the schema-engine's libssl.so.3 is satisfied by the
@@ -220,6 +223,12 @@ COPY --from=builder /app/prisma.config.ts ./prisma.config.ts
 # Same reason as the prod-deps stage: the CMD below runs `prisma migrate deploy`, which loads
 # prisma.config.ts, which imports this module to pick the provider's migration history.
 COPY --from=builder /app/src/lib/server/database/provider.ts ./src/lib/server/database/provider.ts
+# The `<NAME>_FILE` resolver (#826, #1099), imported by boot.mjs, prisma.config.ts and both operator
+# scripts, and the strict check's rules it judges each file by. Its third import,
+# operatorFacingError.ts, is copied below.
+COPY --from=builder /app/src/lib/server/env/secretSources.ts \
+	/app/src/lib/server/env/secretFileFacts.ts \
+	./src/lib/server/env/
 
 # The name-normalization preview, and everything it imports.
 #
@@ -285,8 +294,8 @@ COPY package.json package-lock.json ./
 COPY boot.mjs ./boot.mjs
 COPY healthcheck.mjs ./healthcheck.mjs
 # boot.mjs writes its lines through the logger's own core, imported as TypeScript source before
-# the server bundle loads (#250). These six and operatorFacingError.ts, copied above, are the whole
-# import graph; pino comes from the production node_modules.
+# the server bundle loads (#250). These six, the seal's four (#875) and operatorFacingError.ts,
+# copied above, are the whole import graph; pino comes from the production node_modules.
 COPY --from=builder /app/src/lib/server/logging/core.ts \
 	/app/src/lib/server/logging/events.ts \
 	/app/src/lib/server/logging/flood.ts \
@@ -294,6 +303,14 @@ COPY --from=builder /app/src/lib/server/logging/core.ts \
 	/app/src/lib/server/logging/serialize.ts \
 	/app/src/lib/server/logging/settings.ts \
 	./src/lib/server/logging/
+COPY --from=builder /app/src/lib/server/logging/seal/merkle.ts \
+	/app/src/lib/server/logging/seal/note.ts \
+	/app/src/lib/server/logging/seal/sealer.ts \
+	/app/src/lib/server/logging/seal/verify.ts \
+	./src/lib/server/logging/seal/
+# scripts/log-seal.mjs (#875), the operator's verify command. It imports only seal/verify.ts, whose
+# closure is the core above.
+COPY --from=builder /app/scripts/log-seal.mjs ./scripts/log-seal.mjs
 
 # Restating what the :nonroot tag already sets, on purpose. Removing this line changes nothing
 # today — tried, and `docker inspect` still reported 65532 — which is exactly why it stays: it
