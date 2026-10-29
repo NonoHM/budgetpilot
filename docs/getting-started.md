@@ -297,6 +297,9 @@ Open **http://localhost:5173** and create your account with the
 `BOOTSTRAP_TOKEN` from `.env`, same as
 [step 5](#5-create-your-account) above.
 
+`npm run setup` sets `ORIGIN=http://localhost:5173` for this server.
+Invitation links use it, so change it if you open the app at another address.
+
 Your database is a single file, `dev.db`, at the root of the checkout.
 
 ---

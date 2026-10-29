@@ -17,6 +17,8 @@ import {
 import { reauthenticate, reauthRefusalMessage } from '$lib/server/auth/reauth';
 import { resolveClientAddress } from '$lib/server/net/clientAddress';
 import { prisma } from '$lib/server/db';
+import { env } from '$env/dynamic/private';
+import { configuredOrigin } from '$lib/server/origin';
 import { haltInference, liftInferenceHalt, readInferenceHalt } from '$lib/server/ai/inferenceHalt';
 import { isLocalLlmEnabled } from '$lib/server/insights/modelHostConfig';
 import { log } from '$lib/server/logging';
@@ -189,9 +191,15 @@ export const actions: Actions = {
 			});
 		}
 
+		// #1147: the link carries the token, so it is never built on the request's host. Checked
+		// before the row exists, so a refusal leaves no invitation nobody can hand out. No log line:
+		// nothing is written, and under `node build` boot already reports config_origin_unset.
+		const origin = configuredOrigin(env);
+		if (!origin) return fail(503, { inviteError: m.admin_error_invite_origin_unset() });
+
 		const invitation = await createInvitation(admin.id, email);
 		logAdminAction(admin.id, 'create_invitation');
-		const inviteUrl = new URL(`/register?invite=${invitation.token}`, request.url).toString();
+		const inviteUrl = new URL(`/register?invite=${invitation.token}`, origin).toString();
 
 		return {
 			inviteUrl,

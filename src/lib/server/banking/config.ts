@@ -1,4 +1,5 @@
 import { parseHostsCsv } from '$lib/server/hosts';
+import { normalizeOrigin } from '$lib/server/origin';
 
 /**
  * Bank sync configuration gate. Mirrors the LLM gating pattern (LLM_ENABLED +
@@ -75,17 +76,4 @@ export function getBankSyncRedirectUrl(
 	const normalized = normalizeOrigin(origin);
 	if (!normalized || !allowed.includes(normalized)) return null;
 	return `${normalized}${BANK_SYNC_CALLBACK_PATH}`;
-}
-
-/** Parses a value into a canonical URL origin ("scheme://host[:port]"); null when invalid. */
-function normalizeOrigin(value: string): string | null {
-	const trimmed = value.trim();
-	if (!trimmed) return null;
-	try {
-		const url = new URL(trimmed);
-		if (url.protocol !== 'https:' && url.protocol !== 'http:') return null;
-		return url.origin;
-	} catch {
-		return null;
-	}
 }

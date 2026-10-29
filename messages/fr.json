@@ -123,6 +123,7 @@
 	"admin_error_self_reset": "Impossible de réinitialiser votre propre mot de passe depuis ce panel. Utilisez Réglages > Modifier le mot de passe.",
 	"admin_delete_success": "Compte supprimé.",
 	"admin_error_invalid_email": "Email invalide.",
+	"admin_error_invite_origin_unset": "Les liens d'invitation exigent ORIGIN. Indiquez-y l'adresse saisie pour accéder à l'application, puis redémarrez.",
 	"admin_error_email_non_ascii": "Cette adresse contient des caractères non ASCII (accents, alphabet non latin). Les adresses des comptes doivent être en ASCII.",
 	"admin_error_invitation_not_found": "Invitation introuvable.",
 	"admin_invitations_heading": "Invitations",
