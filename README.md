@@ -152,6 +152,7 @@ Reaching it from another device on your LAN takes two extra lines in `.env` (`OR
 - **[Reverse proxy](docs/reverse-proxy.md)**: optional Caddy overlay for a real domain with automatic HTTPS.
 - **[PostgreSQL or MySQL](docs/database-providers.md)**: optional overlays for installs that already run a database server. SQLite is the default and needs nothing.
 - **[Running it day to day](docs/operations.md)**: updating, backups, moving machines.
+- **[Logs](docs/logging-tutorial.md)**: a first look at the log, then [reading and checking it](docs/logging-howto.md), [sending it to a collector](docs/logging-collectors.md), [every event it records](docs/logging.md), [why it looks this way](docs/explanation/logging-design.md), and [banning an address after failed sign-ins](docs/ban-failed-sign-ins.md).
 - **[Bank sync](docs/bank-sync.md)**: the optional automatic PSD2 connection.
 - **[Troubleshooting](docs/troubleshooting.md)**: when something's broken.
 
@@ -173,7 +174,7 @@ SvelteKit, TypeScript, Prisma, SQLite by default (PostgreSQL and MySQL/MariaDB o
 
 Bug reports, feature ideas, and pull requests are all welcome. See [CONTRIBUTING.md](./CONTRIBUTING.md) for setup, tests, and commit conventions. If you're using an AI coding assistant, there's an [AGENTS.md](./AGENTS.md) with project context it should read first.
 
-Release notes live in [CHANGELOG.md](./CHANGELOG.md).
+Release notes are on the [Releases page](https://github.com/NonoHM/budgetpilot/releases), and [CHANGELOG.md](./CHANGELOG.md) lists the changes in each version.
 
 ## Security
 
