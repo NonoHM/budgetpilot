@@ -58,16 +58,20 @@ const SITE = new RegExp(
 const printer = ts.createPrinter({ removeComments: true });
 
 // A `.svelte` file is not a script, so its comments go by pattern; it cannot import the server
-// client anyway, so a string holding `/*` there could only hide a write that cannot exist.
-const withoutComments = (text: string, svelte: boolean) =>
-	svelte
-		? text.replace(/<!--[\s\S]*?-->|\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
-		: printer.printFile(
-				ts.createSourceFile('file.ts', text, ts.ScriptTarget.Latest, false, ts.ScriptKind.TS)
-			);
+// client anyway, so a string holding `/*` there could only hide a write that cannot exist. Comments
+// and sites are matched as tokens of one pass and only the sites counted: removing a comment first
+// could join the text around it into a site that is not there (CodeQL, PR #1137).
+const SVELTE_TOKEN = new RegExp(`<!--[\\s\\S]*?-->|/\\*[\\s\\S]*?\\*/|//.*$|${SITE.source}`, 'gm');
 
 const sitesIn = (text: string, svelte = false) =>
-	withoutComments(text, svelte).match(SITE)?.length ?? 0;
+	svelte
+		? [...text.matchAll(SVELTE_TOKEN)].filter(([token]) => !/^(?:<!--|\/\*|\/\/)/.test(token))
+				.length
+		: (printer
+				.printFile(
+					ts.createSourceFile('file.ts', text, ts.ScriptTarget.Latest, false, ts.ScriptKind.TS)
+				)
+				.match(SITE)?.length ?? 0);
 
 const files = execFileSync('git', ['ls-files', 'src'], { cwd: ROOT, encoding: 'utf8' })
 	.split('\n')
@@ -373,8 +377,10 @@ describe('every database write has a logging decision', () => {
 			sitesIn('await tx.tag?.create({}); await tx.tag.upsert<Args>({})'),
 			sitesIn("const glob = 'src/**/*.ts'; await prisma.tag.create({}); const end = '*/';"),
 			sitesIn("fetch('https://example.test'); await prisma.tag.delete({})"),
-			sitesIn('<!-- prisma.tag.create( -->\n<p>{label}</p>', true)
-		]).toEqual([1, 1, 2, 0, 0, 0, 2, 1, 1, 0]);
+			sitesIn('<!-- prisma.tag.create( -->\n<p>{label}</p>', true),
+			sitesIn('<p>prisma.tag<!-- x -->.create(</p>', true),
+			sitesIn('<script>\n\tprisma.tag.create({}); // note\n</script>', true)
+		]).toEqual([1, 1, 2, 0, 0, 0, 2, 1, 1, 0, 0, 1]);
 	});
 
 	it('reads the tree and every model of the schema', () => {
