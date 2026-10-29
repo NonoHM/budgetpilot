@@ -2162,33 +2162,33 @@ describe('#904: settings with a stored secret that does not decrypt', () => {
 		]);
 	});
 
-	// A pin of the ruling's « only in that state »: against a READABLE secret a recovery code is not
-	// a re-authentication factor (#886 stays separate). Separates « refused as a missing code, no
-	// recovery code read or spent » from a recovery-code path that does not check the secret first.
-	it('disableTotp with a readable secret refuses the same recovery code, reading and spending none', async () => {
+	// #886, owner ruling 2026-10-29, which amends #904's « only in that state »: the owner who lost the
+	// device turns the factor off with the password and a recovery code, then enrols again. Separates
+	// that from #904's door, which refused it here as `missing-totp` with nothing read or written.
+	it('disableTotp with a readable secret, the right password and a valid recovery code turns two-factor off', async () => {
 		db.prisma.user.findUnique.mockResolvedValue({
 			passwordHash,
 			totpEnabled: true,
 			totpSecretEncrypted: readableSecret()
 		});
 
-		const result = await runAction('disableTotp', {
+		await runAction('disableTotp', {
 			token: 'session-courante',
 			input: { currentPassword: PASSWORD, code: RECOVERY_CODE }
 		});
 
 		expect({
 			decided: await vi.mocked(reauth.reauthenticate).mock.results[0]?.value,
-			status: result.status,
-			codesRead: db.prisma.recoveryCode.findMany.mock.calls.length,
 			codesSpent: db.prisma.recoveryCode.updateMany.mock.calls.length,
-			factorWrites: tx.user.update.mock.calls.length
+			factorWrites: tx.user.update.mock.calls.map(
+				([args]) => (args as { data: Record<string, unknown> }).data
+			)
 		}).toEqual({
-			decided: { ok: false, reason: 'missing-totp', asked: 'password-and-code' },
-			status: 400,
-			codesRead: 0,
-			codesSpent: 0,
-			factorWrites: 0
+			decided: { ok: true },
+			codesSpent: 1,
+			factorWrites: [
+				{ totpEnabled: false, totpSecretEncrypted: null, totpEnabledAt: null, totpLastUsedStep: null }
+			]
 		});
 	});
 });

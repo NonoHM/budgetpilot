@@ -594,11 +594,10 @@ describe('an unreadable second factor: disabled with a recovery code, nothing el
 		});
 	});
 
-	// Separates « the recovery code is accepted only while the secret is unreadable » from « disable
-	// accepts a recovery code »: the second would let a recovery code stand in for the authenticator
-	// on every account (#886 stays separate). Already true on main, and it must stay true: refused at
-	// the shape check (`missing-totp`), which records no attempt and reads no recovery code.
-	it('a READABLE secret refuses the recovery code at disableTotp, and spends nothing', async () => {
+	// #886, owner ruling 2026-10-29, amending #904's « only while unreadable »: the owner who lost the
+	// device turns a READABLE factor off with the password and a recovery code. Separates that from
+	// #904's door, which refused it at the shape check (`missing-totp`) with the factor still on.
+	it('a READABLE secret: disableTotp takes the password and a recovery code, and the factor is off', async () => {
 		expect.assertions(3);
 		const { user, recoveryCodes } = await seedFactor('readable', 'readable');
 		const session = await mintSession(user.id);
@@ -612,17 +611,88 @@ describe('an unreadable second factor: disabled with a recovery code, nothing el
 			[REAUTH_FIELDS.code]: offered.code
 		});
 
+		const after = await factor(user.id);
+		// The secret's presence as yes or no: a failure here prints no stored ciphertext.
 		expect({
 			error: answer.result.data?.totpDisableError,
-			totpEnabled: (await factor(user.id)).totpEnabled,
-			usedAt: await usedAt(offered.id),
+			totpEnabled: after.totpEnabled,
+			secretStored: after.totpSecretEncrypted !== null,
+			recoveryCodesLeft: await prisma.recoveryCode.count({ where: { userId: user.id } }),
 			attempts: await attempts()
 		}).toEqual({
-			error: m.reauth_error_password_or_code(),
-			totpEnabled: true,
-			usedAt: null,
+			error: undefined,
+			totpEnabled: false,
+			secretStored: false,
+			recoveryCodesLeft: 0,
 			attempts: 0
 		});
+	});
+
+	// The ruling's other half: every action but disableTotp still refuses a recovery code over a
+	// readable secret. Separates « disableTotp only » from a door opened wherever a code is asked,
+	// on the real engine: the code stays unspent and the password is unchanged.
+	it('a READABLE secret: changePassword refuses the recovery code, and spends nothing', async () => {
+		expect.assertions(2);
+		const { user, recoveryCodes } = await seedFactor('readable-change', 'readable');
+		const session = await mintSession(user.id);
+		const [offered] = recoveryCodes;
+		const before = await prisma.user.findUniqueOrThrow({
+			where: { id: user.id },
+			select: { passwordHash: true }
+		});
+		expect(await usedAt(offered.id)).toBeNull();
+
+		const answer = await post('changePassword', session.token, {
+			[REAUTH_FIELDS.password]: PASSWORD_A,
+			[REAUTH_FIELDS.code]: offered.code,
+			newPassword: 'another-long-passphrase-886',
+			confirmPassword: 'another-long-passphrase-886'
+		});
+
+		expect({
+			error: answer.result.data?.passwordError,
+			usedAt: await usedAt(offered.id),
+			passwordHash: (
+				await prisma.user.findUniqueOrThrow({
+					where: { id: user.id },
+					select: { passwordHash: true }
+				})
+			).passwordHash
+		}).toEqual({
+			error: m.reauth_error_password_or_code(),
+			usedAt: null,
+			passwordHash: before.passwordHash
+		});
+	});
+
+	// The calibration of the test above: the same form with the authenticator's code changes the
+	// password, so the refusal there is the recovery code's and not a form the action cannot read.
+	it('a READABLE secret: changePassword with the same form and a six-digit code changes the password', async () => {
+		expect.assertions(1);
+		const { user, secret } = await seedFactor('readable-change-calibration', 'readable');
+		const session = await mintSession(user.id);
+		const before = await prisma.user.findUniqueOrThrow({
+			where: { id: user.id },
+			select: { passwordHash: true }
+		});
+
+		const answer = await post('changePassword', session.token, {
+			[REAUTH_FIELDS.password]: PASSWORD_A,
+			[REAUTH_FIELDS.code]: currentCode(secret),
+			newPassword: 'another-long-passphrase-886',
+			confirmPassword: 'another-long-passphrase-886'
+		});
+
+		expect({
+			error: answer.result.data?.passwordError,
+			changed:
+				(
+					await prisma.user.findUniqueOrThrow({
+						where: { id: user.id },
+						select: { passwordHash: true }
+					})
+				).passwordHash !== before.passwordHash
+		}).toEqual({ error: undefined, changed: true });
 	});
 
 	// Separates « an unreadable secret has its own sentence » from main, where a six-digit code
