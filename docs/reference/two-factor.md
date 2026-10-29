@@ -44,11 +44,11 @@ issues a fresh ten.
 
 ## What each step verifies
 
-| Step       | Requires                                 |
-| ---------- | ---------------------------------------- |
-| Enabling   | current password **and** a valid code    |
-| Disabling  | current password **and** a valid code    |
-| Signing in | password, then a code or a recovery code |
+| Step       | Requires                                                 |
+| ---------- | -------------------------------------------------------- |
+| Enabling   | current password **and** a valid code                    |
+| Disabling  | current password **and** a valid code or a recovery code |
+| Signing in | password, then a code or a recovery code                 |
 
 Enabling asks for the password on purpose: without it, an already-open
 session would be enough to enrol an attacker's device and read the ten
@@ -112,13 +112,13 @@ documented as behaviour.
 
 ## Recovering a locked-out account
 
-| Route                                | Works?                                                                     |
-| ------------------------------------ | -------------------------------------------------------------------------- |
-| A recovery code                      | yes, while any remain                                                      |
-| Turning it off with a recovery code  | only when the stored secret can't be decrypted, usually after a key change |
-| An admin resetting the password      | **no**                                                                     |
-| An admin action to disable it        | **does not exist**                                                         |
-| Clearing the columns in the database | yes, and the only way with no recovery code left                           |
+| Route                                | Works?                                                          |
+| ------------------------------------ | --------------------------------------------------------------- |
+| A recovery code                      | yes, while any remain                                           |
+| Turning it off with a recovery code  | yes, with the password: a second code after signing in with one |
+| An admin resetting the password      | **no**                                                          |
+| An admin action to disable it        | **does not exist**                                              |
+| Clearing the columns in the database | yes, and the only way with no recovery code left                |
 
 The password reset was measured rather than assumed: it issues a temporary
 password and revokes the account's sessions, and signing in with that
@@ -149,7 +149,7 @@ instance with the key changed after enrolment:
 | Signing in with a code          | Refused with _Codes from your authenticator app can't be checked for this account any more. Use a recovery code._ |
 | Signing in with a recovery code | Works, and spends it                                                                                              |
 | Settings                        | The switch stays on, with _Codes can't be checked any more. Turn this off with a recovery code, then on again._   |
-| Turning it off                  | Password plus a recovery code, which is spent. Only in this state: a readable setup still asks for a code         |
+| Turning it off                  | Password plus a recovery code, which is spent, as with a readable setup                                           |
 | Any other confirmation          | Refused until two-factor is set up again: a recovery code is not accepted there                                   |
 | Turning it on again over it     | Refused: turn it off first                                                                                        |
 | The log                         | `crypt_decrypt_fail` each time a code is checked against it, not when a page only shows it                        |
