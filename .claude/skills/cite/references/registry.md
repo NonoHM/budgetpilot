@@ -117,6 +117,7 @@ The list is tracked; the copies are not. Which of these bind the project, and ho
 
 - SLSA v1.2, source requirements: https://raw.githubusercontent.com/slsa-framework/slsa/v1.2/docs/spec/v1.2/source-requirements.md
 - OpenSSF Scorecard checks: https://raw.githubusercontent.com/ossf/scorecard/main/docs/checks.md
+- npm `package.json` reference, « overrides » (pin commit 158315cd9d83768f2c7bd2e68281cc7dca2d7352, read 2026-10-29): https://raw.githubusercontent.com/npm/cli/158315cd9d83768f2c7bd2e68281cc7dca2d7352/docs/lib/content/configuring-npm/package-json.md
 
 ## IETF
 
