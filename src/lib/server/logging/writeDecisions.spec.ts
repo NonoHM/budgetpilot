@@ -117,7 +117,7 @@ const DECISIONS: Record<string, { sites: number; decisions: Decision[] }> = {
 			'covered: #938, the other sessions a password or two-factor change ends',
 			'exempt: a session end moved forward or its token rotated grants nothing new, and a cookie that stopped working writes budgetpilot.session.invalid',
 			'exempt: signInFactorsStillCurrent writes back the hash it read, a guard that changes nothing',
-			'exempt: pending second-factor challenges ended with a sign-in, the sign-in events record it'
+			'logged: authz_admin'
 		]
 	},
 	'src/lib/server/auth/invitations.ts': {
@@ -197,7 +197,10 @@ const DECISIONS: Record<string, { sites: number; decisions: Decision[] }> = {
 	},
 	'src/lib/server/categorization/rules.ts': {
 		sites: 1,
-		decisions: ['covered: #1080, rules applied to existing transactions recategorise them']
+		decisions: [
+			'logged: sensitive_create',
+			'covered: #1080, rules applied to existing transactions recategorise them'
+		]
 	},
 	'src/lib/server/database/advisoryLock.ts': {
 		sites: 6,
@@ -259,8 +262,7 @@ const DECISIONS: Record<string, { sites: number; decisions: Decision[] }> = {
 		decisions: [
 			'logged: sensitive_create',
 			'logged: sensitive_delete',
-			'covered: #1080, a net worth line edited or relinked',
-			'exempt: the balance kept for a linked account while a page is read, written by no member action'
+			'covered: #1080, a net worth line edited or relinked'
 		]
 	},
 	'src/lib/server/savings-goals/service.ts': {
@@ -269,7 +271,8 @@ const DECISIONS: Record<string, { sites: number; decisions: Decision[] }> = {
 			'logged: sensitive_create',
 			'logged: sensitive_delete',
 			'covered: #1080, a savings goal edited',
-			'exempt: the date a goal was first seen reached and its dismissed banner, display state'
+			'exempt: the balance and the date a goal was first seen reached, refreshed while the page is read, written by no member action',
+			'exempt: a dismissed banner, display state'
 		]
 	},
 	'src/lib/server/tags/bulk.ts': {
@@ -343,6 +346,13 @@ const DECISIONS: Record<string, { sites: number; decisions: Decision[] }> = {
 	}
 };
 
+function wellFormed(decision: string): boolean {
+	const logged = /^logged: (\S+)/.exec(decision);
+	// Own keys only: `in` would accept `constructor` (contradiction pass 1088-code-1).
+	if (logged) return Object.hasOwn(REGISTRY, logged[1]);
+	return /^covered: #\d+\b|^exempt: .{20,}/.test(decision);
+}
+
 const QUESTION =
 	'A Prisma write was added, removed or moved. Does this change need a log line? Name the event, ' +
 	'the issue, or the exemption, in DECISIONS with the new site count (#1088). A file listed here ' +
@@ -389,14 +399,24 @@ describe('every database write has a logging decision', () => {
 		expect(measured, QUESTION).toEqual(pinned);
 	});
 
+	// The form check against decisions it must refuse, so the sweep below cannot pass by accepting
+	// everything.
+	it('refuses an invented event, an inherited key, a bare exemption and an unnumbered issue', () => {
+		expect(
+			[
+				'logged: sensitive_create',
+				'logged: sensitive_creat',
+				'logged: constructor',
+				'exempt: none',
+				'covered: the forced change'
+			].map(wellFormed)
+		).toEqual([true, false, false, false, false]);
+	});
+
 	it('gives every pinned file a decision in one of the three forms, naming a real event', () => {
 		const malformed = Object.entries(DECISIONS).flatMap(([path, { decisions }]) =>
 			(decisions.length === 0 ? ['(none)'] : decisions)
-				.filter((decision) => {
-					const logged = /^logged: (\S+)/.exec(decision);
-					if (logged) return !(logged[1] in REGISTRY);
-					return !/^covered: #\d+\b|^exempt: .{20,}/.test(decision);
-				})
+				.filter((decision) => !wellFormed(decision))
 				.map((decision) => `${path}: ${decision}`)
 		);
 		expect([Object.keys(DECISIONS).length, malformed]).toEqual([42, []]);
