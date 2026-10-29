@@ -623,12 +623,15 @@ type LoggedEvent = { event: string; attributes: Record<string, unknown> };
 
 const events = () => logWriter.log.mock.calls.map(([event]) => event as LoggedEvent);
 
-function reauthSuccess(action: string): LoggedEvent {
+// The factor separates a disable done with the device from one done with a recovery code (#886),
+// which since that ruling is how a password and two recovery codes take an account over.
+function reauthSuccess(action: string, factor: 'password' | 'totp' | 'recovery_code'): LoggedEvent {
 	return {
 		event: EVENT.authnReauthSuccess,
 		attributes: {
 			[ATTRIBUTE.userPseudonym]: logUserPseudonym(USER),
 			[ATTRIBUTE.authnAction]: action,
+			[ATTRIBUTE.authnFactor]: factor,
 			[ATTRIBUTE.clientPseudonym]: logPseudonym(IP)
 		}
 	};
@@ -674,7 +677,7 @@ describe('L3 events: a success writes reauth_success, without the subnet label',
 
 		expect(outcome).toEqual({ ok: true });
 		expectNoSubnetKeys(events());
-		expect(events()).toEqual([reauthSuccess('revokeSession')]);
+		expect(events()).toEqual([reauthSuccess('revokeSession', 'password')]);
 	});
 
 	it('password+totp-when-enabled, with TOTP: changePassword', async () => {
@@ -688,7 +691,7 @@ describe('L3 events: a success writes reauth_success, without the subnet label',
 
 		expect(outcome).toEqual({ ok: true });
 		expectNoSubnetKeys(events());
-		expect(events()).toEqual([reauthSuccess('changePassword')]);
+		expect(events()).toEqual([reauthSuccess('changePassword', 'totp')]);
 	});
 
 	it('password+totp: disableTotp', async () => {
@@ -702,7 +705,7 @@ describe('L3 events: a success writes reauth_success, without the subnet label',
 
 		expect(outcome).toEqual({ ok: true });
 		expectNoSubnetKeys(events());
-		expect(events()).toEqual([reauthSuccess('disableTotp')]);
+		expect(events()).toEqual([reauthSuccess('disableTotp', 'totp')]);
 	});
 
 	it('password+new-secret-code: confirmTotpSetup', async () => {
@@ -718,7 +721,7 @@ describe('L3 events: a success writes reauth_success, without the subnet label',
 
 		expect(outcome).toEqual({ ok: true, totpStep: expect.any(Number) });
 		expectNoSubnetKeys(events());
-		expect(events()).toEqual([reauthSuccess('confirmTotpSetup')]);
+		expect(events()).toEqual([reauthSuccess('confirmTotpSetup', 'totp')]);
 	});
 });
 
@@ -1105,10 +1108,30 @@ describe('#904: a stored secret that does not decrypt', () => {
 		expect(db.prisma.recoveryCode.updateMany).toHaveBeenCalledTimes(1);
 	});
 
-	it('a readable secret: disableTotp with a recovery code is missing-totp, and no code is read', async () => {
+	// #886, owner ruling 2026-10-29: the lost-device way out. Separates « disableTotp takes a recovery
+	// code whatever the stored state » from the #904 door, open only while the secret is unreadable.
+	it('a readable secret: disableTotp with the right password and a recovery code passes, and spends it', async () => {
 		db.prisma.user.findUnique.mockResolvedValue(account({ totp: true }));
 
 		const outcome = await reauthenticate('disableTotp', {
+			user: caller,
+			ip: IP,
+			form: form({ password: PASSWORD, code: RECOVERY })
+		});
+
+		expect(outcome).toEqual({ ok: true });
+		expect(db.prisma.recoveryCode.updateMany).toHaveBeenCalledWith({
+			where: { id: 'rc-1', usedAt: null },
+			data: { usedAt: expect.any(Date) }
+		});
+	});
+
+	// The ruling's other half: no other action takes one. Separates « disableTotp only » from a door
+	// opened for every action that asks for a code, refused at the shape step with nothing read.
+	it('a readable secret, any action but disableTotp: a recovery code is missing-totp, and no code is read', async () => {
+		db.prisma.user.findUnique.mockResolvedValue(account({ totp: true }));
+
+		const outcome = await reauthenticate('changePassword', {
 			user: caller,
 			ip: IP,
 			form: form({ password: PASSWORD, code: RECOVERY })
@@ -1242,7 +1265,7 @@ describe('#904: a stored secret that does not decrypt', () => {
 			form: form({ password: PASSWORD, code: RECOVERY })
 		});
 
-		expect(events()).toEqual([reauthSuccess('disableTotp')]);
+		expect(events()).toEqual([reauthSuccess('disableTotp', 'recovery_code')]);
 	});
 
 	it('logs: a readable secret writes no crypt_decrypt_fail', async () => {
@@ -1254,6 +1277,6 @@ describe('#904: a stored secret that does not decrypt', () => {
 			form: form({ password: PASSWORD, code: codeFor(secret) })
 		});
 
-		expect(events()).toEqual([reauthSuccess('changePassword')]);
+		expect(events()).toEqual([reauthSuccess('changePassword', 'totp')]);
 	});
 });

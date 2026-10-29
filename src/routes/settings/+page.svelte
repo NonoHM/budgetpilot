@@ -1895,16 +1895,15 @@
 
 		<label class="block space-y-1.5 text-sm">
 			<span class="text-[11px] font-medium tracking-wide text-zinc-500 uppercase">
-				{factorUnreadable
-					? m.settings_mfa_recovery_code_label()
-					: m.settings_mfa_setup_code_label()}
+				{factorUnreadable ? m.settings_mfa_recovery_code_label() : m.mfa_verify_code_label()}
 			</span>
-			<!-- #904: over an unreadable secret the server takes a recovery code here, so the keyboard
-			     is a text one and the browser offers no one-time code. -->
+			<!-- The server takes a recovery code here in either state (#904, #886), so the keyboard is
+			     a text one, as at sign-in. Over an unreadable secret no one-time code can pass, so the
+			     browser offers none. -->
 			<input
 				class="w-full {inputBase}"
 				type="text"
-				inputmode={factorUnreadable ? 'text' : 'numeric'}
+				inputmode="text"
 				name={REAUTH_FIELDS.code}
 				required
 				autocomplete={factorUnreadable ? 'off' : 'one-time-code'}

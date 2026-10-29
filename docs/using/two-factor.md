@@ -75,7 +75,8 @@ a new code.
 
 ## Turn it off
 
-Same switch, and it asks for **your password and a current code**. Turning
+Same switch, and it asks for **your password and a current code**, or one of
+your recovery codes instead of the code. Turning
 it off deletes the stored secret and every remaining recovery code, so
 turning it on again later gives you a fresh set of ten.
 
@@ -104,7 +105,10 @@ This takes two unused recovery codes, one to sign in and one to turn it off.
 This is the part to read before enabling, not after.
 
 **With a recovery code**, sign in as usual and put the code in the same
-field. That code is then spent; you have one fewer.
+field. That code is then spent; you have one fewer. To move two-factor to a
+new phone, turn it off with your password and **another recovery code**, then
+turn it on again: the steps are the ones in
+[If your codes stop being accepted](#if-your-codes-stop-being-accepted).
 
 **With no phone and no recovery codes left, you cannot sign in, and no
 button anywhere in BudgetPilot will change that.** In particular:

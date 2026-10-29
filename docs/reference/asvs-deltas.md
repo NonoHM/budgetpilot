@@ -160,7 +160,8 @@ spent before the disable can be accepted once more; it grants nothing, because p
 means knowing it, and knowing it already mints every code.
 
 Recovery codes were already single use, consumed by a conditional update on sign-in. Re-authentication
-accepts no recovery code at all (#886).
+accepts one only to turn two-factor off, with the password, and spends it by the same update (#904,
+#886); every other action refuses it.
 
 ### `v5.0.0-6.5.5`: `C` recorded; `X` now, argued
 
