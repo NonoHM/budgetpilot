@@ -173,6 +173,10 @@ if (useDocker) {
 	// written" from the first boot onward. `npm run setup && docker compose up -d --build` is
 	// exactly what docs/getting-started.md option B prescribes.
 	content = setEnvValue(content, 'DATABASE_URL', 'file:/data/budgetpilot.db');
+} else {
+	// The address `npm run dev` serves. Invitation links are built on it and refused without it
+	// (#1147).
+	content = setEnvValue(content, 'ORIGIN', 'http://localhost:5173');
 }
 
 await writeEnvFile(envPath, content);

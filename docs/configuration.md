@@ -186,6 +186,10 @@ of every form submission as CSRF protection. If it doesn't match, login,
 registration and every other form fail with `403 Cross-site POST form
 submissions are forbidden`, while the pages themselves load fine.
 
+Invitation links are built on `ORIGIN` too, never on the address a request
+arrived with. If `ORIGIN` is unset, the admin page refuses to create an
+invitation and says why.
+
 Different port on the same machine: change `APP_PORT` and stop there.
 
 ```dotenv

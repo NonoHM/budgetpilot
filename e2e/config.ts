@@ -61,5 +61,7 @@ function loadEnvTestFile(): Record<string, string> {
 export const E2E_ENV: Record<string, string> = {
 	...loadEnvTestFile(),
 	DATABASE_URL: E2E_DATABASE_URL,
+	// Invitation links are built on ORIGIN and refused without it (#1147).
+	ORIGIN: E2E_BASE_URL,
 	NODE_ENV: 'production'
 };

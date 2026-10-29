@@ -113,11 +113,11 @@ export const SETTINGS = {
 		kind: 'text',
 		tier: 'essential',
 		group: 'Instance',
-		readBy: 'adapter-node',
+		readBy: 'app',
 		format: 'the exact URL typed in the browser, without a trailing slash',
 		default: 'http://localhost:<APP_PORT> under Docker Compose',
 		summary:
-			'The address people use to reach the app. Form submissions from any other origin are refused.',
+			'The address people use to reach the app. Invitation links are built on it, and form submissions from any other origin are refused.',
 		page: 'configuration.md#origin-has-to-be-exact'
 	},
 	PUBLIC_INSTANCE: {
