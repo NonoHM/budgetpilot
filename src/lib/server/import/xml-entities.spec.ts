@@ -281,3 +281,34 @@ describe('v5.0.0-5.2.2: an internal entity bomb expands to nothing', () => {
 		expect(cell.length).toBeLessThan(EXPANDED_BOMB_LENGTH);
 	});
 });
+
+/**
+ * #1146: cell TEXT a parser swap can change while every entity assertion above stays green.
+ * read-excel-file 9.3.12's vendored saxen decodes `&#x1F600;` with `fromCharCode` (U+F600, a
+ * private-use character that renders), drops CDATA, and keeps only the text after a comment; 9.2.0
+ * reads all three as the file wrote them. Each test separates "the stored text is the file's text"
+ * from one of those three; installing 9.3.12 turns each of them red, on its own.
+ */
+describe('#1146: cell text reaches the import exactly as the file wrote it', () => {
+	it('a character reference above U+FFFF decodes to that code point', async () => {
+		expect.assertions(1);
+		const result = await readImportFile(asUpload(buildWorkbook(sharedStrings('', 'A&#x1F600;B'))));
+		expect(result.rows[0]?.cells[0]).toBe('A\u{1F600}B');
+	});
+
+	it('CDATA content is kept', async () => {
+		expect.assertions(1);
+		const result = await readImportFile(
+			asUpload(buildWorkbook(sharedStrings('', 'pre<![CDATA[x < y & z]]>post')))
+		);
+		expect(result.rows[0]?.cells[0]).toBe('prex < y & zpost');
+	});
+
+	it('a comment inside the text does not cut the text before it', async () => {
+		expect.assertions(1);
+		const result = await readImportFile(
+			asUpload(buildWorkbook(sharedStrings('', 'before<!-- c -->after')))
+		);
+		expect(result.rows[0]?.cells[0]).toBe('beforeafter');
+	});
+});
