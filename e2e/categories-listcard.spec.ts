@@ -28,7 +28,7 @@ test.describe('categories mobile ListCard', () => {
 		const firstCard = mobileList.locator('> div').first();
 
 		await expect(
-			firstCard.getByRole('button', { name: prefixOf(m.categories_nature_aria({ name: '' })) })
+			firstCard.getByRole('combobox', { name: prefixOf(m.categories_nature_aria({ name: '' })) })
 		).toBeVisible();
 		await expect(
 			firstCard.getByRole('button', {

@@ -84,7 +84,7 @@ function visibleNatureForm(page: import('@playwright/test').Page) {
 async function chooseNature(page: import('@playwright/test').Page, natureLabel: string) {
 	const form = visibleNatureForm(page);
 	await expect(form).toHaveCount(1);
-	await form.getByRole('button', { name: m.transactions_manual_nature_heading() }).click();
+	await form.getByRole('combobox', { name: m.transactions_manual_nature_heading() }).click();
 	await page.getByRole('option', { name: natureLabel }).first().click();
 	await form.getByRole('button', { name: m.common_save(), exact: true }).click();
 }

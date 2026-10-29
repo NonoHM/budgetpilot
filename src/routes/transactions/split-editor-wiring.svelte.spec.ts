@@ -669,7 +669,7 @@ describe('the tab-return refresh (1r)', () => {
 		// A pending nature change. `invalidateAll` re-runs the load, and the page resets the manual
 		// selectors from it — so refreshing here would throw away work the user can see on screen,
 		// to detect a category deletion that happens units-of-times per year.
-		const natureTrigger = page.getByRole('button', { name: 'Nature manuelle' }).first();
+		const natureTrigger = page.getByRole('combobox', { name: 'Nature manuelle' }).first();
 		await userEvent.click(natureTrigger);
 		await userEvent.click(page.getByRole('option', { name: 'Transfert' }).first());
 

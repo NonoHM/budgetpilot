@@ -128,7 +128,7 @@ describe('manual category/nature save button dirty state', () => {
 
 		expect(saveBtn.disabled).toBe(true);
 
-		const trigger = page.getByRole('button', { name: 'Nature manuelle' });
+		const trigger = page.getByRole('combobox', { name: 'Nature manuelle' });
 		await userEvent.click(trigger);
 		await userEvent.click(page.getByRole('option', { name: 'Transfert' }));
 		expect(saveBtn.disabled).toBe(false);
@@ -143,7 +143,7 @@ describe('manual category/nature save button dirty state', () => {
 		await render(Page, { data: baseData(), form: null });
 
 		const sheet = page.getByRole('dialog');
-		const trigger = sheet.getByRole('button', { name: 'Nature manuelle' });
+		const trigger = sheet.getByRole('combobox', { name: 'Nature manuelle' });
 		const saveBtn = sheet.getByRole('button', { name: 'Enregistrer' }).nth(1);
 
 		await expect.element(saveBtn).toBeDisabled();
