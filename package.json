@@ -77,7 +77,7 @@
 		"@prisma/adapter-pg": "^7.10.1",
 		"@prisma/client": "^7.10.1",
 		"bcrypt": "^6.0.0",
-		"bits-ui": "^2.20.0",
+		"bits-ui": "^2.20.1",
 		"jose": "^6.2.13",
 		"ollama": "^0.6.4",
 		"otpauth": "^9.5.2",
