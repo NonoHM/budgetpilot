@@ -2715,3 +2715,66 @@ describe('L4b-2: deleteTransaction writes sensitive_delete', () => {
 		expect(deletes()).toEqual([]);
 	});
 });
+
+/**
+ * #1087 piece 2: a rule created from /transactions writes `sensitive_create`, scope rule, once, after
+ * the create returns. The focus-mode auto-apply that may follow is not a second create. Wire names as
+ * literals.
+ */
+describe('#1087: createRule writes sensitive_create', () => {
+	type Line = { event: string; attributes: Record<string, unknown> };
+	const creates = () => (logged as Line[]).filter((line) => line.event === 'sensitive_create');
+	const ruleLine = {
+		event: 'sensitive_create',
+		attributes: {
+			'budgetpilot.user.pseudonym': logUserPseudonym(testUser.id),
+			'budgetpilot.data.operation': 'create_rule',
+			'budgetpilot.data.scope': 'rule'
+		}
+	};
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		logged.length = 0;
+		categoryRules.length = 0;
+	});
+
+	afterEach(() => {
+		const row = db.transactions.find((t) => t.id === 'transaction-5');
+		if (row) {
+			row.manualCategory = null;
+			row.natureManual = null;
+		}
+	});
+
+	// Separates "the route logs a created rule" from "the route writes nothing on createRule".
+	it('a rule with no focus pile: one line, operation create_rule', async () => {
+		await runCreateRule({
+			name: 'Regle',
+			matchText: 'Transaction 5',
+			targetCategory: 'Alimentation'
+		});
+		expect(creates()).toEqual([ruleLine]);
+	});
+
+	// Separates "one line per created rule" from "a line per auto-applied row" or "a line only on
+	// the early return that has no focus pile".
+	it('a rule then applied to the focus pile: still exactly one line', async () => {
+		const result = await runCreateRule(
+			{ name: 'Regle', matchText: 'Transaction 5', targetCategory: 'Alimentation' },
+			['transaction-5', 'transaction-6']
+		);
+		expect(result.autoAppliedIds).toEqual(['transaction-5']);
+		expect(creates()).toEqual([ruleLine]);
+	});
+
+	// Green today; separates "line after the create" from "line before the input is parsed".
+	it('an invalid rule writes none', async () => {
+		const result = await runCreateRule({
+			name: 'Vide',
+			matchText: '',
+			targetCategory: 'Alimentation'
+		});
+		expect({ status: result.status, lines: creates() }).toEqual({ status: 400, lines: [] });
+	});
+});

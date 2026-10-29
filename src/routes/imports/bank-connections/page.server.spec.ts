@@ -21,6 +21,17 @@ const service = vi.hoisted(() => ({
 }));
 vi.mock('$lib/server/banking/sync/service', () => service);
 
+// The #1087 block decides what the net worth writes answer; nothing else in this file reaches them.
+const netWorth = vi.hoisted(() => ({
+	createNetWorthAccount: vi.fn(),
+	linkBankAccountToNetWorth: vi.fn(),
+	readLinkableNetWorthAccounts: vi.fn()
+}));
+vi.mock('$lib/server/net-worth/service', async (importOriginal) => ({
+	...(await importOriginal<typeof import('$lib/server/net-worth/service')>()),
+	...netWorth
+}));
+
 const { actions } = await import('./+page.server');
 
 const USER = { id: 'user-sync', email: 'sync@example.test', role: 'USER' as const };
@@ -121,5 +132,77 @@ describe('/imports/bank-connections ?/delete writes sensitive_delete', () => {
 		service.deleteBankConnection.mockResolvedValue(false);
 		await remove();
 		expect(deletes()).toEqual([]);
+	});
+});
+
+/**
+ * #1087 piece 2: linking a bank account with mode=create creates a net worth account, so it writes
+ * `sensitive_create`, scope net_worth_account, right after `createNetWorthAccount` returns and
+ * BEFORE the link, so a link that fails cannot hide a row already stored. Modes none and existing
+ * create nothing and write no such line. Wire names as literals.
+ */
+describe('#1087: linkAccount writes sensitive_create', () => {
+	async function link(fields: Record<string, string>): Promise<{ status?: number }> {
+		const body = new FormData();
+		body.set('accountId', 'bank-account-1');
+		for (const [key, value] of Object.entries(fields)) body.set(key, value);
+		const request = new Request('http://localhost/imports/bank-connections?/linkAccount', {
+			method: 'POST',
+			body
+		});
+		return (await actions.linkAccount({ locals: { user: USER }, request } as never)) as {
+			status?: number;
+		};
+	}
+	const creates = () =>
+		logged.filter((line) => (line as { event: string }).event === 'sensitive_create');
+	const createdLine = {
+		event: 'sensitive_create',
+		attributes: {
+			'budgetpilot.user.pseudonym': logUserPseudonym(USER.id),
+			'budgetpilot.data.operation': 'create_net_worth_account',
+			'budgetpilot.data.scope': 'net_worth_account'
+		}
+	};
+	const CREATE = { mode: 'create', name: 'Compte courant', type: 'checking', balance: '100' };
+
+	beforeEach(() => {
+		logged.length = 0;
+		netWorth.createNetWorthAccount.mockReset();
+		netWorth.linkBankAccountToNetWorth.mockReset();
+	});
+
+	// Separates "the route logs the account mode=create stored" from "writes nothing on link".
+	it('mode=create: one line, operation create_net_worth_account', async () => {
+		netWorth.createNetWorthAccount.mockResolvedValue({ id: 'nw-new' });
+		netWorth.linkBankAccountToNetWorth.mockResolvedValue(undefined);
+		await link(CREATE);
+		expect(creates()).toEqual([createdLine]);
+	});
+
+	// Separates "line after the create" from "line at the end of the action": the account is stored
+	// when the link throws, and the action answers a failure.
+	it('mode=create whose link fails after the account was stored: the line is still written', async () => {
+		netWorth.createNetWorthAccount.mockResolvedValue({ id: 'nw-new' });
+		netWorth.linkBankAccountToNetWorth.mockRejectedValue(new Error('link failed'));
+		await link(CREATE);
+		expect(creates()).toEqual([createdLine]);
+	});
+
+	// Green today; separates "line after the create returned" from "line before the call".
+	it('mode=create refused by the service writes none', async () => {
+		netWorth.createNetWorthAccount.mockRejectedValue(new Error('invalid balance'));
+		const result = await link({ ...CREATE, balance: 'abc' });
+		expect({ status: result.status, lines: creates() }).toEqual({ status: 400, lines: [] });
+	});
+
+	// Green today; separates "a line for the account created" from "a line for any link".
+	it.each([
+		['none', { mode: 'none' }],
+		['existing', { mode: 'existing', netWorthAccountId: 'nw-existing' }]
+	])('mode=%s creates nothing and writes none', async (_mode, fields) => {
+		netWorth.linkBankAccountToNetWorth.mockResolvedValue(undefined);
+		const result = await link(fields);
+		expect({ status: result.status, lines: creates() }).toEqual({ status: undefined, lines: [] });
 	});
 });

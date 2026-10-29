@@ -13,7 +13,7 @@ import { prisma } from '$lib/server/db';
 import { normalizeId } from '$lib/server/transactions/where';
 import type { PageServerLoad } from './$types';
 import { logReferenceRefused } from '$lib/server/logging/authz';
-import { logSensitiveDelete } from '$lib/server/logging/data';
+import { logSensitiveCreate, logSensitiveDelete } from '$lib/server/logging/data';
 
 export const load: PageServerLoad = async ({ locals, url }) => {
 	const user = requireUser(locals.user);
@@ -88,6 +88,7 @@ export const actions: Actions = {
 				...parsed.value
 			}
 		});
+		logSensitiveCreate(user.id, 'create_rule');
 
 		return { success: m.rules_success_created() };
 	},
@@ -172,6 +173,7 @@ export const actions: Actions = {
 	restoreDefaults: async ({ locals }) => {
 		const user = requireUser(locals.user);
 		const created = await restoreMissingDefaultRules(user.id);
+		logSensitiveCreate(user.id, 'restore_default_rules');
 		return {
 			success:
 				created > 0

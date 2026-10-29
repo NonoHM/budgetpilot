@@ -25,7 +25,7 @@ import { resolveClientAddress } from '$lib/server/net/clientAddress';
 import { normalizeId } from '$lib/server/transactions/where';
 import type { PageServerLoad } from './$types';
 import { logReferenceRefused } from '$lib/server/logging/authz';
-import { logSensitiveDelete } from '$lib/server/logging/data';
+import { logSensitiveCreate, logSensitiveDelete } from '$lib/server/logging/data';
 
 /** The only provider exposed in the UI (the mock connector stays test/demo-only). */
 const PROVIDER = 'enablebanking';
@@ -234,6 +234,8 @@ export const actions: Actions = {
 					balance: getFormValue(formData, 'balance'),
 					asOfDate: getFormValue(formData, 'asOfDate') || undefined
 				});
+				// Before the link, which can refuse the posted account with this one already stored.
+				logSensitiveCreate(user.id, 'create_net_worth_account');
 				await linkBankAccountToNetWorth(user.id, accountId, created.id);
 			} else {
 				return fail(400, { error: m.bank_connections_error_generic() });

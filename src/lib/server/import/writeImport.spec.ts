@@ -19,15 +19,19 @@ vi.mock('./persist', async (importOriginal) => ({
 }));
 
 const logged = vi.hoisted(() => [] as unknown[]);
+// Set by one #1087 test: the `sensitive_create` line throws, as it would without the pseudonym secret.
+const logFault = vi.hoisted(() => ({ on: false }));
 vi.mock('$lib/server/logging', async (importOriginal) => ({
 	...(await importOriginal<typeof import('$lib/server/logging')>()),
-	log: (event: unknown) => {
+	log: (event: { event: string }) => {
+		if (logFault.on && event.event === 'sensitive_create') throw new Error('log fault');
 		logged.push(event);
 	}
 }));
 
 const { ImportWriteError } = await import('./persist');
 const { classifyWriteFailure, writeImport } = await import('./writeImport');
+const { logUserPseudonym } = await import('$lib/server/logging/pseudonym');
 
 const MISMATCH = {
 	code: 'declared-currency-mismatch' as const,
@@ -145,8 +149,10 @@ describe('writeImport', () => {
 		await writeImport({ batch, transactions: [], parseDuplicateRows: 0 });
 
 		// The whole event: it names the code an operator can look up, and nothing carries the
-		// cause's message.
-		expect(logged).toEqual([
+		// cause's message. The import's own `sensitive_create` line is asserted below.
+		expect(
+			(logged as { event: string }[]).filter((line) => line.event === EVENT.importWriteFailed)
+		).toEqual([
 			{
 				event: EVENT.importWriteFailed,
 				attributes: {
@@ -176,5 +182,117 @@ describe('writeImport', () => {
 		const outcome = await writeImport({ batch, transactions: [], parseDuplicateRows: 0 });
 
 		expect(outcome).toEqual({ ok: true, batchId: 'batch-1', persisted });
+	});
+});
+
+/**
+ * #1087: every call writes one `sensitive_create` `import_file`, whatever the outcome, because
+ * `/import` may have created the destination account before the write and a category can land
+ * before a row insert fails. The count is the ledger's answer: the rows written, the rows a failure
+ * left, `0` where nothing can have landed, `unknown` where the ledger could not be read. Wire names
+ * as literals, so a renamed constant cannot carry the assertion with it.
+ */
+describe('#1087: writeImport writes sensitive_create import_file', () => {
+	const batch = {
+		userId: 'user-a',
+		accountId: 'account-a',
+		source: 'csv',
+		fileName: 'releve.csv',
+		profile: 'generic',
+		rowCount: 1,
+		invalidRows: 0,
+		period: { from: null, to: null }
+	};
+	const creates = () =>
+		(logged as { event: string }[]).filter((line) => line.event === 'sensitive_create');
+	const line = (created: string) => ({
+		event: 'sensitive_create',
+		attributes: {
+			'budgetpilot.user.pseudonym': logUserPseudonym('user-a'),
+			'budgetpilot.data.operation': 'import_file',
+			'budgetpilot.data.scope': 'import',
+			'budgetpilot.data.transactions_created': created
+		}
+	});
+	const run = () => writeImport({ batch, transactions: [], parseDuplicateRows: 0 });
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		logged.length = 0;
+	});
+
+	it('counts the rows written on success', async () => {
+		persist.createImportBatchRow.mockResolvedValueOnce({ id: 'batch-1', createdAt: CREATED_AT });
+		persist.persistImportedTransactions.mockResolvedValueOnce({
+			importedRows: 12,
+			duplicateRows: 0,
+			importedDebitCents: 0,
+			importedCreditCents: 0,
+			importedTransactionIds: [],
+			autoCategorizedRows: 0
+		});
+		await run();
+		expect(creates()).toEqual([line('10-99')]);
+	});
+
+	// Separates « counted from the ledger » from « the success figure or nothing ».
+	it('counts the rows a failure left', async () => {
+		persist.createImportBatchRow.mockResolvedValueOnce({ id: 'batch-1', createdAt: CREATED_AT });
+		persist.persistImportedTransactions.mockRejectedValueOnce(
+			new ImportWriteError({ kind: 'failed', landedRows: 3 })
+		);
+		await run();
+		expect(creates()).toEqual([line('2-9')]);
+	});
+
+	it('says unknown when the ledger could not be read', async () => {
+		persist.createImportBatchRow.mockResolvedValueOnce({ id: 'batch-1', createdAt: CREATED_AT });
+		persist.persistImportedTransactions.mockRejectedValueOnce(
+			new ImportWriteError({ kind: 'failed', landedRows: null })
+		);
+		await run();
+		expect(creates()).toEqual([line('unknown')]);
+	});
+
+	// Separates « one line per call » from « a line only when rows landed ».
+	it('writes 0 when the batch itself was refused', async () => {
+		persist.createImportBatchRow.mockRejectedValueOnce(new Error('connection reset'));
+		await run();
+		expect(creates()).toEqual([line('0')]);
+	});
+
+	// Separates « a log fault surfaces as itself » from « a log fault is read as a failed write »: inside
+	// the write's `catch`, it was classified `maybe-saved` and logged as a failed `rows` stage, a
+	// statement about the ledger made by the logger.
+	it('a line that throws after a written import is not read as a failed write', async () => {
+		persist.createImportBatchRow.mockResolvedValueOnce({ id: 'batch-1', createdAt: CREATED_AT });
+		persist.persistImportedTransactions.mockResolvedValueOnce({
+			importedRows: 1,
+			duplicateRows: 0,
+			importedDebitCents: 0,
+			importedCreditCents: 0,
+			importedTransactionIds: [],
+			autoCategorizedRows: 0
+		});
+		logFault.on = true;
+		try {
+			await expect(run()).rejects.toThrow('log fault');
+		} finally {
+			logFault.on = false;
+		}
+		expect(
+			(logged as { event: string }[]).filter(
+				(line) => line.event === 'budgetpilot.import.write_failed'
+			)
+		).toEqual([]);
+	});
+
+	it('writes 0 on a currency refusal', async () => {
+		persist.createImportBatchRow.mockResolvedValueOnce({ id: 'batch-1', createdAt: CREATED_AT });
+		persist.persistImportedTransactions.mockRejectedValueOnce(
+			new DeclaredCurrencyMismatchError(MISMATCH)
+		);
+		await run();
+		expect(creates()).toEqual([line('0')]);
 	});
 });

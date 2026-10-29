@@ -233,17 +233,32 @@ export type DataScope =
 	| 'bill_action'
 	| 'net_worth_account'
 	| 'savings_goal'
+	| 'statement_account'
 	| 'selection';
 
 export type DataExport = 'backup' | 'transactions_csv';
 
 /**
- * The creations and updates logged so far (#1087): a bank connection stored or renewed, and what a
- * sync wrote. #1080 extends the update set. A sync's count is `unknown` when the ledger could not be
- * read after a failure, never a figure taken from an accumulator.
+ * The creations and updates logged so far (#1087): a bank connection stored or renewed, what a sync
+ * or a file import wrote, and each record a member creates. #1080 extends the update set. A count is
+ * `unknown` when the ledger could not be read after a failure, never a figure taken from an
+ * accumulator.
  */
-export type UncountedCreateOperation = 'connect_bank';
-export type CountedCreateOperation = 'sync_bank_connection';
+export type UncountedCreateOperation =
+	| 'connect_bank'
+	| 'create_transaction'
+	| 'save_budget'
+	| 'create_category'
+	| 'restore_default_categories'
+	| 'create_rule'
+	| 'restore_default_rules'
+	| 'create_net_worth_account'
+	| 'create_savings_goal'
+	| 'mark_bill_paid'
+	| 'ignore_bill_occurrence'
+	| 'exclude_bill_stream'
+	| 'create_statement_account';
+export type CountedCreateOperation = 'sync_bank_connection' | 'import_file';
 export type SensitiveCreateOperation = UncountedCreateOperation | CountedCreateOperation;
 export type SensitiveUpdateOperation = 'renew_bank_connection';
 
@@ -957,7 +972,7 @@ export const REGISTRY: { [N in EventName]: EventSpec<AttributesOf<N>> } = {
 	// key so that a sync writing nothing cannot summarise away one that wrote rows.
 	[E.sensitiveCreate]: {
 		severity: 'WARN',
-		body: 'A member stored a bank connection, or a bank sync wrote data. The operation says which, and a sync carries how many transactions it created.',
+		body: 'A member or a bank sync created stored data, or ran a request that can. The operation says which, and an import or a sync carries how many transactions it created.',
 		flood: true,
 		security: false,
 		floodBy: [A.dataOperation, A.dataTransactionsCreated, A.userPseudonym],

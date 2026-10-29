@@ -1,3 +1,4 @@
+import { env } from '$env/dynamic/private';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from '$lib/server/db';
 import {
@@ -103,6 +104,10 @@ async function attempt(input: Parameters<typeof persistImportedTransactions>[0])
 		return caught as Error & { failure?: unknown };
 	}
 }
+
+// writeImport writes a line naming the member (#1087), so the pseudonym needs the secret; the
+// db-smoke $env is an empty stub on purpose (vitest.db.env-stub.ts), so the fixture is explicit.
+env.RATE_LIMIT_HASH_SECRET = 'e5'.repeat(32);
 
 describe('#660: the batch count is what the ledger holds, whatever threw', () => {
 	it('records 3 on the batch when the third row throws after its parent committed', async () => {

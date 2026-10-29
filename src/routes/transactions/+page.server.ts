@@ -65,7 +65,7 @@ import {
 } from '$lib/server/transactions/totals';
 import type { PageServerLoad } from './$types';
 import { logReferenceRefused } from '$lib/server/logging/authz';
-import { logSensitiveDelete } from '$lib/server/logging/data';
+import { logSensitiveCreate, logSensitiveDelete } from '$lib/server/logging/data';
 
 /** The join row Prisma returns for the `tags` relation, before flattenTagLinks unwraps it. */
 interface TagLinkRow {
@@ -1022,6 +1022,7 @@ export const actions: Actions = {
 		const createdRule = await prisma.categoryRule.create({
 			data: { userId: user.id, ...parsed.value }
 		});
+		logSensitiveCreate(user.id, 'create_rule');
 
 		// Focus mode (optional, see createRuleInFocusMode in +page.svelte): as soon as a rule is
 		// created, it automatically classifies ALL REMAINING items in the current session's frozen

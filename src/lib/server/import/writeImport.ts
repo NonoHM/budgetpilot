@@ -1,5 +1,6 @@
 import { loggableError } from '$lib/server/errors';
 import { errorFields, log } from '$lib/server/logging';
+import { logSensitiveCreate } from '$lib/server/logging/data';
 import { ATTRIBUTE, EVENT } from '$lib/server/logging/names';
 import { DeclaredCurrencyMismatchError, type DeclaredCurrencyMismatch } from './declaredCurrency';
 import {
@@ -64,6 +65,11 @@ export function classifyWriteFailure(caught: unknown, batchCreatedAt: Date): Imp
  * the result makes the failure branch something the caller has to read before it can reach
  * `batchId`. ASVS v5.0.0-16.5.3: nothing after a failure proceeds as if the import had happened,
  * because the success fields do not exist on that branch.
+ *
+ * Every call writes one `sensitive_create` `import_file` (#1087), whatever the outcome: `/import` may
+ * have created the destination account before this runs, and a category can land before a row
+ * insert fails. The count is the ledger's: `0` where no row can have landed, `null` (`unknown`)
+ * where the ledger could not be read.
  */
 export async function writeImport(input: {
 	batch: CreateImportBatchInput;
@@ -78,11 +84,13 @@ export async function writeImport(input: {
 		// Before the batch exists no row can be filed under it, so « nothing » is known here even
 		// for an error this module does not recognise. It is the only place that holds.
 		logWriteFailure(caught, 'batch');
+		logSensitiveCreate(input.batch.userId, 0, 'import_file');
 		return { ok: false, failure: { kind: 'nothing-saved' } };
 	}
 
+	let persisted: PersistImportedTransactionsResult;
 	try {
-		const persisted = await persistImportedTransactions({
+		persisted = await persistImportedTransactions({
 			userId: input.batch.userId,
 			accountId: input.batch.accountId,
 			importBatchId: batchId,
@@ -90,7 +98,6 @@ export async function writeImport(input: {
 			transactions: input.transactions,
 			parseDuplicateRows: input.parseDuplicateRows
 		});
-		return { ok: true, batchId, persisted };
 	} catch (caught) {
 		const failure = classifyWriteFailure(caught, batchCreatedAt);
 		// The currency backstop is a refusal the route states in full, not a fault to report.
@@ -107,8 +114,21 @@ export async function writeImport(input: {
 				logWriteFailure(cleanup, 'cleanup');
 			}
 		}
+		logSensitiveCreate(
+			input.batch.userId,
+			failure.kind === 'partly-saved'
+				? failure.landedRows
+				: failure.kind === 'maybe-saved'
+					? null
+					: 0,
+			'import_file'
+		);
 		return { ok: false, failure };
 	}
+	// After the `try`: a fault in the line is not a fact about the ledger, and inside it the catch
+	// above would report a written import as a failed one.
+	logSensitiveCreate(input.batch.userId, persisted.importedRows, 'import_file');
+	return { ok: true, batchId, persisted };
 }
 
 /**

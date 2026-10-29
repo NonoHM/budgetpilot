@@ -359,3 +359,58 @@ describe('L4b-2: undoAction writes sensitive_delete', () => {
 		expect(deletes()).toEqual([]);
 	});
 });
+
+/**
+ * #1087 piece 2: each bill decision writes `sensitive_create`, scope bill_action, after
+ * `recordStreamAction` returns, on every press: a decision repeating one already stored creates no
+ * row and still writes the line, as docs/logging.md says. One operation per action. Wire names as literals.
+ */
+describe('#1087: markPaid, ignoreOccurrence and excludeStream write sensitive_create', () => {
+	const creates = () =>
+		logged.filter((line) => (line as { event: string }).event === 'sensitive_create');
+	const line = (operation: string) => ({
+		event: 'sensitive_create',
+		attributes: {
+			'budgetpilot.user.pseudonym': logUserPseudonym(testUser.id),
+			'budgetpilot.data.operation': operation,
+			'budgetpilot.data.scope': 'bill_action'
+		}
+	});
+	const { dueDate: _dueDate, ...EXCLUDE_FIELDS } = CREATOR_FIELDS;
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		logged.length = 0;
+		service.recordStreamAction.mockResolvedValue({ actionId: 'action-1' });
+	});
+
+	// Separates "each decision logs its own operation" from "writes nothing" or "one operation for
+	// all three".
+	it.each([
+		['markPaid', 'mark_bill_paid', CREATOR_FIELDS],
+		['ignoreOccurrence', 'ignore_bill_occurrence', CREATOR_FIELDS],
+		['excludeStream', 'exclude_bill_stream', EXCLUDE_FIELDS]
+	] as const)('%s: one line, operation %s', async (name, operation, fields) => {
+		await runAction(name, fields);
+		expect(creates()).toEqual([line(operation)]);
+	});
+
+	// Green today; separates "line after the service accepted" from "line before the call".
+	it.each(['markPaid', 'ignoreOccurrence', 'excludeStream'] as const)(
+		'%s refused by the service writes none',
+		async (name) => {
+			service.recordStreamAction.mockRejectedValueOnce(httpError(404, 'Introuvable.'));
+			const result = (await runAction(name, CREATOR_FIELDS)) as { status?: number };
+			expect({ status: result.status, lines: creates() }).toEqual({ status: 404, lines: [] });
+		}
+	);
+
+	// Green today; separates "line after the service accepted" from "line before the anchors parse".
+	it('markPaid with unparseable anchors writes none', async () => {
+		const result = (await runAction('markPaid', {
+			...CREATOR_FIELDS,
+			anchorTransactionIds: '[not json'
+		})) as { status?: number };
+		expect({ status: result.status, lines: creates() }).toEqual({ status: 400, lines: [] });
+	});
+});

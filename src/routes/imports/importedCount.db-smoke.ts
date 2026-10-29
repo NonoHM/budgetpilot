@@ -1,3 +1,4 @@
+import { env } from '$env/dynamic/private';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from '$lib/server/db';
 import { resolveImportBucketAccount } from '$lib/server/import/persist';
@@ -72,6 +73,10 @@ async function damagedBatch(columnMappingId: string | null = null): Promise<stri
 	await prisma.importBatch.update({ where: { id: written.batchId }, data: { importedRows: 0 } });
 	return written.batchId;
 }
+
+// writeImport writes a line naming the member (#1087), so the pseudonym needs the secret; the
+// db-smoke $env is an empty stub on purpose (vitest.db.env-stub.ts), so the fixture is explicit.
+env.RATE_LIMIT_HASH_SECRET = 'e5'.repeat(32);
 
 describe('the imported count a screen shows is the rows filed under the batch', () => {
 	it('/imports shows 2 for a batch whose stored counter says 0 over 2 filed rows', async () => {
