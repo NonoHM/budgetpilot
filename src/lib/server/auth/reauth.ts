@@ -289,7 +289,8 @@ function readField(form: FormData, name: string): string {
 /**
  * The one sentence a refusal shows. Every credential reason under one `asked` reads the same, which
  * is the class 2 property (#854): one generic message whatever the cause. The limiter keeps its own
- * sentence, because it says nothing about the secrets and does tell the owner what to do.
+ * sentence, because it says nothing about the secrets and does tell the owner what to do: wait, or
+ * log out if the attempts were not theirs (#885: only the reader can tell, see `isReauthRateLimited`).
  */
 export function reauthRefusalMessage(
 	refused: ReauthRefused
