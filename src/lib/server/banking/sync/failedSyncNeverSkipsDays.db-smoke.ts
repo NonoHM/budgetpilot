@@ -168,6 +168,9 @@ beforeAll(() => {
 	// an explicit fixture here and nowhere else. Not a secret: it protects nothing outside this run.
 	privateEnv.TOTP_ENCRYPTION_KEY ??=
 		'0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+	// The connection and each sync write a data line naming the member by pseudonym, an HMAC under
+	// this key (#1087). Same standing as the key above.
+	privateEnv.RATE_LIMIT_HASH_SECRET ??= 'f6'.repeat(32);
 });
 
 async function makeUser(tag: string): Promise<string> {
