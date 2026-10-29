@@ -260,9 +260,12 @@ whatever already landed.
 
 ## I lost my two-factor device
 
-Use one of the recovery codes shown when you enabled it. No admin override
-exists, by design: an admin who could disable someone else's second factor
-would be a way around it.
+Sign in with one of the recovery codes shown when you enabled it. Then, in
+**Settings**, turn two-factor off with your password and a second recovery
+code, and turn it on again with the new phone: you get ten new codes
+([the steps](./using/two-factor.md#if-your-codes-stop-being-accepted)). No
+admin override exists, by design: an admin who could disable someone else's
+second factor would be a way around it.
 
 Out of recovery codes too? The only way back in is clearing the factor in the
 database, as
