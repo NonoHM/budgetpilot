@@ -238,6 +238,16 @@ export type DataScope =
 export type DataExport = 'backup' | 'transactions_csv';
 
 /**
+ * The creations and updates logged so far (#1087): a bank connection stored or renewed, and what a
+ * sync wrote. #1080 extends the update set. A sync's count is `unknown` when the ledger could not be
+ * read after a failure, never a figure taken from an accumulator.
+ */
+export type UncountedCreateOperation = 'connect_bank';
+export type CountedCreateOperation = 'sync_bank_connection';
+export type SensitiveCreateOperation = UncountedCreateOperation | CountedCreateOperation;
+export type SensitiveUpdateOperation = 'renew_bank_connection';
+
+/**
  * Why a restore file was refused by its integrity check: the suffix of the message key each
  * `BackupImportError` throw site uses (`settings_backup_error_<reason>`), closed so the log never
  * carries the message, which names ids from the file.
@@ -451,11 +461,13 @@ export type LogEvent =
 				[A.userPseudonym]?: LogUserPseudonym;
 				[A.redirectReason]?: RedirectRefusal;
 				[A.redirectUpstream]?: RedirectUpstream;
-				[A.dataOperation]?: SensitiveDeleteOperation;
+				[A.dataOperation]?:
+					SensitiveDeleteOperation | SensitiveCreateOperation | SensitiveUpdateOperation;
 				[A.dataScope]?: DataScope;
 				[A.dataTransactionsDeleted]?: CountBucket;
 				[A.dataTransactionsRestored]?: CountBucket;
 				[A.dataRecordsDeleted]?: CountBucket;
+				[A.dataTransactionsCreated]?: CountBucket | 'unknown';
 				[A.targetUserPseudonym]?: LogUserPseudonym;
 				[A.dataExport]?: DataExport;
 				[A.dataTransactionsExported]?: CountBucket;
@@ -543,6 +555,27 @@ export type LogEvent =
 	| {
 			event: typeof E.sensitiveDelete;
 			attributes: UserFields & NoClientFields & SensitiveDeleteFields;
+	  }
+	| {
+			event: typeof E.sensitiveCreate;
+			attributes: UserFields &
+				NoClientFields & {
+					[A.dataOperation]: SensitiveCreateOperation;
+					[A.dataScope]: DataScope;
+					[A.dataTransactionsCreated]?: CountBucket | 'unknown';
+				};
+	  }
+	| {
+			event: typeof E.sensitiveUpdate;
+			attributes: UserFields &
+				NoClientFields & {
+					[A.dataOperation]: SensitiveUpdateOperation;
+					[A.dataScope]: DataScope;
+				};
+	  }
+	| {
+			event: typeof E.sessionSettingsApplied;
+			attributes: { [A.sessionShortened]: number };
 	  }
 	| {
 			event: typeof E.sensitiveRead;
@@ -849,6 +882,13 @@ export const REGISTRY: { [N in EventName]: EventSpec<AttributesOf<N>> } = {
 		floodBy: [A.sessionReason, A.userPseudonym],
 		attributes: { [A.userPseudonym]: 'Pseudonymous', [A.sessionReason]: 'Operational' }
 	},
+	[E.sessionSettingsApplied]: {
+		severity: 'INFO',
+		body: 'The startup step brought the stored sessions within the session settings in force. The count says how many it shortened.',
+		flood: false,
+		security: false,
+		attributes: { [A.sessionShortened]: 'Operational' }
+	},
 	// A member, like a visitor, can repeat a refused reference cheaply, so it is summarised, and
 	// split by reason, kind and account so that one loop cannot summarise away another (L4a).
 	[E.authzFail]: {
@@ -911,6 +951,33 @@ export const REGISTRY: { [N in EventName]: EventSpec<AttributesOf<N>> } = {
 			[A.dataTransactionsRestored]: 'Operational',
 			[A.dataRecordsDeleted]: 'Operational',
 			[A.targetUserPseudonym]: 'Pseudonymous'
+		}
+	},
+	// #1087. Records like `sensitive_delete`, so `BP_SECURITY_LOG=off` keeps them; the bucket is in the
+	// key so that a sync writing nothing cannot summarise away one that wrote rows.
+	[E.sensitiveCreate]: {
+		severity: 'WARN',
+		body: 'A member stored a bank connection, or a bank sync wrote data. The operation says which, and a sync carries how many transactions it created.',
+		flood: true,
+		security: false,
+		floodBy: [A.dataOperation, A.dataTransactionsCreated, A.userPseudonym],
+		attributes: {
+			[A.userPseudonym]: 'Pseudonymous',
+			[A.dataOperation]: 'Operational',
+			[A.dataScope]: 'Operational',
+			[A.dataTransactionsCreated]: 'Operational'
+		}
+	},
+	[E.sensitiveUpdate]: {
+		severity: 'WARN',
+		body: 'A member changed stored data in place. The operation says which change.',
+		flood: true,
+		security: false,
+		floodBy: [A.dataOperation, A.userPseudonym],
+		attributes: {
+			[A.userPseudonym]: 'Pseudonymous',
+			[A.dataOperation]: 'Operational',
+			[A.dataScope]: 'Operational'
 		}
 	},
 	// The bucket is in the key (contradiction pass F2): twenty empty exports must not summarise away
@@ -1163,6 +1230,7 @@ export const REGISTRY: { [N in EventName]: EventSpec<AttributesOf<N>> } = {
 			[A.dataTransactionsDeleted]: 'Operational',
 			[A.dataTransactionsRestored]: 'Operational',
 			[A.dataRecordsDeleted]: 'Operational',
+			[A.dataTransactionsCreated]: 'Operational',
 			[A.targetUserPseudonym]: 'Pseudonymous',
 			[A.dataExport]: 'Operational',
 			[A.dataTransactionsExported]: 'Operational',

@@ -3,13 +3,17 @@ import { ATTRIBUTE as A, EVENT as E } from './names.ts';
 import { logUserPseudonym } from './pseudonym.ts';
 import type {
 	CountBucket,
+	CountedCreateOperation,
 	CountedDeleteOperation,
 	DataExport,
 	DataScope,
 	PruneOperation,
 	RestoreRefusal,
 	SensitiveDeleteFields,
+	SensitiveCreateOperation,
 	SensitiveDeleteOperation,
+	SensitiveUpdateOperation,
+	UncountedCreateOperation,
 	UncountedDeleteOperation,
 	UserFields
 } from './events.ts';
@@ -30,7 +34,9 @@ export type {
  *
  * WHEN. After the write or the commit returns, success only: a refused or rolled-back write
  * destroyed nothing. The counts are the committed attempt's own answer (returned from the commit
- * callback, never a variable assigned inside an attempt, never a recount).
+ * callback, never a variable assigned inside an attempt, never a recount). The one count taken on a
+ * failure is a sync's (#1087): rows of the buckets whose write returned, plus the `landedRows` the
+ * failing write read back from the ledger, and `unknown` when it could not read it.
  */
 
 /** What each operation destroys, whatever its count: `0` beside `account` still means all of it. */
@@ -57,6 +63,16 @@ const SCOPE: { [O in SensitiveDeleteOperation]: DataScope } = {
 	// Soft deletes: the row stays under `deletedAt`, the member has no undo (owner ruling 7).
 	delete_net_worth_account: 'net_worth_account',
 	delete_savings_goal: 'savings_goal'
+};
+
+/** What each creation or update added or changed, as `SCOPE` says what a deletion took. */
+const CREATE_SCOPE: { [O in SensitiveCreateOperation]: DataScope } = {
+	connect_bank: 'bank_connection',
+	// The transactions, and the balances recorded for the accounts linked to net worth.
+	sync_bank_connection: 'bank_connection'
+};
+const UPDATE_SCOPE: { [O in SensitiveUpdateOperation]: DataScope } = {
+	renew_bank_connection: 'bank_connection'
 };
 
 const EXPORT_SCOPE: { [X in DataExport]: DataScope } = {
@@ -111,6 +127,42 @@ export function logSensitiveDelete(
 		}
 	}
 	log({ event: E.sensitiveDelete, attributes: { ...user(userId), ...fields } });
+}
+
+/**
+ * Stored data was created (#1087): a bank connection, with no count, or what a sync wrote, with the
+ * transactions it created, `null` when the ledger could not be read.
+ */
+export function logSensitiveCreate(
+	userId: string,
+	...call:
+		| [operation: UncountedCreateOperation]
+		| [transactions: number | null, operation: CountedCreateOperation]
+): void {
+	const operation: SensitiveCreateOperation = call.length === 1 ? call[0] : call[1];
+	log({
+		event: E.sensitiveCreate,
+		attributes: {
+			...user(userId),
+			[A.dataOperation]: operation,
+			[A.dataScope]: CREATE_SCOPE[operation],
+			...(call.length === 2
+				? { [A.dataTransactionsCreated]: call[0] === null ? 'unknown' : bucket(call[0]) }
+				: {})
+		}
+	});
+}
+
+/** Stored data was changed in place (#1087; #1080 extends the operations). */
+export function logSensitiveUpdate(userId: string, operation: SensitiveUpdateOperation): void {
+	log({
+		event: E.sensitiveUpdate,
+		attributes: {
+			...user(userId),
+			[A.dataOperation]: operation,
+			[A.dataScope]: UPDATE_SCOPE[operation]
+		}
+	});
 }
 
 /** A member downloaded an export; `transactions` is how many transactions it read. */

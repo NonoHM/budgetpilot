@@ -1,4 +1,6 @@
 import { applySessionSettings } from '$lib/server/auth';
+import { log } from '$lib/server/logging';
+import { ATTRIBUTE as A, EVENT as E } from '$lib/server/logging/names';
 
 /**
  * The startup step of #221: brings every live session within `BP_SESSION_IDLE_TIMEOUT_HOURS` and
@@ -7,7 +9,11 @@ import { applySessionSettings } from '$lib/server/auth';
  *
  * A failure throws and stops the start, as the other passes do: a lowered setting left unapplied
  * would keep sessions working past it, which is the one outcome this step exists to prevent.
+ *
+ * Logs how many it shortened, 0 included (#1087), so at `BP_LOG_LEVEL` info or debug a start with no
+ * such line is one where the step did not complete.
  */
 export async function applySessionSettingsAtStart(): Promise<void> {
-	await applySessionSettings(new Date());
+	const shortened = await applySessionSettings(new Date());
+	log({ event: E.sessionSettingsApplied, attributes: { [A.sessionShortened]: shortened } });
 }
