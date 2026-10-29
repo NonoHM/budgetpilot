@@ -16,7 +16,7 @@ import {
 	logReauthSucceeded,
 	logSecretUnreadable
 } from '$lib/server/logging/authn';
-import type { ReauthFailure } from '$lib/server/logging/events';
+import type { ReauthFailure, SignInFactor } from '$lib/server/logging/events';
 
 /**
  * Re-authentication: the ONE place an action that changes security state proves the caller still
@@ -57,12 +57,18 @@ import type { ReauthFailure } from '$lib/server/logging/events';
  *
  * A STORED SECRET THAT DOES NOT DECRYPT (#904, owner ruling of 2026-10-08) is still a factor, so it
  * is never read as « none ». No code can pass it: a six-digit code is refused `unreadable-totp`,
- * whatever the password answered, as `reused-totp` is and for the same reason. The one way out is
- * `disableTotp`, which then takes a RECOVERY CODE in the code field, checked and spent by
- * `consumeRecoveryCode` whatever the password answered (the #818 direction: a code seen is a code
- * spent; spending it only beside a right password would make the write a timing signal for the
- * password). Two factors still, as R3 asks. Every other action stays refused until the owner sets
- * two-factor up again, and enrolment over it is `totp-already-enabled`.
+ * whatever the password answered, as `reused-totp` is and for the same reason. The way out is
+ * `disableTotp`, below. Every other action stays refused until the owner sets two-factor up again,
+ * and enrolment over it is `totp-already-enabled`.
+ *
+ * `disableTotp` TAKES A RECOVERY CODE IN THE CODE FIELD, READABLE SECRET OR NOT (#886, owner ruling
+ * of 2026-10-29, widening #904's). It is the way out for an owner whose authenticator is lost or
+ * unreadable: sign in with one recovery code, turn the factor off with the password and another,
+ * enrol again. The code is checked and spent by `consumeRecoveryCode` whatever the password answered
+ * (the #818 direction: a code seen is a code spent; spending it only beside a right password would
+ * make the write a timing signal for the password). Two factors still, as R3 asks. The accepted
+ * cost: a password and two recovery codes now reach every action, since the disable leaves the
+ * password alone in the 7.5.1 rows, so the success line names the factor. No other action takes one.
  *
  * AN ENROLMENT CODE IS ONLY JUDGED HERE (`judgeEnrolmentCode`): the success carries its step, and
  * `confirmTotpSetup` writes that step with the secret. See `totpAcceptance.ts` for why.
@@ -130,7 +136,7 @@ export type ReauthCredentialRefusal =
 	| 'reused-totp'
 	/** A six-digit code against a stored secret that does not decrypt (#904). */
 	| 'unreadable-totp'
-	/** At `disableTotp` over an unreadable secret: a recovery code that matches none unused (#904). */
+	/** At `disableTotp`: a recovery code that matches none unused (#904, #886). */
 	| 'wrong-recovery-code'
 	| 'totp-not-enabled'
 	| 'no-account';
@@ -178,10 +184,24 @@ export async function reauthenticate(
 ): Promise<ReauthOutcome | EnrolmentOutcome> {
 	// THE single exit, and the one place a re-authentication is logged (L3): every path below
 	// returns into this line. Logged before the caller acts, so a throw here stops the action.
-	const outcome = await decide(REAUTH_FACTORS[action], input);
-	logOutcome(action, input, outcome);
+	const decided = await decide(REAUTH_FACTORS[action], input);
+	if (!decided.ok) {
+		const reason = LOGGED_REFUSAL[decided.reason];
+		if (reason !== null) logReauthFailed(input.ip, input.user.id, action, reason);
+		return decided;
+	}
+	// The factor goes to the log and nowhere else: a disable done with a recovery code is how a
+	// password and two recovery codes take an account over (#886), so the operator must see it.
+	const { factor, ...outcome } = decided;
+	logReauthSucceeded(input.ip, input.user.id, action, factor);
 	return outcome;
 }
+
+/** A success as `decide` returns it: the factor that passed, for the log line alone. */
+type Decided =
+	| ReauthRefused
+	| { ok: true; factor: SignInFactor }
+	| { ok: true; factor: SignInFactor; totpStep: number };
 
 /** What each refusal is in the log. Null: no secret was checked, so nothing is written. */
 const LOGGED_REFUSAL: Record<ReauthRefused['reason'], ReauthFailure | null> = {
@@ -199,23 +219,10 @@ const LOGGED_REFUSAL: Record<ReauthRefused['reason'], ReauthFailure | null> = {
 	'rate-limited': null
 };
 
-function logOutcome(
-	action: ReauthAction,
-	{ user, ip }: ReauthInput,
-	outcome: ReauthOutcome | EnrolmentOutcome
-): void {
-	if (outcome.ok) {
-		logReauthSucceeded(ip, user.id, action);
-		return;
-	}
-	const reason = LOGGED_REFUSAL[outcome.reason];
-	if (reason !== null) logReauthFailed(ip, user.id, action, reason);
-}
-
 async function decide(
 	factors: ReauthFactors,
 	{ user, ip, form, newTotpSecret }: ReauthInput & { newTotpSecret?: string }
-): Promise<ReauthOutcome | EnrolmentOutcome> {
+): Promise<Decided> {
 	const trip = await isReauthRateLimited(user.sessionId);
 	if (trip) {
 		logRateLimited('REAUTH', trip, ip, user.id);
@@ -233,8 +240,9 @@ async function decide(
 		factors === 'password+totp' ||
 		factors === 'password+new-secret-code' ||
 		(factors === 'password+totp-when-enabled' && storedSecret !== null);
-	// The ruling's one way out (#904): only turning the factor off, only while it cannot be read.
-	const takesRecoveryCode = factors === 'password+totp' && state === 'unreadable';
+	// The one way out for an owner without their authenticator: only turning the factor off, readable
+	// or not (#904, widened by the #886 ruling). Every other action still asks for the device's code.
+	const takesRecoveryCode = factors === 'password+totp';
 	const asked: ReauthAsked = asksCode ? 'password-and-code' : 'password';
 	const refuse = (reason: ReauthCredentialRefusal): ReauthRefused => ({ ok: false, reason, asked });
 
@@ -278,7 +286,10 @@ async function decide(
 		if (!passwordOk) return refuse('wrong-password');
 		return refuse(codeVerdict === 'wrong-recovery-code' ? 'wrong-recovery-code' : 'wrong-totp');
 	}
-	return enrolledStep === null ? { ok: true } : { ok: true, totpStep: enrolledStep };
+	const factor: SignInFactor = recoveryCode ? 'recovery_code' : asksCode ? 'totp' : 'password';
+	return enrolledStep === null
+		? { ok: true, factor }
+		: { ok: true, factor, totpStep: enrolledStep };
 }
 
 function readField(form: FormData, name: string): string {

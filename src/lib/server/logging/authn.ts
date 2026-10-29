@@ -179,10 +179,15 @@ export function logRegistrationFailed(ip: string, reason: RegistrationFailure): 
 	log({ event: E.authnRegisterFail, attributes: { ...client(ip), [A.authnReason]: reason } });
 }
 
-export function logReauthSucceeded(ip: string, userId: string, action: ReauthAction): void {
+export function logReauthSucceeded(
+	ip: string,
+	userId: string,
+	action: ReauthAction,
+	factor: SignInFactor
+): void {
 	log({
 		event: E.authnReauthSuccess,
-		attributes: { ...client(ip), ...user(userId), [A.authnAction]: action }
+		attributes: { ...client(ip), ...user(userId), [A.authnAction]: action, [A.authnFactor]: factor }
 	});
 }
 

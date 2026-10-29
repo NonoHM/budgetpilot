@@ -827,7 +827,7 @@
 	"settings_mfa_recovery_codes_description": "Notez ces codes dans un endroit sûr : ils ne seront plus jamais affichés. Chacun ne peut être utilisé qu'une seule fois pour vous connecter si vous perdez l'accès à votre application d'authentification.",
 	"settings_mfa_recovery_codes_confirm": "J'ai sauvegardé mes codes",
 	"settings_mfa_disable_modal_title": "Désactiver l'authentification à deux facteurs",
-	"settings_mfa_disable_modal_description": "Confirmez avec votre mot de passe et un code de votre application d'authentification.",
+	"settings_mfa_disable_modal_description": "Confirmez avec votre mot de passe et un code de votre application d'authentification, ou l'un de vos codes de récupération.",
 	"settings_mfa_disable_modal_description_unreadable": "Confirmez avec votre mot de passe et l'un de vos codes de récupération.",
 	"settings_mfa_recovery_code_label": "Code de récupération",
 	"settings_mfa_disable_submit": "Désactiver",

@@ -2187,7 +2187,12 @@ describe('#904: settings with a stored secret that does not decrypt', () => {
 			decided: { ok: true },
 			codesSpent: 1,
 			factorWrites: [
-				{ totpEnabled: false, totpSecretEncrypted: null, totpEnabledAt: null, totpLastUsedStep: null }
+				{
+					totpEnabled: false,
+					totpSecretEncrypted: null,
+					totpEnabledAt: null,
+					totpLastUsedStep: null
+				}
 			]
 		});
 	});

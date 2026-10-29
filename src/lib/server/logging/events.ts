@@ -515,7 +515,8 @@ export type LogEvent =
 	  }
 	| {
 			event: typeof E.authnReauthSuccess;
-			attributes: ClientFields & UserFields & { [A.authnAction]: ReauthAction };
+			attributes: ClientFields &
+				UserFields & { [A.authnAction]: ReauthAction; [A.authnFactor]: SignInFactor };
 	  }
 	| {
 			event: typeof E.authnReauthFail;
@@ -815,7 +816,8 @@ export const REGISTRY: { [N in EventName]: EventSpec<AttributesOf<N>> } = {
 		attributes: {
 			[A.clientPseudonym]: 'Pseudonymous',
 			[A.userPseudonym]: 'Pseudonymous',
-			[A.authnAction]: 'Operational'
+			[A.authnAction]: 'Operational',
+			[A.authnFactor]: 'Operational'
 		}
 	},
 	[E.authnReauthFail]: {
