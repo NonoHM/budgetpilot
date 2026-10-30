@@ -129,8 +129,7 @@ const ALWAYS_DERIVED: Record<string, string> = {
 const NOT_CARRIED: Record<string, string> = {
 	'Account.nameKey': 'recomputed by the restore with computeNameKey',
 	'Account.discriminant': 'identifier fragment refused by design, see the schema comment (#468)',
-	'Account.institution': 'not carried yet, see #1176',
-	'Account.archivedAt': 'not carried yet, see #1176',
+	'Account.institution': 'recomputed by the restore with institutionForSource (#1176)',
 	'Account.createdAt': 'restore time, see #1178',
 	'BankConnection.providerSessionId': 'a secret: a restored connection never comes back usable',
 	'BankConnection.credentialsEncrypted': 'a secret: a restored connection never comes back usable',

@@ -263,9 +263,11 @@ model Account {
   /// The statement file is not kept, so this value is never re-derivable after the fact. That is
   /// an accepted limit rather than an oversight.
   discriminant            String?
-  /// The bank, when we know it without asking. Written by the boot backfill from `source` and by
-  /// the bank-sync path from the connection. NEVER written by the create sheet, which stays one
-  /// field per ruling F1.
+  /// The bank, when we know it without asking. Every writer derives it from `source` with
+  /// `institutionForSource` or writes null: the boot backfill, the by-source bucket create, and the
+  /// backup restore, which recomputes it rather than reading it from the file (#1176). The bank-sync
+  /// path writes none. NEVER written by the create sheet, which stays one field per ruling F1. A
+  /// writer that stored a value NOT derived from `source` would be lost by every restore.
   institution             String?
   /// Archived accounts stay on their past imports and leave the picker. Not a soft delete: their
   /// transactions remain fully readable, they simply stop being a destination.

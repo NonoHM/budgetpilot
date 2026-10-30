@@ -291,7 +291,15 @@ const backupAccountSchema = z
 		providerAccountId: z.string().min(1).max(500).nullable().optional(),
 		// Provider-side cash account type of a bank-sync bucket (opaque, non-sensitive
 		// metadata — feeds a net worth account type suggestion, never authoritative).
-		providerCashAccountType: z.string().min(1).max(100).nullable().optional()
+		providerCashAccountType: z.string().min(1).max(100).nullable().optional(),
+		// A fact about the past, restored as written (#1176). Absent from exports before 1.3.1,
+		// which restore the account as active, as every restore did until then.
+		archivedAt: isoDateString.nullable().optional()
+		// NO `institution`: every writer derives it from `source`, so the restore recomputes it
+		// with `institutionForSource` and a file cannot state one (#1176). Carrying it would leave
+		// every file written before this change restoring a null, which the boot backfill reads as
+		// « not named yet » and renames the account to the bank's name.
+		//
 		// NO `discriminant`, and its absence is a decision rather than an omission. See
 		// backupImportSourceSignatureSchema below for the whole of it: the export is plaintext
 		// JSON, and four characters from the end of an IBAN identify a holder's account in a list
