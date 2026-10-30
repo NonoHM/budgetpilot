@@ -1035,3 +1035,39 @@ describe('restore refuses a year no engine stores faithfully', () => {
 		expect(result.success ? null : restoreRefusal(result.error)).toEqual({ reason: 'invalid' });
 	});
 });
+
+describe("an account's archived state and institution (#1176)", () => {
+	function withAccountFields(fields: Record<string, unknown>) {
+		const payload = buildValidPayload();
+		payload.accounts = [{ ...payload.accounts[0], ...fields } as never];
+		return backupExportSchema.safeParse(payload);
+	}
+
+	/** Where each issue points, so a refusal is asserted by its field and not by its existence. */
+	function issuePaths(result: ReturnType<typeof withAccountFields>): string[] {
+		return result.success ? [] : result.error.issues.map((issue) => issue.path.join('.'));
+	}
+
+	it('accepts an archived account with its institution', () => {
+		const result = withAccountFields({
+			archivedAt: '2026-04-07T09:30:15.250Z',
+			institution: 'Revolut'
+		});
+
+		expect(issuePaths(result)).toEqual([]);
+	});
+
+	it('refuses an archivedAt that is not a date, at that field', () => {
+		expect(issuePaths(withAccountFields({ archivedAt: 'yesterday' }))).toEqual([
+			'accounts.0.archivedAt'
+		]);
+	});
+
+	it('refuses an institution longer than a portable column, at that field', () => {
+		// 191 is the longest string every engine stores under the default index width.
+		expect(issuePaths(withAccountFields({ institution: 'x'.repeat(191) }))).toEqual([]);
+		expect(issuePaths(withAccountFields({ institution: 'x'.repeat(192) }))).toEqual([
+			'accounts.0.institution'
+		]);
+	});
+});
