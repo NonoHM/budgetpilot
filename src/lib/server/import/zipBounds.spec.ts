@@ -703,8 +703,8 @@ describe('F2: the parser inflates only what the bound measured', () => {
 		expect.assertions(2);
 		handedToParser.length = 0;
 
-		// Found by the contradiction pass on the final code: with bit 11 clear the name is decoded as
-		// latin1, so 33,000 bytes of 0xE9 become 66,000 UTF-8 bytes, past the 65,535 a ZIP name field
+		// Found by the contradiction pass on the final code: a lone 0xE9 is not UTF-8, so each of the
+		// 33,000 bytes decodes to U+FFFD and re-encodes as 3 bytes, past the 65,535 a ZIP name field
 		// holds, and fflate's zipSync threw a plain Error that the routes turn into a 500. The LOCAL
 		// header keeps its short name, so the upload stays small.
 		const archive = Buffer.from(zipSync({ 'a.xml': strToU8('<a/>') }));
@@ -746,5 +746,40 @@ describe('F2: the parser inflates only what the bound measured', () => {
 		expect(() => measureZipExpansion(renamed, DEFAULT_BOUND)).toThrow(
 			expect.objectContaining({ reason: 'malformed' })
 		);
+	});
+
+	it('a UTF-8 part name written without the UTF-8 flag keeps the name the parser always read', async () => {
+		expect.assertions(2);
+
+		// Found by the contradiction pass on the final code: the parser decodes every name as UTF-8
+		// whatever bit 11 says, so such a workbook imported before the rebuild existed. Decoding it as
+		// latin1 renamed the sheet, which its relationship then failed to find.
+		const sheetName = 'xl/worksheets/feuillé.xml';
+		const archive = Buffer.from(
+			zipSync({
+				'[Content_Types].xml': strToU8(CONTENT_TYPES),
+				'_rels/.rels': strToU8(RELS),
+				'xl/workbook.xml': strToU8(WORKBOOK),
+				'xl/_rels/workbook.xml.rels': strToU8(WB_RELS.replace('sheet1.xml', 'feuillé.xml')),
+				[sheetName]: strToU8(SHEET),
+				'xl/sharedStrings.xml': strToU8(
+					`<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><si><t>a</t></si><si><t>b</t></si></sst>`
+				)
+			})
+		);
+		// Clear bit 11 on every local and central header, as a writer that never sets it would.
+		let cleared = 0;
+		for (let at = 0; at + 4 <= archive.length; at += 1) {
+			const signature = archive.readUInt32LE(at);
+			const flags = signature === 0x04034b50 ? at + 6 : signature === 0x02014b50 ? at + 8 : -1;
+			if (flags >= 0 && archive.readUInt16LE(flags) & 0x0800) {
+				archive.writeUInt16LE(archive.readUInt16LE(flags) & ~0x0800, flags);
+				cleared += 1;
+			}
+		}
+		// One local and one central header carry the only non-ASCII name.
+		expect(cleared).toBe(2);
+		const result = await readImportFile(asUpload(archive));
+		expect(result.rows[0]?.cells).toEqual(['a', 'b']);
 	});
 });

@@ -65,9 +65,10 @@ import { OperatorFacingError } from '$lib/server/operatorFacingError';
  *
  * COST ON A LEGITIMATE IMPORT: the entries are inflated once, here, and kept (F2): the parser is
  * handed a stored archive rebuilt from them, never the upload. Peak extra allocation is therefore
- * twice the bound (the parts, then the rebuilt archive) plus the rebuilt headers, which the upload
- * cap keeps to about 2 MB (read from fflate's `zipSync`, not measured): about 18 MB at the default,
- * against the 192 MB the parse itself costs at that size.
+ * up to three times the bound (the parts, the rebuilt archive, and the parser's own copy of each
+ * entry while both are still referenced) plus the rebuilt headers, which the upload cap keeps to
+ * about 2 MB (read from fflate's `zipSync` and `unzipper-esm`, not measured): about 26 MB at the
+ * default, against the 192 MB the parse itself costs at that size.
  */
 /** Megabytes, because that is the unit an operator thinks in and the one the errors speak. */
 export const XLSX_DEFAULT_MAX_UNCOMPRESSED_MB = SETTINGS.IMPORT_XLSX_MAX_UNCOMPRESSED_MB.default;
@@ -257,9 +258,9 @@ export function measureZipExpansion(archive: Buffer, maxBytes: number): ZipExpan
 		const extraLength = archive.readUInt16LE(cursor + 30);
 		const commentLength = archive.readUInt16LE(cursor + 32);
 		const localOffset = archive.readUInt32LE(cursor + 42);
-		const name = archive
-			.subarray(cursor + 46, cursor + 46 + nameLength)
-			.toString(archive.readUInt16LE(cursor + 8) & 0x0800 ? 'utf8' : 'latin1');
+		// UTF-8 whatever bit 11 says, because that is how the parser has always named parts
+		// (`unzipper-esm` `parse.js`): the rebuild must keep the name a relationship points at.
+		const name = archive.subarray(cursor + 46, cursor + 46 + nameLength).toString('utf8');
 		// Two entries claiming one part: which one a reader keeps is the reader's choice, not the file's.
 		if (Object.hasOwn(parts, name)) return fail(`entry ${index} repeats a part name`, total);
 		// The one name an object key cannot hold as an own property, and fflate's rebuild keys on `{}`.
