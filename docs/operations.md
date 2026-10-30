@@ -406,9 +406,11 @@ Every value is written with the digits 0 to 9 only. Each range is wide enough
 that a value chosen on purpose fits; the reasons for each limit are in
 [Configuration](configuration.md#passwords-and-sessions).
 
-**If the new version refuses to start**, the log begins with `BudgetPilot
-cannot start:` and names every setting it refused, with the accepted range
-and the default. Edit that line in `.env`, or delete it to use the default,
+**If the new version refuses to start**, the container stops after applying
+its migrations, and its last log line is a `FATAL` JSON line whose
+`budgetpilot.error.operator_message` begins with `BudgetPilot cannot start:`.
+That message names every setting it refused, with the accepted range and the
+default. Read it with `docker compose logs --tail 1 budgetpilot`. Edit that line in `.env`, or delete it to use the default,
 then run `docker compose up -d` again. To go back to the previous version
 while you decide, set `BUDGETPILOT_VERSION` back and run the same command.
 

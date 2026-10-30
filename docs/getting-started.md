@@ -378,8 +378,8 @@ and `montant_total`, `part` (`1/2`, `2/2`, …) and `categorie_parent` are what
 put those lines back together as one transaction with its parts, rather than
 as several separate transactions. Two limits worth knowing:
 
-- Re-importing an export adds nothing, whichever account the transactions
-  came in through. The `compte` column names the account each line left, and
+- Re-importing an export adds nothing you imported, whichever account the
+  transactions came in through. The `compte` column names the account each line left, and
   a re-import lands back on that same account rather than a fresh one, so
   every line is recognised as one you already have and reported as a
   duplicate rather than imported twice.
@@ -393,6 +393,11 @@ as several separate transactions. Two limits worth knowing:
   You will be warned before it happens: the import screen spots that the file
   repeats an earlier import and asks you to confirm. If you confirm, you get both
   copies, and you can delete the new import from **Imports**.
+
+  A transaction you added by hand is the exception: a re-import adds it a
+  second time, without a warning, and that month's spending counts it twice
+  ([#1183](https://github.com/NonoHM/budgetpilot/issues/1183)). Delete the copy
+  from the transactions list.
 
   To move a statement between instances, or to keep a copy you can restore,
   use **Settings, Backup** rather than the CSV export. A backup restores your
