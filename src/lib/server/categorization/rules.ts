@@ -6,7 +6,8 @@ import { manualCategoryUpdate } from '$lib/server/transactions/manualCategory';
 import { isRuleTargetLive, readCategoryNameKeys } from '$lib/server/categories/references';
 import {
 	isSafeRegexPattern as isSafeRegexPatternShared,
-	safeRegexTest
+	compileRegex,
+	regexMatches
 } from '$lib/server/matching/regex';
 import {
 	type TransactionKind,
@@ -190,8 +191,14 @@ export function findMatchingCategoryRule<
 
 function ruleMatchesLabel(label: string, rule: { matchText: string; isRegex?: boolean }): boolean {
 	if (!rule.isRegex) return normalizedContains(label, rule.matchText);
-	return safeRegexTest(rule.matchText, 'i', label);
+	if (!compiledRules.has(rule)) compiledRules.set(rule, compileRegex(rule.matchText));
+	return regexMatches(compiledRules.get(rule) ?? null, label);
 }
+
+// Keyed by the rule OBJECT, so a pass over one loaded rule list compiles each rule once and
+// nothing outlives that list. Never keyed by pattern text: a cache shared across users would
+// let one time whether another's pattern had been compiled.
+const compiledRules = new WeakMap<{ matchText: string }, ReturnType<typeof compileRegex>>();
 
 export async function previewCategoryRules(userId: string): Promise<CategoryRulePreview> {
 	const [candidateRules, categoryNameKeys] = await Promise.all([

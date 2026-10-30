@@ -715,7 +715,7 @@
 	"transactions_search_label": "Search transactions",
 	"transactions_search_placeholder": "Search a label",
 	"transactions_regex_toggle_aria": "Toggle regex search mode",
-	"transactions_error_invalid_regex_query": "Invalid regular expression.",
+	"transactions_error_invalid_regex_query": "Invalid or too complex regular expression.",
 	"transactions_category_filter_all": "All",
 	"transactions_category_filter_placeholder": "All categories",
 	"transactions_category_filter_aria": "Filter by category",

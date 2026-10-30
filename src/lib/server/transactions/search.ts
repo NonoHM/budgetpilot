@@ -1,6 +1,6 @@
 import type { Prisma, TransactionPayload } from '../database/types.ts';
 import { normalizeForMatch } from '$lib/domain/normalize';
-import { isSafeRegexPattern, safeRegexTest } from '$lib/server/matching/regex';
+import { compileRegex, isSafeRegexPattern, regexMatches } from '$lib/server/matching/regex';
 import { forEachTransactionBatch } from '$lib/server/transactions/batch';
 
 export type QueryMode = 'contains' | 'regex';
@@ -16,8 +16,17 @@ export function isValidRegexQuery(pattern: string): boolean {
 }
 
 export function matchesQuery(label: string, query: string, mode: QueryMode): boolean {
-	if (mode === 'regex') return safeRegexTest(query, 'i', label);
-	return normalizeForMatch(label).includes(normalizeForMatch(query));
+	return queryMatcher(query, mode)(label);
+}
+
+// Compiles or normalizes the query once, so a batch of rows pays it once rather than per row.
+function queryMatcher(query: string, mode: QueryMode): (label: string) => boolean {
+	if (mode === 'regex') {
+		const compiled = compileRegex(query);
+		return (label) => regexMatches(compiled, label);
+	}
+	const needle = normalizeForMatch(query);
+	return (label) => normalizeForMatch(label).includes(needle);
 }
 
 export function filterTransactionsByQuery<T extends { label: string }>(
@@ -26,7 +35,8 @@ export function filterTransactionsByQuery<T extends { label: string }>(
 	mode: QueryMode
 ): T[] {
 	if (!query) return transactions;
-	return transactions.filter((t) => matchesQuery(t.label, query, mode));
+	const matches = queryMatcher(query, mode);
+	return transactions.filter((t) => matches(t.label));
 }
 
 /**

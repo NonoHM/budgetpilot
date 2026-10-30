@@ -9,28 +9,37 @@ import { RE2JS } from 're2js';
 //
 // Trade-off accepted knowingly: RE2 does not support backreferences or lookahead. A
 // hand-written regex rule relying on those (rare, advanced usage) will now fail to compile
-// (isSafeRegexPattern -> false at creation/edit time) or fail to match (safeRegexTest ->
+// (isSafeRegexPattern -> false at creation/edit time) or fail to match (regexMatches ->
 // false at evaluation time on already-stored data) instead of running.
+//
+// Linear is not cheap: a match costs about program size x label length, and counted
+// repetition is the one construct that grows the program past the pattern's own length
+// (`a{1000}` is 7 characters and 1002 instructions). Brace-free patterns measured at most
+// 1.69 times their length, so twice the length limit refuses only the inflation (F4,
+// measurements in the PR). Applied at validation only: a stored rule keeps matching.
 export function isSafeRegexPattern(pattern: string, maxLength: number): boolean {
 	if (pattern.length === 0 || pattern.length > maxLength) return false;
-	try {
-		RE2JS.compile(pattern, RE2JS.CASE_INSENSITIVE);
-		return true;
-	} catch {
-		return false;
-	}
+	const compiled = compileRegex(pattern);
+	return compiled !== null && compiled.programSize() <= 2 * maxLength;
 }
 
 // No longer needed for ReDoS safety (RE2 is linear-time regardless of input length), kept
 // as a light bound on the work done per match for very long labels.
 export const MAX_REGEX_TEST_INPUT_LENGTH = 300;
 
-export function safeRegexTest(pattern: string, flags: string, value: string): boolean {
+/** Case-insensitive, as every caller matches; null when the pattern does not compile. */
+export function compileRegex(pattern: string): RE2JS | null {
 	try {
-		const caseInsensitive = flags.includes('i') ? RE2JS.CASE_INSENSITIVE : 0;
-		const compiled = RE2JS.compile(pattern, caseInsensitive);
-		return compiled.matcher(value.slice(0, MAX_REGEX_TEST_INPUT_LENGTH)).find();
+		return RE2JS.compile(pattern, RE2JS.CASE_INSENSITIVE);
 	} catch {
-		return false;
+		return null;
 	}
+}
+
+// `matcher().find()`, not the lazy-DFA `test()`: under the ceiling above, find's worst case
+// measured 0.93 ms per row against 1.83 ms for test, whose DFA rebuilds states for every
+// distinct label (`a.{236}c` over random `ab` labels). test only wins on programs the ceiling
+// now refuses.
+export function regexMatches(compiled: RE2JS | null, value: string): boolean {
+	return compiled !== null && compiled.matcher(value.slice(0, MAX_REGEX_TEST_INPUT_LENGTH)).find();
 }
