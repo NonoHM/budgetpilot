@@ -49,7 +49,8 @@ export async function buildBackupExport(userId: string): Promise<BackupExport> {
 				netWorthAccountId: true,
 				bankConnectionId: true,
 				providerAccountId: true,
-				providerCashAccountType: true
+				providerCashAccountType: true,
+				archivedAt: true
 			}
 		}),
 		prisma.category.findMany({
@@ -264,7 +265,10 @@ export async function buildBackupExport(userId: string): Promise<BackupExport> {
 		formatVersion: 1,
 		exportedAt: new Date().toISOString(),
 		userEmail: user.email,
-		accounts,
+		accounts: accounts.map((account) => ({
+			...account,
+			archivedAt: account.archivedAt ? account.archivedAt.toISOString() : null
+		})),
 		// No `defaultKey`. The schema still ACCEPTS one so that a file written before #162
 		// restores unchanged, but nothing emits one any more: the stored name is the name, so
 		// there is no second identity for a backup to carry.

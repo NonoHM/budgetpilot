@@ -906,6 +906,7 @@
 	"settings_error_restore_corrupted": "Invalid or corrupted backup file.",
 	"settings_error_restore_date_out_of_range": "This backup contains a date outside the years {first} to {last} ({kinds}). Your data was not changed.",
 	"settings_restore_kind_export_date": "export date",
+	"settings_restore_kind_accounts": "accounts",
 	"settings_restore_kind_bank_connections": "bank connections",
 	"settings_restore_kind_imports": "imports",
 	"settings_restore_kind_transactions": "transactions",

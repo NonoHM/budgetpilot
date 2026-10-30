@@ -828,6 +828,8 @@ function restoreDateKindLabel(kind: RestoreDateKind): string {
 	switch (kind) {
 		case 'exportedAt':
 			return m.settings_restore_kind_export_date();
+		case 'accounts':
+			return m.settings_restore_kind_accounts();
 		case 'bankConnections':
 			return m.settings_restore_kind_bank_connections();
 		case 'importBatches':

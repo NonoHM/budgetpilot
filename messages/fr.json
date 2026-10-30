@@ -906,6 +906,7 @@
 	"settings_error_restore_corrupted": "Fichier de sauvegarde invalide ou corrompu.",
 	"settings_error_restore_date_out_of_range": "Cette sauvegarde contient une date hors des années {first} à {last} ({kinds}). Vos données n’ont pas été modifiées.",
 	"settings_restore_kind_export_date": "date d’export",
+	"settings_restore_kind_accounts": "comptes",
 	"settings_restore_kind_bank_connections": "connexions bancaires",
 	"settings_restore_kind_imports": "imports",
 	"settings_restore_kind_transactions": "transactions",

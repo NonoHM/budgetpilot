@@ -386,7 +386,7 @@ describe('buildBackupExport', () => {
 
 		expect(result.userEmail).toBe('a@example.test');
 		expect(result.accounts).toEqual([
-			{ id: 'acc-a', name: 'Compte A', currency: 'EUR', source: 'manual' }
+			{ id: 'acc-a', name: 'Compte A', currency: 'EUR', source: 'manual', archivedAt: null }
 		]);
 		expect(result.categories).toEqual([{ id: 'cat-a', name: 'Courses A' }]);
 		expect(result.transactions).toHaveLength(1);
@@ -572,6 +572,7 @@ describe('buildBackupExport', () => {
 				name: 'Compte A',
 				currency: 'EUR',
 				source: 'manual',
+				archivedAt: null,
 				netWorthAccountId: 'nw-a'
 			}
 		]);

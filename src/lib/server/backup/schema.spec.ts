@@ -1035,3 +1035,52 @@ describe('restore refuses a year no engine stores faithfully', () => {
 		expect(result.success ? null : restoreRefusal(result.error)).toEqual({ reason: 'invalid' });
 	});
 });
+
+describe("an account's archived state and institution (#1176)", () => {
+	function withAccountFields(fields: Record<string, unknown>) {
+		const payload = buildValidPayload();
+		payload.accounts = [{ ...payload.accounts[0], ...fields } as never];
+		return backupExportSchema.safeParse(payload);
+	}
+
+	/** Where each issue points, so a refusal is asserted by its field and not by its existence. */
+	function issuePaths(result: ReturnType<typeof withAccountFields>): string[] {
+		return result.success ? [] : result.error.issues.map((issue) => issue.path.join('.'));
+	}
+
+	it('accepts an archived account', () => {
+		expect(issuePaths(withAccountFields({ archivedAt: '2026-04-07T09:30:15.250Z' }))).toEqual([]);
+	});
+
+	it('accepts an account that was never archived', () => {
+		expect(issuePaths(withAccountFields({ archivedAt: null }))).toEqual([]);
+	});
+
+	it('refuses an archivedAt that is not a date, at that field', () => {
+		expect(issuePaths(withAccountFields({ archivedAt: 'yesterday' }))).toEqual([
+			'accounts.0.archivedAt'
+		]);
+	});
+
+	it('names accounts when an archivedAt is outside the years the app stores', () => {
+		// SEPARATES « accounts is a restore date kind » FROM the generic refusal, which tells the
+		// member nothing about which record to fix. Found by pass B on #1176.
+		const result = withAccountFields({ archivedAt: '0001-01-01T00:00:00.000Z' });
+
+		expect(result.success ? null : restoreRefusal(result.error)).toEqual({
+			reason: 'date-out-of-range',
+			kinds: ['accounts']
+		});
+	});
+
+	it('refuses an institution or a discriminant written into an account', () => {
+		// The restore derives the institution from the source, so a file stating one is hand edited;
+		// the discriminant is excluded from the plaintext file by design. Both are unknown keys.
+		for (const smuggled of [{ institution: 'Revolut' }, { discriminant: '4417' }]) {
+			const result = withAccountFields(smuggled);
+			expect(
+				result.success ? [] : result.error.issues.map((issue) => [issue.code, issue.path.join('.')])
+			).toEqual([['unrecognized_keys', 'accounts.0']]);
+		}
+	});
+});

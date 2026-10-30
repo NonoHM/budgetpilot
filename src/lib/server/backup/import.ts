@@ -4,6 +4,8 @@ import { prisma } from '$lib/server/db';
 import { LONG_TRANSACTION_OPTIONS } from '$lib/server/dbTransaction';
 import { UNCLASSIFIED_CATEGORY } from '$lib/domain/categories';
 import { computeNameKey } from '$lib/server/naming/nameKey';
+import { institutionForSource } from '$lib/server/import/accountBackfill';
+import { isGenericallyNamed } from '$lib/server/accounts/projection';
 import { hashFingerprint } from '$lib/server/import/utils/safety';
 import { MAX_ACCOUNT_NAME_LENGTH } from '$lib/domain/account';
 import { manualCategoryUpdate } from '$lib/server/transactions/manualCategory';
@@ -265,6 +267,13 @@ export async function restoreBackup(
 						: null,
 					providerAccountId: account.providerAccountId ?? null,
 					providerCashAccountType: account.providerCashAccountType ?? null,
+					// Derived, never read from the file: see `backupAccountSchema` for why (#1176). Left
+					// null on a bucket still under the machine name, so the boot backfill names it as it
+					// would have on the source install; an institution would stop it doing so for ever.
+					institution: isGenericallyNamed({ name, nameKey, institution: null })
+						? null
+						: institutionForSource(account.source),
+					archivedAt: account.archivedAt ? new Date(account.archivedAt) : null,
 					nameKey
 				},
 				select: { id: true }

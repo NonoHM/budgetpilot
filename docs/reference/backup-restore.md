@@ -95,6 +95,10 @@ accents, such as Livret and LIVRET, come back as two accounts, never one. The
 second gets a short code after its name, such as `LIVRET · 3fa91c`. You can
 rename it from the Accounts card.
 
+An archived account comes back archived. A file exported before backups
+recorded this has no `archivedAt` on any account, so every account comes back
+active: on the Accounts card, select **Archive** again for each one.
+
 There is no merge mode and no undo. If any step fails, the transaction rolls
 back and the account is left as it was.
 

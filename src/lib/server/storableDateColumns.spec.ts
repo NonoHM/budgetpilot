@@ -228,6 +228,7 @@ const COLUMNS: Record<string, Column> = {
  * element). `exportedAt` is the file's own stamp and is read, never stored.
  */
 const RESTORED_FROM: Record<string, string> = {
+	'Account.archivedAt': 'accounts.[].archivedAt',
 	'BankConnection.consentExpiresAt': 'bankConnections.[].consentExpiresAt',
 	'BankConnection.lastSyncAt': 'bankConnections.[].lastSyncAt',
 	'BankConnection.lastCompleteSyncAt': 'bankConnections.[].lastCompleteSyncAt',
