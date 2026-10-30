@@ -20,6 +20,20 @@ import { ATTRIBUTE, EVENT } from '$lib/server/logging/names';
 // test below needs the collector's LIST, not a connection.
 vi.mock('$lib/server/db', () => ({ prisma: {} }));
 
+// Every buffer the import path hands the parser, so a test can read it with the parser's OWN unzip.
+// Passes through to the real `readSheet`: the parse itself is not faked.
+const handedToParser = vi.hoisted(() => [] as Buffer[]);
+vi.mock('read-excel-file/node', async (importOriginal) => {
+	const real = await importOriginal<typeof import('read-excel-file/node')>();
+	return {
+		...real,
+		readSheet: ((input: Buffer, ...rest: unknown[]) => {
+			handedToParser.push(input);
+			return (real.readSheet as (...args: unknown[]) => unknown)(input, ...rest);
+		}) as typeof real.readSheet
+	};
+});
+
 const logged = vi.hoisted(() => [] as unknown[]);
 vi.mock('$lib/server/logging', async (importOriginal) => ({
 	...(await importOriginal<typeof import('$lib/server/logging')>()),
@@ -538,3 +552,199 @@ function sharedStringsLengthFor(firstCell: string): number {
 <sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="2" uniqueCount="2"><si><t>${firstCell}</t></si><si><t>${SECOND_COLUMN}</t></si></sst>`
 		.length;
 }
+
+/**
+ * Puts `localEntry` (raw local-header-plus-data bytes) in front of `archive` and shifts every offset
+ * the central directory records, so the central directory still describes `archive` exactly and
+ * never mentions the prefix. A reader of the central directory sees `archive`; a reader streaming
+ * local headers from offset 0 sees the prefix first.
+ */
+function prependUnlisted(localEntry: Buffer, archive: Uint8Array): Buffer {
+	const tail = Buffer.from(archive);
+	const eocd = tail.length - 22;
+	if (tail.readUInt32LE(eocd) !== 0x06054b50) throw new Error('fixture carries a zip comment');
+	const cdStart = tail.readUInt32LE(eocd + 16);
+	const entries = tail.readUInt16LE(eocd + 10);
+	let cursor = cdStart;
+	for (let index = 0; index < entries; index += 1) {
+		if (tail.readUInt32LE(cursor) !== 0x02014b50) throw new Error(`no cd entry ${index}`);
+		tail.writeUInt32LE(tail.readUInt32LE(cursor + 42) + localEntry.length, cursor + 42);
+		cursor +=
+			46 +
+			tail.readUInt16LE(cursor + 28) +
+			tail.readUInt16LE(cursor + 30) +
+			tail.readUInt16LE(cursor + 32);
+	}
+	tail.writeUInt32LE(cdStart + localEntry.length, eocd + 16);
+	return Buffer.concat([localEntry, tail]);
+}
+
+/** The local entries of `archive`: everything before its central directory. */
+function localEntriesOf(archive: Uint8Array): Buffer {
+	const bytes = Buffer.from(archive);
+	return bytes.subarray(0, bytes.readUInt32LE(bytes.length - 22 + 16));
+}
+
+/** What the parser's own unzip (`unzipper-esm`, streaming local headers) emits for `archive`. */
+async function streamedByParser(archive: Buffer): Promise<Array<[string, number]>> {
+	const { Parse } = await import('unzipper-esm');
+	const { Readable } = await import('node:stream');
+	const entries: Array<Promise<[string, number]>> = [];
+	await new Promise((resolve, reject) =>
+		Readable.from([archive])
+			.pipe(Parse())
+			.on('entry', (entry: { path: string; buffer(): Promise<Buffer> }) =>
+				entries.push(entry.buffer().then((body) => [entry.path, body.length]))
+			)
+			.on('finish', resolve)
+			.on('error', reject)
+	);
+	return Promise.all(entries);
+}
+
+describe('F2: the parser inflates only what the bound measured', () => {
+	/**
+	 * The guard walks the central directory; `read-excel-file` streams local headers from offset 0
+	 * and never reads it. An entry the central directory does not list is therefore inflated by the
+	 * parser and counted by nobody. Measured on the real parser, a 148,412-byte upload carrying one
+	 * such 150 MB entry: rss 95 MB -> 400 MB, parse SUCCEEDING on the benign part.
+	 */
+	const smuggled = prependUnlisted(
+		localEntriesOf(zipSync({ 'xl/sharedStrings.xml': strToU8('A'.repeat(BOMB_BODY_BYTES)) })),
+		benignWorkbook
+	);
+
+	it('control: the guard alone admits the smuggled archive, and the parser alone sees the bomb', async () => {
+		expect.assertions(3);
+
+		// Without these the property test below could be red for a fixture that never smuggled.
+		expect(smuggled.length).toBeLessThanOrEqual(256_000);
+		expect(measureZipExpansion(smuggled, DEFAULT_BOUND).entryCount).toBe(6);
+		const streamed = await streamedByParser(smuggled);
+		expect(Math.max(...streamed.map(([, size]) => size))).toBe(BOMB_BODY_BYTES);
+	});
+
+	it('every entry the parser is handed is one the bound measured, at the size it measured', async () => {
+		expect.assertions(4);
+		handedToParser.length = 0;
+
+		const result = await readImportFile(asUpload(smuggled));
+		// The archive the central directory describes is the benign workbook, and that is what imports.
+		expect(result.rows[0]?.cells[0]).toBe('CARTE 12/03 CARREFOUR MARKET 000123 FACTURE 4512');
+		expect(handedToParser).toHaveLength(1);
+
+		const measured = measureZipExpansion(smuggled, DEFAULT_BOUND);
+		const streamed = await streamedByParser(handedToParser[0]!);
+		// Two figures, two failures: the total catches unmeasured BYTES, the count catches a rebuild
+		// that multiplies ENTRIES (one per byte, as `parts` on a plain object with `__proto__` did).
+		expect(streamed.reduce((sum, [, size]) => sum + size, 0)).toBe(measured.uncompressedBytes);
+		expect(streamed).toHaveLength(measured.entryCount);
+	});
+
+	it('a part named __proto__ is refused as malformed, never handed to the rebuild', async () => {
+		expect.assertions(3);
+		handedToParser.length = 0;
+
+		// Found by the contradiction pass on the design note, before any code: a rebuild keyed on a
+		// plain object makes `parts['__proto__'] = bytes` the object's PROTOTYPE, and fflate's
+		// `for..in` then writes one directory entry per byte. A null-prototype `parts` is not enough:
+		// fflate flattens into its own `{}` and crashed with a TypeError, measured, so the name is
+		// refused at the bound.
+		const withProto = Buffer.from(
+			zipSync({
+				'[Content_Types].xml': strToU8(CONTENT_TYPES),
+				'_rels/.rels': strToU8(RELS),
+				'xl/workbook.xml': strToU8(WORKBOOK),
+				'xl/_rels/workbook.xml.rels': strToU8(WB_RELS),
+				'xl/worksheets/sheet1.xml': strToU8(SHEET),
+				'xl/sharedStrings.xml': strToU8(
+					`<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><si><t>a</t></si><si><t>b</t></si></sst>`
+				),
+				__proto_x: new Uint8Array(1_000_000)
+			})
+		);
+		const renamed = Buffer.from(
+			withProto.toString('latin1').replaceAll('__proto_x', '__proto__'),
+			'latin1'
+		);
+
+		expect(() => measureZipExpansion(renamed, DEFAULT_BOUND)).toThrow(
+			expect.objectContaining({ reason: 'malformed' })
+		);
+		// The CODE, not that something threw: before the refusal existed, fflate's TypeError also left
+		// `handedToParser` empty, and only the code tells a refusal from a crash.
+		await expect(readImportFile(asUpload(renamed))).rejects.toMatchObject({
+			code: 'bad_extension'
+		});
+		expect(handedToParser).toHaveLength(0);
+	});
+
+	it('a rebuild failure that is about the SERVER is not reported as the upload being unreadable', async () => {
+		expect.assertions(2);
+
+		// fflate stamps entries with `Date.now()` and throws err(10) outside 1980-2099: a fact about
+		// this machine's clock, which "export the file again" cannot fix, so it must stay a server
+		// error the operator sees. Found by the narrow pass on the rebuild's catch; no clock pin
+		// exists elsewhere in this file, so restoring real timers here un-pins nothing.
+		vi.useFakeTimers({ toFake: ['Date'], now: new Date('2101-01-01T00:00:00Z') });
+		let caught: unknown;
+		try {
+			await readImportFile(asUpload(benignWorkbook));
+		} catch (error) {
+			caught = error;
+		} finally {
+			vi.useRealTimers();
+		}
+		expect(caught).not.toBeInstanceOf(ImportFileError);
+		expect((caught as { code?: unknown }).code).toBe(10);
+	});
+
+	it('a name the rebuild cannot re-encode is refused, not a crash', async () => {
+		expect.assertions(2);
+		handedToParser.length = 0;
+
+		// Found by the contradiction pass on the final code: with bit 11 clear the name is decoded as
+		// latin1, so 33,000 bytes of 0xE9 become 66,000 UTF-8 bytes, past the 65,535 a ZIP name field
+		// holds, and fflate's zipSync threw a plain Error that the routes turn into a 500. The LOCAL
+		// header keeps its short name, so the upload stays small.
+		const archive = Buffer.from(zipSync({ 'a.xml': strToU8('<a/>') }));
+		const eocd = archive.length - 22;
+		const cdStart = archive.readUInt32LE(eocd + 16);
+		const nameLength = archive.readUInt16LE(cdStart + 28);
+		const header = Buffer.from(archive.subarray(cdStart, cdStart + 46));
+		header.writeUInt16LE(33_000, 28);
+		expect(header.readUInt16LE(8) & 0x0800).toBe(0);
+		const cdRest = archive.subarray(cdStart + 46 + nameLength, eocd);
+		const end = Buffer.from(archive.subarray(eocd));
+		end.writeUInt32LE(46 + 33_000 + cdRest.length, 12);
+		const longName = Buffer.concat([
+			archive.subarray(0, cdStart),
+			header,
+			Buffer.alloc(33_000, 0xe9),
+			cdRest,
+			end
+		]);
+
+		await expect(readImportFile(asUpload(longName))).rejects.toMatchObject({
+			code: 'bad_extension'
+		});
+	});
+
+	it('a central directory naming one part twice is refused as malformed', () => {
+		expect.assertions(1);
+
+		// Two entries claiming one part is a contradiction the file itself carries: which one a
+		// reader keeps is the reader's choice, so no answer is the file's. Same-length rename so
+		// every offset stays valid.
+		const archive = Buffer.from(
+			zipSync({ 'xl/sharedStrings.xml': strToU8('a'), 'xl/sharedStrings.xmk': strToU8('b') })
+		);
+		const renamed = Buffer.from(
+			archive.toString('latin1').replaceAll('xl/sharedStrings.xmk', 'xl/sharedStrings.xml'),
+			'latin1'
+		);
+		expect(() => measureZipExpansion(renamed, DEFAULT_BOUND)).toThrow(
+			expect.objectContaining({ reason: 'malformed' })
+		);
+	});
+});

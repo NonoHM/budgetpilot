@@ -1,3 +1,4 @@
+import { zipSync } from 'fflate';
 import { readSheet } from 'read-excel-file/node';
 import type { CellValue } from 'read-excel-file/node';
 import type { ParsedCsvRow } from './types';
@@ -175,8 +176,12 @@ async function readXlsxImportFile(file: File): Promise<ReadImportFileResult> {
 	// BEFORE `readSheet`, and the order is the whole fix (#254). The size cap above bounds the
 	// COMPRESSED upload, which the parser never allocates; this bounds what the parser is actually
 	// asked to hold. A guard that runs after the allocation that matters is not a guard for it.
+	// The parser is handed an archive rebuilt from what the bound inflated, never the upload (F2): it
+	// streams local headers, so any byte the central directory does not list would reach it unmeasured.
+	// Stored (level 0), so the parser inflates nothing.
+	let parts: Record<string, Uint8Array>;
 	try {
-		measureZipExpansion(buffer, resolveXlsxMaxUncompressedBytes());
+		parts = measureZipExpansion(buffer, resolveXlsxMaxUncompressedBytes()).parts;
 	} catch (caught) {
 		if (caught instanceof ZipBoundError) {
 			// A malformed archive is reported as a bad file rather than as an oversized one, so the
@@ -193,7 +198,22 @@ async function readXlsxImportFile(file: File): Promise<ReadImportFileResult> {
 		throw caught;
 	}
 
-	const sheet = await readSheetOrRefuse(buffer);
+	// fflate's err(11), a name too long to re-encode, is the one rebuild failure that is a fact about
+	// the upload (measured), so it is refused. Its others (err(10) on a clock outside 1980-2099, an
+	// allocation failure) are facts about this server and stay errors the operator sees.
+	let measured: Uint8Array;
+	try {
+		measured = zipSync(parts, { level: 0 });
+	} catch (caught) {
+		if ((caught as { code?: unknown }).code === 11) {
+			throw new ImportFileError('Le fichier .xlsx est illisible.', 'bad_extension');
+		}
+		throw caught;
+	}
+
+	const sheet = await readSheetOrRefuse(
+		Buffer.from(measured.buffer, measured.byteOffset, measured.byteLength)
+	);
 	const rows = sheet
 		.map((row, index) => ({ cells: row.map((cell) => formatCellValue(cell)), line: index + 1 }))
 		.filter((row) => row.cells.some((cell) => cell.trim() !== ''));
