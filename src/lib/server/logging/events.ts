@@ -269,6 +269,7 @@ export type SensitiveUpdateOperation = 'renew_bank_connection';
  */
 export type BackupIntegrityReason =
 	| 'invalid_column_mapping'
+	| 'costly_category_rule'
 	| 'too_many_column_mappings'
 	| 'duplicate_column_mapping'
 	| 'unknown_net_worth_account_link'

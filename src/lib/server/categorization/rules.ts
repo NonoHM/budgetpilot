@@ -7,6 +7,7 @@ import { isRuleTargetLive, readCategoryNameKeys } from '$lib/server/categories/r
 import {
 	isSafeRegexPattern as isSafeRegexPatternShared,
 	compileRegex,
+	exceedsProgramCeiling,
 	regexMatches
 } from '$lib/server/matching/regex';
 import {
@@ -166,6 +167,12 @@ export function parseCategoryRuleInput(
 
 export function isSafeRegexPattern(pattern: string): boolean {
 	return isSafeRegexPatternShared(pattern, MAX_RULE_FIELD_LENGTH);
+}
+
+/** A stored regex rule a restore must refuse: it compiles past the cost ceiling (#1173). */
+export function isCostlyRegexPattern(pattern: string): boolean {
+	const compiled = compileRegex(pattern);
+	return compiled !== null && exceedsProgramCeiling(compiled, MAX_RULE_FIELD_LENGTH);
 }
 
 export function findMatchingCategoryRule<

@@ -834,6 +834,8 @@ function restoreDateKindLabel(kind: RestoreDateKind): string {
 			return m.settings_restore_kind_imports();
 		case 'transactions':
 			return m.settings_restore_kind_transactions();
+		case 'categoryRules':
+			return m.settings_restore_kind_category_rules();
 		// Two kinds, one word for the reader: a net worth line and its snapshots are both patrimoine.
 		case 'netWorthAccounts':
 		case 'netWorthSnapshots':

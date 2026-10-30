@@ -20,7 +20,15 @@ import { RE2JS } from 're2js';
 export function isSafeRegexPattern(pattern: string, maxLength: number): boolean {
 	if (pattern.length === 0 || pattern.length > maxLength) return false;
 	const compiled = compileRegex(pattern);
-	return compiled !== null && compiled.programSize() <= 2 * maxLength;
+	return compiled !== null && !exceedsProgramCeiling(compiled, maxLength);
+}
+
+/**
+ * The F4 ceiling alone, for the one writer that applies nothing else: a restore keeps a stored
+ * pattern that does not compile (it matches nothing and costs nothing), and refuses only the cost.
+ */
+export function exceedsProgramCeiling(compiled: RE2JS, maxLength: number): boolean {
+	return compiled.programSize() > 2 * maxLength;
 }
 
 // No longer needed for ReDoS safety (RE2 is linear-time regardless of input length), kept

@@ -114,15 +114,22 @@ export async function buildBackupExport(userId: string): Promise<BackupExport> {
 			where: { userId },
 			select: { id: true, categoryName: true, amountCents: true, currency: true, exponent: true }
 		}),
+		// In the matcher's own order (rules.ts), and with `createdAt`, because that order IS the rule
+		// priority: a restore writing rows in read order, under one timestamp, let a different rule
+		// win on every later import (#1173).
 		prisma.categoryRule.findMany({
 			where: { userId },
+			orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
 			select: {
 				id: true,
 				name: true,
 				matchText: true,
 				targetCategory: true,
 				targetNature: true,
-				enabled: true
+				isRegex: true,
+				enabled: true,
+				defaultRuleKey: true,
+				createdAt: true
 			}
 		}),
 		prisma.categorizationRule.findMany({
@@ -290,7 +297,10 @@ export async function buildBackupExport(userId: string): Promise<BackupExport> {
 			type: transaction.type as TransactionKind
 		})),
 		monthlyBudgets,
-		categoryRules,
+		categoryRules: categoryRules.map((rule) => ({
+			...rule,
+			createdAt: rule.createdAt.toISOString()
+		})),
 		categorizationRules: categorizationRules.map((rule) => ({
 			...rule,
 			type: rule.type as CategorizationRuleKind
