@@ -394,3 +394,40 @@ describe('the code step', () => {
 		expect(judged(answers, m.mfa_verify_error_invalid_code())).toBe(BUDGET);
 	});
 });
+
+/**
+ * 4. THE IDENTITY the budget counts (F5). The password step's budget is keyed on the posted email,
+ *    and the account is found through the column's collation. On MySQL and MariaDB that collation
+ *    (`utf8mb4_unicode_ci`) is accent-insensitive, so another spelling reached the same account and
+ *    the same password check with a counter of its own: five guesses per spelling, without bound.
+ *    Every stored email is `normalizeEmail` of what was registered, so the only spelling that may
+ *    sign in is the stored one, byte for byte, and its counter is the account's.
+ *
+ *    The refusal separates « the variant signs in » (red) from « the variant is an unknown account »
+ *    (green) only on an engine whose lookup resolves the variant; the premise test beside it pins
+ *    which engines those are, so a collation change cannot turn the refusal test into a tautology.
+ */
+describe('the identity the password step counts', () => {
+	/** An accented spelling `utf8mb4_unicode_ci` compares equal to the stored ASCII one. */
+	const variantOf = (email: string) => email.replace('e', 'é');
+
+	it('resolves an accented spelling to the account only on MySQL and MariaDB', async () => {
+		const account = await seedAccount('identity-premise', false);
+		const found = await prisma.user.findUnique({
+			where: { email: variantOf(account.email) },
+			select: { id: true }
+		});
+		expect(found?.id ?? null).toBe(process.env.DATABASE_PROVIDER === 'mysql' ? account.id : null);
+	});
+
+	it('refuses the right password under a spelling the account was not registered with', async () => {
+		const account = await seedAccount('identity-variant', false);
+		const answer = await run(
+			'/login',
+			jar(),
+			{ email: variantOf(account.email), password: PASSWORD },
+			freshAddress()
+		);
+		expect(answer).toEqual({ error: m.login_error_invalid_credentials() });
+	});
+});
