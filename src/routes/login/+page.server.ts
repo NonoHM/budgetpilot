@@ -70,14 +70,21 @@ export const actions: Actions = {
 		// releases it (`claimLoginAttempt`).
 		let passwordWrong = false;
 		try {
-			const user = await prisma.user.findUnique({
+			const found = await prisma.user.findUnique({
 				where: { email },
 				select: {
 					id: true,
+					email: true,
 					passwordHash: true,
 					totpEnabled: true
 				}
 			});
+			// The counter above is keyed on the posted bytes, and MySQL's `utf8mb4_unicode_ci` also
+			// resolves accented and otherwise collation-equal spellings, each with a counter of its own
+			// (F5). Every stored email is `normalizeEmail` of what was registered, so only those exact
+			// bytes may sign in: any other spelling is an unknown account, and the only per-email counter
+			// guarding a guess that can succeed is the stored spelling's.
+			const user = found?.email === email ? found : null;
 
 			const passwordOk = await verifyPasswordTimingSafe(password, user?.passwordHash);
 			if (!user || !passwordOk) {

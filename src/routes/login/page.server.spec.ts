@@ -91,7 +91,11 @@ describe('/login action', () => {
 		expect.assertions(5);
 
 		const passwordHash = await hashPassword('mot-de-passe-long');
-		db.prisma.user.findUnique.mockResolvedValue({ id: 'user-a', passwordHash });
+		db.prisma.user.findUnique.mockResolvedValue({
+			id: 'user-a',
+			email: 'a@example.test',
+			passwordHash
+		});
 		db.prisma.session.create.mockResolvedValue({ id: 'session-a' });
 		// ensureDefaultCategoriesSeeded calls user.updateMany; count:0 = already seeded, no-op.
 		db.prisma.user.updateMany.mockImplementation(async (args) => answerUserUpdateMany(args));
@@ -106,7 +110,7 @@ describe('/login action', () => {
 
 		expect(db.prisma.user.findUnique).toHaveBeenCalledWith({
 			where: { email: 'a@example.test' },
-			select: { id: true, passwordHash: true, totpEnabled: true }
+			select: { id: true, email: true, passwordHash: true, totpEnabled: true }
 		});
 		expect(cookies.set).toHaveBeenCalled();
 		expect(JSON.stringify(db.prisma.session.create.mock.calls[0][0])).not.toContain(
@@ -119,7 +123,11 @@ describe('/login action', () => {
 		expect.assertions(4);
 
 		const passwordHash = await hashPassword('mot-de-passe-long');
-		db.prisma.user.findUnique.mockResolvedValue({ id: 'user-a', passwordHash });
+		db.prisma.user.findUnique.mockResolvedValue({
+			id: 'user-a',
+			email: 'a@example.test',
+			passwordHash
+		});
 
 		const result = await runLogin(
 			{ get: vi.fn(), set: vi.fn() },
@@ -168,7 +176,7 @@ describe('/login action', () => {
 		expect(rateLimit.claimLoginAttempt).toHaveBeenCalledWith('a@example.test', expect.any(String));
 		expect(db.prisma.user.findUnique).toHaveBeenCalledWith({
 			where: { email: 'a@example.test' },
-			select: { id: true, passwordHash: true, totpEnabled: true }
+			select: { id: true, email: true, passwordHash: true, totpEnabled: true }
 		});
 	});
 
@@ -194,7 +202,12 @@ describe('/login action', () => {
 		vi.clearAllMocks();
 
 		const passwordHash = await hashPassword('mot-de-passe-long');
-		db.prisma.user.findUnique.mockResolvedValue({ id: 'user-a', passwordHash, totpEnabled: true });
+		db.prisma.user.findUnique.mockResolvedValue({
+			id: 'user-a',
+			email: 'a@example.test',
+			passwordHash,
+			totpEnabled: true
+		});
 		const cookies = { get: vi.fn(), set: vi.fn() };
 
 		await expect(
@@ -385,8 +398,48 @@ describe('/login action: security events (L3)', () => {
 		]).toEqual([true, false]);
 	});
 
+	// F5: the fake answers as `utf8mb4_unicode_ci` does, resolving an accented spelling to the account
+	// registered without the accent. Red: the right password signs in (303) under a spelling with a
+	// counter of its own. Green: an unknown account, refused and counted like one.
+	it('a row the lookup resolved under another spelling is refused as an unknown account', async () => {
+		db.prisma.user.findUnique.mockResolvedValue({
+			id: 'user-a',
+			email: 'a@example.test',
+			passwordHash
+		});
+		const answer = await outcome(
+			runLogin({ get: vi.fn(), set: vi.fn() }, { email: 'á@example.test', password: PASSWORD }, IP)
+		);
+		expect(answer).toMatchObject({ status: 400, data: { error: 'Identifiants invalides' } });
+		expect(captured.events).toEqual([passwordStepFailure('unknown_account')]);
+		expect(rateLimit.settleAttempt.mock.calls.at(-1)).toEqual([CLAIM, true]);
+	});
+
+	// The other side of the byte check: it compares the NORMALIZED post, so case and surrounding
+	// spaces still sign in. Red if the check reads the raw field: every account typed in upper case
+	// would be refused while the accented-spelling test above stays green.
+	it('an email typed in another case and with spaces still signs in', async () => {
+		db.prisma.user.findUnique.mockResolvedValue({
+			id: 'user-a',
+			email: 'a@example.test',
+			passwordHash
+		});
+		const answer = await outcome(
+			runLogin(
+				{ get: vi.fn(), set: vi.fn() },
+				{ email: ' A@Example.TEST ', password: PASSWORD },
+				IP
+			)
+		);
+		expect(answer).toBe(303);
+	});
+
 	it('a wrong password logs one password-step failure naming the user by pseudonym', async () => {
-		db.prisma.user.findUnique.mockResolvedValue({ id: 'user-a', passwordHash });
+		db.prisma.user.findUnique.mockResolvedValue({
+			id: 'user-a',
+			email: 'a@example.test',
+			passwordHash
+		});
 		await signIn('mauvais-mot-de-passe');
 		expect(captured.events).toEqual([passwordStepFailure('wrong_password', 'user-a')]);
 	});
@@ -394,14 +447,22 @@ describe('/login action: security events (L3)', () => {
 	// 48 is not the default, so a width written as 56 or 32 fails here.
 	it('an IPv6 wrong password carries the configured width and the label at that width', async () => {
 		vi.stubEnv('BP_RATE_LIMIT_IPV6_PREFIX', '48');
-		db.prisma.user.findUnique.mockResolvedValue({ id: 'user-a', passwordHash });
+		db.prisma.user.findUnique.mockResolvedValue({
+			id: 'user-a',
+			email: 'a@example.test',
+			passwordHash
+		});
 		await signIn('mauvais-mot-de-passe', V6);
 		expect(captured.events).toEqual([passwordStepFailure('wrong_password', 'user-a', V6, 48)]);
 	});
 
 	// #923: the password changed while bcrypt ran, so the compare-and-set claims no row.
 	it('a sign-in superseded by a password change logs one failure with reason superseded', async () => {
-		db.prisma.user.findUnique.mockResolvedValue({ id: 'user-a', passwordHash });
+		db.prisma.user.findUnique.mockResolvedValue({
+			id: 'user-a',
+			email: 'a@example.test',
+			passwordHash
+		});
 		db.prisma.user.updateMany.mockResolvedValue({ count: 0 });
 		const result = await signIn(PASSWORD);
 		expect({ status: result.status, events: captured.events }).toEqual({
@@ -411,7 +472,12 @@ describe('/login action: security events (L3)', () => {
 	});
 
 	it('a success without a second factor logs one login success with the factor password', async () => {
-		db.prisma.user.findUnique.mockResolvedValue({ id: 'user-a', passwordHash, totpEnabled: false });
+		db.prisma.user.findUnique.mockResolvedValue({
+			id: 'user-a',
+			email: 'a@example.test',
+			passwordHash,
+			totpEnabled: false
+		});
 		const status = await outcome(signIn(PASSWORD));
 		expect({ status, events: captured.events }).toEqual({
 			status: 303,
@@ -430,7 +496,12 @@ describe('/login action: security events (L3)', () => {
 
 	// Invariant 1 at run time. The first element calibrates the reading.
 	it('a login success carries no subnet label and no width', async () => {
-		db.prisma.user.findUnique.mockResolvedValue({ id: 'user-a', passwordHash, totpEnabled: false });
+		db.prisma.user.findUnique.mockResolvedValue({
+			id: 'user-a',
+			email: 'a@example.test',
+			passwordHash,
+			totpEnabled: false
+		});
 		await outcome(signIn(PASSWORD));
 		const attributes = onlyAttributes();
 		expect([
@@ -441,7 +512,12 @@ describe('/login action: security events (L3)', () => {
 	});
 
 	it('a password accepted on an account with 2FA logs one second-factor-required event', async () => {
-		db.prisma.user.findUnique.mockResolvedValue({ id: 'user-a', passwordHash, totpEnabled: true });
+		db.prisma.user.findUnique.mockResolvedValue({
+			id: 'user-a',
+			email: 'a@example.test',
+			passwordHash,
+			totpEnabled: true
+		});
 		const status = await outcome(signIn(PASSWORD));
 		expect({ status, events: captured.events }).toEqual({
 			status: 303,
@@ -458,7 +534,12 @@ describe('/login action: security events (L3)', () => {
 	});
 
 	it('a second-factor-required event carries no subnet label and no width', async () => {
-		db.prisma.user.findUnique.mockResolvedValue({ id: 'user-a', passwordHash, totpEnabled: true });
+		db.prisma.user.findUnique.mockResolvedValue({
+			id: 'user-a',
+			email: 'a@example.test',
+			passwordHash,
+			totpEnabled: true
+		});
 		await outcome(signIn(PASSWORD));
 		const attributes = onlyAttributes();
 		expect([
@@ -516,7 +597,11 @@ describe('/login action: security events (L3)', () => {
 
 	// Invariant 4: the wrong password and the unknown account answer alike, and as they did before.
 	it('logging leaves the answer unchanged: a wrong password and an unknown account answer alike', async () => {
-		db.prisma.user.findUnique.mockResolvedValueOnce({ id: 'user-a', passwordHash });
+		db.prisma.user.findUnique.mockResolvedValueOnce({
+			id: 'user-a',
+			email: 'a@example.test',
+			passwordHash
+		});
 		const wrong = await signIn('mauvais-mot-de-passe');
 		db.prisma.user.findUnique.mockResolvedValueOnce(null);
 		const unknown = await signIn('mauvais-mot-de-passe');
@@ -529,7 +614,11 @@ describe('/login action: security events (L3)', () => {
 	// Design note point 5: the pseudonym throws on a value that is not an address, so it must be
 	// taken after the record. Whether the action then throws is the helper's; the record is not.
 	it('a failure from a client whose address cannot be read is still recorded', async () => {
-		db.prisma.user.findUnique.mockResolvedValue({ id: 'user-a', passwordHash });
+		db.prisma.user.findUnique.mockResolvedValue({
+			id: 'user-a',
+			email: 'a@example.test',
+			passwordHash
+		});
 		// Not `undefined`, which the helper's default would replace with an address.
 		await outcome(signIn('mauvais-mot-de-passe', 'not-an-address'));
 		expect({
@@ -541,7 +630,7 @@ describe('/login action: security events (L3)', () => {
 	// Invariant 5 (#869): the pseudonym, and so the line, comes after the limiter record. The row is
 	// written by the claim, before the account is looked up, and kept by the settle after the line.
 	it.each([
-		['a wrong password', () => ({ id: 'user-a', passwordHash })],
+		['a wrong password', () => ({ id: 'user-a', email: 'a@example.test', passwordHash })],
 		['an unknown account', () => null]
 	])('%s is logged after the attempt is recorded', async (_label, account) => {
 		db.prisma.user.findUnique.mockResolvedValue(account());
@@ -552,7 +641,11 @@ describe('/login action: security events (L3)', () => {
 	// Separates « a superseded sign-in reads as the wrong password it is » from « it costs nothing »:
 	// the password that bcrypt checked is no longer the account's (#923).
 	it('a sign-in superseded by a password change keeps its attempt', async () => {
-		db.prisma.user.findUnique.mockResolvedValue({ id: 'user-a', passwordHash });
+		db.prisma.user.findUnique.mockResolvedValue({
+			id: 'user-a',
+			email: 'a@example.test',
+			passwordHash
+		});
 		db.prisma.user.updateMany.mockResolvedValue({ count: 0 });
 		await signIn(PASSWORD);
 		expect(rateLimit.settleAttempt.mock.calls).toEqual([[CLAIM, true]]);
@@ -565,7 +658,12 @@ describe('/login action: security events (L3)', () => {
 		['without a second factor', false],
 		['with a second factor', true]
 	])('a correct password %s releases its attempt', async (_label, totpEnabled) => {
-		db.prisma.user.findUnique.mockResolvedValue({ id: 'user-a', passwordHash, totpEnabled });
+		db.prisma.user.findUnique.mockResolvedValue({
+			id: 'user-a',
+			email: 'a@example.test',
+			passwordHash,
+			totpEnabled
+		});
 		expect(await outcome(signIn(PASSWORD))).toBe(303);
 		expect(rateLimit.settleAttempt.mock.calls).toEqual([[CLAIM, false]]);
 	});
@@ -622,20 +720,32 @@ describe('/login action: the sign-in refusal header (#876)', () => {
 	});
 
 	it('a wrong password is marked', async () => {
-		db.prisma.user.findUnique.mockResolvedValue({ id: 'user-a', passwordHash });
+		db.prisma.user.findUnique.mockResolvedValue({
+			id: 'user-a',
+			email: 'a@example.test',
+			passwordHash
+		});
 		expect(await signIn('mauvais-mot-de-passe')).toEqual(MARKED);
 	});
 
 	// Class 2 (#854): `superseded` answers with the invalid-credentials body, so an absent header
 	// would tell the client its password was right and changed meanwhile.
 	it('a sign-in superseded by a password change is marked, like the wrong password it reads as', async () => {
-		db.prisma.user.findUnique.mockResolvedValue({ id: 'user-a', passwordHash });
+		db.prisma.user.findUnique.mockResolvedValue({
+			id: 'user-a',
+			email: 'a@example.test',
+			passwordHash
+		});
 		db.prisma.user.updateMany.mockResolvedValue({ count: 0 });
 		expect(await signIn(PASSWORD)).toEqual(MARKED);
 	});
 
 	it('an unknown account and a wrong password get the same status, body and headers', async () => {
-		db.prisma.user.findUnique.mockResolvedValueOnce({ id: 'user-a', passwordHash });
+		db.prisma.user.findUnique.mockResolvedValueOnce({
+			id: 'user-a',
+			email: 'a@example.test',
+			passwordHash
+		});
 		const wrong = await runLogin(
 			{ get: vi.fn(), set: vi.fn() },
 			{ email: 'a@example.test', password: 'mauvais-mot-de-passe' }
@@ -658,7 +768,11 @@ describe('/login action: the sign-in refusal header (#876)', () => {
 	// The pseudonym throws on a value that is not an address, so the line is never written; the
 	// proxy holds the raw address, and the mark must not depend on the line.
 	it('a wrong password from a client whose address the log cannot read is still marked', async () => {
-		db.prisma.user.findUnique.mockResolvedValue({ id: 'user-a', passwordHash });
+		db.prisma.user.findUnique.mockResolvedValue({
+			id: 'user-a',
+			email: 'a@example.test',
+			passwordHash
+		});
 		await runLogin(
 			{ get: vi.fn(), set: vi.fn() },
 			{ email: 'a@example.test', password: 'mauvais-mot-de-passe' },
@@ -671,12 +785,22 @@ describe('/login action: the sign-in refusal header (#876)', () => {
 	});
 
 	it('a success without a second factor is not marked', async () => {
-		db.prisma.user.findUnique.mockResolvedValue({ id: 'user-a', passwordHash, totpEnabled: false });
+		db.prisma.user.findUnique.mockResolvedValue({
+			id: 'user-a',
+			email: 'a@example.test',
+			passwordHash,
+			totpEnabled: false
+		});
 		expect(await signIn(PASSWORD)).toEqual({});
 	});
 
 	it('a password accepted on an account with 2FA is not marked', async () => {
-		db.prisma.user.findUnique.mockResolvedValue({ id: 'user-a', passwordHash, totpEnabled: true });
+		db.prisma.user.findUnique.mockResolvedValue({
+			id: 'user-a',
+			email: 'a@example.test',
+			passwordHash,
+			totpEnabled: true
+		});
 		expect(await signIn(PASSWORD)).toEqual({});
 	});
 

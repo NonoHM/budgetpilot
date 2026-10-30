@@ -1,6 +1,8 @@
 // The stored form of an email and the check sign-in applies before looking one up. Their own module
-// with no imports, so `scripts/log-pseudonym.mjs` finds an account from an email the way sign-in
-// does rather than through a copy of the rule (#942). Re-exported by `auth.ts`.
+// with no imports, so `scripts/log-pseudonym.mjs` normalizes an email the way sign-in does rather
+// than through a copy of the rule (#942). Sign-in also requires the stored bytes (F5), which that
+// operator lookup does not, so on MySQL it may name the account behind a collation-equal spelling.
+// Re-exported by `auth.ts`.
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 /**

@@ -110,6 +110,7 @@ const SIGN_IN_EXITS: readonly SignInExit[] = [
 		target: (redirectTo) => {
 			db.prisma.user.findUnique.mockResolvedValue({
 				id: 'user-a',
+				email: 'a@example.test',
 				passwordHash,
 				totpEnabled: false
 			});
@@ -125,6 +126,7 @@ const SIGN_IN_EXITS: readonly SignInExit[] = [
 		target: async (redirectTo) => {
 			db.prisma.user.findUnique.mockResolvedValue({
 				id: 'user-a',
+				email: 'a@example.test',
 				passwordHash,
 				totpEnabled: true
 			});
@@ -147,6 +149,7 @@ const SIGN_IN_EXITS: readonly SignInExit[] = [
 			mfaChallenge.readMfaChallenge.mockResolvedValue({ id: 'challenge-1', userId: 'user-a' });
 			db.prisma.user.findUnique.mockResolvedValue({
 				id: 'user-a',
+				email: 'a@example.test',
 				totpEnabled: true,
 				totpSecretEncrypted: encryptTotpSecret(secret)
 			});
