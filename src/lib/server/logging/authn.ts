@@ -111,7 +111,7 @@ export function logSignInFailed(ip: string, failure: SignInFailure): void {
 
 /**
  * The limiter refused an authentication attempt, with the counter that was full: `subject` says the
- * account, challenge or session was, which is not this client's doing (an attacker filling a victim's
+ * email, account, challenge or session was, which is not this client's doing (an attacker filling a victim's
  * email counter refuses the victim too). The user where the caller knows it (MFA, REAUTH).
  */
 export function logRateLimited(

@@ -71,7 +71,7 @@ const WRITER_SITES: Record<string, number> = {
 	// The pending challenges a sign-in ends with the account's sessions.
 	'src/lib/server/auth.ts': 1,
 	'src/lib/server/auth/mfaChallenge.ts': 3,
-	'src/lib/server/auth/rateLimit.ts': 1,
+	'src/lib/server/auth/rateLimit.ts': 3,
 	// deleteBankConnection, and the expired authorization requests.
 	'src/lib/server/banking/sync/service.ts': 2,
 	// deleteBudget, and the merge in updateBudget.
@@ -236,7 +236,10 @@ const NOT_A_DOOR: [path: string, reason: string][] = [
 	],
 	[
 		'src/lib/server/auth/rateLimit.ts',
-		'expired sign-in attempts purged: system retention, no actor'
+		'expired sign-in attempts purged (system retention, no actor), and a sign-in attempt withdrawing ' +
+			'its own row written by the same request when it is refused, its credential was right, or ' +
+			'it failed before its credential was judged (logged as the sign-in or refusal it was, or as ' +
+			'the request error)'
 	],
 	[
 		'src/lib/server/tags/bulk.ts',
@@ -287,13 +290,13 @@ function importersOf(module: string, name: string): string[] {
 const doors = [...ROUTE_DOORS, ...HELPERS.flatMap((helper) => helper.doors)];
 
 describe('every deletion a member or admin triggers logs sensitive_delete', () => {
-	// The first figures calibrate: the files were read, and the sites found are the 61 pinned.
+	// The first figures calibrate: the files were read, and the sites found are the 63 pinned.
 	it('reads the files and finds exactly the known writer sites, file by file', () => {
 		expect([
 			files.length > 100,
 			Object.values(writerSites).reduce((total, sites) => total + sites, 0),
 			writerSites
-		]).toEqual([true, 61, WRITER_SITES]);
+		]).toEqual([true, 63, WRITER_SITES]);
 	});
 
 	// Every writer file is a door, a helper's module or a named non-door, and nothing else.

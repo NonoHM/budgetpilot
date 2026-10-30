@@ -56,10 +56,17 @@ function answerUserUpdateMany(args: { data: Record<string, unknown> }) {
 	return { count: 'passwordHash' in args.data ? 1 : 0 };
 }
 
+/** The claim every admitted attempt holds, so a settle can be matched to it. */
+const CLAIM = vi.hoisted(() => ({ id: 'claim-1' }));
 const rateLimit = vi.hoisted(() => ({
-	isLoginRateLimited: vi.fn(async () => false),
-	recordFailedLoginAttempt: vi.fn(async () => {
-		captured.order.push('record');
+	claimLoginAttempt: vi.fn(
+		async (): Promise<{ claim: { id: string } } | { trip: { counter: string } }> => {
+			captured.order.push('claim');
+			return { claim: CLAIM };
+		}
+	),
+	settleAttempt: vi.fn(async (_claim: { id: string }, credentialWrong: boolean) => {
+		captured.order.push(`settle:${credentialWrong}`);
 	})
 }));
 
@@ -125,10 +132,7 @@ describe('/login action', () => {
 		expect(result.status).toBe(400);
 		expect(result.data.error).toBe('Identifiants invalides');
 		expect(JSON.stringify(result.data)).not.toContain('a@example.test');
-		expect(rateLimit.recordFailedLoginAttempt).toHaveBeenCalledWith(
-			'a@example.test',
-			expect.any(String)
-		);
+		expect(rateLimit.settleAttempt.mock.calls).toEqual([[CLAIM, true]]);
 	});
 
 	it('échoue avec le même message générique pour un email inexistant (anti-énumération)', async () => {
@@ -161,7 +165,7 @@ describe('/login action', () => {
 			}
 		);
 
-		expect(rateLimit.isLoginRateLimited).toHaveBeenCalledWith('a@example.test', expect.any(String));
+		expect(rateLimit.claimLoginAttempt).toHaveBeenCalledWith('a@example.test', expect.any(String));
 		expect(db.prisma.user.findUnique).toHaveBeenCalledWith({
 			where: { email: 'a@example.test' },
 			select: { id: true, passwordHash: true, totpEnabled: true }
@@ -171,7 +175,7 @@ describe('/login action', () => {
 	it('bloque après trop de tentatives sans révéler que le compte existe', async () => {
 		expect.assertions(2);
 
-		rateLimit.isLoginRateLimited.mockResolvedValueOnce(true);
+		rateLimit.claimLoginAttempt.mockResolvedValueOnce({ trip: { counter: 'subject' } });
 
 		const result = await runLogin(
 			{ get: vi.fn(), set: vi.fn() },
@@ -474,7 +478,7 @@ describe('/login action: security events (L3)', () => {
 	it.each(['address', 'subject', 'both'] as const)(
 		'a limiter refusal by the %s counter logs one rate-limit event naming that counter, and answers as before',
 		async (counter) => {
-			rateLimit.isLoginRateLimited.mockResolvedValueOnce({ counter } as never);
+			rateLimit.claimLoginAttempt.mockResolvedValueOnce({ trip: { counter } });
 			const result = await signIn(PASSWORD);
 			expect({
 				answer: { status: result.status, data: result.data },
@@ -501,7 +505,7 @@ describe('/login action: security events (L3)', () => {
 	);
 
 	it('a limiter refusal names no user', async () => {
-		rateLimit.isLoginRateLimited.mockResolvedValueOnce({ counter: 'subject' } as never);
+		rateLimit.claimLoginAttempt.mockResolvedValueOnce({ trip: { counter: 'subject' } });
 		await signIn(PASSWORD);
 		const attributes = onlyAttributes();
 		expect([
@@ -528,19 +532,49 @@ describe('/login action: security events (L3)', () => {
 		db.prisma.user.findUnique.mockResolvedValue({ id: 'user-a', passwordHash });
 		// Not `undefined`, which the helper's default would replace with an address.
 		await outcome(signIn('mauvais-mot-de-passe', 'not-an-address'));
-		expect(rateLimit.recordFailedLoginAttempt.mock.calls).toEqual([
-			['a@example.test', 'not-an-address']
-		]);
+		expect({
+			claimed: rateLimit.claimLoginAttempt.mock.calls,
+			settled: rateLimit.settleAttempt.mock.calls
+		}).toEqual({ claimed: [['a@example.test', 'not-an-address']], settled: [[CLAIM, true]] });
 	});
 
-	// Invariant 5 (#869): the pseudonym, and so the line, comes after the limiter record.
+	// Invariant 5 (#869): the pseudonym, and so the line, comes after the limiter record. The row is
+	// written by the claim, before the account is looked up, and kept by the settle after the line.
 	it.each([
 		['a wrong password', () => ({ id: 'user-a', passwordHash })],
 		['an unknown account', () => null]
 	])('%s is logged after the attempt is recorded', async (_label, account) => {
 		db.prisma.user.findUnique.mockResolvedValue(account());
 		await signIn('mauvais-mot-de-passe');
-		expect(captured.order).toEqual(['record', 'log']);
+		expect(captured.order).toEqual(['claim', 'log', 'settle:true']);
+	});
+
+	// Separates « a superseded sign-in reads as the wrong password it is » from « it costs nothing »:
+	// the password that bcrypt checked is no longer the account's (#923).
+	it('a sign-in superseded by a password change keeps its attempt', async () => {
+		db.prisma.user.findUnique.mockResolvedValue({ id: 'user-a', passwordHash });
+		db.prisma.user.updateMany.mockResolvedValue({ count: 0 });
+		await signIn(PASSWORD);
+		expect(rateLimit.settleAttempt.mock.calls).toEqual([[CLAIM, true]]);
+	});
+
+	// Separates « a correct password releases its claim » from « every claim is kept », which would
+	// turn five honest sign-ins into a lockout. Both exits are redirects, so the release is the
+	// `finally`'s.
+	it.each([
+		['without a second factor', false],
+		['with a second factor', true]
+	])('a correct password %s releases its attempt', async (_label, totpEnabled) => {
+		db.prisma.user.findUnique.mockResolvedValue({ id: 'user-a', passwordHash, totpEnabled });
+		expect(await outcome(signIn(PASSWORD))).toBe(303);
+		expect(rateLimit.settleAttempt.mock.calls).toEqual([[CLAIM, false]]);
+	});
+
+	// Separates « a refused claim settles nothing » from « it settles a claim it never held ».
+	it('a limiter refusal settles nothing', async () => {
+		rateLimit.claimLoginAttempt.mockResolvedValueOnce({ trip: { counter: 'subject' } });
+		await signIn(PASSWORD);
+		expect(rateLimit.settleAttempt).not.toHaveBeenCalled();
 	});
 });
 
@@ -660,7 +694,7 @@ describe('/login action: the sign-in refusal header (#876)', () => {
 	it.each(['address', 'subject', 'both'] as const)(
 		'a limiter refusal by the %s counter is not marked',
 		async (counter) => {
-			rateLimit.isLoginRateLimited.mockResolvedValueOnce({ counter } as never);
+			rateLimit.claimLoginAttempt.mockResolvedValueOnce({ trip: { counter } });
 			expect(await signIn(PASSWORD)).toEqual({});
 		}
 	);

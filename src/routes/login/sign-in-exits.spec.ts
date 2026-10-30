@@ -31,10 +31,9 @@ const db = vi.hoisted(() => {
 });
 
 const rateLimit = vi.hoisted(() => ({
-	isLoginRateLimited: vi.fn(async () => false),
-	recordFailedLoginAttempt: vi.fn(async () => undefined),
-	isMfaRateLimited: vi.fn(async () => false),
-	recordMfaAttempt: vi.fn(async () => undefined)
+	claimLoginAttempt: vi.fn(async () => ({ claim: { id: 'claim-1' } })),
+	claimMfaAttempt: vi.fn(async () => ({ claim: { id: 'claim-1' } })),
+	settleAttempt: vi.fn(async () => undefined)
 }));
 
 const mfaChallenge = vi.hoisted(() => ({

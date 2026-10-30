@@ -1,10 +1,15 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import * as OTPAuth from 'otpauth';
 import { isActionFailure, isRedirect, type Cookies } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
 import { hashPassword } from '$lib/server/auth';
 import { MFA_PENDING_COOKIE } from '$lib/server/auth/mfaChallenge';
-import { encryptTotpSecret, generateTotpSecretBase32 } from '$lib/server/auth/totp';
+import {
+	encryptTotpSecret,
+	generateRecoveryCodes,
+	generateTotpSecretBase32,
+	hashRecoveryCode
+} from '$lib/server/auth/totp';
 import * as m from '$lib/paraglide/messages';
 import { prisma } from '$lib/server/db';
 
@@ -88,6 +93,11 @@ beforeAll(() => {
 	env.TOTP_ENCRYPTION_KEY = 'f2'.repeat(32);
 });
 
+// Only the correct-code test pins the clock; every other test reads the real one.
+afterEach(() => {
+	vi.useRealTimers();
+});
+
 afterAll(async () => {
 	await prisma.user.deleteMany({ where: { id: { in: created } } });
 });
@@ -129,7 +139,10 @@ async function run(
 			locals: {},
 			url: new URL(`http://localhost${path}`)
 		});
-		if (isActionFailure(answer)) return { error: (answer.data as { error: string }).error };
+		// The handler is typed `unknown`, so the guard narrows `data` to `undefined`: the routes' own
+		// failure shape is restated here.
+		if (isActionFailure(answer))
+			return { error: (answer.data as unknown as { error: string }).error };
 		throw new Error(`${path} answered neither a refusal nor a redirect`);
 	} catch (thrown) {
 		if (!isRedirect(thrown)) throw thrown;
@@ -143,7 +156,12 @@ const password = (account: Account, value: string, address: string) =>
 /** The password step with the right password: a browser left at the code step. */
 async function passwordStep(account: Account, address: string): Promise<Browser> {
 	const browser = jar();
-	const answer = await run('/login', browser, { email: account.email, password: PASSWORD }, address);
+	const answer = await run(
+		'/login',
+		browser,
+		{ email: account.email, password: PASSWORD },
+		address
+	);
 	expect(answer, 'the password step was refused').toHaveProperty('redirect');
 	expect(browser.value(MFA_PENDING_COOKIE)).toBeDefined();
 	return browser;
@@ -152,7 +170,9 @@ async function passwordStep(account: Account, address: string): Promise<Browser>
 /** A six-digit code that is valid in no step the server accepts now (one step either side). */
 function wrongCode(secret: string): string {
 	const totp = new OTPAuth.TOTP({ secret: OTPAuth.Secret.fromBase32(secret) });
-	const valid = new Set([-1, 0, 1].map((offset) => totp.generate({ timestamp: Date.now() + offset * 30_000 })));
+	const valid = new Set(
+		[-1, 0, 1].map((offset) => totp.generate({ timestamp: Date.now() + offset * 30_000 }))
+	);
 	for (let candidate = 0; ; candidate += 1) {
 		const code = candidate.toString().padStart(6, '0');
 		if (!valid.has(code)) return code;
@@ -171,6 +191,16 @@ describe('the password step', () => {
 			Array.from({ length: BURST }, () => password(account, WRONG_PASSWORD, freshAddress()))
 		);
 		expect(judged(answers, m.login_error_invalid_credentials())).toBeLessThanOrEqual(BUDGET);
+	});
+
+	// The boundary that tells « at most five » from « none »: a fix refusing every burst would pass
+	// the test above, and this one fails it.
+	it('judges every guess of a concurrent burst of exactly five', async () => {
+		const account = await seedAccount('burst-of-budget', false);
+		const answers = await Promise.all(
+			Array.from({ length: BUDGET }, () => password(account, WRONG_PASSWORD, freshAddress()))
+		);
+		expect(judged(answers, m.login_error_invalid_credentials())).toBe(BUDGET);
 	});
 
 	it('lets at most five of a concurrent burst from one address reach the password check', async () => {
@@ -238,6 +268,118 @@ describe('the code step', () => {
 		expect(await run('/login/verify-totp', browser, { code }, freshAddress())).toEqual({
 			error: m.mfa_verify_error_too_many_attempts()
 		});
+	});
+
+	it('never refuses the owner for signing in with the right code, however often', async () => {
+		const account = await seedAccount('code-owner-repeats', true);
+		const address = freshAddress();
+		const totp = new OTPAuth.TOTP({ secret: OTPAuth.Secret.fromBase32(account.secret) });
+		for (let index = 0; index < BUDGET + 1; index += 1) {
+			const browser = await passwordStep(account, address);
+			// Each step is spent once, so each sign-in is a period apart on a pinned clock.
+			const at = Date.now() + index * 30_000;
+			vi.setSystemTime(at);
+			const answer = await run(
+				'/login/verify-totp',
+				browser,
+				{ code: totp.generate({ timestamp: at }) },
+				address
+			);
+			expect(answer, `sign-in ${index + 1} was refused`).toHaveProperty('redirect');
+			expect((answer as { redirect: string }).redirect).not.toMatch(/^\/login/);
+		}
+	});
+
+	it('still takes a recovery code once the account has spent its wrong codes (the owner’s way back in)', async () => {
+		const account = await seedAccount('code-recovery-escape', true);
+		const recovery = generateRecoveryCodes(1)[0];
+		await prisma.recoveryCode.create({
+			data: { userId: account.id, codeHash: await hashRecoveryCode(recovery) }
+		});
+		// ONE address throughout: the owner's own network, where the wrong codes also filled the
+		// address counter. A recovery code counted on that same counter would be refused here.
+		const address = freshAddress();
+		const code = wrongCode(account.secret);
+		for (let index = 0; index < BUDGET; index += 1) {
+			const browser = await passwordStep(account, address);
+			expect(await run('/login/verify-totp', browser, { code }, address)).toEqual({
+				error: m.mfa_verify_error_invalid_code()
+			});
+		}
+		const browser = await passwordStep(account, address);
+		const answer = await run('/login/verify-totp', browser, { code: recovery }, address);
+		expect(answer).toHaveProperty('redirect');
+		expect((answer as { redirect: string }).redirect).not.toMatch(/^\/login/);
+	});
+
+	it('still takes the owner’s recovery code after someone else spent five wrong ones on their own sign-ins', async () => {
+		const account = await seedAccount('recovery-escape-recovery', true);
+		const recovery = generateRecoveryCodes(1)[0];
+		await prisma.recoveryCode.create({
+			data: { userId: account.id, codeHash: await hashRecoveryCode(recovery) }
+		});
+		for (let index = 0; index < BUDGET; index += 1) {
+			const browser = await passwordStep(account, freshAddress());
+			expect(
+				await run('/login/verify-totp', browser, { code: 'ABCDE-12345' }, freshAddress())
+			).toEqual({ error: m.mfa_verify_error_invalid_code() });
+		}
+		const browser = await passwordStep(account, freshAddress());
+		const answer = await run('/login/verify-totp', browser, { code: recovery }, freshAddress());
+		expect(answer).toHaveProperty('redirect');
+		expect((answer as { redirect: string }).redirect).not.toMatch(/^\/login/);
+	});
+
+	it('refuses a sixth wrong recovery code from one address, whichever sign-in it comes from', async () => {
+		const account = await seedAccount('recovery-address', true);
+		const address = freshAddress();
+		for (let index = 0; index < BUDGET; index += 1) {
+			const browser = await passwordStep(account, freshAddress());
+			expect(await run('/login/verify-totp', browser, { code: 'ABCDE-12345' }, address)).toEqual({
+				error: m.mfa_verify_error_invalid_code()
+			});
+		}
+		const browser = await passwordStep(account, freshAddress());
+		expect(await run('/login/verify-totp', browser, { code: 'ABCDE-12345' }, address)).toEqual({
+			error: m.mfa_verify_error_too_many_attempts()
+		});
+	});
+
+	it('refuses the sixth wrong recovery code on one challenge sent one after another', async () => {
+		const account = await seedAccount('recovery-sequential', true);
+		const browser = await passwordStep(account, freshAddress());
+		const answers: Answer[] = [];
+		for (let index = 0; index < BUDGET + 1; index += 1) {
+			answers.push(
+				await run('/login/verify-totp', browser, { code: 'ABCDE-12345' }, freshAddress())
+			);
+		}
+		expect(judged(answers, m.mfa_verify_error_invalid_code())).toBe(BUDGET);
+		expect(answers.at(-1)).toEqual({ error: m.mfa_verify_error_too_many_attempts() });
+	});
+
+	it('does not count codes typed against a secret that no longer decrypts', async () => {
+		const account = await seedAccount('code-unreadable', true);
+		const browser = await passwordStep(account, freshAddress());
+		// The key is read once per process, so the secret is made undecryptable instead: its last
+		// characters (the authentication tag's end) changed, which no decryption accepts.
+		const { totpSecretEncrypted } = await prisma.user.findUniqueOrThrow({
+			where: { id: account.id },
+			select: { totpSecretEncrypted: true }
+		});
+		const tail = totpSecretEncrypted!.slice(-4);
+		await prisma.user.update({
+			where: { id: account.id },
+			data: {
+				totpSecretEncrypted: totpSecretEncrypted!.slice(0, -4) + (tail === '0000' ? '1111' : '0000')
+			}
+		});
+		const code = wrongCode(account.secret);
+		for (let index = 0; index < BUDGET + 1; index += 1) {
+			expect(await run('/login/verify-totp', browser, { code }, freshAddress())).toEqual({
+				error: m.totp_error_secret_unreadable()
+			});
+		}
 	});
 
 	it('refuses the sixth wrong code on one challenge sent one after another (calibration)', async () => {

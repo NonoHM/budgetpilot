@@ -63,12 +63,22 @@ const mfaChallenge = vi.hoisted(() => ({
 	consumeMfaChallenge: vi.fn(async () => undefined)
 }));
 
+/** The claim every admitted attempt holds, so a settle can be matched to it. */
+const CLAIM = vi.hoisted(() => ({ id: 'claim-1' }));
 const rateLimit = vi.hoisted(() => ({
-	isMfaRateLimited: vi.fn(async () => false),
-	recordMfaAttempt: vi.fn(async () => {
-		captured.order.push('record');
+	claimMfaAttempt: vi.fn(
+		async (): Promise<{ claim: { id: string } } | { trip: { counter: string } }> => {
+			captured.order.push('claim');
+			return { claim: CLAIM };
+		}
+	),
+	settleAttempt: vi.fn(async (_claim: { id: string }, credentialWrong: boolean) => {
+		captured.order.push(`settle:${credentialWrong}`);
 	})
 }));
+
+/** What an authenticator code for the challenge's account is counted against. */
+const TOTP_KEY = { factor: 'totp', userId: 'user-a' };
 
 vi.mock('$lib/server/db', () => ({ prisma: db.prisma }));
 vi.mock('$lib/server/auth/mfaChallenge', () => mfaChallenge);
@@ -145,7 +155,10 @@ describe('/login/verify-totp action', () => {
 		expect(result.status).toBe(400);
 		expect(result.data).toEqual({ error: m.totp_error_code_reused() });
 		expect(db.prisma.session.create).not.toHaveBeenCalled();
-		expect(rateLimit.recordMfaAttempt).toHaveBeenCalledWith('challenge-1', expect.any(String));
+		expect({
+			claimed: rateLimit.claimMfaAttempt.mock.calls,
+			settled: rateLimit.settleAttempt.mock.calls
+		}).toEqual({ claimed: [[TOTP_KEY, expect.any(String)]], settled: [[CLAIM, true]] });
 	});
 
 	it('rejette un code invalide et enregistre la tentative de rate limiting', async () => {
@@ -162,14 +175,22 @@ describe('/login/verify-totp action', () => {
 
 		expect(result.status).toBe(400);
 		expect(db.prisma.session.create).not.toHaveBeenCalled();
-		expect(rateLimit.recordMfaAttempt).toHaveBeenCalledWith('challenge-1', expect.any(String));
+		expect({
+			claimed: rateLimit.claimMfaAttempt.mock.calls,
+			settled: rateLimit.settleAttempt.mock.calls
+		}).toEqual({ claimed: [[TOTP_KEY, expect.any(String)]], settled: [[CLAIM, true]] });
 	});
 
 	it('bloque après trop de tentatives', async () => {
 		expect.assertions(1);
 
 		mfaChallenge.readMfaChallenge.mockResolvedValue({ id: 'challenge-1', userId: 'user-a' });
-		rateLimit.isMfaRateLimited.mockResolvedValueOnce(true);
+		db.prisma.user.findUnique.mockResolvedValue({
+			id: 'user-a',
+			totpEnabled: true,
+			totpSecretEncrypted: encryptTotpSecret(generateTotpSecretBase32())
+		});
+		rateLimit.claimMfaAttempt.mockResolvedValueOnce({ trip: { counter: 'subject' } });
 
 		const result = await runVerify({ get: vi.fn(), set: vi.fn() }, '123456');
 
@@ -239,7 +260,8 @@ describe('/login/verify-totp action', () => {
 		const result = await runVerify({ get: vi.fn(), set: vi.fn() }, '123456');
 
 		expect(result.status).toBe(400);
-		expect(rateLimit.recordMfaAttempt).toHaveBeenCalledWith('challenge-1', expect.any(String));
+		// A secret that does not decrypt refuses every code, so the code was no guess (#904).
+		expect(rateLimit.settleAttempt.mock.calls).toEqual([[CLAIM, false]]);
 	});
 
 	it('redirige vers /login sans challenge valide', async () => {
@@ -493,7 +515,8 @@ describe('/login/verify-totp action: security events (L3)', () => {
 	it.each(['address', 'subject', 'both'] as const)(
 		'a limiter refusal by the %s counter logs one rate-limit event naming that counter and the user',
 		async (counter) => {
-			rateLimit.isMfaRateLimited.mockResolvedValueOnce({ counter } as never);
+			enrolledAccount();
+			rateLimit.claimMfaAttempt.mockResolvedValueOnce({ trip: { counter } });
 			const result = await runVerify({ get: vi.fn(), set: vi.fn() }, '123456');
 			expect({
 				answer: { status: result.status, data: result.data },
@@ -517,11 +540,83 @@ describe('/login/verify-totp action: security events (L3)', () => {
 		}
 	);
 
-	// Invariant 5 (#869): the pseudonym, and so the line, comes after the limiter record.
+	// Invariant 5 (#869): the pseudonym, and so the line, comes after the limiter record. The row is
+	// written by the claim, and kept by the settle after the line.
 	it('a wrong code is logged after the attempt is recorded', async () => {
 		enrolledAccount();
 		await verify('000000');
-		expect(captured.order).toEqual(['record', 'log']);
+		expect(captured.order).toEqual(['claim', 'log', 'settle:true']);
+	});
+
+	// Separates « an authenticator code is counted on the ACCOUNT » from « on the challenge », which
+	// every new password step renews, and « a recovery code on the CHALLENGE » from « on the
+	// account », which whoever holds the password can keep full (`claimMfaAttempt`).
+	it.each([
+		['an authenticator code', '000000', TOTP_KEY],
+		['a recovery code', RECOVERY_CODE, { factor: 'recovery_code', challengeId: 'challenge-1' }],
+		[
+			'a code matching neither shape',
+			'not-a-code',
+			{ factor: 'recovery_code', challengeId: 'challenge-1' }
+		]
+	])('%s is claimed on its own key, and kept when wrong', async (_label, code, key) => {
+		enrolledAccount();
+		await verify(code);
+		expect({
+			claimed: rateLimit.claimMfaAttempt.mock.calls,
+			settled: rateLimit.settleAttempt.mock.calls
+		}).toEqual({ claimed: [[key, IP]], settled: [[CLAIM, true]] });
+	});
+
+	// Separates « a superseded step is the server's doing and costs nothing » from « it is kept »:
+	// the code was ACCEPTED, and the challenge was ended meanwhile (#923).
+	it('a challenge superseded after an accepted code releases its attempt', async () => {
+		const code = enrolledAccount();
+		userClaims({ totpStepMatches: true });
+		mfaChallenge.claimMfaChallenge.mockRejectedValueOnce(new SignInSuperseded());
+		expect(await verify(code)).toEqual({ status: 303, location: '/login' });
+		expect(rateLimit.settleAttempt.mock.calls).toEqual([[CLAIM, false]]);
+	});
+
+	it.each([
+		['by an authenticator code', 'totp'],
+		['by a recovery code', 'recovery_code']
+	])('a success %s releases its attempt', async (_label, factor) => {
+		let code = RECOVERY_CODE;
+		if (factor === 'totp') {
+			code = enrolledAccount();
+			userClaims({ totpStepMatches: true });
+		} else await acceptedRecoveryCode();
+		expect(await verify(code)).toMatchObject({ status: 303 });
+		expect(rateLimit.settleAttempt.mock.calls).toEqual([[CLAIM, false]]);
+	});
+
+	// Separates « refused before any claim » from « claimed and released »: neither an empty code nor
+	// an account whose two-factor was turned off meanwhile judged a code.
+	it.each([
+		['an empty code', '', () => enrolledAccount()],
+		[
+			'two-factor turned off meanwhile',
+			'000000',
+			() =>
+				db.prisma.user.findUnique.mockResolvedValue({
+					id: 'user-a',
+					totpEnabled: false,
+					totpSecretEncrypted: null
+				})
+		]
+	])('%s claims nothing', async (_label, code, arrange) => {
+		arrange();
+		await verify(code);
+		expect(rateLimit.claimMfaAttempt).not.toHaveBeenCalled();
+	});
+
+	// Separates « a refused claim settles nothing » from « it settles a claim it never held ».
+	it('a limiter refusal settles nothing', async () => {
+		enrolledAccount();
+		rateLimit.claimMfaAttempt.mockResolvedValueOnce({ trip: { counter: 'subject' } });
+		await verify('000000');
+		expect(rateLimit.settleAttempt).not.toHaveBeenCalled();
 	});
 });
 
@@ -633,14 +728,19 @@ describe('#904: a stored secret that does not decrypt', () => {
 		});
 	});
 
-	// A pin: the limiter counts every guess at this step, and the new refusal must not become a free
-	// one. Separates « an attempt recorded » from « the refusal returned before the record ».
-	it('a six-digit code records one MFA attempt against the challenge', async () => {
+	// A pin, inverted with #714's claim: a secret that does not decrypt refuses every code, so a code
+	// typed against it is no guess and is released, while the owner is sent to a recovery code.
+	// Separates « claimed on the account and released » from « kept », which would lock the owner
+	// out of the step the sentence sends them to, and from « never claimed ».
+	it('a six-digit code claims one MFA attempt on the account and releases it', async () => {
 		const { code } = unreadableAccount();
 
 		await runVerify({ get: vi.fn(), set: vi.fn() }, code);
 
-		expect(rateLimit.recordMfaAttempt.mock.calls).toEqual([['challenge-1', IP]]);
+		expect({
+			claimed: rateLimit.claimMfaAttempt.mock.calls,
+			settled: rateLimit.settleAttempt.mock.calls
+		}).toEqual({ claimed: [[TOTP_KEY, IP]], settled: [[CLAIM, false]] });
 	});
 
 	// Separates `unreadable_secret` from the `wrong_code` the route writes today: an operator reading
@@ -857,7 +957,7 @@ describe('/login/verify-totp action: the sign-in refusal header (#876)', () => {
 		'a limiter refusal by the %s counter is not marked',
 		async (counter) => {
 			account();
-			rateLimit.isMfaRateLimited.mockResolvedValueOnce({ counter } as never);
+			rateLimit.claimMfaAttempt.mockResolvedValueOnce({ trip: { counter } });
 			expect(await headersAfter('000000')).toEqual({});
 		}
 	);
