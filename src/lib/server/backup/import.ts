@@ -19,6 +19,8 @@ import {
 } from '$lib/domain/allocation';
 import { MAX_ANCHOR_IDS, parseAnchorTransactionIds, type BackupExport } from './schema';
 import { validateColumnMapping } from '$lib/server/import/mapping/model';
+import { isCostlyRegexPattern } from '$lib/server/categorization/rules';
+import { loadDefaultRuleCatalog } from '$lib/server/categorization/default-rules/catalog';
 import { resolveColumnMappingsPerUser } from '$lib/server/import/mapping/store';
 import type { BackupIntegrityReason } from '$lib/server/logging/data';
 
@@ -644,6 +646,8 @@ export async function restoreBackup(
 		}
 
 		if (payload.categoryRules.length > 0) {
+			// In file order, which the export writes in priority order: rows sharing a `createdAt`
+			// then rank by the new ids, generated in array order (#1173).
 			await tx.categoryRule.createMany({
 				data: payload.categoryRules.map((rule) => ({
 					userId,
@@ -651,7 +655,10 @@ export async function restoreBackup(
 					matchText: rule.matchText,
 					targetCategory: normalizeCategoryName(rule.targetCategory),
 					targetNature: rule.targetNature,
-					enabled: rule.enabled
+					isRegex: rule.isRegex,
+					enabled: rule.enabled,
+					defaultRuleKey: packKeyStillHeld(rule),
+					createdAt: rule.createdAt === undefined ? undefined : new Date(rule.createdAt)
 				}))
 			});
 		}
@@ -723,7 +730,36 @@ export async function restoreBackup(
 	}, LONG_TRANSACTION_OPTIONS);
 }
 
+/**
+ * The pack key a restored rule may keep: only when the row still equals this version's catalog
+ * entry for it, the test the 0819 migration uses for « ours and untouched ». A key is what badges a
+ * rule as suggested and stops it being re-seeded, so one kept on a stale pattern (a file exported
+ * before that migration) would hide an over-matching rule as untouched, for ever. Otherwise the rule
+ * comes back custom, and « Restore suggested rules » can add the current one. Owner ruling,
+ * 2026-10-30.
+ */
+function packKeyStillHeld(rule: BackupExport['categoryRules'][number]): string | null {
+	if (rule.defaultRuleKey === null) return null;
+	const entry = loadDefaultRuleCatalog().find((candidate) => candidate.key === rule.defaultRuleKey);
+	return entry && entry.match === rule.matchText && entry.isRegex === rule.isRegex
+		? rule.defaultRuleKey
+		: null;
+}
+
 function assertReferentialIntegrity(payload: BackupExport): void {
+	// REGEX RULES, refused on COST alone, and the narrowness is a ruling (owner, 2026-10-30). A rule
+	// stored before RE2 may not compile: it matched nothing on the source and costs nothing here, so
+	// it restores as it is. Neither is a length cap applied (see MAX_PORTABLE_STRING). What a
+	// hand-edited file must not do is plant a pattern past F4's ceiling that no form would accept.
+	for (const rule of payload.categoryRules) {
+		if (rule.isRegex && isCostlyRegexPattern(rule.matchText)) {
+			throw new BackupImportError(
+				'costly_category_rule',
+				m.settings_backup_error_costly_category_rule({ name: rule.name })
+			);
+		}
+	}
+
 	const accountIds = new Set(payload.accounts.map((a) => a.id));
 	const categoryIds = new Set(payload.categories.map((c) => c.id));
 	const importBatchIds = new Set(payload.importBatches.map((b) => b.id));

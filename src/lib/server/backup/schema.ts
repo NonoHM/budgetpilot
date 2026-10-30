@@ -52,6 +52,7 @@ export const RESTORE_DATE_KINDS = [
 	'bankConnections',
 	'importBatches',
 	'transactions',
+	'categoryRules',
 	'netWorthAccounts',
 	'netWorthSnapshots',
 	'savingsGoals',
@@ -517,7 +518,16 @@ const backupCategoryRuleSchema = z
 		matchText: z.string().min(1).max(500),
 		targetCategory: z.string().min(1).max(MAX_PORTABLE_STRING),
 		targetNature: transactionNature.nullable(),
-		enabled: z.boolean()
+		// The three below are DEFAULTED, not required, so a file written before #1173 restores
+		// exactly as it did: a literal rule, custom, at the time of the restore.
+		isRegex: z.boolean().default(false),
+		enabled: z.boolean(),
+		// Bounded like a catalog key (default-rules/catalog.ts). The restore keeps it only for a
+		// row still equal to this version's pack entry: see restoreBackup.
+		defaultRuleKey: z.string().min(1).max(60).nullable().default(null),
+		// The rule priority, with the id as tie-break (rules.ts). Optional, not defaulted: an
+		// absent one is left to the database's own default.
+		createdAt: isoDateString.optional()
 	})
 	.strict();
 

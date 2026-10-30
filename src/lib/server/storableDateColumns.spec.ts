@@ -234,6 +234,7 @@ const RESTORED_FROM: Record<string, string> = {
 	'ImportBatch.periodStart': 'importBatches.[].periodStart',
 	'ImportBatch.periodEnd': 'importBatches.[].periodEnd',
 	'Transaction.date': 'transactions.[].date',
+	'CategoryRule.createdAt': 'categoryRules.[].createdAt',
 	'NetWorthAccount.deletedAt': 'netWorthAccounts.[].deletedAt',
 	'NetWorthSnapshot.capturedAt': 'netWorthSnapshots.[].capturedAt',
 	'SavingsGoal.targetDate': 'savingsGoals.[].targetDate',

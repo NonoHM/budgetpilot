@@ -797,7 +797,9 @@ describe('restoreBackup', () => {
 					matchText: 'carrefour',
 					targetCategory: 'Courses',
 					targetNature: null,
-					enabled: true
+					isRegex: false,
+					enabled: true,
+					defaultRuleKey: null
 				}
 			],
 			categorizationRules: [
@@ -2914,7 +2916,10 @@ describe('the export and restore seam', () => {
 			matchText: 'm'.repeat(500),
 			targetCategory: atBound('cible-'),
 			targetNature: 'spending',
-			enabled: true
+			isRegex: false,
+			enabled: true,
+			defaultRuleKey: null,
+			createdAt: new Date(Date.UTC(2026, 0, 1))
 		});
 		db.store.categorizationRules.push({
 			id: 'legacy-1',
