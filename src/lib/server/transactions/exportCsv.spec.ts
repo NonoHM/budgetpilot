@@ -300,6 +300,17 @@ describe('buildTransactionsCsv', () => {
 			expect(fieldsOf('Leroy Merlin', 'Joint,=1+1').split(';').at(-1)).toBe(`"Joint,'=1+1"`);
 		});
 
+		it('guards a formula behind a quote after the separator, which a lenient reader drops', () => {
+			expect.assertions(2);
+
+			// Measured with Python's csv reader (strict=False): `Courses,"=1+1,x` exported unguarded
+			// gives the cell `=1+1` under a comma reader, and `a<TAB>"=1+1<TAB>b` under a tab reader.
+			// LibreOffice 26.8.1.1 keeps both inert; Excel is untested. Separates « the cell is read
+			// after the quotes a reader may consume » from « after the raw next character ».
+			expect(fieldsOf('Courses,"=1+1,x').split(';')[1]).toBe(`"Courses,'""=1+1,x"`);
+			expect(fieldsOf('a\t"=1+1\tb').split(';')[1]).toBe(`"a\t'""=1+1\tb"`);
+		});
+
 		it('leaves the ruled residual alone: a starter after a space is an ordinary label', () => {
 			expect.assertions(1);
 
