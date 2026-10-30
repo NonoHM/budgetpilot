@@ -1062,6 +1062,17 @@ describe("an account's archived state and institution (#1176)", () => {
 		]);
 	});
 
+	it('names accounts when an archivedAt is outside the years the app stores', () => {
+		// SEPARATES « accounts is a restore date kind » FROM the generic refusal, which tells the
+		// member nothing about which record to fix. Found by pass B on #1176.
+		const result = withAccountFields({ archivedAt: '0001-01-01T00:00:00.000Z' });
+
+		expect(result.success ? null : restoreRefusal(result.error)).toEqual({
+			reason: 'date-out-of-range',
+			kinds: ['accounts']
+		});
+	});
+
 	it('refuses an institution or a discriminant written into an account', () => {
 		// The restore derives the institution from the source, so a file stating one is hand edited;
 		// the discriminant is excluded from the plaintext file by design. Both are unknown keys.

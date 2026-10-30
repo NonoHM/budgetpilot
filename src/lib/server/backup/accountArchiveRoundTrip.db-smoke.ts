@@ -157,6 +157,29 @@ describe('an account through a backup', () => {
 		});
 	});
 
+	it('leaves a bank account still under the machine name for the backfill to name', async () => {
+		// A file exported before 2026-08-22 can hold a bank's bucket under « Compte import CSV ».
+		// SEPARATES « the restore derives the institution only for a name the member chose » FROM
+		// « for every bank account », where the bucket is never renamed and the screen shows the
+		// storage key raw, with no invitation to rename it. Found by pass A on #1176.
+		const userId = await freshUser();
+		await account(userId, { name: 'Compte import CSV', source: 'revolut', institution: null });
+		const file = await exportedFile(userId);
+		for (const row of file.accounts) {
+			delete row.archivedAt;
+			delete row.institution;
+		}
+
+		await restore(userId, file);
+		await runStatementAccountBackfill({ prisma });
+
+		const [restored] = await restoredAccounts(userId);
+		expect({ name: restored.name, institution: restored.institution }).toEqual({
+			name: 'Revolut',
+			institution: 'Revolut'
+		});
+	});
+
 	it('gives an account whose source names no bank no institution', async () => {
 		// The other half of the derivation: a recompute that wrote a bank for every account would
 		// pass the test above and stop inviting a generic bucket to be renamed.
