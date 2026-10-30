@@ -165,10 +165,12 @@ function formatAmount(amountCents: number): string {
 }
 
 function escapeCsvField(value: string): string {
-	// Leading quotes are skipped because a lenient reader (Python's csv, strict=False) consumes
-	// them: `,"=1+1,x` reads as the cell `=1+1`. Measured; LibreOffice keeps it inert.
+	// Every quote is treated as droppable, wherever it sits among the ignorables, because lenient
+	// readers consume them: Python's csv reads `,"=1+1,x` as `=1+1`, and with skipinitialspace
+	// `, "=1+1,x` too. A leading-quote skip was the first fix and missed the second; this is the
+	// deny-by-default form. Measured; LibreOffice keeps every such shape inert.
 	const withGuard = guardFormulaLead(value).replace(INNER_CELL_START, (start, offset, whole) =>
-		needsFormulaGuard(whole.slice(offset + 1).replace(/^"+/, '')) ? `${start}'` : start
+		needsFormulaGuard(whole.slice(offset + 1).replace(/"/g, '')) ? `${start}'` : start
 	);
 	if (NEEDS_QUOTING_PATTERN.test(withGuard)) {
 		return `"${withGuard.replace(/"/g, '""')}"`;

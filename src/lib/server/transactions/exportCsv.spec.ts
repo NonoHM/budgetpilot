@@ -311,6 +311,28 @@ describe('buildTransactionsCsv', () => {
 			expect(fieldsOf('a\t"=1+1\tb').split(';')[1]).toBe(`"a\t'""=1+1\tb"`);
 		});
 
+		// Measured: `Courses, "=1+1,x` is live for Python's csv with skipinitialspace=True, which a
+		// leading-quote skip missed because the space came first. Each test separates « quotes are
+		// ignored anywhere before the first kept character » from one skip order, so each is its
+		// own figure rather than one hidden behind another's failure.
+		it('treats a quote after an ignorable as droppable', () => {
+			expect.assertions(1);
+
+			expect(fieldsOf('Courses, "=1+1,x').split(';')[1]).toBe(`"Courses,' ""=1+1,x"`);
+		});
+
+		it('treats quotes on both sides of an ignorable as droppable', () => {
+			expect.assertions(1);
+
+			expect(fieldsOf('Courses,"\u0000"=1+1,x').split(';')[1]).toBe(`"Courses,'""\u0000""=1+1,x"`);
+		});
+
+		it('treats an even count of quotes as droppable', () => {
+			expect.assertions(1);
+
+			expect(fieldsOf('Courses,""=1+1,x').split(';')[1]).toBe(`"Courses,'""""=1+1,x"`);
+		});
+
 		it('leaves the ruled residual alone: a starter after a space is an ordinary label', () => {
 			expect.assertions(1);
 
