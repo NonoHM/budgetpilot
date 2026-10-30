@@ -130,6 +130,23 @@ describe('CSV round trip', () => {
 		expect(result.transactions[0].label).toBe('\'=Chèque n°1; "spécial"');
 	});
 
+	it('reads a comma label back byte for byte, and an F8-guarded one with its apostrophe', () => {
+		expect.assertions(3);
+
+		// F8 quotes every field holding a comma (RFC 4180 2.6). The first assertion pins that the
+		// quoting is NEUTRAL on the way back; the second pins the guard's documented cost, the same
+		// one the leading apostrophe has always had (`formulaGuard.ts`, « THE ROUND TRIP IS NOT
+		// NEUTRAL »), so a change to either half is visible rather than plausible.
+		const result = roundTrip([
+			row({ id: 'tx-1', label: 'CB 12,50 EUR' }),
+			row({ id: 'tx-2', label: 'Courses,=1+1', date: new Date('2026-06-13T00:00:00.000Z') })
+		]);
+
+		expect(result.transactions).toHaveLength(2);
+		expect(result.transactions[0].label).toBe('CB 12,50 EUR');
+		expect(result.transactions[1].label).toBe("Courses,'=1+1");
+	});
+
 	/**
 	 * Re-importing your own export into the SAME BUCKET is a no-op, not a second copy of your
 	 * history. That works only if the v2 fingerprint of an unsplit transaction is byte-identical to

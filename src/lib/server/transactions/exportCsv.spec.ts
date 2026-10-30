@@ -226,8 +226,86 @@ describe('buildTransactionsCsv', () => {
 			// Measured on `scripts/synthetic/`: 161 of 1 759 cells open with `-` and NONE is a
 			// formula. A fix that stopped quoting them would be a visible regression on every
 			// French statement, so it is asserted here rather than inherited from `safety.spec.ts`.
-			expect(labelFieldOf('-39,90')).toBe("'-39,90");
+			// Quoted since F8, because it holds a comma (RFC 4180 2.6); the guard is unchanged.
+			expect(labelFieldOf('-39,90')).toBe(`"'-39,90"`);
 			expect(bodyOf(buildTransactionsCsv([row()], NO_MAPPINGS))[0].split(';')[3]).toBe("'-80.00");
+		});
+	});
+
+	/**
+	 * F8, a variant of GHSA-mf96-r88r-98rw. A READER SPLITTING ON ANOTHER CHARACTER STARTS A CELL
+	 * INSIDE OUR FIELD, and the leading guard never looks there.
+	 *
+	 * Measured on LibreOffice 26.8.1.1 against files this function produced, one separator forced
+	 * per run: `Courses,=1+1` is a live formula for a comma, tab, space, pipe or colon reader, and a
+	 * line break inside a field is live for all five. Quoting cannot help, because a reader honours
+	 * a quote only at the start of ITS OWN cell, and our quote opens a `;` cell. Scope ruled by the
+	 * owner: comma, tab, CR, LF. A space, pipe or colon reader is the documented residual.
+	 */
+	describe('a cell a reader starts inside the field (F8)', () => {
+		function fieldsOf(label: string, accountName?: string): string {
+			return bodyOf(
+				buildTransactionsCsv([row({ label })], NO_MAPPINGS, undefined, { accountName })
+			)[0];
+		}
+
+		it('guards a formula after an inner comma, and quotes the field per RFC 4180 2.6', () => {
+			expect.assertions(1);
+
+			// Separates « the guard reads every cell start a comma reader makes » from « the guard
+			// reads the field's first character only », which is what shipped.
+			expect(fieldsOf('Courses,=1+1').split(';')[1]).toBe(`"Courses,'=1+1"`);
+		});
+
+		it('quotes a field holding a comma even when nothing in it needs a guard', () => {
+			expect.assertions(1);
+
+			// Separates the RFC 4180 2.6 quoting clause from the guard clause above: no apostrophe
+			// can appear here, so only the quoting can turn this red.
+			expect(fieldsOf('CB 12,50 EUR').split(';')[1]).toBe('"CB 12,50 EUR"');
+		});
+
+		it('guards a formula after an inner tab', () => {
+			expect.assertions(1);
+
+			expect(fieldsOf('Courses\t=1+1').split(';')[1]).toBe("Courses\t'=1+1");
+		});
+
+		it('guards a formula after a line feed and after a carriage return, which start a row for every reader', () => {
+			expect.assertions(2);
+
+			// Each separates « a line break is a cell start » from « only a delimiter is », for the
+			// one character the other assertion does not cover.
+			expect(fieldsOf('x\n=1+1,y').split(';')[1]).toBe(`"x\n'=1+1,y"`);
+			expect(fieldsOf('x\r=1+1').split(';')[1]).toBe(`"x\r'=1+1"`);
+		});
+
+		it('reads the cell the way the leading guard does, so a NUL behind the comma does not hide it', () => {
+			expect.assertions(1);
+
+			// Separates « the inner guard calls the single definition » from « it tests the next
+			// code unit », which would let the #594 bypass back in one cell later.
+			expect(fieldsOf('a,\u0000=1+1').split(';')[1]).toBe(`"a,'\u0000=1+1"`);
+		});
+
+		it('guards every inner cell, not only the first', () => {
+			expect.assertions(1);
+
+			expect(fieldsOf('a,=1,=2').split(';')[1]).toBe(`"a,'=1,'=2"`);
+		});
+
+		it('reaches the account column too, which is free text like the label', () => {
+			expect.assertions(1);
+
+			expect(fieldsOf('Leroy Merlin', 'Joint,=1+1').split(';').at(-1)).toBe(`"Joint,'=1+1"`);
+		});
+
+		it('leaves the ruled residual alone: a starter after a space is an ordinary label', () => {
+			expect.assertions(1);
+
+			// The planted negative. A guard after a space would put an apostrophe into labels like
+			// this one, which is why the owner ruled space out of scope.
+			expect(fieldsOf('VIR - LOYER').split(';')[1]).toBe('VIR - LOYER');
 		});
 	});
 

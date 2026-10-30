@@ -4,7 +4,7 @@ import type { TransactionRowForMapping } from './nature';
 import { resolveTransactionType } from './totals';
 import { computeNameKey } from '$lib/server/naming/nameKey';
 import { money, toDecimalString } from '$lib/domain/money';
-import { guardFormulaLead } from '$lib/server/csv/formulaGuard';
+import { guardFormulaLead, needsFormulaGuard } from '$lib/server/csv/formulaGuard';
 
 /**
  * The CSV a user downloads from /transactions, built from ALLOCATIONS rather than from parent rows.
@@ -84,7 +84,24 @@ export interface TransactionsCsvOptions {
 	accountName?: string | null;
 }
 
-const NEEDS_QUOTING_PATTERN = /[;"\n\r]/;
+/** RFC 4180 2.6 (cited by ASVS v5.0.0-1.2.10): our delimiter, the quote, a line break, and the
+ *  comma. Quoting does NOT close F8 (see `INNER_CELL_START`); the comma is here for the RFC. */
+const NEEDS_QUOTING_PATTERN = /[;,"\n\r]/;
+
+/**
+ * F8: where a reader that splits this `;` file on ANOTHER character starts a cell inside a field.
+ *
+ * The leading guard only sees the field's first character, and quoting cannot help: a reader
+ * honours a quote only at the start of its own cell, and ours opens a `;` cell. Measured on
+ * LibreOffice 26.8.1.1, one forced separator per run (OWASP CSV Injection names this case: « the
+ * dangerous character in the middle of the user input, but at the beginning of a cell »).
+ *
+ * Owner ruling, 2026-10-30: comma and tab, plus CR and LF, which start a row for EVERY reader.
+ * Space, pipe, colon and custom separators are the documented residual: guarding after a space
+ * would put an apostrophe into ordinary labels such as `VIR - LOYER`. Same round-trip cost as the
+ * leading guard (`formulaGuard.ts`, « THE ROUND TRIP IS NOT NEUTRAL »), on every column.
+ */
+const INNER_CELL_START = /[,\t\r\n]/g;
 
 export function buildTransactionsCsv(
 	transactions: readonly TransactionRowForMapping[],
@@ -148,7 +165,9 @@ function formatAmount(amountCents: number): string {
 }
 
 function escapeCsvField(value: string): string {
-	const withGuard = guardFormulaLead(value);
+	const withGuard = guardFormulaLead(value).replace(INNER_CELL_START, (start, offset, whole) =>
+		needsFormulaGuard(whole.slice(offset + 1)) ? `${start}'` : start
+	);
 	if (NEEDS_QUOTING_PATTERN.test(withGuard)) {
 		return `"${withGuard.replace(/"/g, '""')}"`;
 	}

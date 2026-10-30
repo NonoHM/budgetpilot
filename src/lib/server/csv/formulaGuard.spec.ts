@@ -24,7 +24,16 @@ import type { TransactionRowForMapping } from '$lib/server/transactions/nature';
  * below, because it is the only oracle here that `sanitizeImportedText` cannot satisfy by
  * agreeing with itself.
  */
-const CORPUS: Array<{ value: string; guarded: boolean; afterImport: string; why: string }> = [
+// `exported`, hand-written, only where the export ALSO guards a cell a reader starts inside the field
+// (F8, `exportCsv.ts` `INNER_CELL_START`): the leading apostrophe and the tab or CR behind it are two
+// cells for a reader splitting on that character, so the second one needs its own apostrophe.
+const CORPUS: Array<{
+	value: string;
+	guarded: boolean;
+	afterImport: string;
+	exported?: string;
+	why: string;
+}> = [
 	{ value: 'Leroy Merlin', guarded: false, afterImport: 'Leroy Merlin', why: 'an ordinary label' },
 	{
 		value: 'Étude de Maître Blanc',
@@ -72,9 +81,16 @@ const CORPUS: Array<{ value: string; guarded: boolean; afterImport: string; why:
 		value: '\t=cmd',
 		guarded: true,
 		afterImport: "'=cmd",
+		exported: "'\t'=cmd",
 		why: 'clause one at export; at import trim removes the tab first'
 	},
-	{ value: '\r=cmd', guarded: true, afterImport: "'=cmd", why: 'clause one at export, same' },
+	{
+		value: '\r=cmd',
+		guarded: true,
+		afterImport: "'=cmd",
+		exported: "'\r'=cmd",
+		why: 'clause one at export, same'
+	},
 	// THE ONLY TWO CASES CLAUSE ONE DECIDES ALONE, and they were absent until a break-check said
 	// so: with a SAFE character behind it, clause two strips the tab (it is Cc) and sees nothing
 	// dangerous, so clause one is the whole answer. Removing clause one, or removing \t and \r
@@ -249,7 +265,7 @@ describe('every caller of the rule produces the expected text', () => {
 		expect.assertions(CORPUS.length);
 
 		for (const entry of CORPUS) {
-			const expected = entry.guarded ? `'${entry.value}` : entry.value;
+			const expected = entry.exported ?? (entry.guarded ? `'${entry.value}` : entry.value);
 			expect(exportedLabelField(entry.value), entry.why).toBe(expected);
 		}
 	});
