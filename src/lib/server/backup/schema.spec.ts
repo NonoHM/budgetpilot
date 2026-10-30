@@ -1048,13 +1048,12 @@ describe("an account's archived state and institution (#1176)", () => {
 		return result.success ? [] : result.error.issues.map((issue) => issue.path.join('.'));
 	}
 
-	it('accepts an archived account with its institution', () => {
-		const result = withAccountFields({
-			archivedAt: '2026-04-07T09:30:15.250Z',
-			institution: 'Revolut'
-		});
+	it('accepts an archived account', () => {
+		expect(issuePaths(withAccountFields({ archivedAt: '2026-04-07T09:30:15.250Z' }))).toEqual([]);
+	});
 
-		expect(issuePaths(result)).toEqual([]);
+	it('accepts an account that was never archived', () => {
+		expect(issuePaths(withAccountFields({ archivedAt: null }))).toEqual([]);
 	});
 
 	it('refuses an archivedAt that is not a date, at that field', () => {
@@ -1063,11 +1062,14 @@ describe("an account's archived state and institution (#1176)", () => {
 		]);
 	});
 
-	it('refuses an institution longer than a portable column, at that field', () => {
-		// 191 is the longest string every engine stores under the default index width.
-		expect(issuePaths(withAccountFields({ institution: 'x'.repeat(191) }))).toEqual([]);
-		expect(issuePaths(withAccountFields({ institution: 'x'.repeat(192) }))).toEqual([
-			'accounts.0.institution'
-		]);
+	it('refuses an institution or a discriminant written into an account', () => {
+		// The restore derives the institution from the source, so a file stating one is hand edited;
+		// the discriminant is excluded from the plaintext file by design. Both are unknown keys.
+		for (const smuggled of [{ institution: 'Revolut' }, { discriminant: '4417' }]) {
+			const result = withAccountFields(smuggled);
+			expect(
+				result.success ? [] : result.error.issues.map((issue) => [issue.code, issue.path.join('.')])
+			).toEqual([['unrecognized_keys', 'accounts.0']]);
+		}
 	});
 });

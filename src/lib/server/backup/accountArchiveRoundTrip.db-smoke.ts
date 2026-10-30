@@ -128,11 +128,13 @@ describe('an account through a backup', () => {
 		});
 	});
 
-	it('restores a file written before these fields with both left empty', async () => {
-		// A backup downloaded from an older install has neither key. It must still restore.
+	it('keeps a renamed bank account named when restoring a file written before this change', async () => {
+		// Every backup downloaded from 1.3.0 or earlier carries neither key, so the institution
+		// cannot come from the file. SEPARATES « the restore derives it from the source » FROM
+		// « it writes null », where the backfill renames « Joint BP » to the bank's name.
 		const userId = await freshUser();
 		await account(userId, {
-			name: 'Banque Populaire',
+			name: 'Joint BP',
 			source: 'banque_populaire',
 			institution: 'Banque Populaire',
 			archivedAt: new Date(Date.UTC(2026, 0, 2))
@@ -144,32 +146,26 @@ describe('an account through a backup', () => {
 		}
 
 		await restore(userId, file);
+		await runStatementAccountBackfill({ prisma });
 
 		const [restored] = await restoredAccounts(userId);
-		expect({ institution: restored.institution, archivedAt: restored.archivedAt }).toEqual({
-			institution: null,
+		expect(restored).toEqual({
+			name: 'Joint BP',
+			source: 'banque_populaire',
+			institution: 'Banque Populaire',
 			archivedAt: null
 		});
 	});
 
-	it('stores no institution the account source does not name', async () => {
-		// Every writer derives `institution` from `institutionForSource(source)` or writes null, so
-		// a file pairing another value with a source is hand edited. SEPARATES « the restore keeps
-		// only the derived value » FROM « it stores whatever the file says ». One row per source
-		// kind: a source naming no bank, and a bank's source naming another value.
+	it('gives an account whose source names no bank no institution', async () => {
+		// The other half of the derivation: a recompute that wrote a bank for every account would
+		// pass the test above and stop inviting a generic bucket to be renamed.
 		const userId = await freshUser();
 		await account(userId, { name: 'Compte manuel', source: 'csv' });
-		await account(userId, { name: 'Revolut', source: 'revolut', institution: 'Revolut' });
-		const file = await exportedFile(userId);
-		for (const row of file.accounts) {
-			row.institution = row.source === 'csv' ? 'Revolut' : 'Autre banque';
-		}
 
-		await restore(userId, file);
+		await restore(userId, await exportedFile(userId));
 
-		const bySource = Object.fromEntries(
-			(await restoredAccounts(userId)).map((row) => [row.source, row.institution])
-		);
-		expect(bySource).toEqual({ csv: null, revolut: null });
+		const [restored] = await restoredAccounts(userId);
+		expect(restored.institution).toBeNull();
 	});
 });
