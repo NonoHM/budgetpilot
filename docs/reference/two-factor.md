@@ -83,8 +83,17 @@ Measured against SQLite, PostgreSQL and MariaDB by
 
 ## Rate limiting
 
-Five failed attempts within fifteen minutes, counted per challenge and per
-IP address, then _Too many attempts. Try again in a few minutes._
+Five wrong codes from your authenticator app within fifteen minutes, counted
+per account and per IP address, then _Too many attempts. Try again in a few
+minutes._ Signing in again with your password doesn't reset the count, and
+codes sent at the same moment count like codes sent one after another.
+
+Recovery codes have their own limit: five wrong ones within fifteen minutes,
+per sign-in and per IP address. Wrong codes from the app don't count toward
+it, so when the app's codes are refused, a recovery code still works. A code typed while the app's codes can't be checked
+(see [the encryption key](#the-encryption-key)) doesn't count.
+
+Measured by `src/lib/server/auth/signInAttemptBudget.db-smoke.ts`.
 
 The pending challenge between the two sign-in steps lasts **five minutes**.
 After that, the verification page sends you back to sign in with your

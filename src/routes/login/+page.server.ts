@@ -13,7 +13,7 @@ import {
 } from '$lib/server/auth';
 import { createMfaChallenge } from '$lib/server/auth/mfaChallenge';
 import { isSelfRegistrationOpen } from '$lib/server/auth/registration';
-import { isLoginRateLimited, recordFailedLoginAttempt } from '$lib/server/auth/rateLimit';
+import { claimLoginAttempt, settleAttempt } from '$lib/server/auth/rateLimit';
 import { refuseSignIn } from '$lib/server/auth/signInRefusal';
 import { resolveClientAddress } from '$lib/server/net/clientAddress';
 import {
@@ -61,56 +61,62 @@ export const actions: Actions = {
 		if (!email || !password) return invalid();
 
 		const ip = resolveClientAddress({ getClientAddress, request });
-		const trip = await isLoginRateLimited(email, ip);
-		if (trip) {
-			logRateLimited('LOGIN', trip, ip);
+		const attempt = await claimLoginAttempt(email, ip);
+		if ('trip' in attempt) {
+			logRateLimited('LOGIN', attempt.trip, ip);
 			return tooManyAttempts();
 		}
-
-		const user = await prisma.user.findUnique({
-			where: { email },
-			select: {
-				id: true,
-				passwordHash: true,
-				totpEnabled: true
-			}
-		});
-
-		const passwordOk = await verifyPasswordTimingSafe(password, user?.passwordHash);
-		if (!user || !passwordOk) {
-			await recordFailedLoginAttempt(email, ip);
-			refuseSignIn(
-				setHeaders,
-				ip,
-				user
-					? { step: 'password', reason: 'wrong_password', userId: user.id }
-					: { step: 'password', reason: 'unknown_account' }
-			);
-			return invalid();
-		}
-
-		// What the comparison proved is written only while it still holds (#923, #949): a password
-		// changed while bcrypt ran is the old password, refused as any wrong one is, and two-factor
-		// turned on or off meanwhile means this step is no longer the one the account asks for.
-		const read = { passwordHash: user.passwordHash, totpEnabled: user.totpEnabled };
+		// Kept only when the password was judged wrong; every other exit, the redirects included,
+		// releases it (`claimLoginAttempt`).
+		let passwordWrong = false;
 		try {
-			if (read.totpEnabled) {
-				await createMfaChallenge(user.id, read, cookies);
-				logSecondFactorRequired(ip, user.id);
-				throw redirect(303, secondFactorUrl(url));
+			const user = await prisma.user.findUnique({
+				where: { email },
+				select: {
+					id: true,
+					passwordHash: true,
+					totpEnabled: true
+				}
+			});
+
+			const passwordOk = await verifyPasswordTimingSafe(password, user?.passwordHash);
+			if (!user || !passwordOk) {
+				passwordWrong = true;
+				refuseSignIn(
+					setHeaders,
+					ip,
+					user
+						? { step: 'password', reason: 'wrong_password', userId: user.id }
+						: { step: 'password', reason: 'unknown_account' }
+				);
+				return invalid();
 			}
 
-			await ensureDefaultCategoriesSeeded(user.id);
-			await ensureDefaultRulesSeeded(user.id);
-			await createSession(user.id, cookies, (tx) => signInFactorsStillCurrent(tx, user.id, read));
-		} catch (caught) {
-			if (!(caught instanceof SignInSuperseded)) throw caught;
-			await recordFailedLoginAttempt(email, ip);
-			refuseSignIn(setHeaders, ip, { step: 'password', reason: 'superseded', userId: user.id });
-			return invalid();
+			// What the comparison proved is written only while it still holds (#923, #949): a password
+			// changed while bcrypt ran is the old password, refused as any wrong one is, and two-factor
+			// turned on or off meanwhile means this step is no longer the one the account asks for.
+			const read = { passwordHash: user.passwordHash, totpEnabled: user.totpEnabled };
+			try {
+				if (read.totpEnabled) {
+					await createMfaChallenge(user.id, read, cookies);
+					logSecondFactorRequired(ip, user.id);
+					throw redirect(303, secondFactorUrl(url));
+				}
+
+				await ensureDefaultCategoriesSeeded(user.id);
+				await ensureDefaultRulesSeeded(user.id);
+				await createSession(user.id, cookies, (tx) => signInFactorsStillCurrent(tx, user.id, read));
+			} catch (caught) {
+				if (!(caught instanceof SignInSuperseded)) throw caught;
+				passwordWrong = true;
+				refuseSignIn(setHeaders, ip, { step: 'password', reason: 'superseded', userId: user.id });
+				return invalid();
+			}
+			logSignInSucceeded(ip, user.id, 'password');
+			redirectAfterSignIn(url);
+		} finally {
+			await settleAttempt(attempt.claim, passwordWrong);
 		}
-		logSignInSucceeded(ip, user.id, 'password');
-		redirectAfterSignIn(url);
 	}
 };
 

@@ -28,14 +28,13 @@ vi.mock('$lib/server/logging', async (importOriginal) => ({
 }));
 
 const {
-	isLoginRateLimited,
-	recordFailedLoginAttempt,
+	claimLoginAttempt,
+	claimMfaAttempt,
+	settleAttempt,
 	isRegisterRateLimited,
 	recordRegisterAttempt,
 	isInviteRateLimited,
 	recordInviteAttempt,
-	isMfaRateLimited,
-	recordMfaAttempt,
 	isBankSyncStartRateLimited,
 	recordBankSyncStartAttempt,
 	isReauthRateLimited,
@@ -59,162 +58,279 @@ const { E2E_ENV } = await import('../../../../e2e/config');
 
 const HEX_SHA256 = /^[0-9a-f]{64}$/;
 
-describe('isLoginRateLimited', () => {
+interface Row {
+	id: string;
+	kind: string;
+	emailHash: string | null;
+	ipHash: string;
+	createdAt: Date;
+}
+
+/**
+ * The `LoginAttempt` table the claimed kinds need: a claim writes, counts its own row, and may
+ * delete it, so canned answers per call cannot follow it. Models exactly the clauses the limiter
+ * writes, an absent clause as no filter, as Prisma does, and THROWS on any other, so a clause it
+ * cannot model is never read as « matches everything ».
+ */
+function installTable(): Row[] {
+	const rows: Row[] = [];
+	let next = 0;
+	const refuse = (op: string, key: string) => {
+		throw new Error(`the fake loginAttempt.${op} cannot model the clause ${key}`);
+	};
+	const matches = (row: Row, where: Record<string, unknown>, op: string) =>
+		Object.entries(where).every(([key, value]) => {
+			if (key === 'kind' || key === 'emailHash' || key === 'ipHash' || key === 'id') {
+				return row[key] === value;
+			}
+			if (key === 'createdAt') {
+				const bounds = value as Record<string, Date>;
+				return Object.entries(bounds).every(([bound, at]) => {
+					if (bound === 'gte') return row.createdAt.getTime() >= at.getTime();
+					if (bound === 'lt') return row.createdAt.getTime() < at.getTime();
+					return refuse(op, `createdAt.${bound}`);
+				});
+			}
+			return refuse(op, key);
+		});
+	db.prisma.loginAttempt.create.mockImplementation(
+		async ({ data }: { data: Omit<Row, 'id' | 'createdAt'> }) => {
+			const row = { ...data, id: `row-${++next}`, createdAt: new Date() };
+			rows.push(row);
+			return { id: row.id };
+		}
+	);
+	db.prisma.loginAttempt.count.mockImplementation(
+		async ({ where = {} }: { where?: Record<string, unknown> }) =>
+			rows.filter((row) => matches(row, where, 'count')).length
+	);
+	db.prisma.loginAttempt.deleteMany.mockImplementation(
+		async ({ where = {} }: { where?: Record<string, unknown> }) => {
+			const doomed = rows.filter((row) => matches(row, where, 'deleteMany'));
+			for (const row of doomed) rows.splice(rows.indexOf(row), 1);
+			return { count: doomed.length };
+		}
+	);
+	return rows;
+}
+
+/** Back to bare mocks, for the blocks that answer counts per call. */
+function uninstallTable() {
+	db.prisma.loginAttempt.count.mockReset();
+	db.prisma.loginAttempt.create.mockReset();
+	db.prisma.loginAttempt.deleteMany.mockReset();
+}
+
+type ClaimAnswer = Awaited<ReturnType<typeof claimLoginAttempt>>;
+
+function claimOf(answer: ClaimAnswer): { id: string } {
+	if (!('claim' in answer))
+		throw new Error(`expected an admitted claim, got ${JSON.stringify(answer)}`);
+	return answer.claim;
+}
+
+/** `n` attempts judged wrong, through the claim and the settle the route performs. */
+async function keepWrong(n: number, claim: (i: number) => Promise<ClaimAnswer>) {
+	for (let i = 0; i < n; i++) await settleAttempt(claimOf(await claim(i)), true);
+}
+
+const EMAIL = 'user@example.test';
+const IP = '127.0.0.1';
+const RECOVERY = (challengeId: string) => ({ factor: 'recovery_code', challengeId }) as const;
+const TOTP = (userId: string) => ({ factor: 'totp', userId }) as const;
+
+describe('claimLoginAttempt', () => {
+	let rows: Row[];
 	beforeEach(() => {
 		vi.clearAllMocks();
+		rows = installTable();
 	});
-
-	it('retourne true si >= 5 tentatives par email dans les 15 dernières minutes', async () => {
-		expect.assertions(1);
-
-		db.prisma.loginAttempt.count
-			.mockResolvedValueOnce(5) // par email
-			.mockResolvedValueOnce(0); // par ip
-
-		await expect(isLoginRateLimited('user@example.test', '127.0.0.1')).resolves.not.toBeNull();
-	});
-
-	it('retourne true si >= 5 tentatives par IP dans les 15 dernières minutes', async () => {
-		expect.assertions(1);
-
-		db.prisma.loginAttempt.count
-			.mockResolvedValueOnce(0) // par email
-			.mockResolvedValueOnce(5); // par ip
-
-		await expect(isLoginRateLimited('user@example.test', '127.0.0.1')).resolves.not.toBeNull();
-	});
-
-	it('retourne false sous le seuil pour email et IP', async () => {
-		expect.assertions(1);
-
-		db.prisma.loginAttempt.count.mockResolvedValueOnce(4).mockResolvedValueOnce(4);
-
-		await expect(isLoginRateLimited('user@example.test', '127.0.0.1')).resolves.toBeNull();
-	});
-
-	it('filtre les comptages sur la fenêtre glissante de 15 minutes en utilisant emailHash/ipHash', async () => {
-		expect.assertions(6);
-
-		db.prisma.loginAttempt.count.mockResolvedValueOnce(0).mockResolvedValueOnce(0);
-
-		await isLoginRateLimited('user@example.test', '127.0.0.1');
-
-		const emailArgs = db.prisma.loginAttempt.count.mock.calls[0][0];
-		const ipArgs = db.prisma.loginAttempt.count.mock.calls[1][0];
-
-		expect(emailArgs.where).not.toHaveProperty('emailKey');
-		expect(ipArgs.where).not.toHaveProperty('ipKey');
-		expect(emailArgs.where.emailHash).toMatch(HEX_SHA256);
-		expect(ipArgs.where.ipHash).toMatch(HEX_SHA256);
-		expect(emailArgs.where.emailHash).not.toBe('user@example.test');
-		expect(ipArgs.where.ipHash).not.toBe('127.0.0.1');
-	});
-
-	it('hache la même valeur de façon déterministe (même email -> même hash)', async () => {
-		expect.assertions(1);
-
-		db.prisma.loginAttempt.count
-			.mockResolvedValueOnce(0)
-			.mockResolvedValueOnce(0)
-			.mockResolvedValueOnce(0)
-			.mockResolvedValueOnce(0);
-
-		await isLoginRateLimited('user@example.test', '127.0.0.1');
-		const firstHash = db.prisma.loginAttempt.count.mock.calls[0][0].where.emailHash;
-
-		await isLoginRateLimited('user@example.test', '127.0.0.1');
-		const secondHash = db.prisma.loginAttempt.count.mock.calls[2][0].where.emailHash;
-
-		expect(firstHash).toBe(secondHash);
-	});
-
-	it('hache différemment des valeurs différentes', async () => {
-		expect.assertions(1);
-
-		db.prisma.loginAttempt.count
-			.mockResolvedValueOnce(0)
-			.mockResolvedValueOnce(0)
-			.mockResolvedValueOnce(0)
-			.mockResolvedValueOnce(0);
-
-		await isLoginRateLimited('user@example.test', '127.0.0.1');
-		const firstHash = db.prisma.loginAttempt.count.mock.calls[0][0].where.emailHash;
-
-		await isLoginRateLimited('other@example.test', '127.0.0.1');
-		const secondHash = db.prisma.loginAttempt.count.mock.calls[2][0].where.emailHash;
-
-		expect(firstHash).not.toBe(secondHash);
-	});
-
-	it('normalise la casse et les espaces avant hachage (même hash pour "User@Example.test" et "user@example.test")', async () => {
-		expect.assertions(1);
-
-		db.prisma.loginAttempt.count
-			.mockResolvedValueOnce(0)
-			.mockResolvedValueOnce(0)
-			.mockResolvedValueOnce(0)
-			.mockResolvedValueOnce(0);
-
-		await isLoginRateLimited('User@Example.test', '127.0.0.1');
-		const firstHash = db.prisma.loginAttempt.count.mock.calls[0][0].where.emailHash;
-
-		await isLoginRateLimited('  user@example.test  ', '127.0.0.1');
-		const secondHash = db.prisma.loginAttempt.count.mock.calls[2][0].where.emailHash;
-
-		expect(firstHash).toBe(secondHash);
-	});
-});
-
-describe('recordFailedLoginAttempt', () => {
-	beforeEach(() => {
-		vi.clearAllMocks();
-	});
-
 	afterEach(() => {
+		uninstallTable();
 		vi.useRealTimers();
 	});
 
-	it('crée une ligne LoginAttempt avec emailHash et ipHash hachés (pas les valeurs en clair)', async () => {
-		expect.assertions(6);
-
-		await recordFailedLoginAttempt('user@example.test', '127.0.0.1');
-
-		expect(db.prisma.loginAttempt.create).toHaveBeenCalledTimes(1);
-		const createArgs = db.prisma.loginAttempt.create.mock.calls[0][0];
-
-		expect(createArgs.data).not.toHaveProperty('emailKey');
-		expect(createArgs.data).not.toHaveProperty('ipKey');
-		expect(createArgs.data.emailHash).toMatch(HEX_SHA256);
-		expect(createArgs.data.ipHash).toMatch(HEX_SHA256);
-		expect(createArgs.data.emailHash).not.toBe('user@example.test');
+	it('refuse sur le compteur email après 5 tentatives fausses pour cet email', async () => {
+		await keepWrong(5, (i) => claimLoginAttempt(EMAIL, `10.0.0.${i + 1}`));
+		await expect(claimLoginAttempt(EMAIL, IP)).resolves.toEqual({ trip: { counter: 'subject' } });
 	});
 
-	it('hache email/IP de façon déterministe et distincte entre appels différents', async () => {
-		expect.assertions(2);
-
-		await recordFailedLoginAttempt('user@example.test', '127.0.0.1');
-		const first = db.prisma.loginAttempt.create.mock.calls[0][0].data;
-
-		await recordFailedLoginAttempt('user@example.test', '127.0.0.1');
-		const second = db.prisma.loginAttempt.create.mock.calls[1][0].data;
-
-		await recordFailedLoginAttempt('other@example.test', '10.0.0.1');
-		const third = db.prisma.loginAttempt.create.mock.calls[2][0].data;
-
-		expect(first).toEqual(second);
-		expect(first.emailHash).not.toBe(third.emailHash);
+	it("refuse sur le compteur IP après 5 tentatives fausses depuis cette IP, quel que soit l'email", async () => {
+		await keepWrong(5, (i) => claimLoginAttempt(`user${i}@example.test`, IP));
+		await expect(claimLoginAttempt(EMAIL, IP)).resolves.toEqual({ trip: { counter: 'address' } });
 	});
 
-	it('supprime les tentatives plus vieilles que 4x la fenêtre (1h)', async () => {
-		expect.assertions(1);
+	// The boundary of the recount: four kept rows and the claim's own make five, which is the
+	// maximum and admitted. A recount that does not allow for its own row refuses here.
+	it('admet la cinquième tentative: 4 fausses par email et 4 par IP', async () => {
+		await keepWrong(4, (i) => claimLoginAttempt(EMAIL, `10.0.0.${i + 1}`));
+		await keepWrong(4, (i) => claimLoginAttempt(`user${i}@example.test`, IP));
+		const answer = await claimLoginAttempt(EMAIL, IP);
+		expect({ answer, rows: rows.length }).toEqual({ answer: { claim: { id: 'row-9' } }, rows: 9 });
+	});
 
+	it('filtre les comptages sur la fenêtre glissante de 15 minutes en utilisant emailHash/ipHash', async () => {
 		vi.useFakeTimers();
 		vi.setSystemTime(new Date('2026-07-02T12:00:00.000Z'));
 
-		await recordFailedLoginAttempt('user@example.test', '127.0.0.1');
+		await claimLoginAttempt(EMAIL, IP);
 
-		expect(db.prisma.loginAttempt.deleteMany).toHaveBeenCalledWith({
-			where: { createdAt: { lt: new Date('2026-07-02T11:00:00.000Z') } }
+		const wheres = db.prisma.loginAttempt.count.mock.calls.map((call) => call[0].where);
+		const emailWhere = wheres.find((where) => 'emailHash' in where);
+		const ipWhere = wheres.find((where) => 'ipHash' in where);
+		expect(emailWhere).toEqual({
+			emailHash: expect.stringMatching(HEX_SHA256),
+			kind: 'LOGIN',
+			createdAt: { gte: new Date('2026-07-02T11:45:00.000Z') }
+		});
+		expect(ipWhere).toEqual({
+			ipHash: expect.stringMatching(HEX_SHA256),
+			kind: 'LOGIN',
+			createdAt: { gte: new Date('2026-07-02T11:45:00.000Z') }
+		});
+	});
+
+	// Separates « the window slides » from « every row ever counts »: a row 15 minutes and 1 ms old
+	// has left the window, one exactly 15 minutes old has not (`gte`).
+	it("ne compte que les lignes de la fenêtre: une ligne vieille de 15 min + 1 ms n'en est plus", async () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date('2026-07-02T12:00:00.000Z'));
+		await keepWrong(4, (i) => claimLoginAttempt(EMAIL, `10.0.0.${i + 1}`));
+		vi.setSystemTime(new Date('2026-07-02T12:00:00.001Z'));
+		await keepWrong(1, () => claimLoginAttempt(EMAIL, '10.0.0.9'));
+
+		vi.setSystemTime(new Date('2026-07-02T12:15:00.001Z'));
+		await settleAttempt(claimOf(await claimLoginAttempt(EMAIL, IP)), false);
+		vi.setSystemTime(new Date('2026-07-02T12:15:00.000Z'));
+		await expect(claimLoginAttempt(EMAIL, '10.0.0.10')).resolves.toEqual({
+			trip: { counter: 'subject' }
+		});
+	});
+
+	it('écrit une ligne avec emailHash et ipHash hachés (pas les valeurs en clair)', async () => {
+		await claimLoginAttempt(EMAIL, IP);
+
+		expect(db.prisma.loginAttempt.create).toHaveBeenCalledTimes(1);
+		const { data } = db.prisma.loginAttempt.create.mock.calls[0][0];
+		expect(data).toEqual({
+			kind: 'LOGIN',
+			emailHash: expect.stringMatching(HEX_SHA256),
+			ipHash: expect.stringMatching(HEX_SHA256)
+		});
+		expect(JSON.stringify(data)).not.toContain(EMAIL);
+		expect(JSON.stringify(data)).not.toContain(IP);
+	});
+
+	it('hache de façon déterministe (même email -> même hash) et distincte (autre email -> autre hash)', async () => {
+		await claimLoginAttempt(EMAIL, IP);
+		await claimLoginAttempt(EMAIL, IP);
+		await claimLoginAttempt('other@example.test', '10.0.0.1');
+		const [first, second, third] = db.prisma.loginAttempt.create.mock.calls.map(
+			(call) => call[0].data
+		);
+
+		expect(first).toEqual(second);
+		expect([third.emailHash === first.emailHash, third.ipHash === first.ipHash]).toEqual([
+			false,
+			false
+		]);
+	});
+
+	it('normalise la casse et les espaces avant hachage (même hash pour "User@Example.test" et "user@example.test")', async () => {
+		await claimLoginAttempt('User@Example.test', IP);
+		await claimLoginAttempt('  user@example.test  ', IP);
+		const [first, second] = db.prisma.loginAttempt.create.mock.calls.map((call) => call[0].data);
+
+		expect(first.emailHash).toBe(second.emailHash);
+	});
+});
+
+/**
+ * THE CLAIM IS ONE DECISION (#714): the row first, then a count that holds it. The four halves of
+ * that, each against the table rather than against canned counts, so a test reads what the table
+ * holds afterwards.
+ */
+describe('claim and settle', () => {
+	let rows: Row[];
+	beforeEach(() => {
+		vi.clearAllMocks();
+		rows = installTable();
+	});
+	afterEach(() => {
+		uninstallTable();
+		vi.useRealTimers();
+	});
+
+	// Separates « a full counter is refused by a read » from « refused after writing a row », which
+	// turns a flood on a full counter into a flood of writes.
+	it('a claim on a full counter writes nothing', async () => {
+		await keepWrong(5, (i) => claimLoginAttempt(EMAIL, `10.0.0.${i + 1}`));
+		db.prisma.loginAttempt.create.mockClear();
+		db.prisma.loginAttempt.deleteMany.mockClear();
+
+		await expect(claimLoginAttempt(EMAIL, IP)).resolves.toEqual({ trip: { counter: 'subject' } });
+		expect({
+			creates: db.prisma.loginAttempt.create.mock.calls.length,
+			deletes: db.prisma.loginAttempt.deleteMany.mock.calls.length,
+			rows: rows.length
+		}).toEqual({ creates: 0, deletes: 0, rows: 5 });
+	});
+
+	// A concurrent request's row lands between this claim's pre-check and its recount: the
+	// pre-check read four, the recount reads six. Separates « refused, deleting its own row » from
+	// « refused, keeping it » (a burst would then fill the counter with refusals) and from « deletes
+	// by another clause » (the concurrent row, or every row of the counter).
+	it('a claim that trips on the recount deletes exactly its own row', async () => {
+		await keepWrong(4, (i) => claimLoginAttempt(EMAIL, `10.0.0.${i + 1}`));
+		const table = db.prisma.loginAttempt.create.getMockImplementation()!;
+		db.prisma.loginAttempt.create.mockImplementationOnce(async (args) => {
+			const own = await table(args);
+			await table({ data: { ...args.data, ipHash: 'concurrent' } });
+			return own;
+		});
+		db.prisma.loginAttempt.deleteMany.mockClear();
+
+		await expect(claimLoginAttempt(EMAIL, IP)).resolves.toEqual({ trip: { counter: 'subject' } });
+		expect({
+			deletes: db.prisma.loginAttempt.deleteMany.mock.calls,
+			left: rows.map((row) => row.id)
+		}).toEqual({
+			deletes: [[{ where: { id: 'row-5' } }]],
+			left: ['row-1', 'row-2', 'row-3', 'row-4', 'row-6']
+		});
+	});
+
+	// Separates « a credential not judged wrong costs nothing » from « every claim counts », which
+	// turns five honest sign-ins into a lockout.
+	it("settle(false) deletes the claim's own row, and only it", async () => {
+		await keepWrong(2, (i) => claimLoginAttempt(EMAIL, `10.0.0.${i + 1}`));
+		const claim = claimOf(await claimLoginAttempt(EMAIL, IP));
+		db.prisma.loginAttempt.deleteMany.mockClear();
+
+		await settleAttempt(claim, false);
+
+		expect({
+			deletes: db.prisma.loginAttempt.deleteMany.mock.calls,
+			left: rows.map((row) => row.id)
+		}).toEqual({ deletes: [[{ where: { id: claim.id } }]], left: ['row-1', 'row-2'] });
+	});
+
+	// Separates « a wrong credential keeps its row » from « it is released too », which would leave
+	// the limiter counting nothing; the one delete is the expired-rows cleanup, 4 windows back.
+	it('settle(true) keeps the row and only clears rows older than 4 windows (1h)', async () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date('2026-07-02T12:00:00.000Z'));
+		const claim = claimOf(await claimLoginAttempt(EMAIL, IP));
+		db.prisma.loginAttempt.deleteMany.mockClear();
+
+		await settleAttempt(claim, true);
+
+		expect({
+			deletes: db.prisma.loginAttempt.deleteMany.mock.calls,
+			left: rows.map((row) => row.id)
+		}).toEqual({
+			deletes: [[{ where: { createdAt: { lt: new Date('2026-07-02T11:00:00.000Z') } } }]],
+			left: [claim.id]
 		});
 	});
 });
@@ -357,117 +473,112 @@ describe('isInviteRateLimited / recordInviteAttempt', () => {
 describe('isolation login/register par kind', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		installTable();
+	});
+	afterEach(() => {
+		uninstallTable();
 	});
 
 	it('une IP qui a épuisé son quota register peut toujours se logger (comptages indépendants)', async () => {
-		expect.assertions(2);
+		for (let i = 0; i < 5; i++) await recordRegisterAttempt(IP);
+		await expect(isRegisterRateLimited(IP)).resolves.toEqual({ counter: 'address' });
 
-		// isLoginRateLimited : compte email puis IP, toutes deux sous le seuil.
-		db.prisma.loginAttempt.count.mockResolvedValueOnce(0).mockResolvedValueOnce(0);
-		await expect(isLoginRateLimited('user@example.test', '127.0.0.1')).resolves.toBeNull();
-
-		const loginIpCall = db.prisma.loginAttempt.count.mock.calls[1][0];
-		expect(loginIpCall.where.kind).toBe('LOGIN');
+		await expect(claimLoginAttempt(EMAIL, IP)).resolves.toHaveProperty('claim');
 	});
 
-	it('le login et le register hachent la même IP mais interrogent des kind distincts', async () => {
-		expect.assertions(2);
+	it('le login et le register hachent la même IP mais écrivent des kind distincts', async () => {
+		await claimLoginAttempt(EMAIL, IP);
+		await recordRegisterAttempt(IP);
+		const [login, register] = db.prisma.loginAttempt.create.mock.calls.map((call) => call[0].data);
 
-		db.prisma.loginAttempt.count
-			.mockResolvedValueOnce(0)
-			.mockResolvedValueOnce(0)
-			.mockResolvedValueOnce(0);
-
-		await isLoginRateLimited('user@example.test', '127.0.0.1');
-		const loginIpArgs = db.prisma.loginAttempt.count.mock.calls[1][0].where;
-
-		await isRegisterRateLimited('127.0.0.1');
-		const registerArgs = db.prisma.loginAttempt.count.mock.calls[2][0].where;
-
-		expect(loginIpArgs.ipHash).toBe(registerArgs.ipHash);
-		expect(loginIpArgs.kind).not.toBe(registerArgs.kind);
+		expect(login.ipHash).toBe(register.ipHash);
+		expect([login.kind, register.kind]).toEqual(['LOGIN', 'REGISTER']);
 	});
 });
 
-describe('isMfaRateLimited', () => {
+describe('claimMfaAttempt', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		installTable();
 	});
-
-	it('retourne true si >= 5 tentatives par id de challenge dans les 15 dernières minutes', async () => {
-		expect.assertions(1);
-
-		db.prisma.loginAttempt.count
-			.mockResolvedValueOnce(5) // par challenge id
-			.mockResolvedValueOnce(0); // par ip
-
-		await expect(isMfaRateLimited('challenge-1', '127.0.0.1')).resolves.not.toBeNull();
-	});
-
-	it('retourne true si >= 5 tentatives par IP, même sur des challenges différents', async () => {
-		expect.assertions(1);
-
-		db.prisma.loginAttempt.count
-			.mockResolvedValueOnce(0) // par challenge id
-			.mockResolvedValueOnce(5); // par ip
-
-		await expect(isMfaRateLimited('challenge-1', '127.0.0.1')).resolves.not.toBeNull();
-	});
-
-	it("retourne false sous le seuil pour le challenge et pour l'IP", async () => {
-		expect.assertions(1);
-
-		db.prisma.loginAttempt.count.mockResolvedValueOnce(4).mockResolvedValueOnce(4);
-
-		await expect(isMfaRateLimited('challenge-1', '127.0.0.1')).resolves.toBeNull();
-	});
-
-	it("filtre par kind: 'MFA', isolé de LOGIN/REGISTER/INVITE", async () => {
-		expect.assertions(1);
-
-		db.prisma.loginAttempt.count.mockResolvedValueOnce(0).mockResolvedValueOnce(0);
-
-		await isMfaRateLimited('challenge-1', '127.0.0.1');
-
-		expect(db.prisma.loginAttempt.count.mock.calls[0][0].where.kind).toBe('MFA');
-	});
-
-	it('un attaquant ne contourne pas la limite en générant un nouveau challenge depuis la même IP', async () => {
-		expect.assertions(2);
-
-		// Two different challenges (per-challenge count under the threshold each time),
-		// but the IP has already hit the global threshold.
-		db.prisma.loginAttempt.count
-			.mockResolvedValueOnce(0) // challenge-1
-			.mockResolvedValueOnce(5) // ip
-			.mockResolvedValueOnce(0) // challenge-2
-			.mockResolvedValueOnce(5); // ip
-
-		await expect(isMfaRateLimited('challenge-1', '127.0.0.1')).resolves.not.toBeNull();
-		await expect(isMfaRateLimited('challenge-2', '127.0.0.1')).resolves.not.toBeNull();
-	});
-});
-
-describe('recordMfaAttempt', () => {
-	beforeEach(() => {
-		vi.clearAllMocks();
-	});
-
 	afterEach(() => {
-		vi.useRealTimers();
+		uninstallTable();
 	});
 
-	it("crée une ligne LoginAttempt avec kind: 'MFA', emailHash (challenge id) et ipHash hachés", async () => {
-		expect.assertions(4);
+	it('refuse un code de récupération après 5 tentatives fausses sur ce challenge', async () => {
+		await keepWrong(5, (i) => claimMfaAttempt(RECOVERY('challenge-1'), `10.0.0.${i + 1}`));
+		await expect(claimMfaAttempt(RECOVERY('challenge-1'), IP)).resolves.toEqual({
+			trip: { counter: 'subject' }
+		});
+	});
 
-		await recordMfaAttempt('challenge-1', '127.0.0.1');
+	it('refuse après 5 tentatives fausses depuis la même IP, même sur des challenges différents', async () => {
+		await keepWrong(5, (i) => claimMfaAttempt(RECOVERY(`challenge-${i + 10}`), IP));
+		await expect(claimMfaAttempt(RECOVERY('challenge-1'), IP)).resolves.toEqual({
+			trip: { counter: 'address' }
+		});
+		await expect(claimMfaAttempt(RECOVERY('challenge-2'), IP)).resolves.toEqual({
+			trip: { counter: 'address' }
+		});
+	});
 
-		expect(db.prisma.loginAttempt.create).toHaveBeenCalledTimes(1);
-		const createArgs = db.prisma.loginAttempt.create.mock.calls[0][0];
+	it("admet sous le seuil pour le challenge et pour l'IP", async () => {
+		await keepWrong(4, (i) => claimMfaAttempt(RECOVERY('challenge-1'), `10.0.0.${i + 1}`));
+		await keepWrong(4, (i) => claimMfaAttempt(RECOVERY(`challenge-${i + 10}`), IP));
+		await expect(claimMfaAttempt(RECOVERY('challenge-1'), IP)).resolves.toHaveProperty('claim');
+	});
 
-		expect(createArgs.data.kind).toBe('MFA');
-		expect(createArgs.data.emailHash).toMatch(HEX_SHA256);
-		expect(createArgs.data.ipHash).toMatch(HEX_SHA256);
+	// Separates « an authenticator code is counted on the ACCOUNT » from « on the challenge »: every
+	// correct password opens a new challenge, so a challenge key let whoever knew the password guess
+	// without bound. The account's five wrong codes came on five challenges from five addresses.
+	it('un code TOTP est compté par compte: un nouveau challenge ne remet pas le compteur à zéro', async () => {
+		await keepWrong(5, (i) => claimMfaAttempt(TOTP('user-1'), `10.0.0.${i + 1}`));
+		await expect(claimMfaAttempt(TOTP('user-1'), IP)).resolves.toEqual({
+			trip: { counter: 'subject' }
+		});
+		await expect(claimMfaAttempt(TOTP('user-2'), IP)).resolves.toHaveProperty('claim');
+	});
+
+	// Separates « a recovery code is counted apart from the account's codes » from « on the
+	// account », which whoever holds the password can keep full, locking the owner out of the way
+	// back in (`claimMfaAttempt`).
+	it("un code de récupération n'est pas compté sur le compteur du compte", async () => {
+		await keepWrong(5, (i) => claimMfaAttempt(TOTP('user-1'), `10.0.0.${i + 1}`));
+		await expect(claimMfaAttempt(RECOVERY('challenge-1'), IP)).resolves.toHaveProperty('claim');
+	});
+
+	// An authenticator code under 'MFA', a recovery code under 'MFA_RECOVERY': the kind is part of
+	// every counter, so it is what keeps the two from sharing one.
+	it.each([
+		['un code TOTP', TOTP('user-1'), 'MFA'],
+		['un code de récupération', RECOVERY('challenge-1'), 'MFA_RECOVERY']
+	] as const)(
+		'%s compte et écrit sous son propre kind, aux clés hachées',
+		async (_label, code, kind) => {
+			await claimMfaAttempt(code, IP);
+
+			const kinds = db.prisma.loginAttempt.count.mock.calls.map((call) => call[0].where.kind);
+			expect(kinds).toEqual([kind, kind, kind, kind]);
+			expect(db.prisma.loginAttempt.create.mock.calls.map((call) => call[0].data)).toEqual([
+				{
+					kind,
+					emailHash: expect.stringMatching(HEX_SHA256),
+					ipHash: expect.stringMatching(HEX_SHA256)
+				}
+			]);
+		}
+	);
+
+	// Separates « a recovery code has an address counter of its own » from « it shares the
+	// authenticator codes' »: whoever holds the password fills the address counter from the owner's
+	// own network with five wrong authenticator codes, and the recovery code must still be admitted
+	// from there. The five are on five accounts so only the address counter is full.
+	it('cinq codes TOTP faux depuis une adresse laissent un code de récupération admis depuis cette adresse', async () => {
+		await keepWrong(5, (i) => claimMfaAttempt(TOTP(`user-${i + 1}`), IP));
+		await expect(claimMfaAttempt(TOTP('user-9'), IP)).resolves.toEqual({
+			trip: { counter: 'address' }
+		});
+		await expect(claimMfaAttempt(RECOVERY('challenge-1'), IP)).resolves.toHaveProperty('claim');
 	});
 });
 
@@ -808,7 +919,9 @@ describe('the import limit is configurable, and the configuration cannot remove 
 		process.env[IMPORT_MAX_ATTEMPTS_ENV] = '100';
 		try {
 			db.prisma.loginAttempt.count.mockResolvedValue(5);
-			await expect(isLoginRateLimited('user@example.test', '127.0.0.1')).resolves.not.toBeNull();
+			await expect(claimLoginAttempt('user@example.test', '127.0.0.1')).resolves.toEqual({
+				trip: { counter: 'both' }
+			});
 		} finally {
 			delete process.env[IMPORT_MAX_ATTEMPTS_ENV];
 		}
@@ -933,9 +1046,9 @@ describe('the import limit is configurable, and the configuration cannot remove 
 });
 
 /**
- * WHICH COUNTER TRIPPED (L3 contract, amended). The five authentication wrappers answer
- * `RateLimitTrip | null` so that the ROUTE can write the refusal's event with the user and the
- * counter; the limiter itself logs nothing. Counts are answered by the column queried, never by
+ * WHICH COUNTER TRIPPED (L3 contract, amended). The authentication wrappers answer which counter
+ * refused (`RateLimitTrip`; the two claims as `{ trip }`) so that the ROUTE can write the refusal's
+ * event with the user and the counter; the limiter itself logs nothing. Counts are answered by the column queried, never by
  * call order, so a reordering of the two counts cannot swap which counter a test fills.
  */
 describe('the authentication wrappers say which counter tripped, and log nothing (L3)', () => {
@@ -952,22 +1065,24 @@ describe('the authentication wrappers say which counter tripped, and log nothing
 	beforeEach(() => {
 		vi.clearAllMocks();
 		logged.length = 0;
+		db.prisma.loginAttempt.create.mockResolvedValue({ id: 'row-1' });
 	});
 	afterEach(() => {
 		db.prisma.loginAttempt.count.mockReset();
+		db.prisma.loginAttempt.create.mockReset();
 	});
 
-	// The two kinds that count an address AND a subject, each through its own wrapper.
+	// The two kinds that count an address AND a subject, each through its own claim.
 	const TWO_COUNTERS: [string, () => Promise<unknown>][] = [
-		['LOGIN', () => isLoginRateLimited('user@example.test', IP)],
-		['MFA', () => isMfaRateLimited('challenge-1', IP)]
+		['LOGIN', () => claimLoginAttempt('user@example.test', IP)],
+		['MFA', () => claimMfaAttempt({ factor: 'totp', userId: 'user-1' }, IP)]
 	];
 
 	it.each(TWO_COUNTERS)(
 		'%s with only the address counter full answers address',
 		async (_k, check) => {
 			fill({ address: true, subject: false });
-			await expect(check()).resolves.toEqual({ counter: 'address' });
+			await expect(check()).resolves.toEqual({ trip: { counter: 'address' } });
 		}
 	);
 
@@ -975,18 +1090,18 @@ describe('the authentication wrappers say which counter tripped, and log nothing
 		'%s with only the subject counter full answers subject',
 		async (_k, check) => {
 			fill({ address: false, subject: true });
-			await expect(check()).resolves.toEqual({ counter: 'subject' });
+			await expect(check()).resolves.toEqual({ trip: { counter: 'subject' } });
 		}
 	);
 
 	it.each(TWO_COUNTERS)('%s with both counters full answers both', async (_k, check) => {
 		fill({ address: true, subject: true });
-		await expect(check()).resolves.toEqual({ counter: 'both' });
+		await expect(check()).resolves.toEqual({ trip: { counter: 'both' } });
 	});
 
-	it.each(TWO_COUNTERS)('%s under both limits answers null', async (_k, check) => {
+	it.each(TWO_COUNTERS)('%s under both limits answers its claim', async (_k, check) => {
 		fill({ address: false, subject: false });
-		await expect(check()).resolves.toBeNull();
+		await expect(check()).resolves.toEqual({ claim: { id: 'row-1' } });
 	});
 
 	// REGISTER and INVITE count only the address; REAUTH only the session (#879).
@@ -1009,18 +1124,23 @@ describe('the authentication wrappers say which counter tripped, and log nothing
 	});
 
 	// The route writes the refusal's line; a second one here would be two events for one outcome.
-	// `writes` proves the calls ran: seven records and nine checks, every check refused.
-	it('the limiter module writes no log line on any check or record', async () => {
+	// `writes` proves the calls ran: five records, and two claims admitted and settled each way,
+	// after seven checks refused (the two claims among them, refused before writing).
+	it('the limiter module writes no log line on any check, claim, settle or record', async () => {
 		fill({ address: true, subject: true });
-		await isLoginRateLimited('user@example.test', IP);
-		await isMfaRateLimited('challenge-1', IP);
+		await claimLoginAttempt('user@example.test', IP);
+		await claimMfaAttempt({ factor: 'totp', userId: 'user-1' }, IP);
 		await isRegisterRateLimited(IP);
 		await isInviteRateLimited(IP);
 		await isReauthRateLimited('session-1');
 		await isBankSyncStartRateLimited('user-1', IP);
 		await isImportRateLimited('user-1', IP);
-		await recordFailedLoginAttempt('user@example.test', IP);
-		await recordMfaAttempt('challenge-1', IP);
+		fill({ address: false, subject: false });
+		await settleAttempt(claimOf(await claimLoginAttempt('user@example.test', IP)), true);
+		await settleAttempt(
+			claimOf(await claimMfaAttempt({ factor: 'totp', userId: 'user-1' }, IP)),
+			false
+		);
 		await recordRegisterAttempt(IP);
 		await recordInviteAttempt(IP);
 		await recordReauthAttempt('session-1', IP);

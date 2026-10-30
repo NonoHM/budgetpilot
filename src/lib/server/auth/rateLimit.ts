@@ -142,7 +142,14 @@ function hashSecret(): string {
 }
 
 type AttemptKind =
-	'LOGIN' | 'REGISTER' | 'INVITE' | 'MFA' | 'BANK_SYNC_START' | 'REAUTH' | 'IMPORT';
+	| 'LOGIN'
+	| 'REGISTER'
+	| 'INVITE'
+	| 'MFA'
+	| 'MFA_RECOVERY'
+	| 'BANK_SYNC_START'
+	| 'REAUTH'
+	| 'IMPORT';
 
 function windowMsForKind(kind: AttemptKind): number {
 	return kind === 'REAUTH' ? REAUTH_WINDOW_MS : WINDOW_MS;
@@ -173,7 +180,8 @@ type RateLimitKeys = { ip: string; subject?: string } | { ip?: undefined; subjec
 
 /**
  * A refused attempt, and which of its counters was full. `subject` is the email for LOGIN, the
- * challenge for MFA and the session for REAUTH: a refusal on it alone is not the client's doing, so
+ * account (an authenticator code) or the challenge (a recovery code) for MFA, and the session for
+ * REAUTH: a refusal on it alone is not the client's doing, so
  * the authentication event says so (L3; an attacker filling a victim's email counter refuses the
  * victim too). REGISTER and INVITE count only the address, REAUTH only the session.
  */
@@ -185,14 +193,19 @@ export interface RateLimitTrip {
  * Each key passed is one counter, and the attempt is refused when ANY reaches the maximum; the
  * answer names which. Which keys a kind passes is decided by its exported wrapper below, never here.
  */
-async function tripOf(kind: AttemptKind, keys: RateLimitKeys): Promise<RateLimitTrip | null> {
+async function tripOf(
+	kind: AttemptKind,
+	keys: RateLimitKeys,
+	countsOwnRow = false
+): Promise<RateLimitTrip | null> {
 	// The type above cannot see a cast: a key that is `undefined` at run time would leave no counter,
 	// and no counter reads as « under the limit ». Refused, never let through.
 	if (keys.subject === undefined && keys.ip === undefined) {
 		throw new Error(`rate limiter called with no key for ${kind}`);
 	}
 	const windowStart = new Date(Date.now() - windowMsForKind(kind));
-	const max = maxAttemptsForKind(kind);
+	// A count that already holds the caller's own row may reach the maximum, never exceed it.
+	const max = maxAttemptsForKind(kind) + (countsOwnRow ? 1 : 0);
 	const full = async (where: { emailHash: string } | { ipHash: string }) =>
 		(await prisma.loginAttempt.count({
 			where: { ...where, kind, createdAt: { gte: windowStart } }
@@ -210,19 +223,65 @@ async function tripOf(kind: AttemptKind, keys: RateLimitKeys): Promise<RateLimit
 async function recordAttempt(kind: AttemptKind, ip: string, email?: string): Promise<void> {
 	const ipHash = hashAddress(ip);
 	const emailHash = email !== undefined ? hashRateLimitKey(email) : null;
-	const cleanupBefore = new Date(Date.now() - WINDOW_MS * 4);
 	await Promise.all([
 		prisma.loginAttempt.create({ data: { emailHash, ipHash, kind } }),
-		prisma.loginAttempt.deleteMany({ where: { createdAt: { lt: cleanupBefore } } })
+		deleteExpiredAttempts()
 	]);
 }
 
-export async function isLoginRateLimited(email: string, ip: string): Promise<RateLimitTrip | null> {
-	return tripOf('LOGIN', { ip, subject: email });
+function deleteExpiredAttempts() {
+	const cleanupBefore = new Date(Date.now() - WINDOW_MS * 4);
+	return prisma.loginAttempt.deleteMany({ where: { createdAt: { lt: cleanupBefore } } });
 }
 
-export async function recordFailedLoginAttempt(email: string, ip: string): Promise<void> {
-	await recordAttempt('LOGIN', ip, email);
+/** An attempt admitted by `claimAttempt`: its row is in the table until `settleAttempt` decides. */
+export interface AttemptClaim {
+	id: string;
+}
+
+/**
+ * Check and record as ONE decision, for the sign-in steps, so a concurrent burst cannot pass it
+ * (#714). `tripOf` then `recordAttempt` let every request of a burst read « under the limit » before
+ * any of them wrote its row. Here the row is written FIRST, and the decision is a count that holds
+ * it: each admitted row is committed before its own count, so the k-th request admitted counts at
+ * least k rows and at most the maximum are admitted per window, whatever the concurrency. A refused
+ * request deletes only its own row, so a burst can be refused more than it strictly needs, never
+ * admitted more. The plain `tripOf` first keeps a flood on a full counter to reads, as before.
+ *
+ * Django-axes, Laravel and Devise make the RECORD atomic and leave the check an earlier read, which
+ * keeps the race (read at pinned commits, cited in the commit that introduced this function); the
+ * figure, a burst of 15 with all 15 judged, is `signInAttemptBudget.db-smoke.ts`.
+ *
+ * Every claim is settled by the caller, in a `finally`: kept when the credential was wrong, released
+ * otherwise, so a correct sign-in costs nothing, as it did when only failures were recorded. The one
+ * exception fails closed: when the database throws between the insert and the release (the recount
+ * here, or the release delete itself), the row stays and counts as a failure for the window.
+ */
+async function claimAttempt(
+	kind: AttemptKind,
+	keys: { ip: string; subject: string }
+): Promise<{ trip: RateLimitTrip } | { claim: AttemptClaim }> {
+	const full = await tripOf(kind, keys);
+	if (full) return { trip: full };
+	const row = await prisma.loginAttempt.create({
+		data: { kind, ipHash: hashAddress(keys.ip), emailHash: hashRateLimitKey(keys.subject) },
+		select: { id: true }
+	});
+	const trip = await tripOf(kind, keys, true);
+	if (!trip) return { claim: row };
+	await prisma.loginAttempt.deleteMany({ where: { id: row.id } });
+	return { trip };
+}
+
+/** Keeps the claim's row when the credential was wrong; deletes it otherwise. */
+export async function settleAttempt(claim: AttemptClaim, credentialWrong: boolean): Promise<void> {
+	if (credentialWrong) await deleteExpiredAttempts();
+	else await prisma.loginAttempt.deleteMany({ where: { id: claim.id } });
+}
+
+/** The password step: counted per posted email and per address. */
+export async function claimLoginAttempt(email: string, ip: string) {
+	return claimAttempt('LOGIN', { ip, subject: email });
 }
 
 export async function isRegisterRateLimited(ip: string): Promise<RateLimitTrip | null> {
@@ -241,19 +300,31 @@ export async function recordInviteAttempt(ip: string): Promise<void> {
 	await recordAttempt('INVITE', ip);
 }
 
-// Same mechanism as LOGIN: limited by IP AND by hashed MFA challenge id, so
-// an attacker can't bypass the limit by generating a new challenge on every
-// attempt (e.g. several valid passwords tried on different accounts from the
-// same IP, or challenge spam).
-export async function isMfaRateLimited(
-	challengeId: string,
+/**
+ * The code step, by the kind of code typed. Both kinds also count the address.
+ *
+ * - An authenticator code is counted per ACCOUNT. It used to be counted per challenge, and every
+ *   correct password opens a new challenge, so whoever knew the password could guess codes without
+ *   bound by signing in again from another address. Keyed on the user, as Django-otp, Laravel
+ *   Fortify, ASP.NET Identity and Devise all key it, and no new sign-in resets it.
+ * - A recovery code, or anything matching neither shape, is counted per CHALLENGE and per address
+ *   under a kind of its own, `MFA_RECOVERY`, so no wrong authenticator code fills either of its
+ *   counters: whoever holds the password can fill the account's budget and keep doing so, and the
+ *   recovery code is then the owner's way back in, to change the password (owner's ruling,
+ *   2026-10-30). ASP.NET Identity does not limit recovery codes at all and Django-otp throttles
+ *   them on their own device; guessing one stays infeasible here, each carrying 40 random bits.
+ *   The address counter stays, by choice: without it each correct password opens a free challenge
+ *   and recovery guesses from one address are unbounded. Its cost is that a password holder on the
+ *   owner's own network can fill it with wrong RECOVERY codes for a window; from any other network
+ *   the owner's recovery code is unaffected.
+ */
+export async function claimMfaAttempt(
+	code: { factor: 'totp'; userId: string } | { factor: 'recovery_code'; challengeId: string },
 	ip: string
-): Promise<RateLimitTrip | null> {
-	return tripOf('MFA', { ip, subject: challengeId });
-}
-
-export async function recordMfaAttempt(challengeId: string, ip: string): Promise<void> {
-	await recordAttempt('MFA', ip, challengeId);
+) {
+	return code.factor === 'totp'
+		? claimAttempt('MFA', { ip, subject: code.userId })
+		: claimAttempt('MFA_RECOVERY', { ip, subject: code.challengeId });
 }
 
 // Consent-start actions (start/renew) each trigger an outbound call to the bank

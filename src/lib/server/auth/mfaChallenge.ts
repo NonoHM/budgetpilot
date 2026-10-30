@@ -88,7 +88,8 @@ export async function claimMfaChallenge(tx: TransactionClient, id: string): Prom
 }
 
 // Single-use, called when MFA was disabled in the meantime: a failed code doesn't consume the
-// challenge, only rate limiting by challenge id + IP bounds the number of attempts.
+// challenge; the limiter bounds the attempts (`claimMfaAttempt`: per account for an authenticator
+// code, per challenge for a recovery code, and per address for both).
 export async function consumeMfaChallenge(id: string, cookies: Cookies): Promise<void> {
 	await prisma.pendingMfaChallenge.deleteMany({ where: { id } });
 	clearMfaChallengeCookie(cookies);

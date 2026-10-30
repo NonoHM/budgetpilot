@@ -33,8 +33,8 @@ import { addressSubnet, canonicalIpText } from '../net/clientAddress.ts';
  * on Windows, so one platform gives one spelling. The value comes from `resolveClientAddress`,
  * which can still hand over a non-address: adapter-node returns `undefined` once the client has
  * disconnected (the limiter's own key throws on it too). An authentication event therefore takes
- * its pseudonym AFTER `recordFailedLoginAttempt`, never before, so that a throw cannot skip the
- * record.
+ * its pseudonym AFTER the attempt is claimed and marked wrong (`claimLoginAttempt`,
+ * `settleAttempt`), never before, so that a throw cannot release the record.
  */
 export const LOG_PSEUDONYM_KEY_LABEL = 'budgetpilot:log-pseudonym:v1';
 

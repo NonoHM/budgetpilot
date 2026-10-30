@@ -52,7 +52,11 @@ if (/(^|[/\\])dev\.db(\?|$)/.test(process.env.DATABASE_URL)) {
 
 const PASSWORD = 'totp-single-use-smoke-password';
 const PERIOD_MS = 30_000;
-const CONCURRENT = 8;
+// Five, the sign-in budget: the code step counts one account's codes together, in flight ones
+// included, so a wider burst of one account's code is refused whole by the limiter before any
+// submission reaches the single-use check this file is about (signInAttemptBudget.db-smoke.ts).
+// Five still separates the two shapes: a read-then-write break accepts more than one of them.
+const CONCURRENT = 5;
 const CONCURRENT_ACCOUNTS = 4;
 const created: string[] = [];
 

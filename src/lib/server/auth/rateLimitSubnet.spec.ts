@@ -34,15 +34,28 @@ const { parseTrustedProxies, resolveClientAddress, resolveForwardedClientAddress
  * reach the key through different call sites and a loop asserting one value would not say which.
  */
 type AddressKeyed = {
-	/** Only called for the key it reads: a trip answer for the five authentication kinds, a boolean for the rest. */
+	/** Only called for the key it reads: a trip answer, or for a claimed kind the claim itself. */
 	check: (ip: string) => Promise<unknown>;
 	record: (ip: string) => Promise<void>;
+	/**
+	 * How many address counts one check makes: a claimed kind counts before its row and again with
+	 * it (#714), and both counts must read the one key.
+	 */
+	addressCounts?: 2;
 };
+
+/** A claimed kind's record: the claim written, then kept as a wrong credential keeps it. */
+async function claimKept(claim: Promise<{ claim: { id: string } } | { trip: unknown }>) {
+	const attempt = await claim;
+	if (!('claim' in attempt)) throw new Error('the claim was refused under an empty counter');
+	await limiter.settleAttempt(attempt.claim, true);
+}
 
 const ADDRESS_KEYED: Record<string, AddressKeyed> = {
 	LOGIN: {
-		check: (ip) => limiter.isLoginRateLimited('user@example.test', ip),
-		record: (ip) => limiter.recordFailedLoginAttempt('user@example.test', ip)
+		check: (ip) => limiter.claimLoginAttempt('user@example.test', ip),
+		record: (ip) => claimKept(limiter.claimLoginAttempt('user@example.test', ip)),
+		addressCounts: 2
 	},
 	REGISTER: {
 		check: (ip) => limiter.isRegisterRateLimited(ip),
@@ -53,8 +66,9 @@ const ADDRESS_KEYED: Record<string, AddressKeyed> = {
 		record: (ip) => limiter.recordInviteAttempt(ip)
 	},
 	MFA: {
-		check: (ip) => limiter.isMfaRateLimited('challenge-1', ip),
-		record: (ip) => limiter.recordMfaAttempt('challenge-1', ip)
+		check: (ip) => limiter.claimMfaAttempt({ factor: 'totp', userId: 'user-1' }, ip),
+		record: (ip) => claimKept(limiter.claimMfaAttempt({ factor: 'totp', userId: 'user-1' }, ip)),
+		addressCounts: 2
 	},
 	BANK_SYNC_START: {
 		check: (ip) => limiter.isBankSyncStartRateLimited('user-1', ip),
@@ -74,7 +88,8 @@ async function queriedIpHash(kind: string, ip: string): Promise<string> {
 	await ADDRESS_KEYED[kind].check(ip);
 	const wheres = db.prisma.loginAttempt.count.mock.calls.map((call) => call[0].where);
 	const withAddress = wheres.filter((where) => where.ipHash !== undefined);
-	expect(withAddress).toHaveLength(1);
+	expect(withAddress).toHaveLength(ADDRESS_KEYED[kind].addressCounts ?? 1);
+	expect(new Set(withAddress.map((where) => where.ipHash)).size).toBe(1);
 	return withAddress[0].ipHash;
 }
 
@@ -89,7 +104,7 @@ async function recordedIpHash(kind: string, ip: string): Promise<string> {
 beforeEach(() => {
 	vi.clearAllMocks();
 	db.prisma.loginAttempt.count.mockResolvedValue(0);
-	db.prisma.loginAttempt.create.mockResolvedValue({});
+	db.prisma.loginAttempt.create.mockResolvedValue({ id: 'row-1' });
 	db.prisma.loginAttempt.deleteMany.mockResolvedValue({ count: 0 });
 });
 

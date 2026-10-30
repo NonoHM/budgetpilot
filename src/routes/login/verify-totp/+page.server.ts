@@ -7,7 +7,7 @@ import {
 	consumeMfaChallenge,
 	readMfaChallenge
 } from '$lib/server/auth/mfaChallenge';
-import { isMfaRateLimited, recordMfaAttempt } from '$lib/server/auth/rateLimit';
+import { claimMfaAttempt, settleAttempt } from '$lib/server/auth/rateLimit';
 import { refuseSignIn } from '$lib/server/auth/signInRefusal';
 import { resolveClientAddress } from '$lib/server/net/clientAddress';
 import {
@@ -40,12 +40,6 @@ export const actions: Actions = {
 		if (!challenge) throw redirect(303, '/login');
 
 		const ip = resolveClientAddress({ getClientAddress, request });
-		const trip = await isMfaRateLimited(challenge.id, ip);
-		if (trip) {
-			logRateLimited('MFA', trip, ip, challenge.userId);
-			return tooManyAttempts();
-		}
-
 		const formData = await request.formData();
 		const code = getFormValue(formData, 'code').trim();
 		if (!code) return invalid();
@@ -61,60 +55,78 @@ export const actions: Actions = {
 			throw redirect(303, '/login');
 		}
 
-		// A TOTP code is spent here, by `acceptTotpCode`, even if the sign-in then fails: see why there.
-		let verdict: TotpAcceptance = 'wrong';
-		// What the log says a refused code was. A string matching neither pattern still costs an
-		// attempt, because the limiter counts every guess at this step.
-		let refused: Extract<SignInFailure, { step: 'second_factor' }>['reason'] = 'unrecognised_code';
+		// An authenticator code is counted per account, a recovery code per challenge
+		// (`claimMfaAttempt` says why). The claim is kept only when the code was judged wrong.
 		const factor = TOTP_CODE_PATTERN.test(code) ? 'totp' : 'recovery_code';
-		if (TOTP_CODE_PATTERN.test(code)) {
-			verdict = await acceptTotpCode(user.id, user.totpSecretEncrypted, code);
-			refused =
-				verdict === 'reused'
-					? 'reused_code'
-					: verdict === 'unreadable'
-						? 'unreadable_secret'
-						: 'wrong_code';
-			// #904: the configured key is not the one the secret was stored with. The operator's line.
-			if (verdict === 'unreadable') logSecretUnreadable(user.id);
-		} else if (RECOVERY_CODE_PATTERN.test(code)) {
-			verdict = (await consumeRecoveryCode(user.id, code)) ? 'accepted' : 'wrong';
-			refused = 'wrong_recovery_code';
+		const attempt = await claimMfaAttempt(
+			factor === 'totp' ? { factor, userId: user.id } : { factor, challengeId: challenge.id },
+			ip
+		);
+		if ('trip' in attempt) {
+			logRateLimited('MFA', attempt.trip, ip, challenge.userId);
+			return tooManyAttempts();
 		}
-
-		if (verdict !== 'accepted') {
-			await recordMfaAttempt(challenge.id, ip);
-			refuseSignIn(setHeaders, ip, { step: 'second_factor', reason: refused, userId: user.id });
-			// A spent code says so (#818): whoever typed it twice needs the next one, not a clock
-			// check. Nothing in that is usable: the password is already proven at this step, and a
-			// spent step is never accepted again. A secret that does not decrypt says so too (#904):
-			// no code from the app can pass, and a recovery code still can, which is what to do next.
-			if (verdict === 'reused') return fail(400, { error: m.totp_error_code_reused() });
-			if (verdict === 'unreadable') return fail(400, { error: m.totp_error_secret_unreadable() });
-			return invalid();
-		}
-
-		await ensureDefaultCategoriesSeeded(user.id);
-		await ensureDefaultRulesSeeded(user.id);
-		// The challenge is claimed in the session's own transaction (#923): one ended since the read
-		// above, by a password change, turning two-factor off or « log out other sessions », is sent
-		// back to the password step.
+		let codeWrong = false;
 		try {
-			await createSession(user.id, cookies, (tx) => claimMfaChallenge(tx, challenge.id));
-		} catch (caught) {
-			if (!(caught instanceof SignInSuperseded)) throw caught;
-			refuseSignIn(setHeaders, ip, {
-				step: 'second_factor',
-				reason: 'superseded',
-				userId: user.id
-			});
-			clearMfaChallengeCookie(cookies);
-			throw redirect(303, '/login');
-		}
-		clearMfaChallengeCookie(cookies);
-		logSignInSucceeded(ip, user.id, factor);
+			// A TOTP code is spent here, by `acceptTotpCode`, even if the sign-in then fails: see why there.
+			let verdict: TotpAcceptance = 'wrong';
+			// What the log says a refused code was. A string matching neither pattern still costs an
+			// attempt, because the limiter counts every guess at this step.
+			let refused: Extract<SignInFailure, { step: 'second_factor' }>['reason'] =
+				'unrecognised_code';
+			if (TOTP_CODE_PATTERN.test(code)) {
+				verdict = await acceptTotpCode(user.id, user.totpSecretEncrypted, code);
+				refused =
+					verdict === 'reused'
+						? 'reused_code'
+						: verdict === 'unreadable'
+							? 'unreadable_secret'
+							: 'wrong_code';
+				// #904: the configured key is not the one the secret was stored with. The operator's line.
+				if (verdict === 'unreadable') logSecretUnreadable(user.id);
+			} else if (RECOVERY_CODE_PATTERN.test(code)) {
+				verdict = (await consumeRecoveryCode(user.id, code)) ? 'accepted' : 'wrong';
+				refused = 'wrong_recovery_code';
+			}
 
-		redirectAfterSignIn(url);
+			if (verdict !== 'accepted') {
+				// A secret that does not decrypt (#904) refuses every code, so a code typed against it
+				// is not a guess and costs nothing: the advice below sends the owner to a recovery code.
+				codeWrong = verdict !== 'unreadable';
+				refuseSignIn(setHeaders, ip, { step: 'second_factor', reason: refused, userId: user.id });
+				// A spent code says so (#818): whoever typed it twice needs the next one, not a clock
+				// check. Nothing in that is usable: the password is already proven at this step, and a
+				// spent step is never accepted again. A secret that does not decrypt says so too (#904):
+				// no code from the app can pass, and a recovery code still can, which is what to do next.
+				if (verdict === 'reused') return fail(400, { error: m.totp_error_code_reused() });
+				if (verdict === 'unreadable') return fail(400, { error: m.totp_error_secret_unreadable() });
+				return invalid();
+			}
+
+			await ensureDefaultCategoriesSeeded(user.id);
+			await ensureDefaultRulesSeeded(user.id);
+			// The challenge is claimed in the session's own transaction (#923): one ended since the read
+			// above, by a password change, turning two-factor off or « log out other sessions », is sent
+			// back to the password step.
+			try {
+				await createSession(user.id, cookies, (tx) => claimMfaChallenge(tx, challenge.id));
+			} catch (caught) {
+				if (!(caught instanceof SignInSuperseded)) throw caught;
+				refuseSignIn(setHeaders, ip, {
+					step: 'second_factor',
+					reason: 'superseded',
+					userId: user.id
+				});
+				clearMfaChallengeCookie(cookies);
+				throw redirect(303, '/login');
+			}
+			clearMfaChallengeCookie(cookies);
+			logSignInSucceeded(ip, user.id, factor);
+
+			redirectAfterSignIn(url);
+		} finally {
+			await settleAttempt(attempt.claim, codeWrong);
+		}
 	}
 };
 

@@ -136,9 +136,10 @@ const DECISIONS: Record<string, { sites: number; decisions: Decision[] }> = {
 		]
 	},
 	'src/lib/server/auth/rateLimit.ts': {
-		sites: 2,
+		sites: 5,
 		decisions: [
-			"exempt: the limiter's own record of an attempt and its expiry; a refused attempt writes excess_rate_limit_exceeded"
+			"exempt: the limiter's own record of an attempt and its expiry; a refused attempt writes excess_rate_limit_exceeded",
+			'exempt: a sign-in attempt claims its row before the credential is checked and withdraws it when refused or settled right; the request is logged as the sign-in or the refusal it was'
 		]
 	},
 	'src/lib/server/auth/recoveryCodes.ts': {
@@ -395,7 +396,7 @@ describe('every database write has a logging decision', () => {
 		expect(
 			Object.values(measured).reduce((total, sites) => total + sites, 0),
 			QUESTION
-		).toBe(210);
+		).toBe(213);
 	});
 
 	it('pins every file holding a write, with its number of sites', () => {

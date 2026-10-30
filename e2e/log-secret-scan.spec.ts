@@ -622,7 +622,7 @@ async function exerciseAuthPaths(): Promise<void> {
 
 	// 11. A login for an account that does not exist, which is the other half of the failure path.
 	//     From the OTHER address: the login limiter counts the address as well as the email
-	//     (`isLoginRateLimited` in auth/rateLimit.ts), and step 10 left `CLIENT_ADDRESS` at
+	//     (`claimLoginAttempt` in auth/rateLimit.ts), and step 10 left `CLIENT_ADDRESS` at
 	//     MAX_ATTEMPTS, so from the same address this attempt is refused by the limiter before the
 	//     account lookup and never reaches the unknown-account branch. It did exactly that before L3,
 	//     when every request shared the loopback address: the outcome read `failure` either way.
