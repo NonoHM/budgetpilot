@@ -112,14 +112,15 @@ describe('backup schema coverage', () => {
  * Two lists, and the split is the assertion. ALWAYS_DERIVED holds the one column no model may carry;
  * NOT_CARRIED holds the per-model ones. A NOT_CARRIED entry that IS carried fails, and so does an
  * entry naming a column that does not exist, so an exclusion cannot outlive its reason and mask the
- * column afterwards (#467 is that hole in the model-level gate).
+ * column afterwards (#467 is that hole in the model-level gate). `createdAt` and `updatedAt` are per
+ * model and never in ALWAYS_DERIVED: `CategoryRule` carries the first as its rule priority,
+ * `RecurringStreamAction` carries both, and a shared entry would hide either going missing.
  *
  * What it reads is the schema DECLARATION. That export.ts writes a declared column and import.ts
  * writes it back is not seen here: a column declared with a default and left out of the export is
  * the #1173 shape and passes. The round trip is `categoryRuleRoundTrip.db-smoke.ts` for
- * CategoryRule, and nothing yet for the other models. `createdAt` and `updatedAt` are per model and never
- * in ALWAYS_DERIVED: `CategoryRule` carries the first as its rule priority, `RecurringStreamAction`
- * carries both, and a shared entry would hide either going missing.
+ * CategoryRule, and nothing yet for the other models. One live instance: `Category.defaultKey` is
+ * declared, so it reads as carried, while the export never writes it and the restore ignores it.
  */
 const ALWAYS_DERIVED: Record<string, string> = {
 	userId: 'the restore target, derived from the session and never read from a file'
@@ -150,7 +151,7 @@ const NOT_CARRIED: Record<string, string> = {
 	'ImportBatch.dateOrder': 'not carried yet, see #1177',
 	'ImportBatch.createdAt': 'restore time, see #1178',
 	'ColumnMapping.id': 'not carried yet, so a batch cannot be linked back, see #1177',
-	'ColumnMapping.lastUsedAt': 'a restore is not a use, see the schema comment',
+	'ColumnMapping.lastUsedAt': 'not portable state worth carrying, see the comment in export.ts',
 	'ColumnMapping.createdAt': 'restore time, see #1178',
 	'CategorizationRule.createdAt': 'restore time, see #1178',
 	'MonthlyBudget.categoryNameKey': 'recomputed by the restore with computeNameKey',

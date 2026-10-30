@@ -797,7 +797,9 @@ describe('restoreBackup', () => {
 					matchText: 'carrefour',
 					targetCategory: 'Courses',
 					targetNature: null,
-					enabled: true
+					isRegex: false,
+					enabled: true,
+					defaultRuleKey: null
 				}
 			],
 			categorizationRules: [
