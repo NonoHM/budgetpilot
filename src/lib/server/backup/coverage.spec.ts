@@ -104,6 +104,146 @@ describe('backup schema coverage', () => {
 });
 
 /**
+ * Every COLUMN of every exported model is either carried by its backup array or listed below with
+ * the reason it is not (#1173). The model-level gate above cannot see a dropped column: it is how
+ * `CategoryRule.isRegex` left every backup, and a regex rule came back as a literal that matched
+ * nothing while the rule list looked the same.
+ *
+ * Two lists, and the split is the assertion. ALWAYS_DERIVED holds the one column no model may carry;
+ * NOT_CARRIED holds the per-model ones. A NOT_CARRIED entry that IS carried fails, and so does an
+ * entry naming a column that does not exist, so an exclusion cannot outlive its reason and mask the
+ * column afterwards (#467 is that hole in the model-level gate).
+ *
+ * What it reads is the schema DECLARATION. That export.ts writes a declared column and import.ts
+ * writes it back is not seen here: a column declared with a default and left out of the export is
+ * the #1173 shape and passes. The round trip is `categoryRuleRoundTrip.db-smoke.ts` for
+ * CategoryRule, and nothing yet for the other models. `createdAt` and `updatedAt` are per model and never
+ * in ALWAYS_DERIVED: `CategoryRule` carries the first as its rule priority, `RecurringStreamAction`
+ * carries both, and a shared entry would hide either going missing.
+ */
+const ALWAYS_DERIVED: Record<string, string> = {
+	userId: 'the restore target, derived from the session and never read from a file'
+};
+
+const NOT_CARRIED: Record<string, string> = {
+	'Account.nameKey': 'recomputed by the restore with computeNameKey',
+	'Account.discriminant': 'identifier fragment refused by design, see the schema comment (#468)',
+	'Account.institution': 'not carried yet, see #1176',
+	'Account.archivedAt': 'not carried yet, see #1176',
+	'Account.createdAt': 'restore time, see #1178',
+	'BankConnection.providerSessionId': 'a secret: a restored connection never comes back usable',
+	'BankConnection.credentialsEncrypted': 'a secret: a restored connection never comes back usable',
+	'BankConnection.lastSyncStatus': 'sync state of a connection that cannot sync once restored',
+	'BankConnection.lastSyncError': 'sync state of a connection that cannot sync once restored',
+	'BankConnection.createdAt': 'restore time, see #1178',
+	'Category.nameKey': 'recomputed by the restore with computeNameKey',
+	'Category.createdAt': 'restore time, see #1178',
+	'Tag.nameKey': 'recomputed by the restore with computeNameKey',
+	'Tag.createdAt': 'restore time, see #1178',
+	'TransactionSplit.createdAt': 'restore time, see #1178',
+	'Transaction.manualCategoryKey': 'recomputed by the restore through manualCategoryUpdate',
+	'Transaction.dedupeKeyHash':
+		'recomputed by the restore, because the key names the new account id',
+	'Transaction.createdAt': 'restore time, see #1178',
+	'ImportBatch.accountId': 'not carried yet, see #1177',
+	'ImportBatch.columnMappingId': 'not carried yet, see #1177',
+	'ImportBatch.dateOrder': 'not carried yet, see #1177',
+	'ImportBatch.createdAt': 'restore time, see #1178',
+	'ColumnMapping.id': 'not carried yet, so a batch cannot be linked back, see #1177',
+	'ColumnMapping.lastUsedAt': 'a restore is not a use, see the schema comment',
+	'ColumnMapping.createdAt': 'restore time, see #1178',
+	'CategorizationRule.createdAt': 'restore time, see #1178',
+	'MonthlyBudget.categoryNameKey': 'recomputed by the restore with computeNameKey',
+	'MonthlyBudget.createdAt': 'restore time, see #1178',
+	'CategoryNatureMapping.categoryNameKey': 'recomputed by the restore with computeNameKey',
+	'CategoryNatureMapping.createdAt': 'restore time, see #1178',
+	'NetWorthAccount.nameKey': 'recomputed by the restore with computeNameKey',
+	'NetWorthAccount.createdAt': 'restore time, see #1178',
+	'SavingsGoal.deletedAt': 'a deleted goal is not exported at all, see export.ts',
+	'SavingsGoal.createdAt': 'restore time, see #1178',
+	'Account.updatedAt': 'set by Prisma on the write, and the restore is that write',
+	'BankConnection.updatedAt': 'set by Prisma on the write, and the restore is that write',
+	'Category.updatedAt': 'set by Prisma on the write, and the restore is that write',
+	'Tag.updatedAt': 'set by Prisma on the write, and the restore is that write',
+	'TransactionSplit.updatedAt': 'set by Prisma on the write, and the restore is that write',
+	'Transaction.updatedAt': 'set by Prisma on the write, and the restore is that write',
+	'ImportBatch.updatedAt': 'set by Prisma on the write, and the restore is that write',
+	'ColumnMapping.updatedAt': 'set by Prisma on the write, and the restore is that write',
+	'CategorizationRule.updatedAt': 'set by Prisma on the write, and the restore is that write',
+	'CategoryRule.updatedAt': 'set by Prisma on the write, and the restore is that write',
+	'MonthlyBudget.updatedAt': 'set by Prisma on the write, and the restore is that write',
+	'CategoryNatureMapping.updatedAt': 'set by Prisma on the write, and the restore is that write',
+	'NetWorthAccount.updatedAt': 'set by Prisma on the write, and the restore is that write',
+	'SavingsGoal.updatedAt': 'set by Prisma on the write, and the restore is that write'
+};
+
+/** Scalar columns per model: a field whose type is another model is a relation, not a column. */
+function scalarColumns(): Map<string, string[]> {
+	const schema = readFileSync('prisma/schema.prisma', 'utf8');
+	const blocks = [...schema.matchAll(/^model\s+(\w+)\s*\{([\s\S]*?)^\}/gm)];
+	const models = new Set(blocks.map((block) => block[1]));
+	return new Map(
+		blocks.map(([, model, body]) => [
+			model,
+			body
+				.split('\n')
+				.map((line) => line.trim().split(/\s+/))
+				.filter(([field, type]) => /^\w+$/.test(field) && type !== undefined)
+				.filter(([, type]) => !models.has(type.replace(/[?[\]]/g, '')))
+				.map(([field]) => field)
+		])
+	);
+}
+
+/** The keys of one row of a backup array, or a throw: never an empty set that passes everything. */
+function carriedColumns(exportKey: string): string[] {
+	const root = (backupExportSchema.shape as Record<string, unknown>)[exportKey] as {
+		element?: { shape?: object };
+		unwrap?: () => { element?: { shape?: object } };
+	};
+	const element = root.element ?? root.unwrap?.().element;
+	if (!element?.shape) throw new Error(`${exportKey} has no row shape this guard can read`);
+	return Object.keys(element.shape);
+}
+
+describe('backup column coverage', () => {
+	const exported = [...scalarColumns()].filter(([model]) => !NOT_EXPORTED[model]);
+
+	it('reads the columns of the exported models, rather than an empty list', () => {
+		// Starting figures measured on 2026-10-30, so a parser matching nothing cannot pass below.
+		expect(exported.length).toBeGreaterThan(15);
+		expect(exported.flatMap(([, columns]) => columns).length).toBeGreaterThan(150);
+		expect(Object.fromEntries(exported).CategoryRule).toContain('isRegex');
+	});
+
+	it.each(exported)('every column of %s is carried or excluded with a reason', (model, columns) => {
+		const carried = carriedColumns(expectedExportKey(model));
+		const unaccounted = columns.filter(
+			(column) =>
+				!carried.includes(column) && !ALWAYS_DERIVED[column] && !NOT_CARRIED[`${model}.${column}`]
+		);
+		expect(unaccounted).toEqual([]);
+	});
+
+	it('has no exclusion that is also carried, or that names no column', () => {
+		const columns = new Map(exported);
+		const wrong: string[] = [];
+		for (const entry of Object.keys(NOT_CARRIED)) {
+			const [model, column] = entry.split('.');
+			if (!columns.get(model)?.includes(column)) wrong.push(`${entry}: no such exported column`);
+			else if (carriedColumns(expectedExportKey(model)).includes(column))
+				wrong.push(`${entry}: carried`);
+		}
+		for (const [model] of exported) {
+			for (const column of carriedColumns(expectedExportKey(model))) {
+				if (ALWAYS_DERIVED[column]) wrong.push(`${model}.${column}: carried but always derived`);
+			}
+		}
+		expect(wrong).toEqual([]);
+	});
+});
+
+/**
  * The backup reference page lists every root key of the export, and the list is checked here
  * rather than trusted.
  *
