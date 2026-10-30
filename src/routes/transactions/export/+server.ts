@@ -22,7 +22,9 @@ export const GET: RequestHandler = async ({ locals, url }) => {
 	if (scope.kind === 'invalid') {
 		error(
 			400,
-			scope.reasons.range ? m.date_range_error_invalid_custom() : 'Expression régulière invalide.'
+			scope.reasons.range
+				? m.date_range_error_invalid_custom()
+				: m.transactions_error_invalid_regex_query()
 		);
 	}
 

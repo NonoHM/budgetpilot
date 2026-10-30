@@ -301,7 +301,17 @@ describe('GET /transactions/export', () => {
 
 			await expect(GET(makeRequest('?q=%5B&qMode=regex') as never)).rejects.toMatchObject({
 				status: 400,
-				body: { message: 'Expression régulière invalide.' }
+				body: { message: 'Expression régulière invalide ou trop complexe.' }
+			});
+		});
+
+		it('answers the same message for a valid regex refused only for its compiled size', async () => {
+			expect.assertions(1);
+
+			// `a{239}` compiles, to 241 instructions, one past the search ceiling of 240.
+			await expect(GET(makeRequest('?q=a%7B239%7D&qMode=regex') as never)).rejects.toMatchObject({
+				status: 400,
+				body: { message: 'Expression régulière invalide ou trop complexe.' }
 			});
 		});
 

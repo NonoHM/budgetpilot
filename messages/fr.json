@@ -715,7 +715,7 @@
 	"transactions_search_label": "Rechercher une transaction",
 	"transactions_search_placeholder": "Rechercher un libellé",
 	"transactions_regex_toggle_aria": "Basculer la recherche en mode expression régulière",
-	"transactions_error_invalid_regex_query": "Expression régulière invalide.",
+	"transactions_error_invalid_regex_query": "Expression régulière invalide ou trop complexe.",
 	"transactions_category_filter_all": "Toutes",
 	"transactions_category_filter_placeholder": "Toutes les catégories",
 	"transactions_category_filter_aria": "Filtrer par catégorie",
