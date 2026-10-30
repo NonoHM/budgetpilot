@@ -127,9 +127,10 @@ const REFUSAL_MESSAGES: Record<AccountWriteRefusal, string> = {
  * ## Every field but `name` is written as its neutral value, on purpose
  *
  * F1 is ONE field, so this is a positive allow list expressed in the create itself rather than a
- * deny list applied to a request. `institution` in particular is written only by the boot backfill
- * and by the bank-sync path, which know the bank without asking; the sheet does not, and a name a
- * user typed is not evidence about an institution. The schema's own comment on that column says so.
+ * deny list applied to a request. `institution` in particular is derived from `source` by the boot
+ * backfill, the by-source bucket create and the backup restore, which know the bank without asking;
+ * the sheet does not, and a name a user typed is not evidence about an institution. The schema's own
+ * comment on that column says so.
  *
  * ## The discriminant is a parameter and is NEVER a form field
  *

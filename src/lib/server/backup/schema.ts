@@ -49,6 +49,7 @@ export const isoDateString = z
  */
 export const RESTORE_DATE_KINDS = [
 	'exportedAt',
+	'accounts',
 	'bankConnections',
 	'importBatches',
 	'transactions',
@@ -296,7 +297,8 @@ const backupAccountSchema = z
 		// which restore the account as active, as every restore did until then.
 		archivedAt: isoDateString.nullable().optional()
 		// NO `institution`: every writer derives it from `source`, so the restore recomputes it
-		// with `institutionForSource` and a file cannot state one (#1176). Carrying it would leave
+		// with `institutionForSource`, except on a bucket still under the machine name, which it
+		// leaves to the boot backfill, and a file cannot state one (#1176). Carrying it would leave
 		// every file written before this change restoring a null, which the boot backfill reads as
 		// « not named yet » and renames the account to the bank's name.
 		//
