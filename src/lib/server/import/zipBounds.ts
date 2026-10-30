@@ -63,9 +63,12 @@ import { OperatorFacingError } from '$lib/server/operatorFacingError';
  * `@xmldom/xmldom` expanding no DTD entities at all, and is pinned in `xml-entities.spec.ts`. And it
  * bounds MEMORY rather than TIME: 8 MB of pathological XML is still 8 MB the parser must walk.
  *
- * COST ON A LEGITIMATE IMPORT: the entries are inflated twice, once here and once by the parser.
- * Measured at 2.6 ms for a 12000-row workbook, against the parse's own tens of milliseconds. Peak
- * transient allocation is the bound itself, since each entry is materialised to be counted.
+ * COST ON A LEGITIMATE IMPORT: the entries are inflated once, here, and kept (F2): the parser is
+ * handed a stored archive rebuilt from them, never the upload. Peak extra allocation is therefore
+ * up to three times the bound (the parts, the rebuilt archive, and the parser's own copy of each
+ * entry while both are still referenced) plus the rebuilt headers, which the upload cap keeps to
+ * about 2 MB (read from fflate's `zipSync` and `unzipper-esm`, not measured): about 26 MB at the
+ * default, against the 192 MB the parse itself costs at that size.
  */
 /** Megabytes, because that is the unit an operator thinks in and the one the errors speak. */
 export const XLSX_DEFAULT_MAX_UNCOMPRESSED_MB = SETTINGS.IMPORT_XLSX_MAX_UNCOMPRESSED_MB.default;
@@ -209,6 +212,16 @@ export interface ZipExpansion {
 	/** Total bytes the archive's entries actually inflate to. Measured, never declared. */
 	uncompressedBytes: number;
 	entryCount: number;
+	/**
+	 * What was inflated, by central-directory name: the ONLY bytes the parser may be given (F2).
+	 * `read-excel-file` streams local headers and never reads the central directory, so handing it
+	 * the upload lets an entry the central directory does not list be inflated and counted by nobody
+	 * (measured: a 148 KB upload, rss 95 MB -> 400 MB, parse succeeding). Rebuilding from these parts
+	 * is Fifield's « zip normalization step » (bamsoftware.com/sec/mozilla/, read 2026-10-30).
+	 * Never holds a key named `__proto__`: that name is refused below, because assigning it sets the
+	 * prototype instead of a key, and fflate's `for..in` then writes one entry per byte.
+	 */
+	parts: Record<string, Uint8Array>;
 }
 
 /**
@@ -233,6 +246,7 @@ export function measureZipExpansion(archive: Buffer, maxBytes: number): ZipExpan
 	if (cursor === ZIP64_SENTINEL) return fail('zip64 central directory');
 
 	let total = 0;
+	const parts: Record<string, Uint8Array> = {};
 	for (let index = 0; index < entryCount; index += 1) {
 		if (cursor + 46 > archive.length || archive.readUInt32LE(cursor) !== CENTRAL_DIRECTORY_ENTRY) {
 			return fail(`central directory entry ${index} does not parse`, total);
@@ -244,6 +258,13 @@ export function measureZipExpansion(archive: Buffer, maxBytes: number): ZipExpan
 		const extraLength = archive.readUInt16LE(cursor + 30);
 		const commentLength = archive.readUInt16LE(cursor + 32);
 		const localOffset = archive.readUInt32LE(cursor + 42);
+		// UTF-8 whatever bit 11 says, because that is how the parser has always named parts
+		// (`unzipper-esm` `parse.js`): the rebuild must keep the name a relationship points at.
+		const name = archive.subarray(cursor + 46, cursor + 46 + nameLength).toString('utf8');
+		// Two entries claiming one part: which one a reader keeps is the reader's choice, not the file's.
+		if (Object.hasOwn(parts, name)) return fail(`entry ${index} repeats a part name`, total);
+		// The one name an object key cannot hold as an own property, and fflate's rebuild keys on `{}`.
+		if (name === '__proto__') return fail(`entry ${index} has a name no part can carry`, total);
 
 		// Neither sentinel can appear legitimately in a file small enough to pass the upload cap:
 		// they are written only when the real value exceeds 32 bits.
@@ -293,9 +314,11 @@ export function measureZipExpansion(archive: Buffer, maxBytes: number): ZipExpan
 				);
 			}
 			total += data.length;
+			parts[name] = data;
 		} else if (method === DEFLATED) {
 			try {
-				total += inflateRawSync(data, { maxOutputLength: budget }).length;
+				parts[name] = inflateRawSync(data, { maxOutputLength: budget });
+				total += parts[name].length;
 			} catch (caught) {
 				if ((caught as NodeJS.ErrnoException).code === 'ERR_BUFFER_TOO_LARGE') {
 					throw new ZipBoundError(
@@ -314,7 +337,7 @@ export function measureZipExpansion(archive: Buffer, maxBytes: number): ZipExpan
 		cursor += 46 + nameLength + extraLength + commentLength;
 	}
 
-	return { uncompressedBytes: total, entryCount };
+	return { uncompressedBytes: total, entryCount, parts };
 }
 
 /**
