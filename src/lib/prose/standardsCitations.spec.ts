@@ -104,13 +104,6 @@ const ALLOWED_UNRESOLVED: readonly {
 		reason:
 			'The correction note for #650: it names the invented identifier this function first carried, ' +
 			'so the correction itself is readable.'
-	},
-	{
-		path: 'src/routes/import/columns/page.server.spec.ts',
-		standard: 'ASVS',
-		id: '5.1.4',
-		lineIncludes: 'It read',
-		reason: 'The same correction note for #650, at the second site that carried the identifier.'
 	}
 ];
 

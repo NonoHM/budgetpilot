@@ -130,12 +130,15 @@ describe('the file s date order reaches every parse path', () => {
 	 * table above a measurement: a parser that ignored the option would read day-first regardless,
 	 * and fail there; a parser that defaulted silently would fail here.
 	 */
-	it.each(CASES)('$path asks instead of defaulting when nothing is said', ({ content, options }) => {
-		expect.assertions(2);
+	it.each(CASES)(
+		'$path asks instead of defaulting when nothing is said',
+		({ content, options }) => {
+			expect.assertions(2);
 
-		const result = parseCsvTransactions(content, options);
+			const result = parseCsvTransactions(content, options);
 
-		expect(result.transactions).toEqual([]);
-		expect(result.invalidRows[0]?.fact.code).toBe('ambiguous-date-order');
-	});
+			expect(result.transactions).toEqual([]);
+			expect(result.invalidRows[0]?.fact.code).toBe('ambiguous-date-order');
+		}
+	);
 });
