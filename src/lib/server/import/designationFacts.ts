@@ -1,4 +1,4 @@
-import type { DesignationRowFacts } from '$lib/domain/columnDesignation';
+import { EMPTY_ASSIGNMENT, type DesignationRowFacts } from '$lib/domain/columnDesignation';
 import {
 	importFirstDataRow,
 	importPreviewRows,
@@ -6,6 +6,7 @@ import {
 	importSampleValues
 } from './csv';
 import { importColumnDateReadings, importColumnDateStates } from './columnDateState';
+import { columnProposals } from './columnProposals';
 import type { ParsedCsvRow } from './types';
 
 /**
@@ -48,7 +49,8 @@ export function designationRowFacts(
 		// holds a state the submit could contradict and never computes one itself.
 		dateStates: importColumnDateStates(rows, hasHeaderRow),
 		// Both readings of the SAME cells the row and the cards show.
-		dateReadings: importColumnDateReadings(dateCellsPerColumn(firstRow, samples))
+		dateReadings: importColumnDateReadings(dateCellsPerColumn(firstRow, samples)),
+		proposals: columnProposals(rows, hasHeaderRow)
 	};
 }
 
@@ -71,6 +73,20 @@ export function designationFactsAsDetected(
 		otherHeaderRowFacts: designationRowFacts(rows, false),
 		detectedHeaderRow: true as const
 	};
+}
+
+/**
+ * The same facts with detection's designations withdrawn, candidates kept.
+ *
+ * For an offer produced by a REMEMBERED mapping that read nothing: the member's own answer is on
+ * record, so detection must not seed different columns that one press would save over it. Actual
+ * Budget orders it the same way, the saved `csv-mappings` before any guess (#352, research.md).
+ * Only the detected answer: under « données » `columnProposals` designates nothing to withdraw.
+ */
+export function withoutDesignations<T extends ReturnType<typeof designationFactsAsDetected>>(
+	facts: T
+): T {
+	return { ...facts, proposals: { ...facts.proposals, designated: EMPTY_ASSIGNMENT } };
 }
 
 /**

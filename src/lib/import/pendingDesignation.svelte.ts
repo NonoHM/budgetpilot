@@ -51,8 +51,6 @@ export interface PendingDesignation {
 	 * is what stops the user being asked a question they have answered.
 	 */
 	dateOrder: DateOrder | null;
-	/** Per role, the column indices detection proposes when it will not pick between equals. */
-	candidates: Partial<Record<string, number[]>>;
 	/**
 	 * The accounts this statement could belong to, and which one the server worked out.
 	 *

@@ -69,6 +69,17 @@ const FILE = {
 
 const COMPLETE: RoleAssignment = { date: 0, label: 2, amount: 3, category: 4 };
 
+/** FILE with detection's candidates on it, which is where the screen reads them since #352. */
+function withCandidates(candidates: Partial<Record<keyof RoleAssignment, number[]>>) {
+	return {
+		...FILE,
+		proposals: {
+			designated: EMPTY_ASSIGNMENT,
+			candidates: { date: [], label: [], amount: [], category: [], ...candidates }
+		}
+	};
+}
+
 async function mount(props: Record<string, unknown> = {}) {
 	const result = await render(ColumnDesignationScreen, {
 		file: FILE,
@@ -128,7 +139,7 @@ describe('the screen puts each row into one state, and the precedence is the sta
 	it('prefers ambiguous over empty when detection proposes two columns', async () => {
 		// Separates "nothing is known about this role" from "two columns could carry it". Detection
 		// does not pick between equals, so the row must say so rather than staying silent.
-		const { container } = await mount({ candidates: { date: [0, 1] } });
+		const { container } = await mount({ file: withCandidates({ date: [0, 1] }) });
 
 		expect(container.textContent).toContain('2 colonnes possibles');
 	});
@@ -136,7 +147,7 @@ describe('the screen puts each row into one state, and the precedence is the sta
 	it('leaves a single proposal as a plain empty row, not as an ambiguity', async () => {
 		// The other side of the same boundary, and the reason the threshold is 2 rather than 1: one
 		// proposal is an answer the picker pins at the top, not a question for the row to ask.
-		const { container } = await mount({ candidates: { date: [0] } });
+		const { container } = await mount({ file: withCandidates({ date: [0] }) });
 
 		expect(container.textContent).not.toContain('colonnes possibles');
 		expect(container.textContent).toContain('Choisir une colonne');
@@ -270,7 +281,7 @@ describe('the picker groups a column exactly once', () => {
 	it('shows the proposal group when there is one, so the absence above means something', async () => {
 		// The presence half. Without it, the assertion above passes on a picker that never renders
 		// a proposal group at all.
-		const { row, container } = await mount({ candidates: { date: [1] } });
+		const { row, container } = await mount({ file: withCandidates({ date: [1] }) });
 
 		await row(/^Date, aucune colonne désignée/).click();
 

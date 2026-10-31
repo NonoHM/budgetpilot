@@ -3,7 +3,7 @@
 	import { resolve } from '$app/paths';
 	import * as m from '$lib/paraglide/messages';
 	import { importWriteFailureLabel } from '$lib/i18n/importWriteLabel';
-	import { MAPPING_ROLES, type MappingRole } from '$lib/domain/mappingRoles';
+	import { MAPPING_ROLES } from '$lib/domain/mappingRoles';
 	import type { RoleAssignment } from '$lib/domain/columnDesignation';
 	// TYPE ONLY. See `domain/columnDesignation.ts`: erased before the bundler sees it.
 	import type { DateOrder } from '$lib/server/import/dateOrder';
@@ -438,7 +438,6 @@
 					: null}
 				onCreateAccount={createAccount}
 				initialAssignment={pending.initialAssignment}
-				candidates={pending.candidates as Partial<Record<MappingRole, number[]>>}
 				{submitting}
 				{wide}
 				replaces={pending.correction && pending.correction.namedAt !== ''

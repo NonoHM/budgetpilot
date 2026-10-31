@@ -63,7 +63,6 @@ function seed() {
 		file: new File(['Jour;Intitule;Somme\n'], 'releve.csv'),
 		view: VIEW,
 		initialAssignment: COMPLETE,
-		candidates: {},
 		// Unanswered: this file is about the replace consent, which reads neither the reading nor it.
 		dateOrder: null,
 		/**

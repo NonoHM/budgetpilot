@@ -65,7 +65,6 @@ function seed(correction: { mappingId: string; batchId: string } | null) {
 		file: new File(['Jour;Intitule;Somme\n'], 'releve.csv', { type: 'text/csv' }),
 		view: VIEW,
 		initialAssignment: ASSIGNMENT,
-		candidates: {},
 		// Unanswered: this file is about the WAY OUT, which reads neither the reading nor the answer.
 		dateOrder: null,
 		/**

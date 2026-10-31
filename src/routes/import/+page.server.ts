@@ -11,7 +11,8 @@ import {
 } from '$lib/server/import/csv';
 import {
 	designationFactsAsDetected,
-	designationRowFacts
+	designationRowFacts,
+	withoutDesignations
 } from '$lib/server/import/designationFacts';
 import { applyColumnMapping } from '$lib/server/import/mapping/apply';
 import { readColumnMapping, recordColumnMappingUse } from '$lib/server/import/mapping/store';
@@ -336,8 +337,8 @@ export const actions: Actions = {
 					headers: headerCells,
 					// Every per-row fact, for line 1 as headers AND as data (#735): the « Première
 					// ligne » switch swaps them in the browser, and `designationRowFacts` is the one
-					// definition of both.
-					...designationFactsAsDetected(importData.rows),
+					// definition of both. A correction is a remembered mapping, so detection seeds none (#352).
+					...withoutDesignations(designationFactsAsDetected(importData.rows)),
 					rowCount: Math.max(0, importData.rows.length - 1)
 				},
 				// Null per role where the remembered column is not in this file. A neighbour picked by
@@ -642,8 +643,14 @@ export const actions: Actions = {
 							),
 							name: importFile.name,
 							headers: headerCells,
-							// Every per-row fact, for both answers about line 1 (#735).
-							...designationFactsAsDetected(importData.rows, detectedRowFacts()),
+							// Every per-row fact, for both answers about line 1 (#735). Whenever a mapping is
+							// remembered for this file (recognised, partial or lost), detection seeds none
+							// over it: one press would save detection's columns as the member's (#352).
+							...(remembered
+								? withoutDesignations(
+										designationFactsAsDetected(importData.rows, detectedRowFacts())
+									)
+								: designationFactsAsDetected(importData.rows, detectedRowFacts())),
 							rowCount: Math.max(0, result.summary.totalRows)
 						}
 					: undefined,
