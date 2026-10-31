@@ -473,47 +473,6 @@ describe('the summary discloses a chosen reading, never a proven or defaulted on
 
 		expect(iso.summary.dateOrderDisclosure).toBeUndefined();
 	});
-
-	/**
-	 * THE CASE THIS RULE EXISTS TO REFUSE. An ambiguous column with no answer still applies the
-	 * day-first default on `mapped` (unchanged behaviour, asserted in
-	 * `columns/page.server.spec.ts`), and it must not disclose a "reading" nobody chose: that would
-	 * state a decision as a fact when it is the exact silent default #433 names.
-	 *
-	 * `profile: 'mapped'` alone is pinned rather than left to `auto`'s own resolution,
-	 * deliberately: a registered profile no longer silently defaults here once the auto path can
-	 * ask (task 2 of #433's remainder), and this test is about the one profile that still does.
-	 * `dateOrderPromptedClientSide: true` is what actually keeps it defaulting since the
-	 * contradiction pass found `mapped` alone no longer means that on its own — see
-	 * `dateOrderSeam.spec.ts`'s own "a mapped parse asks unless..." block for the case that
-	 * distinguishes the two `mapped` callers.
-	 */
-	it('discloses nothing when an ambiguous column silently defaulted on the mapped path', () => {
-		expect.assertions(2);
-
-		const defaulted = parseCsvTransactions(
-			['date,label,amount', '03/04/2026,CARREFOUR,-24.90'].join('\n'),
-			{
-				profile: 'mapped',
-				dateOrderPromptedClientSide: true,
-				columnMapping: {
-					matchBy: 'name',
-					dateColumn: 'date',
-					labelColumn: 'label',
-					amountColumn: 'amount',
-					categoryColumn: null,
-					dateIndex: null,
-					labelIndex: null,
-					amountIndex: null,
-					categoryIndex: null,
-					columnCount: 3
-				}
-			}
-		);
-
-		expect(defaulted.summary.dateOrder).toBe('day-first');
-		expect(defaulted.summary.dateOrderDisclosure).toBeUndefined();
-	});
 });
 
 /**
@@ -521,11 +480,8 @@ describe('the summary discloses a chosen reading, never a proven or defaulted on
  * the door itself asks for exactly the population `#639`'s UI cannot reach: a RECOGNISED profile
  * (`parser` truthy) whose date column is ambiguous and carries no answer.
  *
- * `mapped` is excluded by construction rather than by a second condition: `parser` is null
- * exactly when the profile is `mapped`, which is the same variable the door already reads to
- * choose which parser runs. `columns/page.server.spec.ts:682`'s baseline is the reason it must
- * stay excluded — that test locks the silent default on the path #639's client-side screen
- * already covers.
+ * `mapped` is covered by its own block below (« a mapped parse asks whoever called it »), which
+ * #1200 left with no exemption: this block is about the registered profiles.
  */
 describe('a registered profile asks instead of silently defaulting on an ambiguous column', () => {
 	/**
@@ -609,16 +565,13 @@ describe('a registered profile asks instead of silently defaulting on an ambiguo
 });
 
 /**
- * # `mapped` ALONE NO LONGER MEANS "ALREADY ASKED". #433's contradiction pass.
+ * # A MAPPED PARSE ASKS, WHOEVER CALLED IT. #433's contradiction pass, then #1200.
  *
- * `/import`'s own action ALSO parses with `profile: 'mapped'`, silently, whenever it reapplies a
- * `ColumnMapping` remembered from a PREVIOUS designation (`useMapping`, by header fingerprint) —
- * no screen opens for that reuse, and `ColumnMapping` carries no `dateOrder` field, so nothing was
- * ever asked or remembered about this file's reading. Only `/import/columns`, backed by the
- * designation screen (#639), sets `dateOrderPromptedClientSide`, and only that caller may keep the
- * silent default this door still gives it.
+ * #433 found `/import` reapplying a remembered `ColumnMapping` silently and made that caller ask.
+ * `/import/columns` kept a flag saying the designation screen had already asked, and two screen
+ * paths post no answer, so #1200 removed the flag: no caller can exempt itself from the question.
  */
-describe('a mapped parse asks unless the caller was the screen that already could', () => {
+describe('a mapped parse asks whoever called it', () => {
 	const MAPPING: ColumnMappingInput = {
 		matchBy: 'name',
 		dateColumn: 'date',
@@ -633,10 +586,10 @@ describe('a mapped parse asks unless the caller was the screen that already coul
 	};
 
 	/**
-	 * THE GAP ITSELF. Separates « a silent mapped reuse still defaults, forever » from « it now
-	 * asks like a registered profile does », which is what closes it.
+	 * THE GAP ITSELF. Separates « an unanswered mapped parse defaults day-first » from « it asks
+	 * like a registered profile does ».
 	 */
-	it('asks when the mapped parse carries no client-prompted flag', () => {
+	it('asks when the mapped parse carries no answer', () => {
 		expect.assertions(2);
 
 		const result = parseCsvTransactions(
@@ -649,19 +602,18 @@ describe('a mapped parse asks unless the caller was the screen that already coul
 	});
 
 	/**
-	 * THE CONTRACT `columns/page.server.spec.ts:682` LOCKS, preserved. Separates « the flag
-	 * suppresses the ask » from « the flag does nothing », which would make the two tests here
-	 * identical and prove neither.
+	 * The positive control. Separates « the mapped parse asks because the cell is ambiguous » from
+	 * « it refuses every mapped parse », which would make the test above pass for the wrong reason.
 	 */
-	it('keeps the silent default when the caller flags itself as already having asked', () => {
+	it('imports when the member answered the reading', () => {
 		expect.assertions(2);
 
 		const result = parseCsvTransactions(
 			['date,label,amount', '03/04/2026,CARREFOUR,-24.90'].join('\n'),
-			{ profile: 'mapped', columnMapping: MAPPING, dateOrderPromptedClientSide: true }
+			{ profile: 'mapped', columnMapping: MAPPING, dateOrder: 'month-first' }
 		);
 
-		expect(result.transactions).toHaveLength(1);
-		expect(result.summary.dateOrder).toBe('day-first');
+		expect(result.transactions.map((transaction) => transaction.date)).toEqual(['2026-03-04']);
+		expect(result.summary.dateOrder).toBe('month-first');
 	});
 });

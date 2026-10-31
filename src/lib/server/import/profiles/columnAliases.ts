@@ -55,8 +55,8 @@ import { foldComparableHeader } from '../utils/encoding';
  * #613 closed that gap rather than the question screen: the order is DERIVED at the single door,
  * from the whole date column the profile declares, on every path INCLUDING `mapped`. So a Chase
  * file carrying any day above the twelfth now imports correctly through a designation, because
- * that cell names its own position. A file whose every cell is ambiguous still reads day-first and
- * still waits on the screen. Either way a Chase file is refused HERE, for want of an alias, which
+ * that cell names its own position. A file whose every cell is ambiguous is refused until the
+ * member answers the reading (#1200). Either way a Chase file is refused HERE, for want of an alias, which
  * is what this paragraph has always been about.
  *
  * Note this is NOT a collision: Chase carries one date column. The collision rule does not

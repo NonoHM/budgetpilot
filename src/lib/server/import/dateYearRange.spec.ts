@@ -83,7 +83,7 @@ const CASES: Case[] = [
 		column: 'jour',
 		header: 'Jour;Intitule operation;Somme',
 		row: (date) => `${date};CARREFOUR MARKET;-24,90`,
-		options: { profile: 'mapped', columnMapping: MAPPING, dateOrderPromptedClientSide: true }
+		options: { profile: 'mapped', columnMapping: MAPPING }
 	},
 	{
 		path: 'banque-populaire, through its three date candidates',

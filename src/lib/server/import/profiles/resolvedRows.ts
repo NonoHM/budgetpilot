@@ -47,7 +47,8 @@ export interface ResolvedRowsInput {
 	/** False when row 0 is a transaction rather than a title row. Defaults to true. */
 	hasHeaderRow?: boolean;
 	columns: ResolvedColumnNames;
-	/** How an ambiguous date cell is read. Absent reads day-first. */
+	/** How an ambiguous date cell is read. Absent reads day-first; `csv.ts` refuses before that
+	 *  for a column that is ambiguous as a whole (#1200). */
 	dateOrder?: DateOrder;
 	/** EVERY folded header declaring a currency (`currencyColumnsIn`), empty when the file has none.
 	 *  A list since #600's F3: reading only the first let a blank `currency` hide `devise`. */

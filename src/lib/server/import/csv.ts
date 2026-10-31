@@ -390,8 +390,7 @@ export function parseImportRows(
 	 * file carrying BOTH an unproven account column and an ambiguous date column asks its two
 	 * questions one at a time rather than together, because nothing here can ask both at once.
 	 *
-	 * No `alreadyPromptedClientSide`-shaped flag, unlike the date-order block: `/import`'s auto
-	 * path and `/import/columns`'s designation path both reach this door with no PRIOR mechanism
+	 * No suppression flag, like the date-order block since #1200: `/import`'s auto path and `/import/columns`'s designation path both reach this door with no PRIOR mechanism
 	 * that has ever asked whether a file covers more than one account (the designation screen picks
 	 * one destination account; it does not read the file's own account column), so #485's fix
 	 * applies identically to both with no exclusion to draw.
@@ -451,16 +450,12 @@ export function parseImportRows(
 	 * `invalid-date`, so `parsed.transactions.length` stays zero and this branch correctly leaves
 	 * that refusal alone.
 	 *
-	 * `!options.dateOrderPromptedClientSide`, NOT `parser` truthy: #433's contradiction pass found
-	 * that "mapped" does not mean "already asked". `/import`'s own action also parses with
-	 * `profile: 'mapped'` when it silently reapplies a `ColumnMapping` remembered from a PREVIOUS
-	 * designation (`useMapping`, by header fingerprint), and that reuse shows no screen at all —
-	 * `ColumnMapping` carries no `dateOrder` field, so nothing was ever asked or remembered for
-	 * this file. Only `/import/columns`, backed by the designation screen (#639), sets the flag,
-	 * because it alone is trusted to have deferred its own close until the question was answered
-	 * or waived (plate 7b) — `columns/page.server.spec.ts`'s baseline test locks that path's
-	 * existing day-first default for an unanswered column, and this flag is what lets this branch
-	 * leave it alone without also leaving the silent `mapped` reuse unasked forever.
+	 * EVERY DOOR, with no exemption a caller can claim (#1200). `/import/columns` used to pass a flag
+	 * saying the designation screen had already asked, and two screen paths post no answer (a row
+	 * arriving designated from a remembered mapping, and Escape on the reading step), so a month-first
+	 * file was stored day-first with nothing said. A screen is an affordance; this check is the
+	 * control (CWE-602). An answer outside the two readings never reaches here: the routes validate
+	 * it against the closed set, so it arrives as absent.
 	 *
 	 * `questionColumn`, one column rather than every declared one: the reading offer's
 	 * `assignment.date` points at one column, and it must be the column whose cell raised the
@@ -469,7 +464,6 @@ export function parseImportRows(
 	if (
 		verdict.kind === 'ambiguous' &&
 		!options.dateOrder &&
-		!options.dateOrderPromptedClientSide &&
 		parsed.transactions.length > 0 &&
 		parsed.summary.fileLevelRefusals === 0
 	) {

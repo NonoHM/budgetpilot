@@ -60,6 +60,12 @@ export function mappedDateColumns(
 	const applied = applyColumnMapping(mapping, headers);
 	if (applied.kind !== 'recognised' || applied.columns.date === null) return [];
 
+	// A positional mapping names its column by INDEX, the column the designation screen judged.
+	// Looking its line 1 text back up would find the FIRST equal cell when line 1 repeats a value,
+	// and refuse a column the screen never asked about (#1200's contradiction pass, F1).
+	// `applyByPosition` has already checked the index addresses a column of this file.
+	if (mapping.matchBy === 'position' && mapping.dateIndex !== null) return [mapping.dateIndex];
+
 	// Both sides folded, for the reason `resolveMappedColumns` folds: `applyColumnMapping` returns
 	// the file's own spelling and the row record is keyed by the folded name.
 	const index = headers.map(foldExactHeader).indexOf(foldExactHeader(applied.columns.date));

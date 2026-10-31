@@ -46,9 +46,8 @@ export type CsvRefusalFact =
 	// The column left the question genuinely open: no cell proves either reading. `column` is the
 	// index into the header row, threaded to the route so it can build the offer without
 	// re-deriving which column the profile declared; `sample` is one ambiguous cell, through
-	// `refusalCellValue` exactly as `mixed-date-order`'s pair. Never emitted for `mapped`: that
-	// door keeps its existing, tested day-first default, because the designation screen (#639) is
-	// trusted to have asked before this door is reached. See `dateOrder.ts` and #433.
+	// `refusalCellValue` exactly as `mixed-date-order`'s pair. Emitted on every door, `mapped`
+	// included: no caller can claim the screen already asked (#1200). See `dateOrder.ts` and #433.
 	| { code: 'ambiguous-date-order'; column: number; sample: string }
 	// The discriminant column PROVES two accounts: a verified IBAN pair (mod-97) that differs per
 	// row, or a column the user has just confirmed names accounts after `ambiguous-account-column`

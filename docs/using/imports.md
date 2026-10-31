@@ -112,9 +112,9 @@ To answer it:
 3. Optional: to change your answer, select the **Date** row again, select the same
    column, and the question comes back with your answer marked **Current reading**.
 
-The card marked **Current reading** is what the import will use if you go no
-further. Until you answer, the **Date** row reads **Confirm**, because an
-assumption nobody has looked at is not an answer.
+The card marked **Current reading** is not an answer until you select it. Until
+you do, the **Date** row reads **Confirm**, and if you import anyway, BudgetPilot
+imports nothing and asks you to confirm the reading first.
 
 To change the column instead of the reading, select **Change column** at the foot
 of the panel.

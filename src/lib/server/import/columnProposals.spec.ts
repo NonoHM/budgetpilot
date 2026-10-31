@@ -111,7 +111,7 @@ describe('columnProposals, the designation screen proposal rule', () => {
 	/**
 	 * Separates a date column whose order the file settles from one whose every cell reads both ways.
 	 * The second is not « l'univoque »: designated, it would reach the submit without the reading
-	 * question ever being asked, and the server reads day-first in silence (#352, final pass F1).
+	 * question ever being asked (#352, final pass F1); since #1200 the server refuses that submit.
 	 * Proposed instead, so opening it asks.
 	 */
 	it('proposes without designating a date column whose order is ambiguous', () => {

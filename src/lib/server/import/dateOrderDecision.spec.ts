@@ -120,8 +120,8 @@ describe('decideDateOrder', () => {
 
 	/**
 	 * Separates "an undecided file keeps the default" from "an undecided file changes behaviour".
-	 * The auto path asks before this is reached (`csv.ts`'s ambiguous-date-order refusal); the
-	 * designation screen's close without an answer is the waiver that lands here.
+	 * Every door asks before this is reached (`csv.ts`'s ambiguous-date-order refusal, #1200), so
+	 * this default is the function's own contract, not a path a production door takes.
 	 */
 	it('reads an ambiguous column day-first when nobody has said', () => {
 		expect.assertions(1);
