@@ -1,20 +1,30 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import { Prisma } from './database/generated/sqlite/browser';
 import { searchableSourceFiles } from './security/sourceScan';
 
 /**
- * THE TWO AI PREFERENCE COLUMNS ARE KEPT AND READ BY NOTHING (#1010, decision record #1009).
+ * THE TWO AI PREFERENCE COLUMNS ARE KEPT AND IGNORED BY THE CLIENT (#1011, decision record #1009).
  *
- * 1.3 ships no AI use, so nothing reads `User.aiInsightsEnabled` or `User.aiIncludeLabels`. They are
- * not dropped in 1.3 because 1.2 reads both: a 1.3 database rolled back to the 1.2 image must still
- * have them, with the defaults 1.2 relies on (labels never reach a model without consent). The drop
- * is B0 (#1011), the first change of 1.4 (expand and contract).
+ * 1.3 stopped every read of `User.aiInsightsEnabled` and `User.aiIncludeLabels` (#1010), but kept
+ * both fields in the datamodel, and a Prisma client writes every declared default on `create` and
+ * selects every declared scalar on a read with no `select`. Measured on 2026-10-31: the 1.3 client
+ * against a database without the columns fails `create` and a whole-row read with P2022. So dropping
+ * them in 1.4 would break a 1.4 to 1.3 image rollback.
  *
- * So two properties, and each test separates two states:
- * - the schemas still map a field to EACH old column, with its old default: separates « rollback
- *   reads the columns 1.2 expects » from « a rename moved the column » (a `@map` dropped or changed);
- * - no tracked code names either field or either column: separates « deprecated and unread » from
- *   « a reader survived or came back ». Tests count too, so B0 drops the columns with nothing to edit.
+ * 1.4 therefore takes GitLab's first step of removing a column (« Ignoring the column (release M) »,
+ * docs.gitlab.com, « Avoiding downtime in migrations »): `@ignore` (« Ignored fields are excluded
+ * from the generated Prisma Client », Prisma schema reference). The column stays, with its database
+ * default, so 1.3 still finds it; 1.4 never touches it, so the drop in a later release cannot break
+ * a rollback to 1.4.
+ *
+ * Three properties, and each test separates two states:
+ * - each schema maps both fields to the old column with its old default AND `@ignore`: separates
+ *   « kept and ignored » from « still selected » (no `@ignore`), « dropped » and « moved » (`@map`);
+ * - the generated client has neither field: separates « Prisma excludes it » from our belief that it
+ *   does;
+ * - no tracked code names either field or either column: separates « unread » from « a reader came
+ *   back ».
  */
 
 const SCHEMAS = [
@@ -41,19 +51,26 @@ function namesIn(text: string): number {
 	return [...text.matchAll(NAMED)].length;
 }
 
-describe('the deprecated AI preference columns (#1010)', () => {
+describe('the deprecated AI preference columns (#1011)', () => {
 	it.each(SCHEMAS.flatMap((schema) => COLUMNS.map((entry) => ({ schema, ...entry }))))(
-		'$schema maps $field to the column $column with its old default',
+		'$schema keeps $field on the column $column with its old default, ignored by the client',
 		({ schema, field, column, default: value }) => {
 			const line = readFileSync(schema, 'utf8')
 				.split('\n')
 				.find((entry) => entry.trim().startsWith(`${field} `));
 			expect(line, `${field} declared in ${schema}`).toBeDefined();
 			expect(line!.replace(/\s+/g, ' ').trim()).toBe(
-				`${field} Boolean @default(${value}) @map("${column}")`
+				`${field} Boolean @default(${value}) @map("${column}") @ignore`
 			);
 		}
 	);
+
+	it('the generated client has neither field', () => {
+		const fields = Object.keys(Prisma.UserScalarFieldEnum);
+		// A field every User has, so an empty or wrong enum cannot pass for « excluded ».
+		expect(fields, `${fields.length} User fields in the client`).toContain('passwordHash');
+		expect(fields.filter((name) => namesIn(name) > 0)).toEqual([]);
+	});
 
 	it('the detector finds a name in each spelling it claims to cover', () => {
 		// Calibration in the same run: the same matcher the sweep uses, on one line per spelling.

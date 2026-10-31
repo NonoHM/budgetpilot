@@ -23,9 +23,11 @@ repository still holds.
   them, each marked as read by no feature in 1.3.
 - **Settings page.** The AI switches and the « Local AI » status are gone.
 - **Database.** The two columns that held each member's AI switches stay, read
-  by nothing, so the 1.2 image still finds them after a rollback. The first
-  change of 1.4 drops them
-  ([#1011](https://github.com/NonoHM/budgetpilot/issues/1011)).
+  by nothing, so an earlier image still finds them after a rollback. From 1.4
+  the app neither reads nor writes them, and a new member's row gets each
+  column's default
+  ([#1011](https://github.com/NonoHM/budgetpilot/issues/1011)). The drop is
+  tracked in [#1195](https://github.com/NonoHM/budgetpilot/issues/1195).
 - **Compose overlay.** `docker-compose.ai.yml` still starts an Ollama service
   and turns the connection on. In 1.3 nothing asks that service anything, so
   there is no reason to add the overlay.

@@ -405,7 +405,8 @@ purpose of the processing are processed", and that the obligation applies to "th
 personal data collected, the extent of their processing, the period of their storage and their
 accessibility". The opt-in for labels (the column `aiIncludeLabels`, default false, field `deprecatedAiIncludeLabels` in `prisma/schema.prisma`)
 was that default while the advice existed; 1.3 sends nothing to a model, and the column is kept only
-so a rollback to 1.2 finds it (#1011 drops it).
+so a rollback to an earlier image finds it. From 1.4 the app neither reads nor writes it (#1011), and
+the drop is tracked in #1195.
 
 For logs, the CNIL's recommendation on logging (Deliberation 2021-122 of 14 October 2021,
 `https://www.cnil.fr/sites/default/files/atoms/files/recommandation_-_journalisation.pdf`, read
