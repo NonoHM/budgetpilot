@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.4.0](https://github.com/NonoHM/budgetpilot/compare/budgetpilot-v1.3.0...budgetpilot-v1.4.0) (2026-10-31)
+
+
+### Features
+
+* **import:** propose the columns a file proves on the designation screen ([#1201](https://github.com/NonoHM/budgetpilot/issues/1201)) ([ff0f525](https://github.com/NonoHM/budgetpilot/commit/ff0f525fde17a16e86bfc2b13d958c07547c701f))
+
+
+### Bug Fixes
+
+* **backup:** restore an archived account archived, and keep a renamed bank account's name ([#1187](https://github.com/NonoHM/budgetpilot/issues/1187)) ([c07ef52](https://github.com/NonoHM/budgetpilot/commit/c07ef52208607c1f23e7fe9c293c7e5d648d04f3))
+* **import:** refuse an unanswered ambiguous date column on the designation door ([#1210](https://github.com/NonoHM/budgetpilot/issues/1210)) ([2b3fa67](https://github.com/NonoHM/budgetpilot/commit/2b3fa67428e6abccf89ed2715772166ef2aa884e))
+
+
+### Behaviour and internals
+
+* **db:** ignore the two retired AI columns in the client and keep them for rollback ([#1196](https://github.com/NonoHM/budgetpilot/issues/1196)) ([d08b007](https://github.com/NonoHM/budgetpilot/commit/d08b007475ad2492bf9555c7b6963d2280087930))
+
+
+### Documentation
+
+* record the product and the incumbent design system in PRODUCT.md and DESIGN.md ([#1198](https://github.com/NonoHM/budgetpilot/issues/1198)) ([0b32285](https://github.com/NonoHM/budgetpilot/commit/0b3228593acab9ee2bc52f17cdaab6f0bf2b96bc))
+
 ## [1.3.0](https://github.com/NonoHM/budgetpilot/compare/budgetpilot-v1.2.0...budgetpilot-v1.3.0) (2026-10-30)
 
 
