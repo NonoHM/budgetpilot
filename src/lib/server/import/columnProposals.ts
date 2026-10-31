@@ -18,7 +18,8 @@ import { parseAmountCents } from './utils/money';
  *
  * A date column must also settle its own order: `ambiguous` (every cell reads both ways) is not
  * « l'univoque », and a seeded one reached the submit with the reading question never asked, which
- * the server then reads day-first in silence. Proposed instead, so opening it asks (#352).
+ * the server read day-first in silence until #1200 made it refuse. Proposed instead, so opening it
+ * asks (#352).
  */
 const SETTLED_DATE_STATES: readonly string[] = ['proven-day', 'proven-month', 'proven-shape'];
 const settles: Record<RequiredRole, (values: readonly string[]) => boolean> = {

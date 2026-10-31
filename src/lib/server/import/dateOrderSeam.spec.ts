@@ -480,11 +480,8 @@ describe('the summary discloses a chosen reading, never a proven or defaulted on
  * the door itself asks for exactly the population `#639`'s UI cannot reach: a RECOGNISED profile
  * (`parser` truthy) whose date column is ambiguous and carries no answer.
  *
- * `mapped` is excluded by construction rather than by a second condition: `parser` is null
- * exactly when the profile is `mapped`, which is the same variable the door already reads to
- * choose which parser runs. `columns/page.server.spec.ts:682`'s baseline is the reason it must
- * stay excluded — that test locks the silent default on the path #639's client-side screen
- * already covers.
+ * `mapped` is covered by its own block below (« a mapped parse asks whoever called it »), which
+ * #1200 left with no exemption: this block is about the registered profiles.
  */
 describe('a registered profile asks instead of silently defaulting on an ambiguous column', () => {
 	/**

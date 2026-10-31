@@ -285,7 +285,8 @@ export interface CsvProfileParseInput {
 	rows: ParsedCsvRow[];
 	sourceName?: string;
 	categorizationRules: CategorizationRuleInput[];
-	/** The file's date order, when it has been decided. Absent reads day-first. Every profile
+	/** The file's date order, when it has been decided. `csv.ts` refuses an ambiguous column that
+	 *  arrives without one (#1200), so absent reads day-first only below that door. Every profile
 	 *  receives it because every profile funnels into `normalizeDate`, and one that quietly
 	 *  dropped it would be the only path where the user's answer does not apply. */
 	dateOrder?: DateOrder;

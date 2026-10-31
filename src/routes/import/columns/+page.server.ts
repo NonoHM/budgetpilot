@@ -126,7 +126,7 @@ export const actions: Actions = {
 		 *
 		 * `readDateOrderAnswer` is the whole of the validation and it lives beside the type, not
 		 * here: positive, against the closed set, and `undefined` for anything else, so an absent or
-		 * hostile value falls back to the derivation rather than to an error. Nothing about
+		 * hostile value is no answer: on an ambiguous column the parser refuses it (#1200). Nothing about
 		 * precedence is decided here either. `decideDateOrder` is the one definition, and it consults
 		 * an override only where the column leaves the question genuinely ambiguous: a file that
 		 * proves its own order ignores this, and a file that proves both is refused whatever it says.

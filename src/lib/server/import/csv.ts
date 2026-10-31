@@ -390,8 +390,7 @@ export function parseImportRows(
 	 * file carrying BOTH an unproven account column and an ambiguous date column asks its two
 	 * questions one at a time rather than together, because nothing here can ask both at once.
 	 *
-	 * No `alreadyPromptedClientSide`-shaped flag, unlike the date-order block: `/import`'s auto
-	 * path and `/import/columns`'s designation path both reach this door with no PRIOR mechanism
+	 * No suppression flag, like the date-order block since #1200: `/import`'s auto path and `/import/columns`'s designation path both reach this door with no PRIOR mechanism
 	 * that has ever asked whether a file covers more than one account (the designation screen picks
 	 * one destination account; it does not read the file's own account column), so #485's fix
 	 * applies identically to both with no exclusion to draw.

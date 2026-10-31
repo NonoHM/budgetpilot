@@ -402,8 +402,7 @@ export const actions: Actions = {
 			// The reading offer below is the caller, through the same closed-set validator
 			// `/import/columns` reads its own answer with, and only once bound to this file.
 			dateOrder: answers.dateOrder ?? undefined,
-			// #485's account-column offer below is the caller. Unlike `dateOrder`, no suppression
-			// flag: this door has no prior mechanism that could have already asked the question.
+			// #485's account-column offer below is the caller. No suppression flag, as for `dateOrder`.
 			accountColumnAnswer: answers.accountColumnAnswer ?? undefined
 		});
 
