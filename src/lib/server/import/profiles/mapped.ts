@@ -104,11 +104,18 @@ export function parseMappedRows({
 	dateOrder
 }: MappedParseInput): CsvImportResult {
 	const headerRefusals: CsvRefusal[] = [];
-	const headers = rows[0].cells.map(foldExactHeader);
 	// The user's answer, not a guess. A header row of plausible values is indistinguishable from a
 	// data row, so nothing here can work it out; `false` arrives from « la première ligne contient
 	// des données ».
 	const headerRow = hasHeaderRow !== false;
+	// A headerless file has no names, so its columns are keyed by POSITION (#1202). Line 1 is a
+	// transaction: keyed by its text, two equal cells made one key and the record kept the LAST, so
+	// a designated column was stored from its equal neighbour. Gated on the header answer rather
+	// than on `matchBy`, because a restored positional mapping can meet a file that has a header
+	// row, whose names still declare its currency (#1202's pass, finding 1).
+	const headers = headerRow
+		? rows[0].cells.map(foldExactHeader)
+		: rows[0].cells.map((_, index) => `#${index + 1}`);
 
 	// A duplicated header is STILL a refusal, for the reason `generic` records: `toRecord` assigns
 	// `record[header] = row[index]`, so a later duplicate OVERWRITES an earlier one and the last
@@ -117,7 +124,7 @@ export function parseMappedRows({
 	// Only when there IS a header row. Run against a headerless file this reads a TRANSACTION, so
 	// a statement whose first line happens to repeat a value in two columns — an amount equal to a
 	// balance, two blank cells — would be refused whole, for a header defect the file does not
-	// have. A positional mapping resolves by index and never consults these names anyway.
+	// have. Its columns are keyed by position (`headers` above), so line 1's text names nothing.
 	if (headerRow)
 		for (const header of getDuplicateHeaders(headers))
 			addRefusal(
@@ -131,7 +138,11 @@ export function parseMappedRows({
 				}
 			);
 
-	const verdict = resolveMappedColumns(columnMapping, rows[0].cells, headerRefusals);
+	const verdict = resolveMappedColumns(
+		columnMapping,
+		headerRow ? rows[0].cells : headers,
+		headerRefusals
+	);
 
 	// AFTER the columns resolved, because the detector needs to know which one is the amount, and
 	// BEFORE any row is read, because it is a fact about the whole file. A user who designates the
