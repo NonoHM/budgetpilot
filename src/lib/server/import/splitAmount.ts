@@ -89,12 +89,14 @@ export const PROFILE_READS_AMOUNT_PAIR = {
 export function detectComplementAmountColumn(
 	headers: string[],
 	rows: ParsedCsvRow[],
-	amountColumn: string
+	amountColumn: string,
+	// 0 on a headerless file, for the reason `detectSignIndicatorColumn` gives.
+	firstDataRow: 0 | 1 = 1
 ): string | null {
 	const amountIndex = headers.indexOf(amountColumn);
 	if (amountIndex === -1) return null;
 
-	const body = rows.slice(1);
+	const body = rows.slice(firstDataRow);
 	if (body.length === 0) return null;
 
 	const amountPresence = body.map((row) => parseAmountCents(row.cells[amountIndex] ?? '') !== null);

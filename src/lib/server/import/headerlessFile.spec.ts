@@ -235,9 +235,7 @@ describe('a headerless file whose line 1 repeats a value (#1202)', () => {
 	it('stores the designated category column, not an equal column after it', () => {
 		expect.assertions(2);
 		const result = parseByPosition(
-			['2026-06-01;CB A;-10.00;Courses;Courses', '2026-06-02;CB B;-20.00;Loisirs;Autre'].join(
-				'\n'
-			),
+			['2026-06-01;CB A;-10.00;Courses;Courses', '2026-06-02;CB B;-20.00;Loisirs;Autre'].join('\n'),
 			{ dateIndex: 0, labelIndex: 1, amountIndex: 2, categoryIndex: 3, columnCount: 5 }
 		);
 		expect(result.invalidRows.map((row) => row.fact.code)).toEqual([]);
@@ -285,5 +283,39 @@ describe('a positional mapping over a file with a header row', () => {
 			}
 		);
 		expect(result.invalidRows.map((row) => row.fact.code)).toEqual(['unsupported-currency']);
+	});
+});
+
+/**
+ * #1202's pass, finding 2: the separate-sign guard (#320) skipped line 1 on a headerless file, so a
+ * direction column whose only « C » sits on line 1 read as one token and every row was stored as
+ * income. Separates « line 1 is data » from « line 1 is skipped as a header ».
+ */
+describe('the separate-sign guard on a headerless file', () => {
+	it('counts line 1 as evidence of a direction', () => {
+		expect.assertions(1);
+		const result = parseByPosition(
+			['2026-06-01;CB A;5.00;C', '2026-06-02;CB B;3.00;D', '2026-06-03;CB C;1.00;D'].join('\n'),
+			{ dateIndex: 0, labelIndex: 1, amountIndex: 2, columnCount: 4 }
+		);
+		expect(result.invalidRows.map((row) => row.fact.code)).toEqual([
+			'amount-sign-in-separate-column'
+		]);
+	});
+});
+
+/**
+ * The same finding for the split-amount guard (#343): it skipped line 1 too, so a headerless file
+ * whose only empty amount cell is on line 1 read as « the amount column is never empty » and the
+ * credit on line 1 was refused alone. Separates « line 1 is data » from « line 1 is skipped ».
+ */
+describe('the split-amount guard on a headerless file', () => {
+	it('counts line 1 as evidence of a gap', () => {
+		expect.assertions(1);
+		const result = parseByPosition(
+			['2026-06-01;SALAIRE;;100.00', '2026-06-02;CB B;-5.00;', '2026-06-03;CB C;-6.00;'].join('\n'),
+			{ dateIndex: 0, labelIndex: 1, amountIndex: 2, columnCount: 4 }
+		);
+		expect(result.invalidRows.map((row) => row.fact.code)).toEqual(['amount-split-across-columns']);
 	});
 });

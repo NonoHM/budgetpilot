@@ -4,6 +4,7 @@ import {
 	addRefusal,
 	buildSummary,
 	duplicatedHeaderSpellings,
+	firstDataRowIndex,
 	getDuplicateHeaders
 } from '../utils/csv';
 import { refusalCellValue } from '../utils/safety';
@@ -150,7 +151,12 @@ export function parseMappedRows({
 	// every row as income, which is the defect #320 measured on the unmapped path. Designating a
 	// column is not evidence that the file can be read.
 	if (verdict) {
-		const indicatorColumn = detectSignIndicatorColumn(headers, rows, verdict.columns.amount);
+		const indicatorColumn = detectSignIndicatorColumn(
+			headers,
+			rows,
+			verdict.columns.amount,
+			firstDataRowIndex(hasHeaderRow)
+		);
 		if (indicatorColumn)
 			addRefusal(
 				headerRefusals,
@@ -164,7 +170,12 @@ export function parseMappedRows({
 		// on the run that also MEMORISES the mapping, so a month of income went missing and kept
 		// going missing, unattended. Refusing does not let the file import; it makes the loss loud
 		// until the role set can express a pair. See #343.
-		const complementColumn = detectComplementAmountColumn(headers, rows, verdict.columns.amount);
+		const complementColumn = detectComplementAmountColumn(
+			headers,
+			rows,
+			verdict.columns.amount,
+			firstDataRowIndex(hasHeaderRow)
+		);
 		if (complementColumn)
 			addRefusal(
 				headerRefusals,
