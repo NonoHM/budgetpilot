@@ -6,7 +6,8 @@ import { parseRows } from './utils/csv';
 /**
  * An offer produced by a REMEMBERED mapping must not seed detection's columns over it (#352): one
  * press would save them under the same fingerprint. Separates « designations withdrawn, candidates
- * kept, under both answers » from leaving either answer's designations in place.
+ * kept » from leaving the detected answer's designations in place. Only the detected answer: under
+ * « données » `columnProposals` designates nothing, so there is nothing there to withdraw.
  */
 describe('withoutDesignations', () => {
 	const facts = designationFactsAsDetected(

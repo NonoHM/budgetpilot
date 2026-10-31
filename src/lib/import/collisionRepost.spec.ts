@@ -23,7 +23,6 @@ const PENDING = {
 		detectedHeaderRow: true
 	},
 	initialAssignment: ASSIGNMENT,
-	candidates: {},
 	account: {
 		options: [
 			{

@@ -2040,6 +2040,48 @@ describe('/import actions', () => {
 
 			expect(result.data.designation).toBeDefined();
 		});
+
+		/**
+		 * #352, second pass finding F3: the correction door is a remembered mapping too, so it seeds no
+		 * detected column either. Dead today only because `correctingAssignment` wins on the client;
+		 * a per-role fallback there would fill a role whose remembered column is gone. The candidates
+		 * are the positive in the same payload: detection ran and named all three columns.
+		 */
+		it('carries no detected designation, only candidates', async () => {
+			expect.assertions(2);
+			const headers = ['Date', 'Libelle', 'Montant', 'Detail'];
+			db.state.columnMappings.push({
+				id: 'mapping-352',
+				userId: testUser.id,
+				fingerprint: fingerprintFor(headers, 'name'),
+				matchBy: 'name' as const,
+				dateColumn: 'date',
+				labelColumn: 'detail',
+				amountColumn: 'montant',
+				categoryColumn: null,
+				dateIndex: null,
+				labelIndex: null,
+				amountIndex: null,
+				categoryIndex: null,
+				columnCount: 4,
+				useCount: 0,
+				lastUsedAt: null as Date | null
+			} as (typeof db.state.columnMappings)[number]);
+
+			const result = (await runImportWithFileAndFields(
+				`${headers.join(';')}\n24/06/2026;CARREFOUR MARKET;-24,90;PAIEMENT CB 22/06`,
+				{ correctMappingId: 'mapping-352' }
+			)) as unknown as { data: { designation?: DesignationFile } };
+
+			const proposals = result.data.designation?.proposals;
+			expect(proposals?.candidates).toMatchObject({ date: [0], label: [1], amount: [2] });
+			expect(proposals?.designated).toEqual({
+				date: null,
+				label: null,
+				amount: null,
+				category: null
+			});
+		});
 	});
 
 	/**

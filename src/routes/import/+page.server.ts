@@ -337,8 +337,8 @@ export const actions: Actions = {
 					headers: headerCells,
 					// Every per-row fact, for line 1 as headers AND as data (#735): the « Première
 					// ligne » switch swaps them in the browser, and `designationRowFacts` is the one
-					// definition of both.
-					...designationFactsAsDetected(importData.rows),
+					// definition of both. A correction is a remembered mapping, so detection seeds none (#352).
+					...withoutDesignations(designationFactsAsDetected(importData.rows)),
 					rowCount: Math.max(0, importData.rows.length - 1)
 				},
 				// Null per role where the remembered column is not in this file. A neighbour picked by
