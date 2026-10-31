@@ -136,3 +136,45 @@ describe('a file whose first line is data', () => {
 		expect(result.summary.totalRows).toBe(2);
 	});
 });
+
+/**
+ * #1200's contradiction pass, F1: THE DATE VERDICT READS THE DESIGNATED INDEX. A positional
+ * mapping resolves each role to its line 1 cell TEXT (`applyByPosition`), and the verdict used to
+ * look that text up with `indexOf`, so on a line 1 that repeats a value it judged the FIRST equal
+ * column while the screen judged the designated one. Here the member designates column 1, which
+ * proves day-first (13/01); column 0 reads both ways. The screen asks nothing, so no answer is
+ * posted. Separates « the verdict is about the column the member designated » from « the verdict
+ * is about an equal neighbour », which refuses a file the screen offers no way to answer.
+ *
+ * The STORED column is #1202's question (the parse reads the last equal column) and is not
+ * asserted here: column 1 is also the last, so both readings of that question agree on this file.
+ */
+const EQUAL_ON_LINE_ONE = [
+	'05/01/2026;05/01/2026;CARTE A;-10,00',
+	'07/01/2026;13/01/2026;CARTE B;-20,00',
+	'08/01/2026;09/01/2026;CARTE C;-30,00'
+].join('\n');
+
+describe('a headerless file whose line 1 repeats the date', () => {
+	it('judges the date order on the designated column, not on an equal neighbour', () => {
+		expect.assertions(2);
+		const result = parseCsvTransactionRows(parseRows(EQUAL_ON_LINE_ONE), {
+			profile: 'mapped',
+			columnMapping: {
+				...BY_POSITION,
+				dateIndex: 1,
+				labelIndex: 2,
+				amountIndex: 3,
+				columnCount: 4
+			},
+			hasHeaderRow: false,
+			categorizationRules: []
+		});
+		expect(result.invalidRows.map((row) => row.fact.code)).toEqual([]);
+		expect(result.transactions.map((transaction) => transaction.date)).toEqual([
+			'2026-01-05',
+			'2026-01-13',
+			'2026-01-09'
+		]);
+	});
+});
