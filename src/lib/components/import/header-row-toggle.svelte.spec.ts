@@ -49,7 +49,6 @@ async function open() {
 	await render(ColumnDesignationScreen, {
 		file: FILE,
 		initialAssignment: ASSIGNMENT,
-		candidates: {},
 		// A resolved account, because the primary refuses a submission without one. This file measures
 		// what the header-row answer does to a submission, so leaving it unchosen would make both
 		// tests measure the account guard instead.
@@ -284,7 +283,8 @@ describe('the Date row once line 1 is declared data (#735)', () => {
 				},
 				NONE,
 				NONE
-			]
+			],
+			proposals: undefined
 		}
 	};
 
@@ -293,7 +293,6 @@ describe('the Date row once line 1 is declared data (#735)', () => {
 		await render(ColumnDesignationScreen, {
 			file: HEADERLESS_FILE,
 			initialAssignment: ASSIGNMENT,
-			candidates: {},
 			accounts: [
 				{
 					id: 'account-1',

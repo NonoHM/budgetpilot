@@ -59,6 +59,11 @@ const VIEW: DesignationFile = {
 	previewRows: [['24/06/2026', 'MERCERIE', '-24,90']],
 	coverage: [1, 1, 1],
 	firstRow: ['24/06/2026', 'MERCERIE', '-24,90'],
+	// What the server proved about this file, which the offer seeds the screen with (#352).
+	proposals: {
+		designated: { date: 0, label: null, amount: 2, category: null },
+		candidates: { date: [0], label: [], amount: [2], category: [] }
+	},
 	rowCount: 1,
 	detectedHeaderRow: true
 } as DesignationFile;
@@ -149,7 +154,10 @@ describe('the designation offer after a refusal', () => {
 
 		await userEvent.click(offerButtons().first().element() as HTMLElement);
 
-		expect(takePendingDesignation()?.view.name).toBe(VIEW.name);
+		const pending = takePendingDesignation();
+		expect(pending?.view.name).toBe(VIEW.name);
+		// #352: with no correction, the screen opens on what the file proves, not on four empty rows.
+		expect(pending?.initialAssignment).toEqual(VIEW.proposals?.designated);
 		expect(navigation.goto).toHaveBeenCalled();
 	});
 

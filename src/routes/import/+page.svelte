@@ -1074,13 +1074,14 @@
 			// work: two fields were added to the payload and not to the copy, and nothing red.
 			// A comment is not a control, so the control now lives in `designationView`.
 			view: designationView(designation),
-			initialAssignment: correctingAssignment ?? EMPTY_ASSIGNMENT,
+			// The member's remembered answer first, then what the file proves (#352, B3), then nothing.
+			initialAssignment:
+				correctingAssignment ?? designation.proposals?.designated ?? EMPTY_ASSIGNMENT,
 			// NOBODY HAS BEEN ASKED YET, and null says exactly that rather than `day-first`. The two
 			// are different facts: the screen's row carries « Confirmer » for the first and states a
 			// confirmed reading for the second, and the server records a decision for the second and
 			// a default for the first.
 			dateOrder: null,
-			candidates: {},
 			// What the SERVER worked out about which account this statement belongs to. Null when the
 			// payload carried none, which the screen reads as « ask ».
 			account: designation.account ?? null,
@@ -1260,7 +1261,6 @@
 			file: carried.repost.file,
 			view: carried.repost.view,
 			initialAssignment: carried.repost.assignment,
-			candidates: {},
 			// The USER's answer, back onto the screen that asked for it. Same leg and same reasoning
 			// as `hasHeaderRow`, which travels inside the view: declining must not cost the answer,
 			// or the one screen built to stop the application guessing asks again and then guesses.

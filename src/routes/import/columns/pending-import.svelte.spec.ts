@@ -97,7 +97,6 @@ beforeEach(async () => {
 		file: new File(['Jour;Intitule;Somme\n'], 'releve.csv'),
 		view: VIEW,
 		initialAssignment: COMPLETE,
-		candidates: {},
 		dateOrder: null,
 		account: {
 			options: [

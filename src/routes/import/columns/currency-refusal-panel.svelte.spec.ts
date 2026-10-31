@@ -50,7 +50,6 @@ describe('the columns page after the currency refusal', () => {
 			file: new File(['Jour,Intitule,Somme,Devise\n'], 'releve.csv'),
 			view: VIEW,
 			initialAssignment: COMPLETE,
-			candidates: {},
 			dateOrder: null,
 			account: {
 				options: [
@@ -115,7 +114,6 @@ describe('the remembered account after the currency refusal (second contradictio
 			file: new File(['Jour,Intitule,Somme,Devise\n'], 'releve.csv'),
 			view: VIEW,
 			initialAssignment: COMPLETE,
-			candidates: {},
 			dateOrder: null,
 			account: {
 				options: [

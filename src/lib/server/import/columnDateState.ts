@@ -119,6 +119,14 @@ export function importColumnDateStates(
 	rows: ParsedCsvRow[],
 	hasHeaderRow?: boolean
 ): ColumnDateState[] {
+	return importColumnCells(rows, hasHeaderRow).map((values) => columnDateState(values));
+}
+
+/**
+ * Every data cell of each column, in file order, normalised like the header cells and samples.
+ * Shared by the date states and the proposals (`columnProposals.ts`), so both read the same cells.
+ */
+export function importColumnCells(rows: ParsedCsvRow[], hasHeaderRow?: boolean): string[][] {
 	const normalized = normalizeParsedRows(rows);
 	if (normalized.length === 0) return [];
 
@@ -136,7 +144,7 @@ export function importColumnDateStates(
 		}
 	}
 
-	return columns.map((values) => columnDateState(values));
+	return columns;
 }
 
 /** One column's sample cells, each read under both orders. `null` is "not a date that way". */

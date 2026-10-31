@@ -54,7 +54,8 @@ export const DESIGNATION_ROW_FACTS = [
 	'previewRows',
 	'coverage',
 	'dateStates',
-	'dateReadings'
+	'dateReadings',
+	'proposals'
 ] as const;
 export type DesignationRowFact = (typeof DESIGNATION_ROW_FACTS)[number];
 
@@ -104,6 +105,17 @@ export const EMPTY_ASSIGNMENT: RoleAssignment = {
 	amount: null,
 	category: null
 };
+
+/**
+ * What detection proposes for one answer about line 1, arbitration B3 (#352): `designated` holds a
+ * column only where its header names exactly one column and the values parse; `candidates` is what
+ * the picker pins under « Proposée · n », two or more making the row « n colonnes possibles ».
+ * A rule, never a score, so there is no confidence field to render.
+ */
+export interface ColumnProposals {
+	designated: RoleAssignment;
+	candidates: Readonly<Record<MappingRole, readonly number[]>>;
+}
 
 export interface DesignationFile {
 	/** The uploaded file's name, shown on the file block's first line and ellipsed there. */
@@ -169,6 +181,14 @@ export interface DesignationFile {
 		dayFirst: readonly (string | null)[];
 		monthFirst: readonly (string | null)[];
 	}[];
+	/**
+	 * What detection proposes under this answer about line 1 (#352), computed by the server's
+	 * `columnProposals`. A row fact because header names count only when line 1 is headers.
+	 *
+	 * Optional so the recap, which has no file, and a payload from an older client degrade to
+	 * proposing nothing rather than to a claim.
+	 */
+	proposals?: ColumnProposals;
 	/** Data rows, excluding the header row. Displayed, and used in the primary's label. */
 	rowCount: number;
 	/**
@@ -280,6 +300,7 @@ export function designationView(payload: DesignationFile): DesignationFile {
 		firstRow: payload.firstRow,
 		dateStates: payload.dateStates,
 		dateReadings: payload.dateReadings,
+		proposals: payload.proposals,
 		rowCount: payload.rowCount,
 		detectedHeaderRow: payload.detectedHeaderRow,
 		otherHeaderRowFacts: payload.otherHeaderRowFacts

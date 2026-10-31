@@ -119,7 +119,6 @@
 	let {
 		file,
 		initialAssignment = EMPTY_ASSIGNMENT,
-		candidates = {},
 		lostHeaders = {},
 		submitting = false,
 		signaturePartial = false,
@@ -164,13 +163,6 @@
 		 * Captured once, like `initialAssignment`: this screen owns the answer from arrival.
 		 */
 		initialDateOrder?: DateOrder | null;
-		/**
-		 * Per role, the column indices detection proposes. Two or more is what makes a row ambiguous.
-		 *
-		 * Detection DOES NOT PICK BETWEEN EQUALS: it shortens the path when a column is unambiguous
-		 * and stays out of the way when it is not. A rule, never a confidence score.
-		 */
-		candidates?: Partial<Record<MappingRole, readonly number[]>>;
 		/** State 3b: per role, the remembered header that is gone from this file. */
 		lostHeaders?: Partial<Record<MappingRole, string>>;
 		submitting?: boolean;
@@ -411,6 +403,14 @@
 	 */
 	const effectiveFile = $derived(readWithHeaderRow(file, hasHeaderRow));
 	const columnCount = $derived(file.headers.length);
+	/**
+	 * Per role, what detection proposes under the CURRENT answer about line 1 (#352), read from the
+	 * file rather than handed in, so no door can open this screen with a hardcoded nothing. Two or
+	 * more make a row « n colonnes possibles »: detection never picks between equals.
+	 */
+	const candidates = $derived<Partial<Record<MappingRole, readonly number[]>>>(
+		effectiveFile.proposals?.candidates ?? {}
+	);
 	const candidateCounts = $derived(
 		Object.fromEntries(
 			Object.entries(candidates).map(([role, list]) => [role, list?.length ?? 0])

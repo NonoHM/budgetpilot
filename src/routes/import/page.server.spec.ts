@@ -1932,7 +1932,13 @@ describe('/import actions', () => {
 					},
 					{ dayFirst: NOT_A_DATE, monthFirst: NOT_A_DATE },
 					{ dayFirst: NOT_A_DATE, monthFirst: NOT_A_DATE }
-				]
+				],
+				// No header names under « données », so nothing is designated; the value shapes
+				// propose the date and the amount, never the label (#352).
+				proposals: {
+					designated: { date: null, label: null, amount: null, category: null },
+					candidates: { date: [0], label: [], amount: [2], category: [] }
+				}
 			};
 
 			async function declaredData() {
@@ -2355,6 +2361,45 @@ describe('/import actions', () => {
 			db.state.columnMappings.push(row);
 			return row;
 		}
+
+		/**
+		 * #352's contradiction-pass finding 1. A remembered mapping that reads nothing still opens the
+		 * designation offer, and detection must not seed its own columns there: one press would save
+		 * them over the member's mapping under the same fingerprint. Separates « designations withdrawn
+		 * on a remembered mapping » from « detection seeds whatever the aliases find », with the
+		 * no-mapping run as the positive in the same pass, so the withdrawal is not an absence of
+		 * proposals altogether.
+		 */
+		it('seeds no detected column over a remembered mapping that read nothing', async () => {
+			expect.assertions(3);
+			const headers = 'Jour;Libelle;Montant';
+			const content = `${headers}\npas une date;CARREFOUR MARKET;-24,90`;
+			type Offer = { data?: { designation?: DesignationFile } };
+			const offerOf = async () => {
+				const offer = ((await runImportWithFile(content)) as Offer).data?.designation;
+				if (!offer) throw new Error('no designation offer: the fixture no longer reaches it');
+				return offer.proposals;
+			};
+
+			const detected = await offerOf();
+			expect(detected?.designated).toEqual({ date: null, label: 1, amount: 2, category: null });
+
+			const row = rememberFor(testUser.id);
+			Object.assign(row, {
+				fingerprint: fingerprintFor(headers.split(';'), 'name'),
+				dateColumn: 'jour',
+				labelColumn: 'libelle',
+				amountColumn: 'montant'
+			});
+			const remembered = await offerOf();
+			expect(remembered?.designated).toEqual({
+				date: null,
+				label: null,
+				amount: null,
+				category: null
+			});
+			expect(remembered?.candidates).toEqual(detected?.candidates);
+		});
 
 		it('imports through the mapping and counts the use', async () => {
 			const row = rememberFor(testUser.id);
