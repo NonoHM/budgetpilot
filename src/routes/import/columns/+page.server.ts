@@ -165,19 +165,15 @@ export const actions: Actions = {
 			// and settled an ambiguous column with the application default, so a user who chose
 			// « Mois puis jour » read `4 mars 2026` on the row and the import stored `2026-04-03`.
 			// Every date in the file wrong, the summary reporting success. See #639.
+			// No « the screen already asked » flag (#1200): an ambiguous column that arrives without
+			// an answer is refused by the parser, like on every other door.
 			dateOrder,
-			// THIS is the caller the door trusts to have already asked, per #433's contradiction
-			// pass: the designation screen (#639) defers its own close until an ambiguous column
-			// is answered or the user waives it (plate 7b), so a silent day-first default here is
-			// the screen's own decision, not the door guessing. `/import`'s OTHER `mapped` caller
-			// (a silently reapplied remembered mapping) sets no such flag, and asks instead.
-			dateOrderPromptedClientSide: true,
 			sourceName: importFile.name || importData.kind,
 			categorizationRules: categorizationRules.map((rule) => ({
 				...rule,
 				type: rule.type === 'income' || rule.type === 'expense' ? rule.type : 'any'
 			})),
-			// #485. No suppression flag, unlike `dateOrderPromptedClientSide` above: choosing a
+			// #485. No suppression flag: choosing a
 			// destination account (below, `resolveImportBucketAccountById`) is a plain picker over
 			// this user's accounts, never a read of the file's own account column, so this door has
 			// no prior mechanism that could have already asked whether the file covers more than
@@ -204,8 +200,13 @@ export const actions: Actions = {
 			const {
 				fileScoped: fileScopedRefusal,
 				multiAccount: multiAccountRefusal,
-				accountColumn: accountColumnRefusal
+				accountColumn: accountColumnRefusal,
+				dateOrder: dateOrderRefusal
 			} = emptyParseFacts(result);
+			// #1200. The reading is the one question this door CAN answer: the Date row reopens it.
+			// Same sentence `/import` gives the same fact, and the designation is kept.
+			if (dateOrderRefusal)
+				return fail(400, { error: m.import_error_ambiguous_date_order(), keepDesignation: true });
 			// THE ONE ORDER, same function `/import` reads: no `split`, `account` or `dateOrder` on this
 			// door (see `offerPrecedence.ts`'s own docstring for why), so those are simply never passed.
 			// `produced: false` because this branch is the empty parse. `header` is `offerPrecedence.ts`'s

@@ -37,8 +37,8 @@ export interface CsvImportOptions {
 	/**
 	 * Which component an ambiguous `06/01/2026` writes first.
 	 *
-	 * Absent means nobody has decided, and the parser reads day-first, which is what it has
-	 * always done. Exactly the shape of `hasHeaderRow` above and for the same reason: a cell
+	 * Absent means nobody has decided: a column that reads both ways is then refused, never read
+	 * day-first (#1200, see the last paragraph). Exactly the shape of `hasHeaderRow` above and for the same reason: a cell
 	 * reading `06/01/2026` is two valid dates and carries nothing that separates them, so the
 	 * answer is a property of the FILE that the parser cannot take from any single value. See
 	 * `dateOrder.ts` and #433.
@@ -59,38 +59,16 @@ export interface CsvImportOptions {
 	 *
 	 * Two production callers set it now: `/import/columns`, from an answer the designation
 	 * screen (#639) collected, and `/import`'s own action, from the auto-path reading offer this
-	 * option's absence can trigger — see `dateOrderPromptedClientSide` below for how the two
-	 * `mapped` callers among them are told apart.
+	 * option's absence can trigger. Absent on a column whose verdict is `ambiguous` means nobody
+	 * answered, and `csv.ts` refuses with `ambiguous-date-order` whichever door called it (#1200:
+	 * a door that told the parser « the screen already asked » is how a month-first file was
+	 * stored day-first in silence).
 	 */
 	dateOrder?: DateOrder;
 	/**
-	 * Whether a CLIENT-SIDE screen already had the chance to ask this column's reading before this
-	 * parse ran, so the door must not ask again.
-	 *
-	 * ## The gap this closes, found by #433's contradiction pass
-	 *
-	 * The door used to infer "already asked" from `profile === 'mapped'`, on the reasoning that a
-	 * mapped parse always comes from `/import/columns`, backed by the designation screen. That
-	 * reasoning missed a THIRD caller: `/import`'s own action also parses with `profile: 'mapped'`
-	 * whenever it silently reapplies a `ColumnMapping` remembered from a PREVIOUS designation
-	 * (`useMapping`, keyed by header fingerprint) — and that reuse shows no screen at all.
-	 * `ColumnMapping` carries no `dateOrder` field, so nothing was ever asked or remembered for
-	 * this file, and the day-first default would otherwise apply silently forever on precisely the
-	 * path most repeat imports take.
-	 *
-	 * So `mapped` alone no longer means "already asked". Only `/import/columns` sets this flag,
-	 * because it alone is wired to the screen that can ask (#639) and is trusted to have deferred
-	 * its own close until the question was answered or waived (plate 7b). Every other caller —
-	 * every registered profile AND the silent `mapped` reuse — leaves it unset, and an ambiguous
-	 * column with no override there reaches the same `ambiguous-date-order` refusal `csv.ts` gives
-	 * a registered profile.
-	 */
-	dateOrderPromptedClientSide?: boolean;
-	/**
 	 * The user's answer to a previous `ambiguous-account-column` refusal, when there has been one.
 	 *
-	 * Absent means nobody has decided. Unlike `dateOrderPromptedClientSide`, there is no caller
-	 * this needs to be suppressed for: both doors — `/import`'s auto path and `/import/columns`'s
+	 * Absent means nobody has decided. Both doors — `/import`'s auto path and `/import/columns`'s
 	 * designation path — call this same parser with no prior mechanism that already asked whether
 	 * a file covers more than one account, so #485's fix applies to both with one flag and no
 	 * exclusion. `'is-account'` promotes the column to PROVEN (the same refusal a verified IBAN

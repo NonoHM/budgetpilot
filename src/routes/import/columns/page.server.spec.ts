@@ -825,17 +825,21 @@ describe('the reading the user answered decides how the file is read', () => {
 	});
 
 	/**
-	 * THE BASELINE, and it is the calibration every test below needs. Separates « the field moved
-	 * the dates » from « these dates are what the parser produces whatever it is told », which is
-	 * the state this whole describe block was written against.
+	 * #1200, THE RULING: the server refuses an unanswered ambiguous column. This door used to pass
+	 * `dateOrderPromptedClientSide: true` and trust the screen to have asked, and two doors on the
+	 * screen post no answer (a designated row arriving seeded, and Escape on the reading step), so
+	 * the file was stored day-first with nothing said. Separates « refused, the designation kept,
+	 * the sentence naming the confirmation » from « stored under the default ». The sentence is
+	 * compared whole: the generic no-valid-rows sentence is also a 400 with `keepDesignation`.
 	 */
-	it('reads an unanswered ambiguous column day-first, which is the application default', async () => {
-		expect.assertions(2);
-		await submit(AMBIGUOUS_OPAQUE, true);
-		expect(datesWritten()).toEqual(['2026-02-01', '2026-02-03', '2026-02-05']);
-		expect(persist.createImportBatch).toHaveBeenCalledWith(
-			expect.objectContaining({ dateOrder: 'day-first' })
-		);
+	it('refuses an unanswered ambiguous column and writes nothing', async () => {
+		expect.assertions(5);
+		const result = await submit(AMBIGUOUS_OPAQUE, true);
+		expect(result.status).toBe(400);
+		expect(result.data?.error).toBe(m.import_error_ambiguous_date_order());
+		expect(result.data?.keepDesignation).toBe(true);
+		expect(persist.persistImportedTransactions).not.toHaveBeenCalled();
+		expect(persist.createImportBatch).not.toHaveBeenCalled();
 	});
 
 	/**
@@ -867,34 +871,67 @@ describe('the reading the user answered decides how the file is read', () => {
 	});
 
 	/**
-	 * A CLOSED SET, POSITIVELY VALIDATED, and a hostile value falls back to the DERIVATION rather
-	 * than to an error. ASVS 5.0 v5.0.0-2.2.1, whose text is quoted where the validation lives, in
-	 * `domain/dateReading.ts`. It read `v5.0.0-5.1.4` here first, which is not a requirement that
-	 * exists.
+	 * A CLOSED SET, POSITIVELY VALIDATED: a value outside the two readings is no answer, so on an
+	 * ambiguous column it is refused like a missing one (#1200). ASVS 5.0 v5.0.0-2.2.1, whose text
+	 * is quoted where the validation lives, in `domain/dateReading.ts`.
 	 *
 	 * Separates « the value was validated against the two readings » from « the string was passed
-	 * through ». A parser handed `Mois puis jour` would not match either reading and would read
-	 * day-first anyway, so the dates alone cannot tell the two apart: the STORED reading is what
-	 * does, because a passed-through string would be recorded as itself.
+	 * through ». A passed-through `Mois puis jour` would reach the parser as a truthy `dateOrder`,
+	 * skip the refusal, and import.
 	 */
-	it('ignores a value that is not one of the two readings, and still imports', async () => {
+	it('refuses a value that is not one of the two readings', async () => {
 		expect.assertions(3);
-		await submit(AMBIGUOUS_OPAQUE, true, { dateOrder: 'Mois puis jour' });
-		expect(datesWritten()).toEqual(['2026-02-01', '2026-02-03', '2026-02-05']);
-		expect(persist.createImportBatch).toHaveBeenCalledWith(
-			expect.objectContaining({ dateOrder: 'day-first' })
-		);
-		expect(persist.persistImportedTransactions).toHaveBeenCalledTimes(1);
+		const result = await submit(AMBIGUOUS_OPAQUE, true, { dateOrder: 'Mois puis jour' });
+		expect(result.status).toBe(400);
+		expect(result.data?.error).toBe(m.import_error_ambiguous_date_order());
+		expect(persist.persistImportedTransactions).not.toHaveBeenCalled();
 	});
 
 	/** The empty field, which is what a form posts for an unanswered question. */
-	it('ignores an empty field rather than refusing the import', async () => {
-		expect.assertions(2);
-		await submit(AMBIGUOUS_OPAQUE, true, { dateOrder: '' });
-		expect(datesWritten()).toEqual(['2026-02-01', '2026-02-03', '2026-02-05']);
-		expect(persist.createImportBatch).toHaveBeenCalledWith(
-			expect.objectContaining({ dateOrder: 'day-first' })
+	it('refuses an empty field', async () => {
+		expect.assertions(3);
+		const result = await submit(AMBIGUOUS_OPAQUE, true, { dateOrder: '' });
+		expect(result.status).toBe(400);
+		expect(result.data?.error).toBe(m.import_error_ambiguous_date_order());
+		expect(persist.persistImportedTransactions).not.toHaveBeenCalled();
+	});
+
+	/**
+	 * THE DIRECTION THIS IS NOT GOING: the refusal is keyed on the file's verdict, not on the field.
+	 * A column with nothing ambiguous in it needs no answer. Separates « refuse what the file leaves
+	 * open » from « refuse every post without a `dateOrder` », which would break every ISO file.
+	 */
+	it('imports an unanswered column that has nothing to decide', async () => {
+		expect.assertions(1);
+		await submit(ISO_ONLY, true);
+		expect(datesWritten()).toEqual(['2026-02-01', '2026-02-03']);
+	});
+
+	/**
+	 * #1200's contradiction pass, F1, through the door. Headerless, line 1 repeats the date in
+	 * columns 0 and 1, the member designates column 1, which proves day-first, so the screen asks
+	 * nothing. Separates « the refusal follows the column the screen judged » from « it follows an
+	 * equal neighbour », which would refuse this file on every press with no control to answer.
+	 */
+	it('imports a headerless file whose designated date column proves its order', async () => {
+		expect.assertions(1);
+		await submit(
+			[
+				'05/01/2026;05/01/2026;CARTE A;-10,00',
+				'07/01/2026;13/01/2026;CARTE B;-20,00',
+				'08/01/2026;09/01/2026;CARTE C;-30,00'
+			].join('\n'),
+			false,
+			{ dateIndex: '1', labelIndex: '2', amountIndex: '3' }
 		);
+		expect(datesWritten()).toEqual(['2026-01-05', '2026-01-13', '2026-01-09']);
+	});
+
+	/** Same direction: a column that proves its own order needs no answer either. */
+	it('imports an unanswered column that proves its own order', async () => {
+		expect.assertions(1);
+		await submit(PROVES_DAY_FIRST, true);
+		expect(datesWritten()).toEqual(['2026-06-24', '2026-02-01']);
 	});
 
 	/**
