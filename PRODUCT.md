@@ -58,7 +58,8 @@ the import screens, reduced motion honoured globally (`src/routes/layout.css`).
 
 ## Brand Commitments
 
-No logo or brand asset beyond the wordmark text. Screenshots use synthetic data only
+One mark, the folded ribbon, with lime-400 as the brand's only colour; its rules are `DESIGN.md`
+« Brand » and its files `docs/reference/brand-assets.md`. Screenshots use synthetic data only
 (`scripts/synthetic/`); no real statement, person or account appears in any published image.
 
 ## Stack

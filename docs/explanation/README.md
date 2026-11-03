@@ -23,6 +23,8 @@ design decision is not mistaken for a defect and undone.
   the level of every stored column.
 - **[What BudgetPilot deliberately does not do](./what-this-does-not-do.md)**:
   three capabilities other tools have that this one will not gain, and why.
+- **[Why the brand looks like this](./brand-identity.md)**: the folded ribbon,
+  the lime accent, the dark tile, and the candidates that were rejected.
 
 If you want the steps, go to [using BudgetPilot](../using/README.md). If you
 want the exact rules, go to [reference](../reference/README.md).

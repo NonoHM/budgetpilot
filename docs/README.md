@@ -128,6 +128,8 @@ Why the app behaves as it does, in [explanation](./explanation/README.md):
   what was tested, by whom, and what isn't covered.
 - [Why the log looks like this](./explanation/logging-design.md): one JSON
   object per line, no addresses or messages, and what the hash chain proves.
+- [Why the brand looks like this](./explanation/brand-identity.md): the folded
+  ribbon, the lime accent, and what was rejected.
 
 ---
 

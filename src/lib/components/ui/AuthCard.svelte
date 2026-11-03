@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
-	import { resolve } from '$app/paths';
+	import BrandLink from './BrandLink.svelte';
 
 	// Card shared by login / register / verify-totp / force-password-change:
 	// same template at all screen sizes (no lg: split), the narrow centered
@@ -10,9 +10,7 @@
 
 <main class="flex min-h-screen items-center justify-center bg-zinc-50 px-4 py-10 text-zinc-950">
 	<div class="w-full max-w-md rounded-3xl border border-zinc-200 bg-white p-6 sm:p-8">
-		<a class="text-2xl font-semibold tracking-tight text-zinc-950" href={resolve('/')}
-			>BudgetPilot</a
-		>
+		<BrandLink />
 		{#if title}
 			<div class="mt-8">
 				{@render title()}

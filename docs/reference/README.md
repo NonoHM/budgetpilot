@@ -59,6 +59,9 @@ wave has added to that referential, and names the gaps a plate flagged and did n
 referential itself is a Design deliverable and is not tracked here, so this index is how a later
 session finds a decision without going back to the plate that made it.
 
+Nor is **[brand assets](./brand-assets.md)**: every logo and icon file, its size, what reads it,
+and the one command that regenerates them all.
+
 ## How these pages are written
 
 Every number, label and limit is read out of the code before it is written

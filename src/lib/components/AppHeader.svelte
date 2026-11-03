@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { resolve } from '$app/paths';
 	import AppNav from './AppNav.svelte';
+	import BrandLink from './ui/BrandLink.svelte';
 	import AccountMenu from './AccountMenu.svelte';
 
 	let {
@@ -28,9 +28,7 @@
 		class="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-4 sm:px-6 lg:px-8 lg:py-5"
 	>
 		<div class="min-w-0">
-			<a class="text-2xl font-semibold tracking-tight text-zinc-950" href={resolve('/')}
-				>BudgetPilot</a
-			>
+			<BrandLink />
 		</div>
 		<div class="flex items-center gap-3">
 			<AppNav {active} />
