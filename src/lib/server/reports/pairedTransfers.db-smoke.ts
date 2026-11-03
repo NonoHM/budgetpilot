@@ -405,3 +405,37 @@ describe('recurring payments on /reports (pass 212-code-A open node)', () => {
 		expect(after.recurringPayments).toEqual([]);
 	});
 });
+
+describe('a pair whose leg is deleted (pass 212-note-1, unverified node)', () => {
+	// The link now moves figures, so a surviving leg still pointing at a deleted partner would stay
+	// out of the totals with nothing on screen to explain it. The schema says SetNull; this asserts
+	// each engine applies it, on a deleted transaction and on a deleted account.
+	it('counts the surviving leg again once its partner transaction is deleted', async () => {
+		const s = await seed();
+		await ordinaryMonth(s, '2026-03');
+		const [out, into] = await pairRows(s, '2026-03-10', '2026-03-12');
+		expect(await confirmTransferPair(s.userId, out, into)).toEqual({ ok: true });
+
+		await prisma.transaction.delete({ where: { id: out } });
+		const after = await report(s.userId, customMonth('2026-03', 31));
+
+		expect([after.incomeCents, after.expenseCents, after.linkedTransferCount]).toEqual([
+			350_000, 40_000, 0
+		]);
+	});
+
+	it('counts the surviving leg again once the account holding its partner is deleted', async () => {
+		const s = await seed();
+		await ordinaryMonth(s, '2026-03');
+		const [out, into] = await pairRows(s, '2026-03-10', '2026-03-12');
+		expect(await confirmTransferPair(s.userId, out, into)).toEqual({ ok: true });
+
+		await prisma.transaction.deleteMany({ where: { accountId: s.savings } });
+		await prisma.account.delete({ where: { id: s.savings } });
+		const after = await report(s.userId, customMonth('2026-03', 31));
+
+		expect([after.incomeCents, after.expenseCents, after.linkedTransferCount]).toEqual([
+			300_000, 90_000, 0
+		]);
+	});
+});
