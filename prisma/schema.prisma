@@ -638,7 +638,8 @@ model Transaction {
   /// The other leg of a confirmed transfer between two of the member's own accounts (#1189),
   /// stored on BOTH legs. Written only by `server/transactions/transferPairs.ts` and the restore,
   /// both through `pairRefusal` (domain/transferPair.ts). SetNull: deleting one leg unlinks the
-  /// other. Not a nature: pairing changes no nature and no total (CONTEXT.md, « Transfer pair »).
+  /// other. Not a nature: pairing changes no nature (CONTEXT.md, « Transfer pair »). Both legs leave
+  /// the income and expense figures (#212, `countedInIncomeAndExpense` in domain/allocation.ts).
   transferPairId    String?            @unique
   transferPair      Transaction?       @relation("TransferPair", fields: [transferPairId], references: [id], onDelete: SetNull)
   transferPairOf    Transaction?       @relation("TransferPair")

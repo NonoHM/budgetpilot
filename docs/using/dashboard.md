@@ -41,6 +41,10 @@ An English app in a French browser really does show `31/07/2026`.
 period. **Period balance** is the difference: income minus expenses, green
 when you took in more than you spent.
 
+A transfer you linked between two of your accounts counts in none of the
+three. See
+[linking a transfer between your accounts](./transactions.md#linking-a-transfer-between-your-accounts).
+
 The line under the title says how many transactions those figures cover, so
 a number that looks wrong can be checked against a count before you go
 looking for a bug.

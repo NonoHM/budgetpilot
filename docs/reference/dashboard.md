@@ -26,6 +26,11 @@ Cash-flow forecast, which are described at the bottom of this page.
 | Expenses       | Every outgoing amount in the period, added up |
 | Period balance | Income minus expenses                         |
 
+Income and Expenses leave out **linked transfers**, as on
+[reports](./reports.md#the-six-figures), and so does the **Real analysis** panel; a
+line under the three figures says so when the period holds one. Budget
+progress still counts them.
+
 Both totals are positive numbers, and the balance is their difference, so a
 month where you took in more than you spent shows a positive balance in
 green.
