@@ -5,6 +5,7 @@ import '../../../routes/layout.css';
 import TransferPairsBand from './TransferPairsBand.svelte';
 import * as m from '$lib/paraglide/messages';
 import { formatCents } from '$lib/domain/budget';
+import { MAX_PAIRS_PER_REQUEST } from '$lib/domain/transferPair';
 
 // #1189. Synthetic accounts and amounts; the band only draws what the server proposed.
 const PAIR = {
@@ -72,6 +73,28 @@ describe('TransferPairsBand.svelte', () => {
 	// Passes 1189-code-1A N19, 1B N16: the count is TRANSACTIONS (legs), under a title counting
 	// transfers, so the sentence names its own unit. Compared as the whole sentence, in French
 	// because the component suite pins that locale (vitest.client.setup.ts).
+	// Pass 1189-code-3 N13: one press links at most MAX_PAIRS_PER_REQUEST, and the button says so.
+	it('names on « Link all » what one press links, never more than the cap', async () => {
+		const many = Array.from({ length: MAX_PAIRS_PER_REQUEST + 1 }, (_, i) => ({
+			...PAIR,
+			outId: `out-${i}`,
+			inId: `in-${i}`
+		}));
+		await render(TransferPairsBand, {
+			pairs: many,
+			ambiguousCount: 0,
+			formatAmount: formatCents,
+			formatDate: iso
+		});
+		await expect
+			.element(
+				page.getByRole('button', {
+					name: m.transfer_pairs_link_all({ count: MAX_PAIRS_PER_REQUEST })
+				})
+			)
+			.toBeVisible();
+	});
+
 	it('says how many transactions were left out, naming the unit', async () => {
 		await render(TransferPairsBand, {
 			pairs: [PAIR],

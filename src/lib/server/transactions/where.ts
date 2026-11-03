@@ -268,7 +268,8 @@ export function normalizeIdList(value: string | null): string[] | null {
  * (pass 1189-code-2 F1).
  */
 export function parseTransferPairList(value: string): [string, string][] | null {
-	const segments = value.split(',');
+	// One past the cap is enough to refuse, so a large body never becomes that many strings.
+	const segments = value.split(',', MAX_PAIRS_PER_REQUEST + 1);
 	if (value.trim() === '' || segments.length > MAX_PAIRS_PER_REQUEST) return null;
 	const pairs: [string, string][] = [];
 	for (const segment of segments) {
