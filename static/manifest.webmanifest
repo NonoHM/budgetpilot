@@ -1,0 +1,19 @@
+{
+	"id": "/",
+	"name": "BudgetPilot",
+	"short_name": "BudgetPilot",
+	"start_url": "/",
+	"display": "standalone",
+	"background_color": "#fafafa",
+	"theme_color": "#fafafa",
+	"icons": [
+		{ "src": "/brand/icon-192.png", "type": "image/png", "sizes": "192x192" },
+		{ "src": "/brand/icon-512.png", "type": "image/png", "sizes": "512x512" },
+		{
+			"src": "/brand/icon-maskable-512.png",
+			"type": "image/png",
+			"sizes": "512x512",
+			"purpose": "maskable"
+		}
+	]
+}

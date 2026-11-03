@@ -4,7 +4,6 @@
 	import AppHeader from '$lib/components/AppHeader.svelte';
 	import OriginMismatchProbe from '$lib/components/OriginMismatchProbe.svelte';
 	import './layout.css';
-	import favicon from '$lib/assets/favicon.svg';
 	import * as m from '$lib/paraglide/messages';
 	import type { LayoutData } from './$types';
 
@@ -31,8 +30,6 @@
 	const chromeless = $derived(chrome === 'none');
 	const desktopChromeOnly = $derived(chrome === 'desktop');
 </script>
-
-<svelte:head><link rel="icon" href={favicon} /></svelte:head>
 
 <div
 	class="min-h-screen bg-zinc-50 text-zinc-950 {data.user && !chromeless && !desktopChromeOnly

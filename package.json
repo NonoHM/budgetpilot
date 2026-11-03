@@ -14,6 +14,7 @@
 		"db:generate": "node scripts/generate-prisma-clients.mjs",
 		"db:schemas": "node scripts/generate-prisma-schemas.mjs",
 		"db:schemas:check": "node scripts/generate-prisma-schemas.mjs --check",
+		"brand:build": "node scripts/brand/build.mjs",
 		"build": "vite build",
 		"preview": "vite preview",
 		"prepare": "(svelte-kit sync && npm run paraglide:compile) || echo ''",
