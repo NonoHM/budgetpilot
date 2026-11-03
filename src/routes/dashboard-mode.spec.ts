@@ -87,7 +87,7 @@ describe('mode dashboard', () => {
 	});
 
 	it('affiche une navigation simple sur les pages principales', () => {
-		expect.assertions(13);
+		expect.assertions(14);
 
 		const layout = readFileSync(resolve(root, 'src/routes/+layout.svelte'), 'utf8');
 		const dashboard = readFileSync(resolve(root, 'src/routes/+page.svelte'), 'utf8');
@@ -98,8 +98,11 @@ describe('mode dashboard', () => {
 		const importPage = readFileSync(resolve(root, 'src/routes/import/+page.svelte'), 'utf8');
 		const imports = readFileSync(resolve(root, 'src/routes/imports/+page.svelte'), 'utf8');
 		const header = readFileSync(resolve(root, 'src/lib/components/AppHeader.svelte'), 'utf8');
+		const brandLink = readFileSync(resolve(root, 'src/lib/components/ui/BrandLink.svelte'), 'utf8');
 
-		expect(header).toContain('BudgetPilot');
+		// The name lives in BrandLink, which the header renders.
+		expect(header).toContain('<BrandLink />');
+		expect(brandLink).toContain('/>BudgetPilot</a');
 		expect(header).toContain('<AppNav {active} />');
 		expect(layout).toContain(
 			"<AppHeader {active} userEmail={data.user.email} isAdmin={data.user.role === 'ADMIN'} />"
