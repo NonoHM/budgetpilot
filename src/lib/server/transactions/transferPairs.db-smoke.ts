@@ -176,8 +176,23 @@ describe('undoTransferPairs', () => {
 		const into = await row(s, s.savings, 'income');
 		await confirmTransferPair(s.userId, out, into);
 
-		expect(await undoTransferPairs(s.userId, [into])).toEqual({ ok: true, unlinked: 1 });
+		expect(await undoTransferPairs(s.userId, [[into, out]])).toEqual({ ok: true, unlinked: 1 });
 		expect([await linkOf(out), await linkOf(into)]).toEqual([null, null]);
+	});
+
+	// Pass 1189-code-2 F2: the Undo names the pair it created. A stale banner whose pair was undone
+	// elsewhere, and whose leg was then linked to another transaction, must leave that new pair.
+	it('leaves a newer pair alone when the pair named is no longer stored', async () => {
+		const s = await seed();
+		const a = await row(s, s.checking, 'expense');
+		const b = await row(s, s.savings, 'income');
+		const c = await row(s, s.savings, 'income', { date: '2026-03-11' });
+		await confirmTransferPair(s.userId, a, b);
+		await undoTransferPairs(s.userId, [[a, b]]);
+		await confirmTransferPair(s.userId, a, c);
+
+		expect(await undoTransferPairs(s.userId, [[a, b]])).toEqual({ ok: true, unlinked: 0 });
+		expect([await linkOf(a), await linkOf(c)]).toEqual([c, a]);
 	});
 
 	it("refuses another member's leg as not-found and leaves their pair intact", async () => {
@@ -187,7 +202,10 @@ describe('undoTransferPairs', () => {
 		const into = await row(theirs, theirs.savings, 'income');
 		await confirmTransferPair(theirs.userId, out, into);
 
-		expect(await undoTransferPairs(mine.userId, [out])).toEqual({ ok: false, reason: 'not-found' });
+		expect(await undoTransferPairs(mine.userId, [[out, into]])).toEqual({
+			ok: false,
+			reason: 'not-found'
+		});
 		expect([await linkOf(out), await linkOf(into)]).toEqual([into, out]);
 	});
 });
@@ -201,7 +219,7 @@ describe('undo against a partner that moved (passes 1189-code-1A N6, 1B N13)', (
 		const b = await row(s, s.savings, 'income');
 		const d = await row(s, s.checking, 'expense', { date: '2026-03-11' });
 		await confirmTransferPair(s.userId, a, b);
-		await undoTransferPairs(s.userId, [b]);
+		await undoTransferPairs(s.userId, [[a, b]]);
 		await confirmTransferPair(s.userId, d, b);
 
 		const cleared = await prisma.$transaction((tx) => clearReadPair(tx, s.userId, a, b));
@@ -210,20 +228,25 @@ describe('undo against a partner that moved (passes 1189-code-1A N6, 1B N13)', (
 		expect([await linkOf(a), await linkOf(b), await linkOf(d)]).toEqual([null, d, b]);
 	});
 
-	it('unlinks a whole list in one transaction, and a foreign id rolls the list back', async () => {
+	// Measures the refusal BEFORE any write (pass 1189-code-2 N13a): a list naming one foreign id
+	// unlinks none of the member's own pairs listed before it.
+	it('unlinks nothing when the list names a foreign id after an own pair', async () => {
 		const mine = await seed();
 		const theirs = await seed();
 		const out = await row(mine, mine.checking, 'expense');
 		const into = await row(mine, mine.savings, 'income');
-		const foreign = await row(theirs, theirs.checking, 'expense');
+		const foreignOut = await row(theirs, theirs.checking, 'expense');
+		const foreignIn = await row(theirs, theirs.savings, 'income');
 		await confirmTransferPair(mine.userId, out, into);
 
-		expect(await undoTransferPairs(mine.userId, [out, foreign])).toEqual({
-			ok: false,
-			reason: 'not-found'
-		});
+		expect(
+			await undoTransferPairs(mine.userId, [
+				[out, into],
+				[foreignOut, foreignIn]
+			])
+		).toEqual({ ok: false, reason: 'not-found' });
 		expect([await linkOf(out), await linkOf(into)]).toEqual([into, out]);
-		expect(await undoTransferPairs(mine.userId, [out])).toEqual({ ok: true, unlinked: 1 });
+		expect(await undoTransferPairs(mine.userId, [[out, into]])).toEqual({ ok: true, unlinked: 1 });
 		expect([await linkOf(out), await linkOf(into)]).toEqual([null, null]);
 	});
 });
@@ -272,10 +295,24 @@ describe('proposals and « Pair all »', () => {
 		await row(s, s.savings, 'income', { amountCents: 1200, date: '2026-03-11' });
 
 		expect(await pairAllProposed(s.userId, WINDOW_DAYS)).toEqual({
-			paired: 1,
-			pairedIds: [[into, out].sort()[0]]
+			pairs: [[into, out].sort()]
 		});
 		expect([await linkOf(out), await linkOf(into), await linkOf(twin)]).toEqual([into, out, null]);
+	});
+
+	// Pass 1189-code-2 F1: one press links at most MAX_PAIRS_PER_REQUEST pairs, so its Undo always
+	// fits the list the unlink action accepts. Measured with the cap lowered, not with 251 pairs.
+	it('links at most the cap per press, leaving the rest proposed', async () => {
+		const s = await seed();
+		for (let i = 0; i < 3; i += 1) {
+			await row(s, s.checking, 'expense', { amountCents: 100 + i });
+			await row(s, s.savings, 'income', { amountCents: 100 + i });
+		}
+
+		const first = await pairAllProposed(s.userId, WINDOW_DAYS, 2);
+		const left = await listTransferProposals(s.userId, WINDOW_DAYS);
+
+		expect([first.pairs.length, left.proposed.length]).toEqual([2, 1]);
 	});
 });
 

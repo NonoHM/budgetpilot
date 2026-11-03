@@ -1525,8 +1525,8 @@
 					<form method="POST" action="?/unlinkTransferPair" use:enhance class="-my-2.5 shrink-0">
 						<input
 							type="hidden"
-							name="transactionIds"
-							value={form?.transferPairLinked?.join(',') ?? ''}
+							name="pairs"
+							value={form?.transferPairLinked?.map((pair) => pair.join(':')).join(',') ?? ''}
 						/>
 						<button
 							type="submit"
@@ -1567,7 +1567,11 @@
 				</a>
 			</p>
 			<form method="POST" action="?/unlinkTransferPair" use:enhance>
-				<input type="hidden" name="transactionIds" value={data.selectedTransaction?.id ?? ''} />
+				<input
+					type="hidden"
+					name="pairs"
+					value={data.selectedTransaction ? `${data.selectedTransaction.id}:${partner.id}` : ''}
+				/>
 				<Button type="submit" variant="secondary" size="field">{m.transfer_pairs_unlink()}</Button>
 			</form>
 		</div>

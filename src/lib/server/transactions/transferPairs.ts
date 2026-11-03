@@ -1,5 +1,6 @@
 import { prisma } from '$lib/server/db';
 import {
+	MAX_PAIRS_PER_REQUEST,
 	pairRefusal,
 	proposeTransferPairs,
 	type PairLeg,
@@ -149,28 +150,25 @@ export async function clearReadPair(
 }
 
 /**
- * The « Undo » after « Link all », and « Unlink »: every id in one transaction, so a list
- * holding a missing or foreign id unlinks nothing rather than the ids before it. An own id that is
- * no longer paired is skipped, not refused: the undo of a pair already undone elsewhere.
+ * The « Undo » after a link, and « Unlink »: the PAIRS the page names, in one transaction. A list
+ * naming a missing or foreign id unlinks nothing rather than the pairs before it, and each pair is
+ * cleared only if it is still the pair stored, so a stale Undo cannot cut a pair it never created
+ * (pass 1189-code-2 F2). A pair already undone elsewhere is skipped and not counted.
  */
 export async function undoTransferPairs(
 	userId: string,
-	ids: readonly string[]
+	pairs: readonly (readonly [string, string])[]
 ): Promise<{ ok: true; unlinked: number } | { ok: false; reason: 'not-found' }> {
+	const ids = new Set(pairs.flat());
 	try {
 		const unlinked = await prisma.$transaction(async (tx) => {
-			const legs = await tx.transaction.findMany({
-				where: { userId, id: { in: [...ids] } },
-				select: { id: true, transferPairId: true }
-			});
-			if (legs.length !== new Set(ids).size) throw new Refused('not-found');
-			let pairs = 0;
-			for (const leg of legs) {
-				if (leg.transferPairId && (await clearReadPair(tx, userId, leg.id, leg.transferPairId))) {
-					pairs += 1;
-				}
+			const owned = await tx.transaction.count({ where: { userId, id: { in: [...ids] } } });
+			if (owned !== ids.size) throw new Refused('not-found');
+			let cleared = 0;
+			for (const [a, b] of pairs) {
+				if (await clearReadPair(tx, userId, a, b)) cleared += 1;
 			}
-			return pairs;
+			return cleared;
 		});
 		return { ok: true, unlinked };
 	} catch (error) {
@@ -269,12 +267,15 @@ export async function loadTransferPartner(
  */
 export async function pairAllProposed(
 	userId: string,
-	windowDays: number = transferPairWindowDays()
-): Promise<{ paired: number; pairedIds: string[] }> {
+	windowDays: number = transferPairWindowDays(),
+	cap: number = MAX_PAIRS_PER_REQUEST
+): Promise<{ pairs: [string, string][] }> {
 	const { proposed } = await listTransferProposals(userId, windowDays);
-	const pairedIds: string[] = [];
-	for (const [aId, bId] of proposed) {
-		if ((await confirmTransferPair(userId, aId, bId)).ok) pairedIds.push(aId);
+	const pairs: [string, string][] = [];
+	// At most `cap` per press, so the Undo it offers fits the list the unlink action accepts; the
+	// rest stay proposed for the next press (pass 1189-code-2 F1).
+	for (const [aId, bId] of proposed.slice(0, cap)) {
+		if ((await confirmTransferPair(userId, aId, bId)).ok) pairs.push([aId, bId]);
 	}
-	return { paired: pairedIds.length, pairedIds };
+	return { pairs };
 }

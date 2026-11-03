@@ -65,6 +65,13 @@ export interface TransferProposals {
 	none: string[];
 }
 
+/**
+ * How many pairs one request may link (« Link all ») or unlink (« Undo », « Unlink »). The same
+ * figure bounds both so a « Link all » press always produces an Undo the unlink action accepts.
+ * 250 is `MAX_TRANSACTION_ID_FILTER`'s, the existing cap on ids in one request.
+ */
+export const MAX_PAIRS_PER_REQUEST = 250;
+
 const DAY_MS = 86_400_000;
 
 function dayNumber(isoDay: string): number {

@@ -3,6 +3,7 @@ import type { Prisma } from '../database/types.ts';
 import { parseCustomDateRange } from '$lib/server/date-range';
 import { computeNameKey } from '$lib/server/naming/nameKey';
 import { UNCLASSIFIED_CATEGORY } from '$lib/domain/categories';
+import { MAX_PAIRS_PER_REQUEST } from '$lib/domain/transferPair';
 import { prisma } from '$lib/server/db';
 
 export type TransactionFilter = 'all' | 'income' | 'expense' | 'classify';
@@ -258,6 +259,25 @@ export function normalizeIdList(value: string | null): string[] | null {
 		if (id) ids.add(id);
 	}
 	return [...ids];
+}
+
+/**
+ * The pairs an Undo or an Unlink posts (#1189), as `a:b,c:d`. Refused WHOLE, as `null`, past
+ * `MAX_PAIRS_PER_REQUEST` or on any segment that is not two distinct ids: trimming the list the
+ * way `normalizeIdList` does would let the page confirm an undo the database only half made
+ * (pass 1189-code-2 F1).
+ */
+export function parseTransferPairList(value: string): [string, string][] | null {
+	const segments = value.split(',');
+	if (value.trim() === '' || segments.length > MAX_PAIRS_PER_REQUEST) return null;
+	const pairs: [string, string][] = [];
+	for (const segment of segments) {
+		const parts = segment.split(':');
+		const [a, b] = parts.map((part) => normalizeId(part));
+		if (parts.length !== 2 || !a || !b || a === b) return null;
+		pairs.push([a, b]);
+	}
+	return pairs;
 }
 
 export function parseTransactionFilter(value: string | null): TransactionFilter {

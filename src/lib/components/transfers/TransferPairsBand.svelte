@@ -3,6 +3,7 @@
 	import Button from '$lib/components/Button.svelte';
 	import Tooltip from '$lib/components/ui/Tooltip.svelte';
 	import { cardBase } from '$lib/styles';
+	import { MAX_PAIRS_PER_REQUEST } from '$lib/domain/transferPair';
 	import * as m from '$lib/paraglide/messages';
 
 	// #1189: the proposals the server computed, each from its outgoing leg to its incoming one. The
@@ -157,7 +158,8 @@
 					loading={pending === 'all'}
 					disabled={pending !== null}
 				>
-					{m.transfer_pairs_link_all({ count: pairs.length })}
+					<!-- What one press links: the server stops at the cap, the rest stay proposed. -->
+					{m.transfer_pairs_link_all({ count: Math.min(pairs.length, MAX_PAIRS_PER_REQUEST) })}
 				</Button>
 			</form>
 		{/if}

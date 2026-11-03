@@ -52,6 +52,7 @@ import {
 	buildTransactionWhere,
 	normalizeId,
 	normalizeIdList,
+	parseTransferPairList,
 	resolveUncategorizedCategoryId
 } from '$lib/server/transactions/where';
 import { resolveTransactionScope } from '$lib/server/transactions/scope';
@@ -1025,24 +1026,24 @@ export const actions: Actions = {
 			return fail(404, { transferPairError: m.transactions_error_transaction_not_found() });
 		}
 		if (!result.ok) return fail(409, { transferPairError: m.transfer_pairs_error_refused() });
-		return { transferPairLinked: [outId] };
+		return { transferPairLinked: [[outId, inId] as [string, string]] };
 	},
 
 	linkAllTransferPairs: async ({ locals }) => {
 		const user = requireUser(locals.user);
-		const { pairedIds } = await pairAllProposed(user.id);
-		return { transferPairLinked: pairedIds };
+		const { pairs } = await pairAllProposed(user.id);
+		return { transferPairLinked: pairs };
 	},
 
 	unlinkTransferPair: async ({ locals, request }) => {
 		const user = requireUser(locals.user);
 		const formData = await request.formData();
-		// Comma-separated, bounded by `normalizeIdList`'s own segment cap.
-		const ids = normalizeIdList(getFormValue(formData, 'transactionIds'));
-		if (!ids || ids.length === 0) {
+		// The pairs the page names, `a:b,c:d`, refused whole rather than trimmed.
+		const pairs = parseTransferPairList(getFormValue(formData, 'pairs'));
+		if (!pairs) {
 			return fail(400, { transferPairError: m.transactions_error_invalid_transaction() });
 		}
-		const result = await undoTransferPairs(user.id, ids);
+		const result = await undoTransferPairs(user.id, pairs);
 		if (!result.ok) {
 			// authz-exempt: logged by undoTransferPairs, the function that ran the userId-scoped lookup
 			return fail(404, { transferPairError: m.transactions_error_transaction_not_found() });
