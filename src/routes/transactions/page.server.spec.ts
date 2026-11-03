@@ -1073,7 +1073,9 @@ describe('/transactions load', () => {
 			where: { id: 'transaction-1', userId: testUser.id, splits: { none: {} } },
 			data: {
 				manualCategory: 'Alimentation',
-				manualCategoryKey: computeNameKey('Alimentation')
+				manualCategoryKey: computeNameKey('Alimentation'),
+				manualCategorySource: 'member',
+				manualCategorySourceKey: computeNameKey('Alimentation')
 			}
 		});
 		expect(db.transactions[0].manualCategory).toBe('Alimentation');
@@ -1092,7 +1094,9 @@ describe('/transactions load', () => {
 			where: { id: 'other-user-transaction', userId: testUser.id, splits: { none: {} } },
 			data: {
 				manualCategory: 'Alimentation',
-				manualCategoryKey: computeNameKey('Alimentation')
+				manualCategoryKey: computeNameKey('Alimentation'),
+				manualCategorySource: 'member',
+				manualCategorySourceKey: computeNameKey('Alimentation')
 			}
 		});
 	});
@@ -1120,7 +1124,14 @@ describe('/transactions load', () => {
 		});
 
 		expect(db.prisma.transaction.updateMany).toHaveBeenCalledWith(
-			expect.objectContaining({ data: { manualCategory: null, manualCategoryKey: null } })
+			expect.objectContaining({
+				data: {
+					manualCategory: null,
+					manualCategoryKey: null,
+					manualCategorySource: null,
+					manualCategorySourceKey: null
+				}
+			})
 		);
 	});
 
@@ -1575,6 +1586,8 @@ describe('acceptSuggestion', () => {
 			data: {
 				manualCategory: 'Alimentation',
 				manualCategoryKey: computeNameKey('Alimentation'),
+				manualCategorySource: 'acceptedSuggestion',
+				manualCategorySourceKey: computeNameKey('Alimentation'),
 				natureManual: null
 			}
 		});

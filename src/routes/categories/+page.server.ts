@@ -365,7 +365,7 @@ export const actions: Actions = {
 			// the "Courses" being deleted and must not survive it.
 			prisma.transaction.updateMany({
 				where: { userId: user.id, manualCategoryKey: deletedKey },
-				data: manualCategoryUpdate(null)
+				data: manualCategoryUpdate(null, null)
 			}),
 			prisma.categoryNatureMapping.deleteMany({
 				where: { userId: user.id, categoryNameKey: deletedKey }

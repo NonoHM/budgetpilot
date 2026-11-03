@@ -142,6 +142,8 @@ const NOT_CARRIED: Record<string, string> = {
 	'Tag.createdAt': 'restore time, see #1178',
 	'TransactionSplit.createdAt': 'restore time, see #1178',
 	'Transaction.manualCategoryKey': 'recomputed by the restore through manualCategoryUpdate',
+	'Transaction.manualCategorySourceKey':
+		'recomputed by the restore through manualCategoryUpdate; the file carries the author as categorySetBy reads it',
 	'Transaction.dedupeKeyHash':
 		'recomputed by the restore, because the key names the new account id',
 	'Transaction.createdAt': 'restore time, see #1178',

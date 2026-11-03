@@ -491,8 +491,11 @@ export async function restoreBackup(
 				source: transaction.source,
 				notes: transaction.notes,
 				bankOperationType: transaction.bankOperationType,
+				// The author is the file's claim (#1013), absent on a file written before it existed,
+				// which reads unknown. A member's own file: what it can claim is bounded by the schema.
 				...manualCategoryUpdate(
-					transaction.manualCategory ? normalizeCategoryName(transaction.manualCategory) : null
+					transaction.manualCategory ? normalizeCategoryName(transaction.manualCategory) : null,
+					transaction.manualCategorySource ?? null
 				),
 				natureManual: transaction.natureManual,
 				// Recomputed here, never read from the file: the key names an account this restore

@@ -358,7 +358,7 @@ export async function applyCategoryRules(
 				...(targetNature ? { natureManual: null } : {})
 			},
 			data: {
-				...manualCategoryUpdate(targetCategory),
+				...manualCategoryUpdate(targetCategory, 'rule'),
 				...(targetNature ? { natureManual: targetNature } : {})
 			}
 		});

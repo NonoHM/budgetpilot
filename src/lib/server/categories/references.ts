@@ -76,6 +76,19 @@ export async function renameCategoryReferences(
 	const { userId, oldKey, newName, newKey } = params;
 
 	// The three keyed tables: matched on the key, so every spelling follows.
+	//
+	// Who set a pin follows its rename (#1013), but only where the author was written for this
+	// key: an author left behind for another pin must stay unknown, not be revived by the move.
+	// Both first, while `manualCategoryKey` still reads the old key. A stale author is FORGOTTEN
+	// rather than left behind, because the rename may land the pin on the very key it names.
+	await tx.transaction.updateMany({
+		where: { userId, manualCategoryKey: oldKey, manualCategorySourceKey: { not: oldKey } },
+		data: { manualCategorySource: null, manualCategorySourceKey: null }
+	});
+	await tx.transaction.updateMany({
+		where: { userId, manualCategoryKey: oldKey, manualCategorySourceKey: oldKey },
+		data: { manualCategorySourceKey: newKey }
+	});
 	await tx.transaction.updateMany({
 		where: { userId, manualCategoryKey: oldKey },
 		data: { manualCategory: newName, manualCategoryKey: newKey }
