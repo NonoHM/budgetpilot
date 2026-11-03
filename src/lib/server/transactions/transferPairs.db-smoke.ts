@@ -231,7 +231,10 @@ describe('proposals and « Pair all »', () => {
 		await row(s, s.savings, 'income', { amountCents: 1200 });
 		await row(s, s.savings, 'income', { amountCents: 1200, date: '2026-03-11' });
 
-		expect(await pairAllProposed(s.userId, WINDOW_DAYS)).toEqual({ paired: 1 });
+		expect(await pairAllProposed(s.userId, WINDOW_DAYS)).toEqual({
+			paired: 1,
+			pairedIds: [[into, out].sort()[0]]
+		});
 		expect([await linkOf(out), await linkOf(into), await linkOf(twin)]).toEqual([into, out, null]);
 	});
 });

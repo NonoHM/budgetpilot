@@ -26,6 +26,7 @@
 	import Combobox from '$lib/components/ui/Combobox.svelte';
 	import ListCard from '$lib/components/ui/ListCard.svelte';
 	import SplitBadge from '$lib/components/splits/SplitBadge.svelte';
+	import TransferPairsBand from '$lib/components/transfers/TransferPairsBand.svelte';
 	import Avatar from '$lib/components/Avatar.svelte';
 	import TapLink from '$lib/components/ui/TapLink.svelte';
 	import TransactionProposalCard from '$lib/components/TransactionProposalCard.svelte';
@@ -1511,6 +1512,76 @@
 	{/if}
 {/snippet}
 
+{#snippet transferPairBanner()}
+	<!-- #1189: a link is reversible, so it is confirmed by an undo rather than by a dialog
+	     (PRODUCT.md, principle 1). The undo stays until dismissed, like the bulk-tag one above. -->
+	{#if form?.transferPairLinked && form.transferPairLinked.length > 0}
+		{#key form}
+			<AlertBanner variant="success" autoDismissMs={Infinity}>
+				{form.transferPairLinked.length === 1
+					? m.transfer_pairs_linked_one()
+					: m.transfer_pairs_linked_many({ count: form.transferPairLinked.length })}
+				{#snippet action()}
+					<form method="POST" action="?/unlinkTransferPair" use:enhance class="-my-2.5 shrink-0">
+						<input
+							type="hidden"
+							name="transactionIds"
+							value={form?.transferPairLinked?.join(',') ?? ''}
+						/>
+						<button
+							type="submit"
+							class="inline-flex min-h-11 items-center rounded font-semibold underline underline-offset-2 focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:outline-none"
+						>
+							{m.transfer_pairs_undo()}
+						</button>
+					</form>
+				{/snippet}
+			</AlertBanner>
+		{/key}
+	{:else if form?.transferPairUnlinked}
+		{#key form}
+			<AlertBanner variant="success">{m.transfer_pairs_unlinked()}</AlertBanner>
+		{/key}
+	{:else if form?.transferPairError}
+		{#key form}
+			<AlertBanner variant="error">{form.transferPairError}</AlertBanner>
+		{/key}
+	{/if}
+{/snippet}
+
+{#snippet linkedTransferBlock()}
+	{#if data.transferPartner}
+		{@const partner = data.transferPartner}
+		<div class="flex flex-col gap-2 rounded-xl border border-zinc-200 px-4 py-3">
+			<h3 class="m-0 text-sm font-semibold text-zinc-900">{m.transfer_pairs_panel_title()}</h3>
+			<p class="text-sm text-zinc-700">
+				<a
+					href={resolve(buildSelectedHref(partner.id))}
+					class="underline underline-offset-2 focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:outline-none"
+				>
+					{m.transfer_pairs_panel_partner({
+						amount: formatCents(partner.amountCents),
+						account: partner.accountName,
+						date: formatDate(partner.date)
+					})}
+				</a>
+			</p>
+			<form method="POST" action="?/unlinkTransferPair" use:enhance>
+				<input type="hidden" name="transactionIds" value={data.selectedTransaction?.id ?? ''} />
+				<Button type="submit" variant="secondary" size="field">{m.transfer_pairs_unlink()}</Button>
+			</form>
+		</div>
+	{/if}
+{/snippet}
+
+{#snippet linkedBadge(account: string | null)}
+	{#if account}
+		<Badge tone="neutral" bordered shape="rounded" class="shrink-0"
+			>{m.transfer_pairs_badge({ account })}</Badge
+		>
+	{/if}
+{/snippet}
+
 {#snippet bulkTagBanner()}
 	<!-- Placement is load-bearing, not cosmetic. The design declines to move focus after a bulk
 	     apply, and justifies that with where this banner sits: "« Annuler » est le tout premier
@@ -1835,6 +1906,15 @@
 				</div>
 			</div>
 		{/if}
+
+		<!-- #1189: proposed transfer pairs, one composition at both widths. -->
+		{@render transferPairBanner()}
+		<TransferPairsBand
+			pairs={data.transferProposals.pairs}
+			ambiguousCount={data.transferProposals.ambiguousCount}
+			formatAmount={formatCents}
+			{formatDate}
+		/>
 
 		<!-- ============ BARRE DE FILTRES — DESKTOP ============ -->
 		<div class="hidden space-y-3 rounded-lg border border-zinc-200 bg-white p-4 lg:block">
@@ -2946,6 +3026,7 @@
 																	interactive
 																/>
 															{/if}
+															{@render linkedBadge(tx.linkedAccount)}
 														</div>
 														<p class="mt-0.5 ml-3.5 truncate text-xs text-zinc-500">
 															{formatNatureLabel(rowNature(tx))}
@@ -3389,6 +3470,8 @@
 									bind:dirty={tagsDirtyDesktop}
 								/>
 
+								{@render linkedTransferBlock()}
+
 								<!-- Détails bancaires -->
 								<div class="rounded-xl border border-zinc-200">
 									<h3 class="m-0">
@@ -3814,6 +3897,7 @@
 														dominantCategory={categoryDisplayName(rowCategory(tx))}
 													/>
 												{/if}
+												{@render linkedBadge(tx.linkedAccount)}
 											</div>
 										</div>
 										<div class="shrink-0 text-right">
@@ -4300,6 +4384,8 @@
 				error={form?.tagsError}
 				bind:dirty={tagsDirtyMobile}
 			/>
+
+			{@render linkedTransferBlock()}
 
 			<!-- Accordéons -->
 			<div class="flex flex-col divide-y divide-zinc-100 border-t border-zinc-100">

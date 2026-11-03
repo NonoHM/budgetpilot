@@ -254,3 +254,23 @@ lifetime as computed when it was issued, not to `expiresAt`.
 > design it replaced, a verdict recomputed from `lastSeenAt` and the setting in force, revived an
 > ended session when the timeout was raised or the app rolled back, because nothing stored the
 > moment it had ended (the contradiction passes on #221).
+
+## Transfer pair, and the transfer nature
+
+Two things the app calls a transfer.
+
+- **A transfer pair** is a stored LINK between two transactions of one member, on two different
+  accounts, of opposite direction and equal amount (`Transaction.transferPairId`, written on both
+  legs, #1189). It says the two rows are one movement of the member's own money. The member
+  confirms it; the app only proposes it. The screen calls it « Linked to <account> ».
+- **The transfer nature** is a classification of ONE transaction (`TransactionNature.transfer`),
+  set by its category or by hand, which decides which bucket the row's money falls in.
+
+Pairing changes no nature, and a transfer nature implies no pair. A pair's two legs can carry
+different natures, which is the reason the link exists.
+
+> **What confusing them would cost.** An outgoing « VIR SEPA LIVRET A » matches the default rule to
+> the savings category, whose nature is `transfer`, while the incoming leg on the savings account
+> matches no rule and falls back by sign to `income`. Reading « transfer » off the nature, and
+> dropping only that leg from the totals, overstates the balance and the savings rate by the
+> transfer amount: a figure that is false and looks right (#1189, #212).

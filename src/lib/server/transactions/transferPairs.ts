@@ -8,7 +8,10 @@ import {
 } from '$lib/domain/transferPair';
 import { readIntegerSetting } from '$lib/server/env/readSetting';
 import { logReferenceRefused } from '$lib/server/logging/authz';
+import { displayAccountName } from '$lib/server/accounts/projection';
 import { resolveTransactionType } from './totals';
+
+const ACCOUNT_NAME_SELECT = { name: true, nameKey: true, source: true, institution: true } as const;
 
 /**
  * The only writer of `Transaction.transferPairId` apart from the restore and the three paths that
@@ -153,6 +156,76 @@ export async function listTransferProposals(
 	return proposeTransferPairs(rows.map(toLeg), windowDays);
 }
 
+export interface ProposedPairView {
+	outId: string;
+	inId: string;
+	fromAccount: string;
+	toAccount: string;
+	outDate: string;
+	inDate: string;
+	/** The magnitude, the same on both legs. */
+	amountCents: number;
+}
+
+/**
+ * What the transactions page draws: each proposed pair from its outgoing leg to its incoming one,
+ * and how many legs were left out because a match is not unique (the server knows why, so the
+ * page says it rather than leaving the reader to wonder, AGENTS.md « Writing a sentence »).
+ */
+export async function loadTransferProposalView(
+	userId: string,
+	windowDays: number = transferPairWindowDays()
+): Promise<{ pairs: ProposedPairView[]; ambiguousCount: number }> {
+	const rows = await prisma.transaction.findMany({
+		where: { userId, transferPairId: null, splits: { none: {} } },
+		select: { ...LEG_SELECT, account: { select: ACCOUNT_NAME_SELECT } }
+	});
+	const { proposed, ambiguous } = proposeTransferPairs(rows.map(toLeg), windowDays);
+	const byId = new Map(rows.map((row) => [row.id, row]));
+	const pairs = proposed.map(([a, b]) => {
+		const first = byId.get(a)!;
+		const second = byId.get(b)!;
+		const [out, into] =
+			resolveTransactionType(first) === 'expense' ? [first, second] : [second, first];
+		return {
+			outId: out.id,
+			inId: into.id,
+			fromAccount: displayAccountName(out.account),
+			toAccount: displayAccountName(into.account),
+			outDate: out.date.toISOString().slice(0, 10),
+			inDate: into.date.toISOString().slice(0, 10),
+			amountCents: Math.abs(out.amountCents)
+		};
+	});
+	return { pairs, ambiguousCount: ambiguous.length };
+}
+
+/** The other leg of a paired transaction, as the detail panel names it. */
+export async function loadTransferPartner(
+	userId: string,
+	transferPairId: string | null
+): Promise<{ id: string; accountName: string; date: string; amountCents: number } | null> {
+	if (!transferPairId) return null;
+	const partner = await prisma.transaction.findFirst({
+		where: { id: transferPairId, userId },
+		select: {
+			id: true,
+			date: true,
+			amountCents: true,
+			type: true,
+			account: { select: ACCOUNT_NAME_SELECT }
+		}
+	});
+	if (!partner) return null;
+	const kind = resolveTransactionType(partner);
+	return {
+		id: partner.id,
+		accountName: displayAccountName(partner.account),
+		date: partner.date.toISOString().slice(0, 10),
+		amountCents: kind === 'expense' ? -Math.abs(partner.amountCents) : Math.abs(partner.amountCents)
+	};
+}
+
 /**
  * « Pair all »: the proposals are RECOMPUTED here, never taken from the client, and each pair is
  * confirmed in its own transaction through the same rule as a single click. A pair refused because
@@ -161,11 +234,11 @@ export async function listTransferProposals(
 export async function pairAllProposed(
 	userId: string,
 	windowDays: number = transferPairWindowDays()
-): Promise<{ paired: number }> {
+): Promise<{ paired: number; pairedIds: string[] }> {
 	const { proposed } = await listTransferProposals(userId, windowDays);
-	let paired = 0;
+	const pairedIds: string[] = [];
 	for (const [aId, bId] of proposed) {
-		if ((await confirmTransferPair(userId, aId, bId)).ok) paired += 1;
+		if ((await confirmTransferPair(userId, aId, bId)).ok) pairedIds.push(aId);
 	}
-	return { paired };
+	return { paired: pairedIds.length, pairedIds };
 }

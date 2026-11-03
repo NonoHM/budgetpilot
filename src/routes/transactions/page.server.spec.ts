@@ -582,6 +582,16 @@ vi.mock('$lib/server/logging', async (importOriginal) => ({
 const setTransactionTagsMock = vi.hoisted(() => vi.fn());
 vi.mock('$lib/server/tags/service', () => ({ setTransactionTags: setTransactionTagsMock }));
 
+// #1189: the proposals are their own read, measured against a real engine in
+// transferPairs.db-smoke.ts. Kept out of this fake so `findMany.mock.calls.at(-1)` stays the list.
+vi.mock('$lib/server/transactions/transferPairs', () => ({
+	loadTransferProposalView: vi.fn(async () => ({ pairs: [], ambiguousCount: 0 })),
+	loadTransferPartner: vi.fn(async () => null),
+	confirmTransferPair: vi.fn(),
+	pairAllProposed: vi.fn(),
+	undoTransferPair: vi.fn()
+}));
+
 const { applyTagToFilteredSetMock, undoBulkTagMock } = vi.hoisted(() => ({
 	applyTagToFilteredSetMock: vi.fn(),
 	undoBulkTagMock: vi.fn()
