@@ -178,3 +178,144 @@ describe('a headerless file whose line 1 repeats the date', () => {
 		]);
 	});
 });
+
+/**
+ * #1202: EVERY ROLE IS READ AT ITS DESIGNATED INDEX. A positional mapping used to resolve each role
+ * to its line 1 cell TEXT, and the row record was keyed by that text, so when line 1 repeats a
+ * value the LAST equal column was stored. Each case puts the designated column FIRST of two equal
+ * ones on line 1, so « the designated index » and « the last equal column » store different
+ * values, and the assertion compares the whole stored column.
+ */
+function parseByPosition(content: string, indices: Partial<UntrustedColumnMapping>) {
+	return parseCsvTransactionRows(parseRows(content), {
+		profile: 'mapped',
+		columnMapping: { ...BY_POSITION, ...indices },
+		hasHeaderRow: false,
+		categorizationRules: []
+	});
+}
+
+describe('a headerless file whose line 1 repeats a value (#1202)', () => {
+	it('stores the designated date column, with the order that column proves', () => {
+		expect.assertions(2);
+		// Column 0 proves day-first (15/06); column 1 reads both ways and equals column 0 on line 1.
+		const result = parseByPosition(
+			['05/06/2026;05/06/2026;CB A;-10,00', '15/06/2026;06/06/2026;CB B;-20,00'].join('\n'),
+			{ dateIndex: 0, labelIndex: 2, amountIndex: 3, columnCount: 4 }
+		);
+		expect(result.invalidRows.map((row) => row.fact.code)).toEqual([]);
+		expect(result.transactions.map((transaction) => transaction.date)).toEqual([
+			'2026-06-05',
+			'2026-06-15'
+		]);
+	});
+
+	it('stores the designated amount column, not an equal balance after it', () => {
+		expect.assertions(2);
+		const result = parseByPosition(
+			['2026-06-01;CB A;-10.00;-10.00', '2026-06-02;CB B;-20.00;-30.00'].join('\n'),
+			{ dateIndex: 0, labelIndex: 1, amountIndex: 2, columnCount: 4 }
+		);
+		expect(result.invalidRows.map((row) => row.fact.code)).toEqual([]);
+		expect(result.transactions.map((transaction) => transaction.amountCents)).toEqual([
+			-1000, -2000
+		]);
+	});
+
+	it('stores the designated label column, not an equal memo after it', () => {
+		expect.assertions(2);
+		const result = parseByPosition(
+			['2026-06-01;CB A;CB A;-10.00', '2026-06-02;CB B;MEMO B;-20.00'].join('\n'),
+			{ dateIndex: 0, labelIndex: 1, amountIndex: 3, columnCount: 4 }
+		);
+		expect(result.invalidRows.map((row) => row.fact.code)).toEqual([]);
+		expect(result.transactions.map((transaction) => transaction.label)).toEqual(['CB A', 'CB B']);
+	});
+
+	it('stores the designated category column, not an equal column after it', () => {
+		expect.assertions(2);
+		const result = parseByPosition(
+			['2026-06-01;CB A;-10.00;Courses;Courses', '2026-06-02;CB B;-20.00;Loisirs;Autre'].join('\n'),
+			{ dateIndex: 0, labelIndex: 1, amountIndex: 2, categoryIndex: 3, columnCount: 5 }
+		);
+		expect(result.invalidRows.map((row) => row.fact.code)).toEqual([]);
+		expect(result.transactions.map((transaction) => transaction.category)).toEqual([
+			'Courses',
+			'Loisirs'
+		]);
+	});
+
+	it('runs the separate-sign guard on the designated amount column (#320)', () => {
+		expect.assertions(1);
+		// Column 3 is the designated amount, unsigned, with its direction in column 4. Column 2
+		// equals it on line 1 and is signed below, so a guard reading column 2 sees a signed amount
+		// and lets every row through as income.
+		const result = parseByPosition(
+			[
+				'2026-06-01;CB A;5.00;5.00;D',
+				'2026-06-02;CB B;-3.00;7.00;C',
+				'2026-06-03;CB C;-1.00;8.00;D'
+			].join('\n'),
+			{ dateIndex: 0, labelIndex: 1, amountIndex: 3, columnCount: 5 }
+		);
+		expect(result.invalidRows.map((row) => row.fact.code)).toEqual([
+			'amount-sign-in-separate-column'
+		]);
+	});
+});
+
+/**
+ * #1202's pass on the design note, finding 1: the index keys are for a file WITHOUT a header row,
+ * not for a positional mapping. A restored backup can apply a positional mapping to a file that has
+ * one, and its `Devise` column still declares the currency. Separates « keyed by the member's
+ * header answer » from « keyed by the mapping's kind », which loses the declaration.
+ */
+describe('a positional mapping over a file with a header row', () => {
+	it('still reads the currency the header row declares', () => {
+		expect.assertions(1);
+		const result = parseCsvTransactionRows(
+			parseRows('Date;Libellé;Montant;Devise\n2026-06-01;CB A;-10.00;USD'),
+			{
+				profile: 'mapped',
+				columnMapping: { ...BY_POSITION, columnCount: 4 },
+				hasHeaderRow: true,
+				categorizationRules: []
+			}
+		);
+		expect(result.invalidRows.map((row) => row.fact.code)).toEqual(['unsupported-currency']);
+	});
+});
+
+/**
+ * #1202's pass, finding 2: the separate-sign guard (#320) skipped line 1 on a headerless file, so a
+ * direction column whose only « C » sits on line 1 read as one token and every row was stored as
+ * income. Separates « line 1 is data » from « line 1 is skipped as a header ».
+ */
+describe('the separate-sign guard on a headerless file', () => {
+	it('counts line 1 as evidence of a direction', () => {
+		expect.assertions(1);
+		const result = parseByPosition(
+			['2026-06-01;CB A;5.00;C', '2026-06-02;CB B;3.00;D', '2026-06-03;CB C;1.00;D'].join('\n'),
+			{ dateIndex: 0, labelIndex: 1, amountIndex: 2, columnCount: 4 }
+		);
+		expect(result.invalidRows.map((row) => row.fact.code)).toEqual([
+			'amount-sign-in-separate-column'
+		]);
+	});
+});
+
+/**
+ * The same finding for the split-amount guard (#343): it skipped line 1 too, so a headerless file
+ * whose only empty amount cell is on line 1 read as « the amount column is never empty » and the
+ * credit on line 1 was refused alone. Separates « line 1 is data » from « line 1 is skipped ».
+ */
+describe('the split-amount guard on a headerless file', () => {
+	it('counts line 1 as evidence of a gap', () => {
+		expect.assertions(1);
+		const result = parseByPosition(
+			['2026-06-01;SALAIRE;;100.00', '2026-06-02;CB B;-5.00;', '2026-06-03;CB C;-6.00;'].join('\n'),
+			{ dateIndex: 0, labelIndex: 1, amountIndex: 2, columnCount: 4 }
+		);
+		expect(result.invalidRows.map((row) => row.fact.code)).toEqual(['amount-split-across-columns']);
+	});
+});

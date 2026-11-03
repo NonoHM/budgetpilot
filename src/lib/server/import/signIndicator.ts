@@ -51,12 +51,15 @@ const DIRECTION_TOKENS = new Set(['d', 'c', 'db', 'cr', 'dr', 'debit', 'credit',
 export function detectSignIndicatorColumn(
 	headers: string[],
 	rows: ParsedCsvRow[],
-	amountColumn: string
+	amountColumn: string,
+	// 0 on a file the member says has no header row: its line 1 is a transaction, and skipping it
+	// once hid the only « C » of a direction column (#1202's pass, finding 2).
+	firstDataRow: 0 | 1 = 1
 ): string | null {
 	const amountIndex = headers.indexOf(amountColumn);
 	if (amountIndex === -1) return null;
 
-	const body = rows.slice(1);
+	const body = rows.slice(firstDataRow);
 	if (body.length === 0) return null;
 
 	let parsableAmounts = 0;
