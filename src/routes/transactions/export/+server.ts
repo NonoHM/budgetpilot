@@ -43,6 +43,7 @@ export const GET: RequestHandler = async ({ locals, url }) => {
 		type: true,
 		source: true,
 		natureManual: true,
+		transferPairId: true,
 		...EFFECTIVE_CATEGORY_SELECT
 	} as const;
 

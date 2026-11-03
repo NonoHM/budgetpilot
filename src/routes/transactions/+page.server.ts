@@ -301,6 +301,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		type: true,
 		source: true,
 		natureManual: true,
+		transferPairId: true,
 		...EFFECTIVE_CATEGORY_SELECT,
 		tags: { select: { tag: { select: { id: true, name: true, colorToken: true } } } },
 		// #1189: the row says which account a paired transfer meets.
@@ -320,6 +321,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		source: string;
 		manualCategory: string | null;
 		natureManual: TransactionNature | null;
+		transferPairId: string | null;
 		category: { name: string };
 		splits: SplitRow[];
 		tags: TagLinkRow[];
@@ -1157,6 +1159,7 @@ function mapTransactionListItem(
 		source: string;
 		manualCategory: string | null;
 		natureManual: TransactionNature | null;
+		transferPairId: string | null;
 		category: { name: string };
 		splits: SplitRow[];
 		tags: TagLinkRow[];

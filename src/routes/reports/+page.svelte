@@ -473,6 +473,11 @@
 			</div>
 		</div>
 
+		<!-- Once, under both strips, and only when it explains a figure on this screen (#212). -->
+		{#if report.linkedTransferCount > 0}
+			<p class="-mt-2 text-xs text-zinc-500">{m.totals_linked_transfers_left_out()}</p>
+		{/if}
+
 		{#if !hasData}
 			{#snippet emptyIcon()}
 				<svg

@@ -147,6 +147,9 @@ export interface TransactionRowForMapping {
 	natureManual?: TransactionNature | null;
 	category: { name: string } | null;
 	splits: SplitRow[];
+	/** Required, not optional: a boundary that forgot to select the link would count a confirmed
+	 *  pair as income and spending again, silently (#212). */
+	transferPairId: string | null;
 }
 
 /**
@@ -191,7 +194,8 @@ export function mapTransactionWithNature(
 		category,
 		source: transaction.source as TransactionSource,
 		nature: effectiveNature.nature,
-		natureSource: effectiveNature.source
+		natureSource: effectiveNature.source,
+		transferPaired: transaction.transferPairId !== null
 	};
 }
 

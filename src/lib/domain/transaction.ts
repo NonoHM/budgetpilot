@@ -25,6 +25,10 @@ export interface Transaction {
 	source: TransactionSource;
 	nature?: TransactionNature;
 	natureSource?: 'manual' | 'category' | 'default';
+	/** True when this row is one leg of a CONFIRMED transfer pair (#1189). Set by the row mapper
+	 *  (`mapTransactionWithNature`), whose input requires the link column; the partner's id never
+	 *  leaves the server. Read through `countedInIncomeAndExpense` (domain/allocation.ts), #212. */
+	transferPaired?: boolean;
 }
 
 export interface TransactionClassificationSuggestion {

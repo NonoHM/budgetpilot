@@ -250,7 +250,8 @@ describe('every caller of the rule produces the expected text', () => {
 					manualCategory: null,
 					natureManual: null,
 					category: { name: 'Maison' },
-					splits: []
+					splits: [],
+					transferPairId: null
 				} satisfies TransactionRowForMapping
 			],
 			NO_MAPPINGS
