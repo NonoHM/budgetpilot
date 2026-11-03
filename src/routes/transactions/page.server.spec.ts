@@ -589,7 +589,7 @@ vi.mock('$lib/server/transactions/transferPairs', () => ({
 	loadTransferPartner: vi.fn(async () => null),
 	confirmTransferPair: vi.fn(),
 	pairAllProposed: vi.fn(),
-	undoTransferPair: vi.fn()
+	undoTransferPairs: vi.fn()
 }));
 
 const { applyTagToFilteredSetMock, undoBulkTagMock } = vi.hoisted(() => ({

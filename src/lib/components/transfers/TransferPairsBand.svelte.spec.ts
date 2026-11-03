@@ -69,16 +69,21 @@ describe('TransferPairsBand.svelte', () => {
 			.toBeVisible();
 	});
 
-	it('says how many legs were left out, as one sentence', async () => {
+	// Passes 1189-code-1A N19, 1B N16: the count is TRANSACTIONS (legs), under a title counting
+	// transfers, so the sentence names its own unit. Compared as the whole sentence, in French
+	// because the component suite pins that locale (vitest.client.setup.ts).
+	it('says how many transactions were left out, naming the unit', async () => {
 		await render(TransferPairsBand, {
 			pairs: [PAIR],
-			ambiguousCount: 2,
+			ambiguousCount: 3,
 			formatAmount: formatCents,
 			formatDate: iso
 		});
 		await expect
-			.element(page.getByText(m.transfer_pairs_ambiguous_many({ count: 2 })))
-			.toHaveTextContent(m.transfer_pairs_ambiguous_many({ count: 2 }));
+			.element(page.getByText(m.transfer_pairs_ambiguous_many({ count: 3 })))
+			.toHaveTextContent(
+				'3 autres transactions ne sont pas proposées, faute de correspondance certaine.'
+			);
 	});
 
 	it('shows one date when both legs share it, and both otherwise', async () => {
@@ -91,5 +96,16 @@ describe('TransferPairsBand.svelte', () => {
 		await expect.element(page.getByText('2026-03-10 – 2026-03-12')).toBeVisible();
 		await rerender({ pairs: [{ ...PAIR, inDate: PAIR.outDate }] });
 		await expect.element(page.getByText('2026-03-10', { exact: true })).toBeVisible();
+	});
+
+	// Passes 1189-code-1A N21, 1B N17: the window is symmetric, so money can arrive dated first.
+	it('reads the range from the earlier date to the later one, whichever leg is first', async () => {
+		await render(TransferPairsBand, {
+			pairs: [{ ...PAIR, outDate: '2026-01-05', inDate: '2026-01-03' }],
+			ambiguousCount: 0,
+			formatAmount: formatCents,
+			formatDate: iso
+		});
+		await expect.element(page.getByText('2026-01-03 – 2026-01-05')).toBeVisible();
 	});
 });

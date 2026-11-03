@@ -31,10 +31,11 @@
 
 	let pending = $state<string | null>(null);
 
+	// Earliest to latest: the window is symmetric, so money can be dated in before it is dated out
+	// (passes 1189-code-1A N21, 1B N17). ISO days compare as strings.
 	function dates(pair: ProposedPair): string {
-		return pair.outDate === pair.inDate
-			? formatDate(pair.outDate)
-			: `${formatDate(pair.outDate)} – ${formatDate(pair.inDate)}`;
+		const [first, last] = [pair.outDate, pair.inDate].sort();
+		return first === last ? formatDate(first) : `${formatDate(first)} – ${formatDate(last)}`;
 	}
 
 	function submitting(key: string) {

@@ -9,10 +9,11 @@ import { backupExportSchema } from '$lib/server/backup/schema';
 import { runNameKeyBackfill } from '$lib/server/naming/backfill';
 import { replaceSplits } from './splits';
 import {
+	clearReadPair,
 	confirmTransferPair,
 	listTransferProposals,
 	pairAllProposed,
-	undoTransferPair
+	undoTransferPairs
 } from './transferPairs';
 
 // #1189. Rows are seeded in the shape `server/import/persist.ts` writes them: a magnitude in
@@ -39,6 +40,9 @@ const createdUserIds: string[] = [];
 
 afterAll(async () => {
 	if (createdUserIds.length > 0) {
+		// Transactions first, as the app's two user-deletion paths do: a split part's category
+		// has no cascade, so PostgreSQL refuses the user delete otherwise (splits.db-smoke.ts).
+		await prisma.transaction.deleteMany({ where: { userId: { in: createdUserIds } } });
 		await prisma.user.deleteMany({ where: { id: { in: createdUserIds } } });
 	}
 });
@@ -165,14 +169,14 @@ describe('confirmTransferPair', () => {
 	});
 });
 
-describe('undoTransferPair', () => {
+describe('undoTransferPairs', () => {
 	it('clears both legs from either side', async () => {
 		const s = await seed();
 		const out = await row(s, s.checking, 'expense');
 		const into = await row(s, s.savings, 'income');
 		await confirmTransferPair(s.userId, out, into);
 
-		expect(await undoTransferPair(s.userId, into)).toEqual({ ok: true });
+		expect(await undoTransferPairs(s.userId, [into])).toEqual({ ok: true, unlinked: 1 });
 		expect([await linkOf(out), await linkOf(into)]).toEqual([null, null]);
 	});
 
@@ -183,8 +187,44 @@ describe('undoTransferPair', () => {
 		const into = await row(theirs, theirs.savings, 'income');
 		await confirmTransferPair(theirs.userId, out, into);
 
-		expect(await undoTransferPair(mine.userId, out)).toEqual({ ok: false, reason: 'not-found' });
+		expect(await undoTransferPairs(mine.userId, [out])).toEqual({ ok: false, reason: 'not-found' });
 		expect([await linkOf(out), await linkOf(into)]).toEqual([into, out]);
+	});
+});
+
+describe('undo against a partner that moved (passes 1189-code-1A N6, 1B N13)', () => {
+	// The interleaving: undo(A) read A->B, then another request unlinked A-B and linked B to D.
+	// What reaches the clearing step is the STALE partner; it must leave B-D mutual.
+	it('clears nothing when the pair it read is no longer the pair stored', async () => {
+		const s = await seed();
+		const a = await row(s, s.checking, 'expense');
+		const b = await row(s, s.savings, 'income');
+		const d = await row(s, s.checking, 'expense', { date: '2026-03-11' });
+		await confirmTransferPair(s.userId, a, b);
+		await undoTransferPairs(s.userId, [b]);
+		await confirmTransferPair(s.userId, d, b);
+
+		const cleared = await prisma.$transaction((tx) => clearReadPair(tx, s.userId, a, b));
+
+		expect(cleared).toBe(0);
+		expect([await linkOf(a), await linkOf(b), await linkOf(d)]).toEqual([null, d, b]);
+	});
+
+	it('unlinks a whole list in one transaction, and a foreign id rolls the list back', async () => {
+		const mine = await seed();
+		const theirs = await seed();
+		const out = await row(mine, mine.checking, 'expense');
+		const into = await row(mine, mine.savings, 'income');
+		const foreign = await row(theirs, theirs.checking, 'expense');
+		await confirmTransferPair(mine.userId, out, into);
+
+		expect(await undoTransferPairs(mine.userId, [out, foreign])).toEqual({
+			ok: false,
+			reason: 'not-found'
+		});
+		expect([await linkOf(out), await linkOf(into)]).toEqual([into, out]);
+		expect(await undoTransferPairs(mine.userId, [out])).toEqual({ ok: true, unlinked: 1 });
+		expect([await linkOf(out), await linkOf(into)]).toEqual([null, null]);
 	});
 });
 
@@ -280,29 +320,40 @@ describe('every path that breaks a pair clears the link', () => {
 	});
 
 	// Pass 1189-note-1 N9: the split check must be read inside the confirm's own transaction. Run
-	// unforced, so it prints how many runs landed in each order rather than claiming a race.
+	// unforced, alternating which call starts first, and the ORDER is read from what confirm
+	// answered: the end state cannot tell it, because a split after a confirm clears the link too.
 	it('never leaves a split leg paired when a split and a confirm race', async () => {
-		const orders = { paired: 0, split: 0 };
-		for (let run = 0; run < 20; run += 1) {
+		const orders = { confirmFirst: 0, splitFirst: 0 };
+		const RUNS = 20;
+		for (let run = 0; run < RUNS; run += 1) {
 			const s = await seed();
 			const out = await row(s, s.checking, 'expense', { amountCents: 50000 });
 			const into = await row(s, s.savings, 'income');
-			await Promise.allSettled([
-				confirmTransferPair(s.userId, out, into),
+			const split = () =>
 				replaceSplits(s.userId, out, [
 					{ categoryId: s.categoryId, amountCents: 20000, note: '' },
 					{ categoryId: s.categoryId, amountCents: 30000, note: '' }
-				])
-			]);
+				]);
+			const confirm = () => confirmTransferPair(s.userId, out, into);
+			const [confirmed] =
+				run % 2 === 0
+					? await Promise.all([confirm(), split()])
+					: await Promise.all([split(), confirm()]).then(([, c]) => [c] as const);
 			const splits = await prisma.transactionSplit.count({ where: { transactionId: out } });
 			const link = await linkOf(out);
-			expect(splits > 0 && link !== null, `run ${run}: a split leg is paired`).toBe(false);
-			if (link !== null) orders.paired += 1;
-			if (splits > 0) orders.split += 1;
+			const partner = await linkOf(into);
+			expect(
+				[splits > 0, link, partner],
+				`run ${run}: the split landed and both legs are unlinked`
+			).toEqual([true, null, null]);
+			if (confirmed.ok) orders.confirmFirst += 1;
+			else if (confirmed.reason === 'split') orders.splitFirst += 1;
 		}
 		// stdout directly: `console` is bridged into the structured logger, which a db-smoke does not print.
-		process.stdout.write(`transfer-pair race orders over 20 runs: ${JSON.stringify(orders)}\n`);
-		expect(orders.paired + orders.split).toBe(20);
+		process.stdout.write(
+			`transfer-pair race orders over ${RUNS} runs: ${JSON.stringify(orders)}\n`
+		);
+		expect(orders.confirmFirst + orders.splitFirst).toBe(RUNS);
 	});
 
 	it('removing a member takes both legs without a foreign-key error', async () => {

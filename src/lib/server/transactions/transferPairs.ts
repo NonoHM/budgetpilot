@@ -21,7 +21,6 @@ const ACCOUNT_NAME_SELECT = { name: true, nameKey: true, source: true, instituti
  * `authz_fail` line for both (AGENTS.md, « Security boundaries »; `logging/authz.ts`).
  */
 export type PairResult = { ok: true } | { ok: false; reason: 'not-found' | PairRefusal };
-export type UndoResult = { ok: true } | { ok: false; reason: 'not-found' | 'not-paired' };
 
 type Tx = Parameters<Parameters<(typeof prisma)['$transaction']>[0]>[0];
 
@@ -124,24 +123,61 @@ export async function confirmTransferPair(
 	}
 }
 
-/** Clears the link on both legs, from either side. */
-export async function undoTransferPair(userId: string, id: string): Promise<UndoResult> {
-	return prisma.$transaction(async (tx) => {
-		const leg = await tx.transaction.findFirst({
-			where: { id, userId },
-			select: { transferPairId: true }
-		});
-		if (!leg) {
-			logReferenceRefused(userId, 'transaction');
-			return { ok: false, reason: 'not-found' } as const;
-		}
-		if (leg.transferPairId === null) return { ok: false, reason: 'not-paired' } as const;
-		await tx.transaction.updateMany({
-			where: { userId, id: { in: [id, leg.transferPairId] } },
-			data: { transferPairId: null }
-		});
-		return { ok: true } as const;
+/**
+ * Clears the pair `id`-`partner` AS IT WAS READ, and only while each leg still names the other:
+ * between the read and this write another request may unlink the pair and link `partner`
+ * elsewhere, and an unguarded clear would then cut that newer pair on one side only (passes
+ * 1189-code-1A N6, 1B N13). Returns how many legs it cleared, 0 or 2.
+ */
+export async function clearReadPair(
+	tx: Tx,
+	userId: string,
+	id: string,
+	partner: string
+): Promise<number> {
+	const cleared = await tx.transaction.updateMany({
+		where: {
+			userId,
+			OR: [
+				{ id, transferPairId: partner },
+				{ id: partner, transferPairId: id }
+			]
+		},
+		data: { transferPairId: null }
 	});
+	return cleared.count;
+}
+
+/**
+ * The « Undo » after « Link all », and « Unlink »: every id in one transaction, so a list
+ * holding a missing or foreign id unlinks nothing rather than the ids before it. An own id that is
+ * no longer paired is skipped, not refused: the undo of a pair already undone elsewhere.
+ */
+export async function undoTransferPairs(
+	userId: string,
+	ids: readonly string[]
+): Promise<{ ok: true; unlinked: number } | { ok: false; reason: 'not-found' }> {
+	try {
+		const unlinked = await prisma.$transaction(async (tx) => {
+			const legs = await tx.transaction.findMany({
+				where: { userId, id: { in: [...ids] } },
+				select: { id: true, transferPairId: true }
+			});
+			if (legs.length !== new Set(ids).size) throw new Refused('not-found');
+			let pairs = 0;
+			for (const leg of legs) {
+				if (leg.transferPairId && (await clearReadPair(tx, userId, leg.id, leg.transferPairId))) {
+					pairs += 1;
+				}
+			}
+			return pairs;
+		});
+		return { ok: true, unlinked };
+	} catch (error) {
+		if (!(error instanceof Refused)) throw error;
+		logReferenceRefused(userId, 'transaction');
+		return { ok: false, reason: 'not-found' };
+	}
 }
 
 /** Every unpaired, unsplit leg of this member, sorted into proposed, ambiguous and none. */

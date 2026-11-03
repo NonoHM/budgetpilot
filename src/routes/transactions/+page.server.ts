@@ -46,7 +46,7 @@ import {
 	loadTransferPartner,
 	loadTransferProposalView,
 	pairAllProposed,
-	undoTransferPair
+	undoTransferPairs
 } from '$lib/server/transactions/transferPairs';
 import {
 	buildTransactionWhere,
@@ -1042,16 +1042,12 @@ export const actions: Actions = {
 		if (!ids || ids.length === 0) {
 			return fail(400, { transferPairError: m.transactions_error_invalid_transaction() });
 		}
-		let unlinked = 0;
-		for (const id of ids) {
-			const result = await undoTransferPair(user.id, id);
-			if (result.ok) unlinked += 1;
-			else if (result.reason === 'not-found') {
-				// authz-exempt: logged by undoTransferPair, the function that ran the userId-scoped lookup
-				return fail(404, { transferPairError: m.transactions_error_transaction_not_found() });
-			}
+		const result = await undoTransferPairs(user.id, ids);
+		if (!result.ok) {
+			// authz-exempt: logged by undoTransferPairs, the function that ran the userId-scoped lookup
+			return fail(404, { transferPairError: m.transactions_error_transaction_not_found() });
 		}
-		return { transferPairUnlinked: unlinked };
+		return { transferPairUnlinked: result.unlinked };
 	},
 
 	deleteTransaction: async ({ locals, request }) => {
