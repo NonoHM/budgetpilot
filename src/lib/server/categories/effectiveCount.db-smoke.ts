@@ -99,7 +99,7 @@ async function makeTransaction(fields: {
 			type: 'expense',
 			source: 'csv',
 			categoryId: fields.categoryId,
-			...manualCategoryUpdate(fields.manualCategory ?? null)
+			...manualCategoryUpdate(fields.manualCategory ?? null, 'member')
 		}
 	});
 }

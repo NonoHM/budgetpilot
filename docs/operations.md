@@ -252,6 +252,21 @@ contained no migration, the image rollback alone is enough. `docker compose
 logs budgetpilot` tells you which case you are in: a schema mismatch shows up
 immediately at startup, not later.
 
+**If you ran a version older than 1.4 on a 1.4 database**, run this once after
+you upgrade again:
+
+```bash
+docker compose run --rm budgetpilot scripts/reset-category-authors.mjs
+```
+
+From 1.4, each transaction records who set its category: the member, a rule,
+or the member accepting a suggestion. Older versions change categories without
+updating that record, and one of those changes cannot be detected afterwards.
+The command marks every record as unknown. It changes no category and no
+figure. Add `--dry-run` first to print how many records it would reset. Outside
+Docker, the same command is `npm run db:reset-category-authors`. If you
+restored the backup you took before upgrading, you do not need it.
+
 **What a rollback does not undo**, so nobody expects more from it than it
 gives:
 

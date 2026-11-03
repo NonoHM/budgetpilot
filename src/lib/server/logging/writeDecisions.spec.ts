@@ -186,7 +186,7 @@ const DECISIONS: Record<string, { sites: number; decisions: Decision[] }> = {
 		]
 	},
 	'src/lib/server/categories/references.ts': {
-		sites: 5,
+		sites: 7,
 		decisions: ['covered: #1080, a category rename carried to what names it']
 	},
 	'src/lib/server/categories/resolve.ts': {
@@ -289,6 +289,12 @@ const DECISIONS: Record<string, { sites: number; decisions: Decision[] }> = {
 		decisions: [
 			'logged: sensitive_delete',
 			'covered: #1080, a tag created by tagging, renamed, recoloured or relinked'
+		]
+	},
+	'src/lib/server/transactions/categoryAuthorsReset.ts': {
+		sites: 1,
+		decisions: [
+			'exempt: an operator command after a rollback (#1013), run from a terminal that prints its count; it changes no category and no figure, only marks every author unknown'
 		]
 	},
 	'src/lib/server/transactions/nature.ts': {
@@ -404,7 +410,7 @@ describe('every database write has a logging decision', () => {
 		expect(
 			Object.values(measured).reduce((total, sites) => total + sites, 0),
 			QUESTION
-		).toBe(219);
+		).toBe(222);
 	});
 
 	it('pins every file holding a write, with its number of sites', () => {
@@ -434,6 +440,6 @@ describe('every database write has a logging decision', () => {
 				.filter((decision) => !wellFormed(decision))
 				.map((decision) => `${path}: ${decision}`)
 		);
-		expect([Object.keys(DECISIONS).length, malformed]).toEqual([43, []]);
+		expect([Object.keys(DECISIONS).length, malformed]).toEqual([44, []]);
 	});
 });

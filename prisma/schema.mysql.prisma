@@ -21,6 +21,16 @@ enum Role {
   ADMIN
 }
 
+/// Who set a transaction's `manualCategory` (#1013). A closed list: a new author is a new value
+/// here, read by `categorySetBy`, never a free-text column. `acceptedSuggestion` is the member
+/// accepting a proposal: kept apart from `member` so a learner can tell its own output from the
+/// member's choice (owner ruling on #1013).
+enum CategorySource {
+  member
+  rule
+  acceptedSuggestion
+}
+
 enum TransactionNature {
   income
   spending
@@ -633,6 +643,16 @@ model Transaction {
   /// NULL exactly when `manualCategory` is NULL, once the boot-time backfill has run.
   manualCategoryKey String?
   natureManual      TransactionNature?
+  /// Who set `manualCategory` (#1013), and the `manualCategoryKey` it was set FOR. Written only by
+  /// `manualCategoryUpdate` (server/transactions/manualCategory.ts), the rename, which moves the
+  /// key, and the operator reset. The boot key backfill rewrites `manualCategoryKey` alone: a change
+  /// to the key's folding would turn every author unknown, the safe direction. Read only through `categorySetBy` (domain/categorySetBy.ts): the source counts only while
+  /// its key equals the pin's, so a pin changed by a writer that does not know these columns (1.3,
+  /// after a rollback) mostly reads unknown; the case it cannot see (1.3 clears a pin, then re-sets
+  /// the same name) is closed by `scripts/reset-category-authors.mjs` after rolling forward.
+  /// NULL on every pin written before 1.4: unknown, never learned from.
+  manualCategorySource CategorySource?
+  manualCategorySourceKey String?
   /// Readable import fingerprint, kept for traceability. Never write it without its hash:
   /// use `dedupeKeyUpdate()` (server/import/dedupeKey.ts), which writes both columns.
   dedupeKey         String? @db.Text

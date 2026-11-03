@@ -916,7 +916,7 @@ export const actions: Actions = {
 		// cannot slip through.
 		const result = await prisma.transaction.updateMany({
 			where: { id: transactionId, userId: user.id, splits: { none: {} } },
-			data: manualCategoryUpdate(categoryResult.value)
+			data: manualCategoryUpdate(categoryResult.value, 'member')
 		});
 
 		if (result.count === 0) {
@@ -983,7 +983,7 @@ export const actions: Actions = {
 		const result = await prisma.transaction.updateMany({
 			where: { id: transactionId, userId: user.id, splits: { none: {} } },
 			data: {
-				...manualCategoryUpdate(categoryResult.value),
+				...manualCategoryUpdate(categoryResult.value, 'acceptedSuggestion'),
 				natureManual: natureResult.value
 			}
 		});
@@ -1139,7 +1139,7 @@ export const actions: Actions = {
 					splits: { none: {} }
 				},
 				data: {
-					...manualCategoryUpdate(createdRule.targetCategory),
+					...manualCategoryUpdate(createdRule.targetCategory, 'rule'),
 					...(createdRule.targetNature ? { natureManual: createdRule.targetNature } : {})
 				}
 			});

@@ -273,6 +273,12 @@ COPY --from=builder /app/src/lib/server/naming/backfill.ts \
 	/app/src/lib/server/naming/report.ts \
 	./src/lib/server/naming/
 
+# scripts/reset-category-authors.mjs (#1013), the operator's step after rolling forward from a
+# version older than 1.4, by the same rule and run by scripts/docker-smoke.sh as a dry run. Its
+# closure beyond the files above is this one module, whose only import is a type.
+COPY --from=builder /app/scripts/reset-category-authors.mjs ./scripts/reset-category-authors.mjs
+COPY --from=builder /app/src/lib/server/transactions/categoryAuthorsReset.ts ./src/lib/server/transactions/categoryAuthorsReset.ts
+
 # scripts/log-pseudonym.mjs (#942), the operator's way from a log pseudonym back to an account or
 # an address, by the same rule: source listed file by file, and run by scripts/docker-smoke.sh
 # against the built image in an account mode, because Prisma loads its query compiler only at the

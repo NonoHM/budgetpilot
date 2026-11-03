@@ -1,3 +1,4 @@
+import { categorySetBy } from '$lib/domain/categorySetBy';
 import { prisma } from '$lib/server/db';
 import type { BackupExport } from './schema';
 
@@ -106,6 +107,9 @@ export async function buildBackupExport(userId: string): Promise<BackupExport> {
 				notes: true,
 				bankOperationType: true,
 				manualCategory: true,
+				manualCategoryKey: true,
+				manualCategorySource: true,
+				manualCategorySourceKey: true,
 				natureManual: true,
 				dedupeKey: true,
 				metadataJson: true,
@@ -296,11 +300,23 @@ export async function buildBackupExport(userId: string): Promise<BackupExport> {
 			periodStart: batch.periodStart ? batch.periodStart.toISOString() : null,
 			periodEnd: batch.periodEnd ? batch.periodEnd.toISOString() : null
 		})),
-		transactions: transactions.map((transaction) => ({
-			...transaction,
-			date: transaction.date.toISOString(),
-			type: transaction.type as TransactionKind
-		})),
+		transactions: transactions.map(
+			({ manualCategoryKey, manualCategorySource, manualCategorySourceKey, ...transaction }) => {
+				// The author as `categorySetBy` reads it, never the raw column (#1013): a stale author
+				// leaves as unknown, so an export then a restore cannot turn it into a fresh one.
+				const setBy = categorySetBy({
+					manualCategoryKey,
+					manualCategorySource,
+					manualCategorySourceKey
+				});
+				return {
+					...transaction,
+					manualCategorySource: setBy === 'unknown' ? null : setBy,
+					date: transaction.date.toISOString(),
+					type: transaction.type as TransactionKind
+				};
+			}
+		),
 		monthlyBudgets,
 		categoryRules: categoryRules.map((rule) => ({
 			...rule,

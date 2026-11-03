@@ -328,6 +328,19 @@ docker run --rm "${HARDENED[@]}" -v "$DRY_RUN_VOLUME:/data" "${dry_run_env[@]}" 
 	"$IMAGE" scripts/normalize-names.mjs --dry-run \
 	| tail -n 20
 
+# scripts/reset-category-authors.mjs (#1013), the documented command after rolling forward, on the
+# same migrated volume. Its sentence carries the count it read, so a crash at load or a query that
+# never ran cannot print it.
+echo
+echo "=== asserting the category author reset runs in the image ==="
+reset_output=$(docker run --rm "${HARDENED[@]}" -v "$DRY_RUN_VOLUME:/data" "${dry_run_env[@]}" \
+	"$IMAGE" scripts/reset-category-authors.mjs --dry-run)
+if [ "$reset_output" != "Would forget who set 0 transaction categories. Nothing written." ]; then
+	echo "FAIL: the category author reset dry run printed: $reset_output" >&2
+	exit 1
+fi
+echo "  ok: $reset_output"
+
 # scripts/log-pseudonym.mjs (#942), by the same reasoning: it imports the app's modules through
 # relative paths, so a file missing from the Dockerfile fails it only in the image. An account
 # mode, on the migrated volume above, because Prisma loads its query compiler at the first query:

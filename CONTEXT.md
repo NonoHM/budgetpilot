@@ -278,3 +278,18 @@ bills, the forecast) still count a paired leg.
 > matches no rule and falls back by sign to `income`. Reading « transfer » off the nature, and
 > dropping only that leg from the totals, overstates the balance and the savings rate by the
 > transfer amount: a figure that is false and looks right (#1189, #212).
+
+## Manual category, and who set it
+
+Two things a transaction's category can say.
+
+- **The manual category** is `Transaction.manualCategory`: a category pinned on the row over the
+  file's own (`categoryId`). It reads as « the member chose it », and until #1013 it did not mean
+  that: the rules engine writes the same column through the same helper.
+- **Who set it** is `categorySetBy` (`domain/categorySetBy.ts`): the member, a rule, the member
+  accepting a suggestion, or unknown. Unknown covers every pin written before 1.4 and any pin an
+  older version changed since.
+
+What confusing them cost: a learner reading the manual category as the member's choice learns from
+the rules' own output and reinforces a wrong rule (#1009, R10). Ask `categorySetBy`, never the raw
+`manualCategorySource` column, which can be stale after a rollback.

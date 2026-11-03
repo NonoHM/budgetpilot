@@ -1,6 +1,7 @@
 import { isValidCurrencyCode } from '$lib/domain/money';
 import { z } from 'zod';
 import { isStorableYear, TRANSACTION_NATURES } from '$lib/domain/transaction';
+import { CATEGORY_SET_BY } from '$lib/domain/categorySetBy';
 import { DEFAULT_CATEGORY_KEYS } from '$lib/domain/categories';
 import { NET_WORTH_ACCOUNT_TYPES } from '$lib/domain/netWorth';
 import { TAG_COLOR_TOKENS, MAX_TAGS_PER_TRANSACTION } from '$lib/domain/tags';
@@ -503,6 +504,9 @@ const backupTransactionSchema = requireDenominationPair(
 			notes: z.string().max(10_000).nullable(),
 			bankOperationType: z.string().max(500).nullable(),
 			manualCategory: z.string().max(MAX_PORTABLE_STRING).nullable(),
+			// Optional so a file written before #1013 parses, and reads unknown. A closed list: the
+			// file is a claim, and only an author this version can write is accepted.
+			manualCategorySource: z.enum(CATEGORY_SET_BY).nullable().optional(),
 			natureManual: transactionNature.nullable(),
 			dedupeKey: z.string().max(500).nullable(),
 			metadataJson: z.string().max(100_000).nullable(),
@@ -511,7 +515,18 @@ const backupTransactionSchema = requireDenominationPair(
 			transferPairId: z.string().min(1).max(MAX_PORTABLE_STRING).nullable().optional()
 		})
 		.strict()
-);
+).superRefine((transaction, context) => {
+	// An author with no pin is a combination no writer produces (ASVS v5.0.0-2.2.3): refused, not
+	// dropped, so a file that says it is read as saying it.
+	// The restore's own test for « no pin » (import.ts), not a stricter one: a whitespace pin a
+	// restored rule wrote is still a pin, and refusing it would refuse the member's own export.
+	if (transaction.manualCategorySource == null || transaction.manualCategory) return;
+	context.addIssue({
+		code: 'custom',
+		path: ['manualCategorySource'],
+		message: 'an author is recorded only for a transaction that carries a manual category'
+	});
+});
 
 const backupMonthlyBudgetSchema = requireDenominationPair(
 	z
