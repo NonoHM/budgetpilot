@@ -20,6 +20,6 @@ describe('restore integrity refusals', () => {
 			source.match(/new BackupImportError\(/g)?.length,
 			sites.length,
 			sites.filter(([, reason, key]) => reason !== key).map(([, reason, key]) => `${reason} ${key}`)
-		]).toEqual([21, 21, []]);
+		]).toEqual([22, 22, []]);
 	});
 });

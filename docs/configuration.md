@@ -547,6 +547,19 @@ If you do reach it, the statement still imports. The import page says its
 columns were not remembered and links to Settings, where you can remove an
 answer you no longer need.
 
+## How far apart the two sides of a transfer may be
+
+`BP_TRANSFER_PAIR_WINDOW_DAYS` is **optional**: leave it out and you get 5. It
+sets how many days apart the outgoing and incoming sides of a transfer between
+two of your own accounts may be dated and still be proposed as a pair on the
+transactions page. A pair is only proposed, never linked without a click.
+
+5 covers a transfer made on a Friday and credited the following Wednesday. Set
+it to 1 to propose only pairs dated at most a day apart. The ceiling is 31: past
+a month, a monthly saving of the same amount meets its own previous month, so
+each side has two candidates and nothing is proposed. A value outside 1 to 31
+stops the app at startup, and a value other than 5 is noted in the startup log.
+
 ## How many uploads one account may make
 
 `IMPORT_RATE_LIMIT_MAX_ATTEMPTS` is **optional**: leave it out and you get 60.

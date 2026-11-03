@@ -935,6 +935,7 @@
 	"settings_backup_error_unknown_net_worth_account_link": "Account \"{id}\" references a net worth account unknown to the file.",
 	"settings_backup_error_unknown_savings_goal_account": "Savings goal \"{id}\" references a net worth account unknown to the file.",
 	"settings_backup_error_unknown_bank_connection_link": "Account \"{id}\" references a bank connection unknown to the file.",
+	"settings_backup_error_transfer_pair": "Transaction \"{id}\" is linked as a transfer to a transaction that does not match it.",
 	"settings_language_heading": "Language",
 	"settings_language_label": "Interface language",
 	"settings_language_fr": "Français",

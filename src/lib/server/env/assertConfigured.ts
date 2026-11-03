@@ -24,7 +24,8 @@ import {
 	assertPasswordHashCostConfigured,
 	assertSessionIdleTimeoutConfigured,
 	assertRateLimitIpv6PrefixConfigured,
-	assertSessionLifetimeConfigured
+	assertSessionLifetimeConfigured,
+	assertTransferPairWindowConfigured
 } from '$lib/server/env/readSetting';
 import { assertSecretFilesSafe } from '$lib/server/env/secretFiles';
 import { assertSecretSourcesConfigured } from '$lib/server/env/secretSources';
@@ -118,6 +119,7 @@ export const ENVIRONMENT_CHECKS: Check[] = [
 	['CSV_MAX_COLUMNS', assertCsvColumnBoundConfigured],
 	['COLUMN_MAPPINGS_PER_USER', assertColumnMappingCapConfigured],
 	['IMPORT_RATE_LIMIT_MAX_ATTEMPTS', assertImportRateLimitConfigured],
+	['BP_TRANSFER_PAIR_WINDOW_DAYS', assertTransferPairWindowConfigured],
 	['BP_LOG_LEVEL / BP_SECURITY_LOG / BP_LOG_SEAL', assertLoggingConfigured],
 	['BP_LOG_SEAL_INTERVAL', assertLogSealIntervalConfigured],
 	['PASSWORD_HASH_COST', assertPasswordHashCostConfigured],

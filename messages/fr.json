@@ -935,6 +935,7 @@
 	"settings_backup_error_unknown_net_worth_account_link": "Le compte « {id} » référence un compte de patrimoine inconnu du fichier.",
 	"settings_backup_error_unknown_savings_goal_account": "L'objectif d'épargne « {id} » référence un compte de patrimoine inconnu du fichier.",
 	"settings_backup_error_unknown_bank_connection_link": "Le compte « {id} » référence une connexion bancaire inconnue du fichier.",
+	"settings_backup_error_transfer_pair": "La transaction « {id} » est liée comme virement à une transaction qui ne lui correspond pas.",
 	"settings_language_heading": "Langue",
 	"settings_language_label": "Langue de l'interface",
 	"settings_language_fr": "Français",
