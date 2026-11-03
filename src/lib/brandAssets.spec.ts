@@ -28,6 +28,18 @@ describe('brand assets', () => {
 		expect(drifted.map(([path]) => path)).toEqual([]);
 	});
 
+	// In one colour the fold has no tone to show it, so both folds must be cut as masks; without them
+	// the ribbon prints as one solid zigzag. The coloured files must stay unmasked.
+	it('cuts both folds in every one-colour file and in no coloured one', () => {
+		const masks = (path: string) => (svgs[path].match(/<mask /g) ?? []).length;
+		const mono = Object.keys(svgs).filter((p) => /-(black|white)\.svg$/.test(p));
+		const coloured = Object.keys(svgs).filter((p) => /-(light|dark)\.svg$|icon/.test(p));
+		expect(mono.length).toBe(8);
+		expect(coloured.length).toBe(11);
+		expect(mono.filter((p) => !/wordmark/.test(p)).map(masks)).toEqual([2, 2, 2, 2, 2, 2]);
+		expect(coloured.map(masks)).toEqual(coloured.map(() => 0));
+	});
+
 	it('holds nothing in static/brand that the generator does not produce', () => {
 		const expected = [...Object.keys(svgs), ...Object.keys(RASTERS)]
 			.filter((p) => p.startsWith('brand/'))

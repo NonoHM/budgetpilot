@@ -149,7 +149,8 @@ what reads each one is `docs/reference/brand-assets.md`, and the reasons behind 
 `docs/explanation/brand-identity.md`.
 
 - **Colours.** Ink zinc-950 `#09090b`, paper zinc-50 `#fafafa`, accent lime-400 `#a3e635`. The
-  accent is the ribbon's back face in every colourway except the one-colour ones.
+  accent is the ribbon's back face in every colourway except the one-colour ones, where each fold is
+  cut as a 0.75-unit gap instead, so the ribbon never prints as one solid zigzag.
 - **Which file.** `-light` on a light background, `-dark` on a dark one, `-black` and `-white` where
   only one colour can be printed. The app icon is always the ink tile, whatever the background.
 - **In the app.** `BrandLink` (`src/lib/components/ui/BrandLink.svelte`) is the horizontal lockup

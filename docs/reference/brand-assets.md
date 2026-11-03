@@ -41,7 +41,12 @@ Each logo comes in four colourways. Pick by the background it sits on:
 | `-white` | Dark, one colour only     | Paper        | Paper       | Paper    |
 
 The one-colour versions are for print, engraving, or any place that cannot
-reproduce the accent.
+reproduce the accent. With no change of tone to show the folds, each fold is cut
+as a thin gap of 0.75 units on the 32-unit grid, drawn with an SVG mask.
+
+All 16 logo files have a transparent background. The `-dark` and `-white` files
+are light-coloured, so in a file viewer with a white page they look empty.
+Check them on a dark background.
 
 The following table lists the four logo shapes, each available in the four
 colourways above:

@@ -33,10 +33,25 @@ const runs = POINTS.slice(1).map(([x2, y2], i) => {
 	const t = THICKNESS / 2;
 	return `M${x1} ${n(y1 - t)}L${x2} ${n(y2 - t)}L${x2} ${n(y2 + t)}L${x1} ${n(y1 + t)}Z`;
 });
-// Runs 0 and 2 face front, run 1 is the back of the ribbon.
+// One colour cannot show the fold by tone, so each run that passes under the next is cut back along
+// that run's outline by FOLD_GAP: the same edge the change of tone draws in the coloured mark.
+const FOLD_GAP = 0.75;
+// Runs 0 and 2 face front, run 1 is the back of the ribbon, drawn in that order.
 /** @param {Way} way */
-const ribbon = ({ front, back }) =>
-	runs.map((d, i) => `<path fill="${i === 1 ? back : front}" d="${d}"/>`).join('');
+const ribbon = ({ front, back }) => {
+	const fill = (/** @type {number} */ i) => (i === 1 ? back : front);
+	if (front !== back) return runs.map((d, i) => `<path fill="${fill(i)}" d="${d}"/>`).join('');
+	const cut = (/** @type {number} */ i) =>
+		`<mask id="bp-fold-${i}" maskUnits="userSpaceOnUse" x="0" y="0" width="32" height="32"><rect width="32" height="32" fill="#fff"/><path d="${runs[i + 1]}" fill="#000" stroke="#000" stroke-width="${2 * FOLD_GAP}" stroke-linejoin="round"/></mask>`;
+	return (
+		`<defs>${cut(0)}${cut(1)}</defs>` +
+		runs
+			.map(
+				(d, i) => `<path fill="${fill(i)}" d="${d}"${i < 2 ? ` mask="url(#bp-fold-${i})"` : ''}/>`
+			)
+			.join('')
+	);
+};
 
 /** @param {string} viewBox @param {string} body */
 const svg = (viewBox, body) =>
