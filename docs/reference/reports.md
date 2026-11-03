@@ -24,8 +24,8 @@ filter**, so it is not narrowed by anything you set elsewhere.
 The three comparisons are against the **previous comparable period**, which
 is named in the card rather than left to be guessed.
 
-**Linked transfers count in none of these figures**, nor in the charts and
-tables below them. A linked transfer is two transactions, one leaving an
+**Linked transfers count in none of these figures**, nor in the spending
+charts and tables below them. A linked transfer is two transactions, one leaving an
 account of yours and one arriving in another, that you joined with **Link**
 on the **Transactions** page. Each of the two leaves the period it is dated
 in, so when both fall in the period, income and expenses drop by the same
@@ -34,8 +34,8 @@ transfer you have not linked counts on both sides at full size, whatever its
 category. When the period holds a linked transfer, a line under the figures
 says so.
 
-Budgets, the totals on the **Transactions** page, the projected balance and
-upcoming bills still count linked transfers.
+Budgets, the totals on the **Transactions** page, the projected balance, the
+detected flows and upcoming bills still count linked transfers.
 
 The arithmetic on the seeded instance: €2,850.00 income and €401.22 expenses
 give a €2,448.78 balance and an 86% savings rate; €401.22 over the 31 days

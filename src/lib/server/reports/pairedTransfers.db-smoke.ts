@@ -343,15 +343,15 @@ describe('the unusual-spending insight on the dashboard (pass 212-code-B R1)', (
 });
 
 describe('recurring payments on /reports (pass 212-code-A open node)', () => {
-	it('stops listing a monthly transfer as a recurring payment once both of its pairs are linked', async () => {
+	it('stops listing a monthly transfer as a recurring payment once its pairs are linked', async () => {
 		const s = await seed();
 		await ordinaryMonth(s, '2026-03');
 		const first = await pairRows(s, '2026-03-03', '2026-03-04');
 		const second = await pairRows(s, '2026-03-20', '2026-03-21');
 		const before = await report(s.userId, customMonth('2026-03', 31));
 
-		await confirmTransferPair(s.userId, ...first);
-		await confirmTransferPair(s.userId, ...second);
+		expect(await confirmTransferPair(s.userId, ...first)).toEqual({ ok: true });
+		expect(await confirmTransferPair(s.userId, ...second)).toEqual({ ok: true });
 		const after = await report(s.userId, customMonth('2026-03', 31));
 
 		// Calibration: two equal transfers out under one label are a recurring stream before linking.
