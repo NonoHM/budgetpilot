@@ -46,6 +46,7 @@ function makeTransaction(overrides: Record<string, unknown> = {}) {
 		source: 'csv',
 		tags: [],
 		splitIndicator: null,
+		linkedAccount: null,
 		matchedCategoryAllocation: null,
 		suggestion: null,
 		...overrides
@@ -111,6 +112,8 @@ function baseData(overrides: Record<string, unknown> = {}): PageData {
 		uncategorizedCount: 0,
 		classifiableCount: 0,
 		classifyStackIds: [],
+		transferProposals: { pairs: [], ambiguousCount: 0 },
+		transferPartner: null,
 		tagCounts: null,
 		tagScopeTotal: 0,
 		bulkFallback: null,

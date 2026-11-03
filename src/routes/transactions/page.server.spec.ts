@@ -582,6 +582,16 @@ vi.mock('$lib/server/logging', async (importOriginal) => ({
 const setTransactionTagsMock = vi.hoisted(() => vi.fn());
 vi.mock('$lib/server/tags/service', () => ({ setTransactionTags: setTransactionTagsMock }));
 
+// #1189: the proposals are their own read, measured against a real engine in
+// transferPairs.db-smoke.ts. Kept out of this fake so `findMany.mock.calls.at(-1)` stays the list.
+vi.mock('$lib/server/transactions/transferPairs', () => ({
+	loadTransferProposalView: vi.fn(async () => ({ pairs: [], ambiguousCount: 0 })),
+	loadTransferPartner: vi.fn(async () => null),
+	confirmTransferPair: vi.fn(),
+	pairAllProposed: vi.fn(),
+	undoTransferPairs: vi.fn()
+}));
+
 const { applyTagToFilteredSetMock, undoBulkTagMock } = vi.hoisted(() => ({
 	applyTagToFilteredSetMock: vi.fn(),
 	undoBulkTagMock: vi.fn()
@@ -2776,5 +2786,52 @@ describe('#1087: createRule writes sensitive_create', () => {
 			targetCategory: 'Alimentation'
 		});
 		expect({ status: result.status, lines: creates() }).toEqual({ status: 400, lines: [] });
+	});
+});
+
+/**
+ * #1189, pass 1189-code-2/3: the seam between the forms and the unlink action. The banner's Undo
+ * and the panel's Unlink post `pairs=a:b,c:d`; the action reads exactly that field and hands the
+ * PAIRS to `undoTransferPairs`, and refuses a malformed list whole with a 400.
+ */
+describe('/transactions unlinkTransferPair', () => {
+	async function runUnlink(input: Record<string, string>) {
+		const formData = new FormData();
+		for (const [key, value] of Object.entries(input)) formData.set(key, value);
+		return (await (
+			actions.unlinkTransferPair as (event: {
+				locals: { user: typeof testUser };
+				request: Request;
+			}) => Promise<unknown>
+		)({
+			locals: { user: testUser },
+			request: new Request('http://localhost/transactions', { method: 'POST', body: formData })
+		})) as {
+			status?: number;
+			data?: { transferPairError?: string };
+			transferPairUnlinked?: number;
+		};
+	}
+
+	it('hands the posted pairs to undoTransferPairs, as pairs', async () => {
+		const { undoTransferPairs } = await import('$lib/server/transactions/transferPairs');
+		vi.mocked(undoTransferPairs).mockResolvedValueOnce({ ok: true, unlinked: 2 });
+		const result = await runUnlink({ pairs: 'aaaaaaaa1:bbbbbbbb1,aaaaaaaa2:bbbbbbbb2' });
+		expect(vi.mocked(undoTransferPairs)).toHaveBeenLastCalledWith(testUser.id, [
+			['aaaaaaaa1', 'bbbbbbbb1'],
+			['aaaaaaaa2', 'bbbbbbbb2']
+		]);
+		expect(result).toEqual({ transferPairUnlinked: 2 });
+	});
+
+	it('refuses a single id where a pair is expected, without calling the service', async () => {
+		const { undoTransferPairs } = await import('$lib/server/transactions/transferPairs');
+		vi.mocked(undoTransferPairs).mockClear();
+		const result = await runUnlink({ pairs: 'aaaaaaaa1' });
+		expect([result.status, result.data?.transferPairError]).toEqual([
+			400,
+			m.transactions_error_invalid_transaction()
+		]);
+		expect(vi.mocked(undoTransferPairs)).not.toHaveBeenCalled();
 	});
 });

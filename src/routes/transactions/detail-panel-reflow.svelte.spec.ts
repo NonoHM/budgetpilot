@@ -34,6 +34,7 @@ const TX = {
 	natureSource: 'category' as const,
 	source: 'manual' as const,
 	splitIndicator: null,
+	linkedAccount: null,
 	matchedCategoryAllocation: null,
 	suggestion: null,
 	tags: []
@@ -78,6 +79,8 @@ function baseData(overrides: Record<string, unknown> = {}): PageData {
 		uncategorizedCount: 0,
 		classifiableCount: 0,
 		classifyStackIds: [],
+		transferProposals: { pairs: [], ambiguousCount: 0 },
+		transferPartner: null,
 		tagCounts: null,
 		tagScopeTotal: 0,
 		bulkFallback: null,

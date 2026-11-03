@@ -635,6 +635,13 @@ model Transaction {
   /// NULLs are distinct in a unique index on all three providers, so both cases are fine.
   dedupeKeyHash     String?
   metadataJson      String?
+  /// The other leg of a confirmed transfer between two of the member's own accounts (#1189),
+  /// stored on BOTH legs. Written only by `server/transactions/transferPairs.ts` and the restore,
+  /// both through `pairRefusal` (domain/transferPair.ts). SetNull: deleting one leg unlinks the
+  /// other. Not a nature: pairing changes no nature and no total (CONTEXT.md, « Transfer pair »).
+  transferPairId    String?            @unique
+  transferPair      Transaction?       @relation("TransferPair", fields: [transferPairId], references: [id], onDelete: SetNull)
+  transferPairOf    Transaction?       @relation("TransferPair")
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
   user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)

@@ -25,6 +25,8 @@ import { isCostlyRegexPattern } from '$lib/server/categorization/rules';
 import { loadDefaultRuleCatalog } from '$lib/server/categorization/default-rules/catalog';
 import { resolveColumnMappingsPerUser } from '$lib/server/import/mapping/store';
 import type { BackupIntegrityReason } from '$lib/server/logging/data';
+import { linkRefusal, type PairLeg } from '$lib/domain/transferPair';
+import { resolveTransactionType } from '$lib/server/transactions/totals';
 
 /**
  * A file the integrity check refused. `reason` is the closed suffix of the message key, for the log
@@ -430,7 +432,9 @@ export async function restoreBackup(
 				parseAnchorTransactionIds(action.anchorTransactionIds)
 			),
 			...payload.transactionTags.map((link) => link.transactionId),
-			...payload.transactionSplits.map((split) => split.transactionId)
+			...payload.transactionSplits.map((split) => split.transactionId),
+			// Both legs of a pair: the link is written after every row exists, through the new ids.
+			...payload.transactions.flatMap((t) => (t.transferPairId ? [t.id] : []))
 		]);
 		const transactionIdMap = new Map<string, string>();
 
@@ -514,6 +518,14 @@ export async function restoreBackup(
 			const created = await tx.transaction.create({ data: entry.data, select: { id: true } });
 			transactionIdMap.set(entry.oldId, created.id);
 			restored += 1;
+		}
+
+		for (const transaction of payload.transactions) {
+			if (!transaction.transferPairId) continue;
+			await tx.transaction.updateMany({
+				where: { userId, id: transactionIdMap.get(transaction.id)! },
+				data: { transferPairId: transactionIdMap.get(transaction.transferPairId)! }
+			});
 		}
 
 		if (payload.recurringStreamActions.length > 0) {
@@ -1032,6 +1044,35 @@ function assertReferentialIntegrity(payload: BackupExport): void {
 			throw new BackupImportError(
 				'split_count',
 				m.settings_backup_error_split_count({ id: transactionId })
+			);
+		}
+	}
+
+	// TRANSFER PAIRS (#1189): the file's link is a claim, refused unless it is mutual, joins two
+	// rows of this file, and passes the same rule a click does. Read on the denomination the restore
+	// will STORE, so a file without currency fields cannot validate one and write another.
+	const transactionById = new Map(payload.transactions.map((t) => [t.id, t]));
+	const asLeg = (t: (typeof payload.transactions)[number]): PairLeg => ({
+		id: t.id,
+		accountId: t.accountId,
+		date: t.date.slice(0, 10),
+		amountCents: t.amountCents,
+		kind: resolveTransactionType(t),
+		...restoredDenomination(t),
+		transferPairId: t.transferPairId ?? null,
+		splitCount: partsByTransaction.get(t.id)?.count ?? 0
+	});
+	for (const transaction of payload.transactions) {
+		if (!transaction.transferPairId) continue;
+		const partner = transactionById.get(transaction.transferPairId);
+		if (
+			!partner ||
+			partner.transferPairId !== transaction.id ||
+			linkRefusal(asLeg(transaction), asLeg(partner)) !== null
+		) {
+			throw new BackupImportError(
+				'transfer_pair',
+				m.settings_backup_error_transfer_pair({ id: transaction.id })
 			);
 		}
 	}

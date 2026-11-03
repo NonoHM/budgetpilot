@@ -157,7 +157,7 @@ const DECISIONS: Record<string, { sites: number; decisions: Decision[] }> = {
 		]
 	},
 	'src/lib/server/backup/import.ts': {
-		sites: 36,
+		sites: 37,
 		decisions: ['logged: sensitive_delete']
 	},
 	'src/lib/server/banking/sync/service.ts': {
@@ -251,7 +251,7 @@ const DECISIONS: Record<string, { sites: number; decisions: Decision[] }> = {
 		]
 	},
 	'src/lib/server/naming/backfill.ts': {
-		sites: 18,
+		sites: 19,
 		decisions: ['logged: budgetpilot.backfill.completed']
 	},
 	'src/lib/server/net-worth/contestedRepair.ts': {
@@ -296,8 +296,16 @@ const DECISIONS: Record<string, { sites: number; decisions: Decision[] }> = {
 		decisions: ['logged: sensitive_delete', 'covered: #1080, the nature a category is given']
 	},
 	'src/lib/server/transactions/splits.ts': {
-		sites: 5,
-		decisions: ["covered: #1080, a transaction's splits replaced or cleared"]
+		sites: 6,
+		decisions: [
+			"covered: #1080, a transaction's splits replaced or cleared, and the transfer pair a split unlinks"
+		]
+	},
+	'src/lib/server/transactions/transferPairs.ts': {
+		sites: 3,
+		decisions: [
+			'covered: #1080, a transfer pair confirmed or undone is an edit to two transactions'
+		]
 	},
 	'src/lib/server/upcoming-bills/service.ts': {
 		sites: 3,
@@ -396,7 +404,7 @@ describe('every database write has a logging decision', () => {
 		expect(
 			Object.values(measured).reduce((total, sites) => total + sites, 0),
 			QUESTION
-		).toBe(213);
+		).toBe(219);
 	});
 
 	it('pins every file holding a write, with its number of sites', () => {
@@ -426,6 +434,6 @@ describe('every database write has a logging decision', () => {
 				.filter((decision) => !wellFormed(decision))
 				.map((decision) => `${path}: ${decision}`)
 		);
-		expect([Object.keys(DECISIONS).length, malformed]).toEqual([42, []]);
+		expect([Object.keys(DECISIONS).length, malformed]).toEqual([43, []]);
 	});
 });

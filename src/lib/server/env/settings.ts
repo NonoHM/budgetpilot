@@ -466,6 +466,21 @@ export const SETTINGS = {
 		summary: 'How many statement uploads one account may make in 15 minutes.',
 		page: 'configuration.md#how-many-uploads-one-account-may-make'
 	},
+	BP_TRANSFER_PAIR_WINDOW_DAYS: {
+		kind: 'integer',
+		tier: 'advanced',
+		group: 'Uploads and imports',
+		readBy: 'app',
+		default: 5,
+		min: 1,
+		max: 31,
+		unit: 'days',
+		ceiling:
+			'Past a month, a monthly saving of the same amount meets its own previous month, so the two months become two candidates and nothing is proposed.',
+		summary:
+			'How many days apart the two sides of a transfer between your own accounts may be dated and still be proposed as a pair.',
+		page: 'configuration.md#how-far-apart-the-two-sides-of-a-transfer-may-be'
+	},
 
 	// ── Bank sync ───────────────────────────────────────────────────────────────────────────────
 	BANK_SYNC_ENABLED: {

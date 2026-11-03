@@ -35,6 +35,7 @@ function baseData(overrides: Record<string, unknown> = {}): PageData {
 				source: 'Carrefour Market SA',
 				tags: [],
 				splitIndicator: null,
+				linkedAccount: null,
 				matchedCategoryAllocation: null,
 				suggestion: null
 			}
@@ -109,6 +110,8 @@ function baseData(overrides: Record<string, unknown> = {}): PageData {
 		uncategorizedCount: 0,
 		classifiableCount: 0,
 		classifyStackIds: [],
+		transferProposals: { pairs: [], ambiguousCount: 0 },
+		transferPartner: null,
 		tagCounts: null,
 		tagScopeTotal: 0,
 		bulkFallback: null,

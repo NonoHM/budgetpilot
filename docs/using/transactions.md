@@ -91,6 +91,31 @@ Open a transaction and the detail panel gives you:
   offered on a transaction that has no category yet, because a split needs
   a category to fall back to.
 
+## Linking a transfer between your accounts
+
+When you move money from one of your accounts to another, it shows up
+twice: once leaving the first account and once arriving in the second.
+When the app finds two such transactions with the same amount, a few days
+apart, it lists them at the top of the screen under **transfers between
+your accounts**.
+
+To link one pair, follow these steps:
+
+1. Check the two accounts, the dates and the amount on the line.
+2. Select **Link** on that line.
+
+To link every line at once, select **Link all**. To take a link back
+right away, select **Undo** in the message that appears.
+
+A linked transaction shows **Linked to** and the other account in the
+list. To remove a link later, open either transaction and select
+**Unlink** under **Linked transaction**.
+
+Nothing is linked unless you select it. When one transaction matches
+several others, the app proposes none of them, and says how many it left
+out because their match is not certain. Linking changes no total and no
+nature.
+
 ## Tagging many at once
 
 Filter the list down first, then use **Tag the N results** under the

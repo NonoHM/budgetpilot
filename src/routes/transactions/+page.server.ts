@@ -40,10 +40,19 @@ import {
 } from '$lib/server/transactions/nature';
 import { splitIndicatorOf } from '$lib/domain/allocation';
 import { projectAccountForDetail } from '$lib/server/transactions/accountProjection';
+import { displayAccountName, type NameableAccount } from '$lib/server/accounts/projection';
+import {
+	confirmTransferPair,
+	loadTransferPartner,
+	loadTransferProposalView,
+	pairAllProposed,
+	undoTransferPairs
+} from '$lib/server/transactions/transferPairs';
 import {
 	buildTransactionWhere,
 	normalizeId,
 	normalizeIdList,
+	parseTransferPairList,
 	resolveUncategorizedCategoryId
 } from '$lib/server/transactions/where';
 import { resolveTransactionScope } from '$lib/server/transactions/scope';
@@ -124,6 +133,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 						natureManual: true,
 						dedupeKey: true,
 						metadataJson: true,
+						transferPairId: true,
 						createdAt: true,
 						updatedAt: true,
 						category: { select: { name: true } },
@@ -292,7 +302,13 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		source: true,
 		natureManual: true,
 		...EFFECTIVE_CATEGORY_SELECT,
-		tags: { select: { tag: { select: { id: true, name: true, colorToken: true } } } }
+		tags: { select: { tag: { select: { id: true, name: true, colorToken: true } } } },
+		// #1189: the row says which account a paired transfer meets.
+		transferPair: {
+			select: {
+				account: { select: { name: true, nameKey: true, source: true, institution: true } }
+			}
+		}
 	} as const;
 
 	interface TransactionListRow {
@@ -307,6 +323,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		category: { name: string };
 		splits: SplitRow[];
 		tags: TagLinkRow[];
+		transferPair: { account: NameableAccount } | null;
 	}
 
 	const queryError = scope.kind === 'invalid' && scope.reasons.regex;
@@ -507,7 +524,14 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 					return null;
 				});
 
+	const [transferProposals, transferPartner] = await Promise.all([
+		loadTransferProposalView(user.id),
+		loadTransferPartner(user.id, selectedTransaction?.transferPairId ?? null)
+	]);
+
 	return {
+		transferProposals,
+		transferPartner,
 		splitFilterAvailable,
 		splitCounts,
 		transactions: transactions.map((t) =>
@@ -986,6 +1010,47 @@ export const actions: Actions = {
 		return { classifyAllSuccess: true, updated };
 	},
 
+	// #1189. Each refusal is the server's answer, never the page's: the ids posted are claims, and
+	// `confirmTransferPair` resolves both under the session before linking anything.
+	linkTransferPair: async ({ locals, request }) => {
+		const user = requireUser(locals.user);
+		const formData = await request.formData();
+		const outId = normalizeId(getFormValue(formData, 'outId'));
+		const inId = normalizeId(getFormValue(formData, 'inId'));
+		if (!outId || !inId) {
+			return fail(400, { transferPairError: m.transactions_error_invalid_transaction() });
+		}
+		const result = await confirmTransferPair(user.id, outId, inId);
+		if (!result.ok && result.reason === 'not-found') {
+			// authz-exempt: logged by confirmTransferPair, the function that ran the userId-scoped lookup
+			return fail(404, { transferPairError: m.transactions_error_transaction_not_found() });
+		}
+		if (!result.ok) return fail(409, { transferPairError: m.transfer_pairs_error_refused() });
+		return { transferPairLinked: [[outId, inId] as [string, string]] };
+	},
+
+	linkAllTransferPairs: async ({ locals }) => {
+		const user = requireUser(locals.user);
+		const { pairs } = await pairAllProposed(user.id);
+		return { transferPairLinked: pairs };
+	},
+
+	unlinkTransferPair: async ({ locals, request }) => {
+		const user = requireUser(locals.user);
+		const formData = await request.formData();
+		// The pairs the page names, `a:b,c:d`, refused whole rather than trimmed.
+		const pairs = parseTransferPairList(getFormValue(formData, 'pairs'));
+		if (!pairs) {
+			return fail(400, { transferPairError: m.transactions_error_invalid_transaction() });
+		}
+		const result = await undoTransferPairs(user.id, pairs);
+		if (!result.ok) {
+			// authz-exempt: logged by undoTransferPairs, the function that ran the userId-scoped lookup
+			return fail(404, { transferPairError: m.transactions_error_transaction_not_found() });
+		}
+		return { transferPairUnlinked: result.unlinked };
+	},
+
 	deleteTransaction: async ({ locals, request }) => {
 		const user = requireUser(locals.user);
 		const formData = await request.formData();
@@ -1095,6 +1160,7 @@ function mapTransactionListItem(
 		category: { name: string };
 		splits: SplitRow[];
 		tags: TagLinkRow[];
+		transferPair: { account: NameableAccount } | null;
 	},
 	mappingMap: Map<string, TransactionNature>,
 	rules: Array<{
@@ -1207,6 +1273,10 @@ function mapTransactionListItem(
 		type: kind,
 		source: transaction.source,
 		tags: flattenTagLinks(transaction.tags),
+		// #1189: the paired leg's account, or null. A link, not a nature (CONTEXT.md).
+		linkedAccount: transaction.transferPair
+			? displayAccountName(transaction.transferPair.account)
+			: null,
 		// `null` on an unsplit row, and the view renders nothing at all for it. The three fields the
 		// desktop cell reads — dominant category, its nature, the count — travel together so the two
 		// lines of that cell cannot end up describing different parts.

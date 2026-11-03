@@ -244,6 +244,18 @@ async function processUser(
 
 		for (const merge of accountPlan.merges) {
 			const loserIds = merge.losers.map((row) => row.id);
+			// A pair whose two legs land in the survivor would be a transfer from an account to
+			// itself, which `pairRefusal` forbids (#1189). The link is symmetric, so this reaches
+			// both legs; a pair with one leg elsewhere keeps its link.
+			const folded = [merge.survivorId, ...loserIds];
+			await tx.transaction.updateMany({
+				where: {
+					userId,
+					accountId: { in: folded },
+					transferPair: { is: { accountId: { in: folded } } }
+				},
+				data: { transferPairId: null }
+			});
 			await tx.transaction.updateMany({
 				where: { userId, accountId: { in: loserIds } },
 				data: { accountId: merge.survivorId }
