@@ -1,10 +1,7 @@
 import { userFacingErrorMessage } from '$lib/server/errors';
 import { fail, type Actions } from '@sveltejs/kit';
 import * as m from '$lib/paraglide/messages';
-import {
-	countedInIncomeAndExpense,
-	splitIndicatorsByTransactionId
-} from '$lib/domain/allocation';
+import { countedInIncomeAndExpense, splitIndicatorsByTransactionId } from '$lib/domain/allocation';
 import { requireUser } from '$lib/server/auth';
 import { prisma } from '$lib/server/db';
 import { createManualTransaction, readAccountTransactionSpan } from '$lib/server/budget/dashboard';

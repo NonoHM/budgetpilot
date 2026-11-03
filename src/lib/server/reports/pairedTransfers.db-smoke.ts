@@ -58,7 +58,13 @@ async function seed(): Promise<Seed> {
 	const [checking, savings] = await Promise.all(
 		['Compte courant', 'Livret A'].map((name) =>
 			prisma.account.create({
-				data: { ...DEFAULT_DENOMINATION, userId, name, nameKey: computeNameKey(name), source: 'csv' },
+				data: {
+					...DEFAULT_DENOMINATION,
+					userId,
+					name,
+					nameKey: computeNameKey(name),
+					source: 'csv'
+				},
 				select: { id: true }
 			})
 		)
@@ -74,7 +80,12 @@ async function seed(): Promise<Seed> {
 	// Section 0 of the 1.4 plan: the outgoing leg matches a savings mapping (nature `transfer`)
 	// while the incoming leg falls back by sign to `income`.
 	await prisma.categoryNatureMapping.create({
-		data: { userId, categoryName: 'Épargne', categoryNameKey: computeNameKey('Épargne'), nature: 'transfer' }
+		data: {
+			userId,
+			categoryName: 'Épargne',
+			categoryNameKey: computeNameKey('Épargne'),
+			nature: 'transfer'
+		}
 	});
 	return { userId, checking: checking.id, savings: savings.id, categories };
 }
@@ -113,7 +124,15 @@ async function ordinaryMonth(s: Seed, month: string): Promise<void> {
 }
 
 async function pairRows(s: Seed, outDate: string, inDate: string): Promise<[string, string]> {
-	const out = await row(s, s.checking, 'expense', outDate, PAIR_CENTS, 'Épargne', 'VIR SEPA LIVRET A');
+	const out = await row(
+		s,
+		s.checking,
+		'expense',
+		outDate,
+		PAIR_CENTS,
+		'Épargne',
+		'VIR SEPA LIVRET A'
+	);
 	const into = await row(s, s.savings, 'income', inDate, PAIR_CENTS, 'Divers', 'VIREMENT RECU');
 	return [out, into];
 }
@@ -140,7 +159,11 @@ interface ReportFigures {
 	largestExpenses: Array<{ label: string; amountCents: number }>;
 	recurringPayments: Array<{ count: number; amountCents: number }>;
 	natureAnalysis: { incomeCents: number; spendingCents: number; transferCents: number };
-	previousMonth?: { incomeDeltaCents: number; expenseDeltaCents: number; balanceDeltaCents: number };
+	previousMonth?: {
+		incomeDeltaCents: number;
+		expenseDeltaCents: number;
+		balanceDeltaCents: number;
+	};
 }
 
 async function report(userId: string, query: string): Promise<ReportFigures> {
@@ -184,9 +207,9 @@ describe('a confirmed pair inside one period, on /reports', () => {
 
 		const after = await report(s.userId, customMonth('2026-03', 31));
 
-		expect(after.topCategories.map((c) => [c.category, c.amountCents, c.percentageOfExpenses])).toEqual([
-			['Courses', 40_000, 1]
-		]);
+		expect(
+			after.topCategories.map((c) => [c.category, c.amountCents, c.percentageOfExpenses])
+		).toEqual([['Courses', 40_000, 1]]);
 		expect(after.largestExpenses.map((e) => e.amountCents)).toEqual([40_000]);
 		expect(after.expenseAveragePerDayCents).toBe(Math.round(40_000 / 31));
 		expect(after.natureAnalysis.transferCents).toBe(0);
@@ -328,16 +351,37 @@ describe('the unusual-spending insight on the dashboard (pass 212-code-B R1)', (
 		for (const offset of [-1, -2, -3]) {
 			await row(s, s.checking, 'expense', `${month(offset)}-05`, 5_000, 'Divers', 'CB DIVERS');
 		}
-		const out = await row(s, s.checking, 'expense', `${month(0)}-01`, PAIR_CENTS, 'Divers', 'VIR SEPA');
-		const into = await row(s, s.savings, 'income', `${month(0)}-02`, PAIR_CENTS, 'Divers', 'VIREMENT RECU');
-		type Insights = { insights: { unusualSpending: { category: string; currentCents: number } | null } };
+		const out = await row(
+			s,
+			s.checking,
+			'expense',
+			`${month(0)}-01`,
+			PAIR_CENTS,
+			'Divers',
+			'VIR SEPA'
+		);
+		const into = await row(
+			s,
+			s.savings,
+			'income',
+			`${month(0)}-02`,
+			PAIR_CENTS,
+			'Divers',
+			'VIREMENT RECU'
+		);
+		type Insights = {
+			insights: { unusualSpending: { category: string; currentCents: number } | null };
+		};
 		const before = (await dashboardLoad(event(s.userId, '/'))) as Insights;
 
 		await confirmTransferPair(s.userId, out, into);
 		const after = (await dashboardLoad(event(s.userId, '/'))) as Insights;
 
 		// Calibration: before the link the leg makes Divers ten times its usual month.
-		expect(before.insights.unusualSpending).toMatchObject({ category: 'Divers', currentCents: PAIR_CENTS });
+		expect(before.insights.unusualSpending).toMatchObject({
+			category: 'Divers',
+			currentCents: PAIR_CENTS
+		});
 		expect(after.insights.unusualSpending).toBeNull();
 	});
 });
@@ -355,7 +399,9 @@ describe('recurring payments on /reports (pass 212-code-A open node)', () => {
 		const after = await report(s.userId, customMonth('2026-03', 31));
 
 		// Calibration: two equal transfers out under one label are a recurring stream before linking.
-		expect(before.recurringPayments.map((p) => [p.count, p.amountCents])).toEqual([[2, PAIR_CENTS]]);
+		expect(before.recurringPayments.map((p) => [p.count, p.amountCents])).toEqual([
+			[2, PAIR_CENTS]
+		]);
 		expect(after.recurringPayments).toEqual([]);
 	});
 });

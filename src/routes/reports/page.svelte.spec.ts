@@ -575,7 +575,9 @@ describe('/reports totals — linked transfers left out (#212)', () => {
 		const screen = await render(Page, { data: buildData('none-detected') });
 
 		// Calibration: the figures the sentence would sit under did render.
-		await expect.element(screen.getByText(m.reports_kpi_savings_rate()).first()).toBeInTheDocument();
+		await expect
+			.element(screen.getByText(m.reports_kpi_savings_rate()).first())
+			.toBeInTheDocument();
 		expect(screen.getByText(m.totals_linked_transfers_left_out()).elements()).toHaveLength(0);
 	});
 });

@@ -149,8 +149,8 @@ export interface TransactionRowForMapping {
 	splits: SplitRow[];
 	/** Required, not optional, so a boundary that forgets to select the link does not compile
 	 *  (#212). A row reaching the mapper without it anyway (an untyped fake) reads as linked and
-	 *  drops out of every income and expense total: zeros, loud, rather than a pair counted
-	 *  twice, quietly. */
+	 *  drops out of everything read through `countedInIncomeAndExpense`, zeros rather than a pair
+	 *  counted twice; per-category budget spend keeps it. */
 	transferPairId: string | null;
 }
 
