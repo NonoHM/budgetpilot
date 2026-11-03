@@ -27,6 +27,8 @@ describe('parseTransferPairList', () => {
 		expect(parseTransferPairList(`${good},!!bad`)).toBeNull();
 		expect(parseTransferPairList(`${good},${id(1, 'a')}`)).toBeNull();
 		expect(parseTransferPairList(`${id(1, 'a')}:${id(1, 'a')}`)).toBeNull();
+		// A third part is refused, not trimmed: separates a colon split limited to 3 from one to 2.
+		expect(parseTransferPairList(`${id(0, 'a')}:${id(0, 'b')}:${id(1, 'a')}`)).toBeNull();
 		expect(parseTransferPairList('')).toBeNull();
 	});
 });

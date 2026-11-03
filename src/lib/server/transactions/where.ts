@@ -273,7 +273,8 @@ export function parseTransferPairList(value: string): [string, string][] | null 
 	if (value.trim() === '' || segments.length > MAX_PAIRS_PER_REQUEST) return null;
 	const pairs: [string, string][] = [];
 	for (const segment of segments) {
-		const parts = segment.split(':');
+		// Three is enough to refuse a segment with a second colon, the same bound as the comma split.
+		const parts = segment.split(':', 3);
 		const [a, b] = parts.map((part) => normalizeId(part));
 		if (parts.length !== 2 || !a || !b || a === b) return null;
 		pairs.push([a, b]);
