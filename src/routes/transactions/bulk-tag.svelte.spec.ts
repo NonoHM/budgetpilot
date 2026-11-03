@@ -49,6 +49,8 @@ function baseData(overrides: Record<string, unknown> = {}): PageData {
 		uncategorizedCount: 0,
 		classifiableCount: 0,
 		classifyStackIds: [],
+		transferProposals: { pairs: [], ambiguousCount: 0 },
+		transferPartner: null,
 		...overrides
 	} as unknown as PageData;
 }

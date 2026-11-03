@@ -505,7 +505,10 @@ const backupTransactionSchema = requireDenominationPair(
 			manualCategory: z.string().max(MAX_PORTABLE_STRING).nullable(),
 			natureManual: transactionNature.nullable(),
 			dedupeKey: z.string().max(500).nullable(),
-			metadataJson: z.string().max(100_000).nullable()
+			metadataJson: z.string().max(100_000).nullable(),
+			// Optional so a file written before #1189 still parses. The value is a claim from the
+			// file, checked by `assertReferentialIntegrity` like every other writer of the link.
+			transferPairId: z.string().min(1).max(MAX_PORTABLE_STRING).nullable().optional()
 		})
 		.strict()
 );

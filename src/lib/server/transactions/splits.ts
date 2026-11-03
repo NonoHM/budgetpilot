@@ -145,6 +145,12 @@ export async function replaceSplits(
 			return { ok: false, reason: 'sum', expectedCents: parent.amountCents, actualCents: sum };
 		}
 
+		// A split leg cannot be half of a transfer pair (domain/transferPair.ts), so a répartition
+		// unlinks both legs, inside the lock `confirmTransferPair` also takes (#1189).
+		await tx.transaction.updateMany({
+			where: { userId, OR: [{ id: transactionId }, { transferPairId: transactionId }] },
+			data: { transferPairId: null }
+		});
 		await tx.transactionSplit.deleteMany({ where: { transactionId } });
 		await tx.transactionSplit.createMany({
 			data: normalized.map((part) => ({

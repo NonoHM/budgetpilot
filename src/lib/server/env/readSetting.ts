@@ -112,6 +112,11 @@ export function assertRateLimitIpv6PrefixConfigured(): void {
 	checkIntegerSetting('BP_RATE_LIMIT_IPV6_PREFIX');
 }
 
+// Added with the setting itself (#1189), read per request by the transfer-pair proposals.
+export function assertTransferPairWindowConfigured(): void {
+	checkIntegerSetting('BP_TRANSFER_PAIR_WINDOW_DAYS');
+}
+
 /** The log seal's interval (#875). `boot.mjs` reads it earlier, by the same rule, for its writer. */
 export function assertLogSealIntervalConfigured(): void {
 	checkIntegerSetting('BP_LOG_SEAL_INTERVAL');

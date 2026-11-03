@@ -108,7 +108,8 @@ export async function buildBackupExport(userId: string): Promise<BackupExport> {
 				manualCategory: true,
 				natureManual: true,
 				dedupeKey: true,
-				metadataJson: true
+				metadataJson: true,
+				transferPairId: true
 			}
 		}),
 		prisma.monthlyBudget.findMany({

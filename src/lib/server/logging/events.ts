@@ -286,7 +286,8 @@ export type BackupIntegrityReason =
 	| 'split_sum_mismatch'
 	| 'split_count'
 	| 'unknown_net_worth_account'
-	| 'unknown_savings_goal_account';
+	| 'unknown_savings_goal_account'
+	| 'transfer_pair';
 /** Why the restore route refused a file before or around the restore itself. */
 export type RestoreFileRefusal =
 	| 'too_large'
