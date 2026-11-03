@@ -1,6 +1,6 @@
 import type { CategoryBudgetSummary } from '$lib/domain/budget';
 import type { Transaction } from '$lib/domain/transaction';
-import type { CategoryAllocation } from '$lib/domain/allocation';
+import { countedInIncomeAndExpense, type CategoryAllocation } from '$lib/domain/allocation';
 import { readDashboardData, getCurrentMonth } from '$lib/server/budget/dashboard';
 import { summarizeBudgetAllocations } from '$lib/domain/budget';
 import { countUncategorizedTransactions } from '$lib/server/transactions/nature';
@@ -185,9 +185,13 @@ export function getRemainingDaysInMonth(month: string): number {
 // Over allocations, so a split purchase's grocery part counts under groceries. With OD-4 the
 // exclusion is now per part too: the transfer half of a mixed purchase drops out while its
 // spending half stays, which is the pair of answers a per-transaction read could not give.
+//
+// A linked transfer leg leaves too (#212), whatever its nature: no budget names this read, so the
+// budget rule that keeps counting a linked leg does not apply, and a leg whose category maps to
+// nothing resolves to `spending` and would otherwise flag its category as unusual.
 export function spendByEffectiveCategory(allocations: CategoryAllocation[]): Map<string, number> {
 	const spend = new Map<string, number>();
-	for (const allocation of allocations) {
+	for (const allocation of countedInIncomeAndExpense(allocations)) {
 		if (allocation.kind !== 'expense') continue;
 		if (allocation.nature === 'transfer' || allocation.nature === 'investment') continue;
 		spend.set(

@@ -138,6 +138,7 @@ interface ReportFigures {
 	expenseAveragePerDayCents: number;
 	topCategories: Array<{ category: string; amountCents: number; percentageOfExpenses: number }>;
 	largestExpenses: Array<{ label: string; amountCents: number }>;
+	recurringPayments: Array<{ count: number; amountCents: number }>;
 	natureAnalysis: { incomeCents: number; spendingCents: number; transferCents: number };
 	previousMonth?: { incomeDeltaCents: number; expenseDeltaCents: number; balanceDeltaCents: number };
 }
@@ -311,5 +312,50 @@ describe('figures left unchanged by recorded decision', () => {
 		expect(data.summary.categorySummaries.map((b) => [b.category, b.spentCents])).toEqual([
 			['Épargne', PAIR_CENTS]
 		]);
+	});
+});
+
+describe('the unusual-spending insight on the dashboard (pass 212-code-B R1)', () => {
+	// Same screen as the tiles. The insight already leaves out the `transfer` nature; a linked leg
+	// whose category maps to nothing resolves to `spending`, so only the link can take it out.
+	it('stops reporting a category as unusual once the leg that inflated it is linked', async () => {
+		const s = await seed();
+		const now = new Date();
+		const month = (offset: number) => {
+			const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + offset, 1));
+			return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+		};
+		for (const offset of [-1, -2, -3]) {
+			await row(s, s.checking, 'expense', `${month(offset)}-05`, 5_000, 'Divers', 'CB DIVERS');
+		}
+		const out = await row(s, s.checking, 'expense', `${month(0)}-01`, PAIR_CENTS, 'Divers', 'VIR SEPA');
+		const into = await row(s, s.savings, 'income', `${month(0)}-02`, PAIR_CENTS, 'Divers', 'VIREMENT RECU');
+		type Insights = { insights: { unusualSpending: { category: string; currentCents: number } | null } };
+		const before = (await dashboardLoad(event(s.userId, '/'))) as Insights;
+
+		await confirmTransferPair(s.userId, out, into);
+		const after = (await dashboardLoad(event(s.userId, '/'))) as Insights;
+
+		// Calibration: before the link the leg makes Divers ten times its usual month.
+		expect(before.insights.unusualSpending).toMatchObject({ category: 'Divers', currentCents: PAIR_CENTS });
+		expect(after.insights.unusualSpending).toBeNull();
+	});
+});
+
+describe('recurring payments on /reports (pass 212-code-A open node)', () => {
+	it('stops listing a monthly transfer as a recurring payment once both of its pairs are linked', async () => {
+		const s = await seed();
+		await ordinaryMonth(s, '2026-03');
+		const first = await pairRows(s, '2026-03-03', '2026-03-04');
+		const second = await pairRows(s, '2026-03-20', '2026-03-21');
+		const before = await report(s.userId, customMonth('2026-03', 31));
+
+		await confirmTransferPair(s.userId, ...first);
+		await confirmTransferPair(s.userId, ...second);
+		const after = await report(s.userId, customMonth('2026-03', 31));
+
+		// Calibration: two equal transfers out under one label are a recurring stream before linking.
+		expect(before.recurringPayments.map((p) => [p.count, p.amountCents])).toEqual([[2, PAIR_CENTS]]);
+		expect(after.recurringPayments).toEqual([]);
 	});
 });
