@@ -120,6 +120,26 @@ export interface CategoryAllocation {
 	amountCents: number;
 	nature: TransactionNature;
 	kind: TransactionKind;
+	/** The transaction is one leg of a confirmed transfer pair. A leg has no parts (pairing refuses
+	 *  a split, splitting unpairs), so this is never true of a part. */
+	transferPaired: boolean;
+}
+
+/**
+ * THE RULE OF #212, expressed once: a leg of a CONFIRMED transfer pair is neither income nor
+ * spending, so every income, expense, balance and savings-rate figure, and every share or list
+ * computed beside one, reads the allocations this returns. Each leg is judged alone, so a period
+ * holding one leg loses that leg only (R3 v2 on #1193). Nature decides nothing here: two legs of
+ * one movement can resolve to different natures, and dropping one of them would move the balance.
+ *
+ * Deliberately NOT called by the sums of a set (the /transactions band, upcoming bills, the
+ * forecast, the import summary) nor by per-category budget spend, which counts every expense an
+ * explicit budget targets.
+ */
+export function countedInIncomeAndExpense(
+	allocations: ReadonlyArray<CategoryAllocation>
+): CategoryAllocation[] {
+	return allocations.filter((allocation) => !allocation.transferPaired);
 }
 
 /** The smallest thing the remainder rule needs to know about a whole or a part. */
@@ -211,7 +231,8 @@ export function allocationsOf(
 		// `entry.part` is null exactly for the remainder, which always carries the transaction's own
 		// nature. A part with no nature of its own falls back to the same value.
 		nature: entry.part?.nature ?? transactionNature,
-		kind
+		kind,
+		transferPaired: transaction.transferPaired === true
 	}));
 }
 

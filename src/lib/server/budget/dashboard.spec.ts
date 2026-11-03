@@ -214,7 +214,8 @@ describe('readDashboardData', () => {
 				manualCategory: null,
 				natureManual: null,
 				category: { name: 'Revenus' },
-				splits: []
+				splits: [],
+				transferPairId: null
 			},
 			{
 				id: 'expense-any-source',
@@ -226,7 +227,8 @@ describe('readDashboardData', () => {
 				manualCategory: 'Maison',
 				natureManual: null,
 				category: { name: 'Alimentation' },
-				splits: []
+				splits: [],
+				transferPairId: null
 			}
 		]);
 		db.prisma.monthlyBudget.findMany.mockResolvedValue([]);
@@ -281,7 +283,8 @@ describe('readDashboardData', () => {
 				manualCategory: 'Revenus exceptionnels',
 				natureManual: null,
 				category: { name: 'Revenus' },
-				splits: []
+				splits: [],
+				transferPairId: null
 			}
 		]);
 

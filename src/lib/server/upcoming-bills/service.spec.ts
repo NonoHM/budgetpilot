@@ -107,6 +107,7 @@ interface RawTransaction {
 	// `allocations`, which is why this is no longer typed `[]`: a fixture exercising that field
 	// needs to carry real parts. Every fixture but the split ones below still passes `[]`.
 	splits: Array<{ amountCents: number; position: number; category: { name: string } }>;
+	transferPairId: string | null;
 }
 
 function tx(
@@ -126,7 +127,8 @@ function tx(
 		manualCategory: null,
 		natureManual: null,
 		category: { name: category },
-		splits: []
+		splits: [],
+		transferPairId: null
 	};
 }
 

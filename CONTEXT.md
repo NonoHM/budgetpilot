@@ -267,7 +267,11 @@ Two things the app calls a transfer.
   set by its category or by hand, which decides which bucket the row's money falls in.
 
 Pairing changes no nature, and a transfer nature implies no pair. A pair's two legs can carry
-different natures, which is the reason the link exists.
+different natures, which is the reason the link exists. Only the PAIR moves a figure: both legs
+leave income, expenses, balance and savings rate, each in the period it is dated in
+(`countedInIncomeAndExpense`, #212), while a row whose nature is `transfer` and that is not paired
+stays counted. Per-category budget spend and the sums of a set (the /transactions band, upcoming
+bills, the forecast) still count a paired leg.
 
 > **What confusing them would cost.** An outgoing « VIR SEPA LIVRET A » matches the default rule to
 > the savings category, whose nature is `transfer`, while the incoming leg on the savings account

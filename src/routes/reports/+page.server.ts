@@ -106,6 +106,7 @@ async function readTransactionsForRange(
 			type: true,
 			source: true,
 			natureManual: true,
+			transferPairId: true,
 			...EFFECTIVE_CATEGORY_SELECT
 		},
 		{ order: 'asc' }

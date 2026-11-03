@@ -96,6 +96,7 @@ function buildData(
 		/** Only the custom period renders the two date fields, so a test about them has to ask for
 		 *  it. Every other test keeps the 'this-month' default it was written against. */
 		period?: PageData['period'];
+		linkedTransferCount?: number;
 	} = {}
 ): PageData {
 	const {
@@ -106,6 +107,7 @@ function buildData(
 		upcomingBillsEmptyState = null,
 		cashFlowForecast = EMPTY_FORECAST,
 		accountSpan = EMPTY_ACCOUNT_SPAN,
+		linkedTransferCount = 0,
 		period = {
 			key: 'this-month',
 			label: 'juillet 2026',
@@ -128,6 +130,7 @@ function buildData(
 		budgets,
 		summary: EMPTY_SUMMARY,
 		natureAnalysis: EMPTY_NATURE_ANALYSIS,
+		linkedTransferCount,
 		recentTransactions: transactions
 			.slice(0, 10)
 			.map((transaction) => ({ ...transaction, splitIndicator: null })),
@@ -709,5 +712,26 @@ describe('/ dashboard — the custom period form uses the app’s own date field
 
 		expect(fields[0].value).toBe('01/07/2026');
 		expect(fields[1].value).toBe('15/07/2026');
+	});
+});
+
+describe('/ dashboard totals — linked transfers left out (#212)', () => {
+	it('says once under the tiles that linked transfers are left out when the period holds one', async () => {
+		const screen = await render(Page, {
+			data: buildData({ linkedTransferCount: 2 }),
+			form: null as ActionData
+		});
+
+		const sentences = screen.getByText(m.totals_linked_transfers_left_out());
+		await expect.element(sentences).toBeInTheDocument();
+		expect(sentences.elements()).toHaveLength(1);
+	});
+
+	it('says nothing about transfers when the period holds no linked leg', async () => {
+		const screen = await render(Page, { data: buildData(), form: null as ActionData });
+
+		// Calibration: the tiles the sentence would sit under did render.
+		await expect.element(screen.getByText(m.reports_kpi_income()).first()).toBeInTheDocument();
+		expect(screen.getByText(m.totals_linked_transfers_left_out()).elements()).toHaveLength(0);
 	});
 });

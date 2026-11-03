@@ -1,7 +1,7 @@
 import { userFacingErrorMessage } from '$lib/server/errors';
 import { fail, type Actions } from '@sveltejs/kit';
 import * as m from '$lib/paraglide/messages';
-import { splitIndicatorsByTransactionId } from '$lib/domain/allocation';
+import { countedInIncomeAndExpense, splitIndicatorsByTransactionId } from '$lib/domain/allocation';
 import { requireUser } from '$lib/server/auth';
 import { prisma } from '$lib/server/db';
 import { createManualTransaction, readAccountTransactionSpan } from '$lib/server/budget/dashboard';
@@ -52,6 +52,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 	// Computed once over the period's allocations, not per row: `recentTransactions` only ever
 	// looks up the first 10, but the map itself is built from the whole set exactly once.
 	const recentSplitIndicators = splitIndicatorsByTransactionId(allocations);
+	const counted = countedInIncomeAndExpense(allocations);
 
 	return {
 		// The Periode panel's presets are a pure function of "today", which is a parameter rather
@@ -65,7 +66,10 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		transactions,
 		budgets,
 		summary,
-		natureAnalysis: analyzeTransactionNatures(allocations),
+		// Same set as the income and expense tiles above it (#212). A linked leg has exactly one
+		// allocation (no parts), so the difference counts legs.
+		natureAnalysis: analyzeTransactionNatures(counted),
+		linkedTransferCount: allocations.length - counted.length,
 		// Parent-shaped, like the identity view it's sliced from — never re-ranked or relabelled
 		// from a répartition's parts (same OD-3 posture as reports/monthly.ts's largestExpenses).
 		// `splitIndicator` only flags that a répartition exists; `null` for an unsplit row.

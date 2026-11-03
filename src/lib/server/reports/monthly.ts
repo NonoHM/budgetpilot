@@ -1,7 +1,7 @@
 import * as m from '$lib/paraglide/messages';
 import type { Transaction } from '$lib/domain/transaction';
 import type { CategoryAllocation, SplitIndicator } from '$lib/domain/allocation';
-import { splitIndicatorsByTransactionId } from '$lib/domain/allocation';
+import { countedInIncomeAndExpense, splitIndicatorsByTransactionId } from '$lib/domain/allocation';
 import { getTransactionKind } from '$lib/domain/transaction';
 import { getSimilarAmountGroups, normalizeRecurringLabel } from '$lib/domain/recurrence';
 import { categoryDisplayName } from '$lib/domain/categoryLabels';
@@ -85,6 +85,9 @@ export interface MonthlyReport {
 	expenseCents: number;
 	balanceCents: number;
 	transactionCount: number;
+	/** Legs of confirmed transfer pairs dated in this period, left out of every money figure here
+	 *  (#212). Counted so the screen says so only when it is true. */
+	linkedTransferCount: number;
 	expenseAveragePerDayCents: number;
 	savingsRate: number | null;
 	topCategories: CategoryTotal[];
@@ -129,6 +132,11 @@ export function buildMonthlyReport(
  *    allocation of a transaction carries that transaction's kind, so the two sums are equal by
  *    construction — the conservation theorem, and the guard measures it rather than assuming it.
  *
+ * Every money figure, and every list ranked beside one, reads `countedInIncomeAndExpense`'s set
+ * (#212), so a confirmed transfer leg is in none of them and a share never exceeds 100 %. The
+ * transaction lists are narrowed to the ids that set keeps, not by a second spelling of the rule.
+ * `transactionCount` and the day count stay every bank line of the period.
+ *
  * Passing the arrays the wrong way round does not compile: a CategoryAllocation has no `label`, and
  * a Transaction has no `transactionId`.
  */
@@ -139,11 +147,14 @@ export function buildPeriodReport(
 	previousPeriod?: Pick<MonthlyReport, 'month' | 'incomeCents' | 'expenseCents' | 'balanceCents'>,
 	options: { dayCount?: number } = {}
 ): MonthlyReport {
-	const expenses = transactions.filter(
+	const counted = countedInIncomeAndExpense(allocations);
+	const countedIds = new Set(counted.map((allocation) => allocation.transactionId));
+	const countedTransactions = transactions.filter((transaction) => countedIds.has(transaction.id));
+	const expenses = countedTransactions.filter(
 		(transaction) => getTransactionKind(transaction) === 'expense'
 	);
-	const expenseAllocations = allocations.filter((allocation) => allocation.kind === 'expense');
-	const incomeCents = allocations
+	const expenseAllocations = counted.filter((allocation) => allocation.kind === 'expense');
+	const incomeCents = counted
 		.filter((allocation) => allocation.kind === 'income')
 		.reduce((total, allocation) => total + Math.abs(allocation.amountCents), 0);
 	const expenseCents = expenseAllocations.reduce(
@@ -155,7 +166,7 @@ export function buildPeriodReport(
 	const topCategories = getTopCategories(expenseAllocations, expenseCents);
 	const largestExpenses = getLargestExpenses(expenses, expenseAllocations);
 	const recurringPayments = getRecurringPayments(expenses);
-	const natureAnalysis = analyzeTransactionNatures(allocations);
+	const natureAnalysis = analyzeTransactionNatures(counted);
 	const previousMonth = previousPeriod
 		? {
 				month: previousPeriod.month,
@@ -171,6 +182,7 @@ export function buildPeriodReport(
 		expenseCents,
 		balanceCents,
 		transactionCount: transactions.length,
+		linkedTransferCount: transactions.length - countedTransactions.length,
 		expenseAveragePerDayCents: Math.round(expenseCents / dayCount),
 		savingsRate: incomeCents > 0 ? balanceCents / incomeCents : null,
 		topCategories,

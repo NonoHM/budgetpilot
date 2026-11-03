@@ -26,6 +26,13 @@ Three more figures have no comparison because they are already relative:
 - **Expense / day**, the period's spending spread over its days.
 - **Savings rate**, the share of income you did not spend.
 
+Money you move between your own accounts is not income or spending once you
+link it. A linked transfer is left out of every figure except
+**Transactions**, and of the spending charts and tables below. The projected
+balance and the detected flows still count it, because the money does leave
+the account. A line under the figures says when the period holds one. To link a transfer, see
+[linking a transfer between your accounts](./transactions.md#linking-a-transfer-between-your-accounts).
+
 ## Key takeaways
 
 Three sentences under the figures, in plain language: whether the period is
@@ -47,8 +54,8 @@ period covers.
 
 **Spending by nature** answers a different question: how much of that was
 really spending, as opposed to a transfer between your own accounts, an
-investment or a refund. A period that is 100% actual spending has no
-internal movements in it.
+investment or a refund. A transfer you linked is not in it at all; one you
+have not linked shows as a transfer if its category is mapped to Transfer.
 
 ## The two tables
 

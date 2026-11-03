@@ -147,6 +147,11 @@ export interface TransactionRowForMapping {
 	natureManual?: TransactionNature | null;
 	category: { name: string } | null;
 	splits: SplitRow[];
+	/** Required, not optional, so a boundary that forgets to select the link does not compile
+	 *  (#212). A row reaching the mapper without it anyway (an untyped fake) reads as linked and
+	 *  drops out of everything read through `countedInIncomeAndExpense`, zeros rather than a pair
+	 *  counted twice; per-category budget spend keeps it. */
+	transferPairId: string | null;
 }
 
 /**
@@ -191,7 +196,8 @@ export function mapTransactionWithNature(
 		category,
 		source: transaction.source as TransactionSource,
 		nature: effectiveNature.nature,
-		natureSource: effectiveNature.source
+		natureSource: effectiveNature.source,
+		transferPaired: transaction.transferPairId !== null
 	};
 }
 

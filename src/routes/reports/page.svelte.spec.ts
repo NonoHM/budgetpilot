@@ -44,6 +44,7 @@ function buildReport(): MonthlyReport {
 		expenseCents: 0,
 		balanceCents: 0,
 		transactionCount: 1,
+		linkedTransferCount: 0,
 		expenseAveragePerDayCents: 0,
 		savingsRate: null,
 		topCategories: [],
@@ -554,5 +555,29 @@ describe('/reports — the period control uses the app’s own date field', () =
 			expect(fields[0].value).toBe(isoToDisplay(PERIOD.fromDate));
 			expect(fields[1].value).toBe(isoToDisplay(PERIOD.toDate));
 		}
+	});
+});
+
+describe('/reports totals — linked transfers left out (#212)', () => {
+	// The sentence is the only place the member learns why income and expenses are lower than the
+	// sum of the rows; it shows only when the period really holds a linked leg.
+	it('says once that linked transfers are left out when the period holds one', async () => {
+		const data = buildData('none-detected');
+		data.report.linkedTransferCount = 1;
+		const screen = await render(Page, { data });
+
+		const sentences = screen.getByText(m.totals_linked_transfers_left_out());
+		await expect.element(sentences).toBeInTheDocument();
+		expect(sentences.elements()).toHaveLength(1);
+	});
+
+	it('says nothing about transfers when the period holds no linked leg', async () => {
+		const screen = await render(Page, { data: buildData('none-detected') });
+
+		// Calibration: the figures the sentence would sit under did render.
+		await expect
+			.element(screen.getByText(m.reports_kpi_savings_rate()).first())
+			.toBeInTheDocument();
+		expect(screen.getByText(m.totals_linked_transfers_left_out()).elements()).toHaveLength(0);
 	});
 });

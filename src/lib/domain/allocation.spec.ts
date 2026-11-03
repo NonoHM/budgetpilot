@@ -349,7 +349,8 @@ describe('splitIndicatorsByTransactionId', () => {
 		category,
 		amountCents,
 		nature: 'spending',
-		kind: 'expense'
+		kind: 'expense',
+		transferPaired: false
 	});
 
 	it('buckets an INTERLEAVED list by transaction, not by adjacency', () => {

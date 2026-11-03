@@ -31,6 +31,7 @@ function row(overrides: Partial<TransactionRowForMapping> = {}): TransactionRowF
 		natureManual: null,
 		category: { name: 'Maison' },
 		splits: [],
+		transferPairId: null,
 		...overrides
 	};
 }

@@ -1,4 +1,4 @@
-import type { CategoryAllocation } from './allocation';
+import { countedInIncomeAndExpense, type CategoryAllocation } from './allocation';
 import { normalizeForMatch } from './normalize';
 import { formatMoney, money, DEFAULT_CURRENCY } from './money';
 import { getLocale } from '$lib/paraglide/runtime';
@@ -49,16 +49,21 @@ export function summarizeMonthlyBudget(
  *
  * `incomeCents` / `expenseCents` are unchanged in value: every allocation carries its transaction's
  * kind, so summing them per kind equals summing the transactions per kind.
+ *
+ * The two totals leave confirmed transfer legs out (`countedInIncomeAndExpense`, #212); the
+ * per-category spend below does not, because an explicit budget counts every expense in its
+ * category and /budgets reads the same rule, so the two budget figures keep agreeing.
  */
 export function summarizeBudgetAllocations(
 	allocations: CategoryAllocation[],
 	budgets: CategoryBudget[],
 	period: string
 ): MonthlyBudgetSummary {
-	const incomeCents = allocations
+	const counted = countedInIncomeAndExpense(allocations);
+	const incomeCents = counted
 		.filter((allocation) => allocation.kind === 'income')
 		.reduce((total, allocation) => total + Math.abs(allocation.amountCents), 0);
-	const expenseCents = allocations
+	const expenseCents = counted
 		.filter((allocation) => allocation.kind === 'expense')
 		.reduce((total, allocation) => total + Math.abs(allocation.amountCents), 0);
 	// Spend is accumulated per folded category name, not per raw one: "Courses" and

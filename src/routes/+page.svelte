@@ -323,6 +323,10 @@
 				</div>
 			</div>
 		</div>
+		<!-- Only when it explains a figure in the tiles above (#212). -->
+		{#if data.linkedTransferCount > 0}
+			<p class="mt-2 text-xs text-zinc-500">{m.totals_linked_transfers_left_out()}</p>
+		{/if}
 
 		<DashboardInsights insights={data.insights} />
 
