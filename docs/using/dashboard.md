@@ -45,7 +45,8 @@ A transfer you linked between two of your accounts counts in none of the
 three. See
 [linking a transfer between your accounts](./transactions.md#linking-a-transfer-between-your-accounts).
 
-The line under the title says how many transactions those figures cover, so
+The line under the title says how many transactions the period holds,
+linked transfers included, so
 a number that looks wrong can be checked against a count before you go
 looking for a bug.
 

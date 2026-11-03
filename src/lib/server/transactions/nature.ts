@@ -147,8 +147,9 @@ export interface TransactionRowForMapping {
 	natureManual?: TransactionNature | null;
 	category: { name: string } | null;
 	splits: SplitRow[];
-	/** Required, not optional: a boundary that forgot to select the link would count a confirmed
-	 *  pair as income and spending again, silently (#212). */
+	/** Required, not optional, so a boundary that forgets to select the link does not compile
+	 *  (#212). A row reaching the mapper without it anyway (an untyped fake) reads as linked and
+	 *  drops out of every total: zeros, loud, rather than a pair counted twice, quietly. */
 	transferPairId: string | null;
 }
 

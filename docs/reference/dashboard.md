@@ -20,16 +20,16 @@ Cash-flow forecast, which are described at the bottom of this page.
 
 ## The three figures
 
-| Figure         | What it is                                    |
-| -------------- | --------------------------------------------- |
-| Income         | Every incoming amount in the period, added up |
-| Expenses       | Every outgoing amount in the period, added up |
-| Period balance | Income minus expenses                         |
+| Figure         | What it is                                                            |
+| -------------- | --------------------------------------------------------------------- |
+| Income         | Every incoming amount in the period except linked transfers, added up |
+| Expenses       | Every outgoing amount in the period except linked transfers, added up |
+| Period balance | Income minus expenses                                                 |
 
 Income and Expenses leave out **linked transfers**, as on
-[reports](./reports.md#the-six-figures), and so does the **Real analysis** panel; a
-line under the three figures says so when the period holds one. Budget
-progress still counts them.
+[reports](./reports.md#the-six-figures), and so do the **Real analysis** panel and
+the unusual-spending insight; a line under the three figures says so when
+the period holds one. Budget progress and budget alerts still count them.
 
 Both totals are positive numbers, and the balance is their difference, so a
 month where you took in more than you spent shows a positive balance in

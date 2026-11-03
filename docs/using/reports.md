@@ -28,8 +28,9 @@ Three more figures have no comparison because they are already relative:
 
 Money you move between your own accounts is not income or spending once you
 link it. A linked transfer is left out of every figure except
-**Transactions**, and of the charts and tables below, and a line under the
-figures says so. To link a transfer, see
+**Transactions**, and of the spending charts and tables below. The projected
+balance and the detected flows still count it, because the money does leave
+the account. A line under the figures says when the period holds one. To link a transfer, see
 [linking a transfer between your accounts](./transactions.md#linking-a-transfer-between-your-accounts).
 
 ## Key takeaways

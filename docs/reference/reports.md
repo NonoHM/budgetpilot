@@ -12,14 +12,14 @@ filter**, so it is not narrowed by anything you set elsewhere.
 
 ## The six figures
 
-| Figure        | What it is                                      | Comparison |
-| ------------- | ----------------------------------------------- | ---------- |
-| Income        | Money in over the period                        | yes        |
-| Expenses      | Money out over the period                       | yes        |
-| Balance       | Income minus expenses                           | yes        |
-| Transactions  | How many transactions the period holds          | no         |
-| Expense / day | Expenses spread over the days the period covers | no         |
-| Savings rate  | The share of income not spent                   | no         |
+| Figure        | What it is                                        | Comparison |
+| ------------- | ------------------------------------------------- | ---------- |
+| Income        | Money in over the period, linked transfers aside  | yes        |
+| Expenses      | Money out over the period, linked transfers aside | yes        |
+| Balance       | Income minus expenses                             | yes        |
+| Transactions  | How many transactions the period holds            | no         |
+| Expense / day | Expenses spread over the days the period covers   | no         |
+| Savings rate  | The share of income not spent                     | no         |
 
 The three comparisons are against the **previous comparable period**, which
 is named in the card rather than left to be guessed.

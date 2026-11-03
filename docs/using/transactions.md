@@ -115,9 +115,10 @@ Nothing is linked unless you select it. When one transaction matches
 several others, the app proposes none of them, and says how many it left
 out because their match is not certain.
 
-Once linked, the two transactions count as neither income nor spending on
-the dashboard and in reports. Linking changes no nature, and the totals at
-the top of this page still add up every transaction listed.
+Once linked, the two transactions count as neither income nor spending in
+the income, expense and balance figures on the dashboard and in reports.
+Budgets, upcoming bills, the projected balance and the totals at the top of
+this page still count them. Linking changes no nature.
 
 ## Tagging many at once
 
