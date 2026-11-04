@@ -436,6 +436,16 @@
 		invalidateAll();
 	}
 
+	/**
+	 * A list row's accept has no place to print a refusal (`acceptError` renders inside the proposal
+	 * card only), so a refused accept reloads the list and the row shows what it is now: filed since
+	 * the page loaded (#1014's 409), split, or gone. Same guard as above, so no held edit is lost.
+	 */
+	function refreshAfterRefusedAccept() {
+		if (categoryIsDirty || natureIsDirty || tagsDirtyDesktop || tagsDirtyMobile) return;
+		invalidateAll();
+	}
+
 	const splitsRemoved = $derived(
 		form && 'splitsRemoved' in form ? Boolean(form.splitsRemoved) : false
 	);
@@ -2935,6 +2945,7 @@
 																			if (result.type === 'success')
 																				resolvedIds = new Set([...resolvedIds, txId]);
 																			await update({ reset: false });
+																			if (result.type === 'failure') refreshAfterRefusedAccept();
 																			acceptSubmittingIds = new Set(
 																				[...acceptSubmittingIds].filter((id) => id !== txId)
 																			);
@@ -3833,6 +3844,7 @@
 														if (result.type === 'success')
 															resolvedIds = new Set([...resolvedIds, txId]);
 														await update({ reset: false });
+														if (result.type === 'failure') refreshAfterRefusedAccept();
 														acceptSubmittingIds = new Set(
 															[...acceptSubmittingIds].filter((id) => id !== txId)
 														);
