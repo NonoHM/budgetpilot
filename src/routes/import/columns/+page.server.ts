@@ -15,7 +15,8 @@ import {
 	readImportFile
 } from '$lib/server/import/file';
 import { mappingFromPostedIndices } from '$lib/server/import/mapping/designation';
-import { readAccountColumnAnswer } from '$lib/server/import/discriminant';
+import { readAccountColumnAnswers } from '$lib/domain/accountColumnAnswer';
+import { CSV_MAX_COLUMNS_CEILING } from '$lib/server/import/columnBounds';
 import { readDateOrderAnswer } from '$lib/server/import/dateOrder';
 import { fingerprintFor } from '$lib/server/import/mapping/fingerprint';
 import { recordColumnMappingUse, saveColumnMapping } from '$lib/server/import/mapping/store';
@@ -178,7 +179,10 @@ export const actions: Actions = {
 			// this user's accounts, never a read of the file's own account column, so this door has
 			// no prior mechanism that could have already asked whether the file covers more than
 			// one account. Same fix, same door, no exclusion to draw.
-			accountColumnAnswer: readAccountColumnAnswer(formData.get('accountColumnAnswer'))
+			accountColumnAnswers: readAccountColumnAnswers(
+				formData.getAll('accountColumnAnswer'),
+				CSV_MAX_COLUMNS_CEILING
+			)
 		});
 
 		if (result.transactions.length === 0) {

@@ -1122,14 +1122,14 @@ describe('a file naming more than one account, on the designation door', () => {
 
 	it('imports normally once the column is confirmed to name something else', async () => {
 		expect.assertions(2);
-		const result = await submit(UNPROVEN, true, { accountColumnAnswer: 'not-account' });
+		const result = await submit(UNPROVEN, true, { accountColumnAnswer: 'not-account:3' });
 		expect(result.status).toBeUndefined();
 		expect(persist.createImportBatch).toHaveBeenCalledTimes(1);
 	});
 
 	it('refuses the same way once the column is confirmed to name accounts', async () => {
 		expect.assertions(3);
-		const result = await submit(UNPROVEN, true, { accountColumnAnswer: 'is-account' });
+		const result = await submit(UNPROVEN, true, { accountColumnAnswer: 'is-account:3' });
 		expect(result.status).toBe(400);
 		expect(result.data?.error).toBe(refusalLabel({ code: 'multi-account-file', column: 3 }));
 		expect(persist.createImportBatch).not.toHaveBeenCalled();

@@ -403,7 +403,7 @@ export const actions: Actions = {
 			// `/import/columns` reads its own answer with, and only once bound to this file.
 			dateOrder: answers.dateOrder ?? undefined,
 			// #485's account-column offer below is the caller. No suppression flag, as for `dateOrder`.
-			accountColumnAnswer: answers.accountColumnAnswer ?? undefined
+			accountColumnAnswers: answers.accountColumnAnswers
 		});
 
 		/**
@@ -486,7 +486,7 @@ export const actions: Actions = {
 			multiAccount: multiAccountRefusal,
 			accountColumn: accountColumnRefusal
 				? { state: 'open', fact: accountColumnRefusal }
-				: answers.accountColumnAnswer
+				: answers.accountColumnAnswers.length > 0
 					? { state: 'answered' }
 					: null,
 			account:

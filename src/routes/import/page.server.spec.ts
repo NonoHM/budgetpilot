@@ -3212,7 +3212,7 @@ describe('two accounts of one source, on the auto path', () => {
 				key,
 				accountId: 'account-livret',
 				dateOrder: null,
-				accountColumnAnswer: null
+				accountColumnAnswers: []
 			});
 
 			const third = (await runImportWithRawFields(AMBIGUOUS, {
@@ -3284,7 +3284,7 @@ describe('two accounts of one source, on the auto path', () => {
 				key,
 				accountId: null,
 				dateOrder: 'day-first',
-				accountColumnAnswer: null
+				accountColumnAnswers: []
 			});
 			expect(db.state.transactions).toHaveLength(0);
 		});
@@ -3348,7 +3348,7 @@ describe('two accounts of one source, on the auto path', () => {
 			expect.assertions(3);
 
 			const result = (await runImportWithFileAndFields(UNPROVEN, {
-				accountColumnAnswer: 'not-account'
+				accountColumnAnswer: 'not-account:3'
 			})) as unknown as { status?: number; importResult?: { importedRows: number } };
 
 			expect(result.status).toBeUndefined();
@@ -3360,12 +3360,67 @@ describe('two accounts of one source, on the auto path', () => {
 			expect.assertions(3);
 
 			const result = (await runImportWithFileAndFields(UNPROVEN, {
-				accountColumnAnswer: 'is-account'
+				accountColumnAnswer: 'is-account:3'
 			})) as unknown as { status?: number; data: { error: string } };
 
 			expect(result.status).toBe(400);
 			expect(result.data.error).toBe(refusalLabel({ code: 'multi-account-file', column: 3 }));
 			expect(db.state.transactions).toHaveLength(0);
+		});
+
+		/**
+		 * #1255 at this door: an answer is about the column its question named. Two unproven
+		 * columns, `ref` (1) asked first; « not an account » about it must lead to the question about
+		 * `compte` (4), never to an import of both accounts' rows under one.
+		 */
+		describe('an answer about one of two unproven columns (#1255)', () => {
+			const TWO_UNPROVEN =
+				'date;ref;label;amount;compte\n' +
+				'2026-06-01;12345678;AUCHAN;-42,10;10000001\n' +
+				'2026-06-02;87654321;SNCF;-30,00;10000002';
+
+			async function post(answers: string[]) {
+				const file = new File([TWO_UNPROVEN], 'export.csv', { type: 'text/csv' });
+				const formData = new FormData();
+				formData.set('csvFile', file);
+				formData.set('answersFor', await answerKeyFor(file));
+				for (const answer of answers) formData.append('accountColumnAnswer', answer);
+				return (await runImport(formData)) as unknown as {
+					status?: number;
+					data?: {
+						accountColumn?: { column: number };
+						answers?: { accountColumnAnswers: unknown };
+					};
+					importResult?: { importedRows: number };
+				};
+			}
+
+			// SEPARATES: « the answer cleared its column » FROM « it cleared the file ».
+			it('asks about the second column, keeping the first answer', async () => {
+				expect.assertions(4);
+				const result = await post(['not-account:1']);
+				expect(result.status).toBe(400);
+				expect(result.data?.accountColumn?.column).toBe(4);
+				expect(result.data?.answers?.accountColumnAnswers).toStrictEqual([
+					{ column: 1, answer: 'not-account' }
+				]);
+				expect(db.state.transactions).toHaveLength(0);
+			});
+
+			it('imports once both columns are answered', async () => {
+				expect.assertions(2);
+				const result = await post(['not-account:1', 'not-account:4']);
+				expect(result.status).toBeUndefined();
+				expect(result.importResult?.importedRows).toBe(2);
+			});
+
+			// SEPARATES: « a bare answer is no answer » FROM « it is read file-wide », the defect.
+			it('asks again for an answer that names no column', async () => {
+				expect.assertions(2);
+				const result = await post(['not-account']);
+				expect(result.data?.accountColumn?.column).toBe(1);
+				expect(db.state.transactions).toHaveLength(0);
+			});
 		});
 
 		it('leaves an ordinary single-account file untouched', async () => {

@@ -633,3 +633,55 @@ describe('a column with blank cells (#1252)', () => {
 		expect(result).toStrictEqual({ kind: 'ambiguous', index: 3 });
 	});
 });
+
+/**
+ * #1255: the set of columns the member answered « not an account » about. It moves only WHICH
+ * unproven column is asked; a constant column and a proven one read exactly as without it, so the
+ * five callers that read only `resolved` and `contradictory` cannot tell it was passed.
+ */
+describe('findDiscriminantColumn with columns answered « not an account » (#1255)', () => {
+	const TWO_UNPROVEN = rowsOf(
+		['Date', 'Ref', 'Montant', 'Compte'],
+		[
+			['2026-06-01', '12345678', '-10.00', '12349032'],
+			['2026-06-02', '87654321', '-20.00', '12340185']
+		]
+	);
+
+	// SEPARATES: « the answered column is skipped » FROM « it is still the one asked ».
+	it('names the next unproven column once the first is answered', () => {
+		expect(findDiscriminantColumn(TWO_UNPROVEN, true, new Set([1]))).toStrictEqual({
+			kind: 'ambiguous',
+			index: 3
+		});
+	});
+
+	it('answers nothing-to-decide once every unproven column is answered', () => {
+		expect(findDiscriminantColumn(TWO_UNPROVEN, true, new Set([1, 3]))).toStrictEqual({
+			kind: 'nothing-to-decide'
+		});
+	});
+
+	// SEPARATES: « the skip applies below proof only » FROM « any named column is skipped ».
+	it('still resolves on a constant column the set names', () => {
+		const rows = rowsOf(HEADER, [
+			['2026-06-01', 'A', '-1.00', ACCOUNT_A],
+			['2026-06-02', 'B', '-2.00', ACCOUNT_A]
+		]);
+		expect(findDiscriminantColumn(rows, true, new Set([3]))).toStrictEqual(
+			findDiscriminantColumn(rows, true)
+		);
+		expect(findDiscriminantColumn(rows, true).kind).toBe('resolved');
+	});
+
+	it('still proves two accounts on a proven column the set names', () => {
+		const rows = rowsOf(HEADER, [
+			['2026-06-01', 'A', '-1.00', ACCOUNT_A],
+			['2026-06-02', 'B', '-2.00', ACCOUNT_B]
+		]);
+		expect(findDiscriminantColumn(rows, true, new Set([3]))).toStrictEqual({
+			kind: 'contradictory',
+			index: 3
+		});
+	});
+});

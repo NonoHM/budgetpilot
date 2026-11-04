@@ -2,8 +2,6 @@ import type { ParsedCsvRow } from './types';
 import type { FileVerdict } from '$lib/domain/fileVerdict';
 import { foldComparableHeader } from './utils/encoding';
 import { firstDataRowIndex } from './utils/csv';
-export { ACCOUNT_COLUMN_ANSWERS, readAccountColumnAnswer } from '$lib/domain/accountColumnAnswer';
-export type { AccountColumnAnswer } from '$lib/domain/accountColumnAnswer';
 
 /**
  * How many characters of an account identifier are kept. Four, from the END.
@@ -179,30 +177,42 @@ function counterpartyColumns(header: readonly string[]): Set<number> {
  *   once skipped it on a file declared headerless, and a second account named only on line 1 was
  *   filed as the first. The counterparty names are still read off `rows[0]`: a transaction's cells
  *   never spell a header such as « Partner Iban », so on a headerless file they exclude nothing.
+ * @param notAccount The columns the member answered « not an account » about (#1255). Optional,
+ *   unlike `hasHeaderRow`, because it can only move WHICH unproven column is `ambiguous`: a
+ *   constant column still resolves and a proven one still refuses, so a caller reading only those
+ *   two kinds gets the same answer with or without it. Only `csv.ts` asks the question.
  */
 export function findDiscriminantColumn(
 	rows: ParsedCsvRow[],
-	hasHeaderRow: boolean
+	hasHeaderRow: boolean,
+	notAccount: ReadonlySet<number> = NONE_ANSWERED
 ): DiscriminantResult {
 	if (rows.length === 0) return { kind: 'nothing-to-decide' };
 	const counterparty = counterpartyColumns(rows[0].cells);
-	const every = verdictOver(rows.slice(firstDataRowIndex(hasHeaderRow)), counterparty);
+	const every = verdictOver(rows.slice(firstDataRowIndex(hasHeaderRow)), counterparty, notAccount);
 	if (hasHeaderRow) return every;
 	// NEVER WEAKER THAN LINES 2 ONWARD (#1211, pass A F1). They are data under both answers, so a
 	// contradiction among them is evidence whatever line 1 holds, and line 1 alone must not erase it:
 	// a cell there outside the grammar disqualifies the column, and an 8-digit cell above two verified
 	// IBANs turns proof into a question. (A blank there no longer disqualifies anything, #1252.) Only the refusal side lifts: a `resolved` from
 	// lines 2 onward over a blank line 1 stays `nothing-to-decide`, as on a headed file.
-	const rest = verdictOver(rows.slice(1), counterparty);
+	const rest = verdictOver(rows.slice(1), counterparty, notAccount);
 	return refusalStrength(rest) > refusalStrength(every) ? rest : every;
 }
+
+/** No column answered « not an account »: what every caller but `csv.ts` reads with. */
+const NONE_ANSWERED: ReadonlySet<number> = new Set();
 
 function refusalStrength(verdict: DiscriminantResult): number {
 	return verdict.kind === 'contradictory' ? 2 : verdict.kind === 'ambiguous' ? 1 : 0;
 }
 
 /** The verdict over these DATA rows, read with these counterparty columns excluded. */
-function verdictOver(dataRows: ParsedCsvRow[], counterparty: Set<number>): DiscriminantResult {
+function verdictOver(
+	dataRows: ParsedCsvRow[],
+	counterparty: Set<number>,
+	notAccount: ReadonlySet<number>
+): DiscriminantResult {
 	if (dataRows.length === 0) return { kind: 'nothing-to-decide' };
 
 	const columnCount = dataRows.reduce((widest, row) => Math.max(widest, row.cells.length), 0);
@@ -240,10 +250,13 @@ function verdictOver(dataRows: ParsedCsvRow[], counterparty: Set<number>): Discr
 			continue;
 		}
 		// The strongest evidence wins, whatever the column order: proof, then a column filled on every
-		// row, then a sparse one. More columns qualify since #1252, and one « not an account » answer
-		// clears the whole file (`answerBinding.ts`), so a sparse column on the left must neither weaken
-		// proof nor take the question from the column a filled-only reading would have asked about.
+		// row, then a sparse one. More columns qualify since #1252, so a sparse column on the left must
+		// neither weaken proof nor be asked about before a filled one. An answer clears only its own
+		// column since #1255, so the order decides which column is asked FIRST, never which is skipped.
 		const strength = values.every(isVerifiedIban) ? 2 : blank ? 0 : 1;
+		// HERE, after constancy and strength, never beside the counterparty skip (#1255, note pass):
+		// an answer clears a QUESTION, so a constant column still resolves and proof still refuses.
+		if (strength < 2 && notAccount.has(index)) continue;
 		if (varying === null || strength > varying.strength) varying = { index, strength };
 	}
 

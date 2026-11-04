@@ -1,5 +1,9 @@
 import { createHash } from 'node:crypto';
-import { readAccountColumnAnswer, type AccountColumnAnswer } from '$lib/domain/accountColumnAnswer';
+import {
+	readAccountColumnAnswers,
+	type AccountColumnAnswerFor
+} from '$lib/domain/accountColumnAnswer';
+import { CSV_MAX_COLUMNS_CEILING } from './columnBounds';
 import { readDateOrderAnswer, type DateOrder } from '$lib/domain/dateReading';
 import type { KeptAnswers } from '$lib/domain/keptAnswers';
 
@@ -50,10 +54,11 @@ const ACCOUNT_ID_MAX_LENGTH = 128;
 export interface BoundAnswers {
 	dateOrder: DateOrder | null;
 	accountId: string | null;
-	accountColumnAnswer: AccountColumnAnswer | null;
+	/** Each about the column its question named (#1255), never about the file. */
+	accountColumnAnswers: AccountColumnAnswerFor[];
 }
 
-const NO_ANSWERS: BoundAnswers = { dateOrder: null, accountId: null, accountColumnAnswer: null };
+const NO_ANSWERS: BoundAnswers = { dateOrder: null, accountId: null, accountColumnAnswers: [] };
 
 /**
  * The answers this request carries FOR THE FILE IT CARRIES, each validated positively
@@ -73,7 +78,11 @@ export function readBoundAnswers(formData: FormData, key: string): BoundAnswers 
 			accountId.length <= ACCOUNT_ID_MAX_LENGTH
 				? accountId
 				: null,
-		accountColumnAnswer: readAccountColumnAnswer(formData.get('accountColumnAnswer')) ?? null
+		// Every column index the parser could ever read is below the ceiling an operator may raise to.
+		accountColumnAnswers: readAccountColumnAnswers(
+			formData.getAll('accountColumnAnswer'),
+			CSV_MAX_COLUMNS_CEILING
+		)
 	};
 }
 
@@ -85,7 +94,7 @@ export function readBoundAnswers(formData: FormData, key: string): BoundAnswers 
  *
  * Only the ACCOUNT has an acceptance test of its own: it is echoed only when it resolved against
  * this user's accounts, so a refused account is not echoed and the page stops posting it. The date
- * reading and the account-column answer are echoed whenever they were bound and in their closed
+ * reading and the account-column answers are echoed whenever they were bound and in their closed
  * set, even on a file that never raised their question. That is harmless rather than accepted: the
  * echo is keyed to the same bytes, and the parse ignores an answer its file does not need.
  */
@@ -98,6 +107,6 @@ export function keptAnswers(
 		key,
 		dateOrder: answers.dateOrder,
 		accountId: accepted.accountId ? answers.accountId : null,
-		accountColumnAnswer: answers.accountColumnAnswer
+		accountColumnAnswers: answers.accountColumnAnswers
 	};
 }

@@ -14,6 +14,10 @@
 	import { formatReadingDate } from '$lib/domain/dateFormat';
 	import { DEFAULT_DATE_ORDER, type DateOrder } from '$lib/domain/dateReading';
 	import type { KeptAnswers } from '$lib/domain/keptAnswers';
+	import {
+		writeAccountColumnAnswer,
+		type AccountColumnAnswerFor
+	} from '$lib/domain/accountColumnAnswer';
 	import type { ResolvedDesignationFile } from '$lib/domain/columnDesignation';
 	import FileDropZone from '$lib/components/ui/FileDropZone.svelte';
 	import Badge from '$lib/components/ui/Badge.svelte';
@@ -951,7 +955,17 @@
 	 * refuses regardless of whether the dialog opens — but a dismissal must reset exactly like an
 	 * answer does, so `accountColumnStateFor` is now stamped by BOTH.
 	 */
-	let accountColumnAnswer = $state<'is-account' | 'not-account' | null>(null);
+	let accountColumnAnswer = $state<AccountColumnAnswerFor | null>(null);
+	/**
+	 * The answer to the question ON SCREEN, in its posted form, or null. An answer is about one column
+	 * (#1255): once the server keeps it and asks about the next unproven column of the same file, the
+	 * earlier answer is no answer to that question, so the dialog opens again.
+	 */
+	const liveAccountColumnAnswer = $derived(
+		accountColumnAnswer !== null && accountColumnAnswer.column === accountColumnOffer?.column
+			? writeAccountColumnAnswer(accountColumnAnswer)
+			: null
+	);
 	let accountColumnStateFor = $state<File | undefined>(undefined);
 	/**
 	 * Whether the user has closed the dialog without answering. A MODAL rather than the reading
@@ -972,11 +986,11 @@
 
 	/** Auto-opens the instant the offer is current and unanswered; closes on either answer. */
 	const accountColumnDialogOpen = $derived(
-		offersAccountColumn && accountColumnAnswer === null && !accountColumnDismissed
+		offersAccountColumn && liveAccountColumnAnswer === null && !accountColumnDismissed
 	);
 
 	function chooseAccountColumn(answer: 'is-account' | 'not-account') {
-		accountColumnAnswer = answer;
+		accountColumnAnswer = accountColumnOffer ? { answer, column: accountColumnOffer.column } : null;
 		accountColumnStateFor = csvFiles?.[0];
 	}
 
@@ -991,7 +1005,7 @@
 	 * day-first assumption, because guessing IS the defect #485 exists to remove.
 	 */
 	function accountColumnAnswerMissing(): boolean {
-		if (!offersAccountColumn || accountColumnAnswer) return false;
+		if (!offersAccountColumn || liveAccountColumnAnswer) return false;
 		accountColumnDismissed = false;
 		return true;
 	}
@@ -1362,8 +1376,9 @@
 				body.set('answersFor', keptAnswers.key);
 				if (keptAccountId) body.set('accountId', keptAccountId);
 				if (keptAnswers.dateOrder) body.set('dateOrder', keptAnswers.dateOrder);
-				if (keptAnswers.accountColumnAnswer) {
-					body.set('accountColumnAnswer', keptAnswers.accountColumnAnswer);
+				// APPENDED, one per answer: `set` would keep only the last column answered (#1255).
+				for (const answer of keptAnswers.accountColumnAnswers) {
+					body.append('accountColumnAnswer', writeAccountColumnAnswer(answer));
 				}
 			}
 		}
@@ -1571,9 +1586,9 @@
 		{#if keptAnswers.dateOrder}
 			<input type="hidden" name="dateOrder" value={keptAnswers.dateOrder} />
 		{/if}
-		{#if keptAnswers.accountColumnAnswer}
-			<input type="hidden" name="accountColumnAnswer" value={keptAnswers.accountColumnAnswer} />
-		{/if}
+		{#each keptAnswers.accountColumnAnswers as answer (answer.column)}
+			<input type="hidden" name="accountColumnAnswer" value={writeAccountColumnAnswer(answer)} />
+		{/each}
 	{/if}
 {/snippet}
 
@@ -1777,8 +1792,8 @@
 				     because there is no safe default to post while unanswered, and posting one would
 				     recreate the exact silent guess this feature exists to remove. Only while its own
 				     question is current: once accepted, it rides `keptAnswerInputs` instead. -->
-				{#if offersAccountColumn && accountColumnAnswer}
-					<input type="hidden" name="accountColumnAnswer" value={accountColumnAnswer} />
+				{#if offersAccountColumn && liveAccountColumnAnswer}
+					<input type="hidden" name="accountColumnAnswer" value={liveAccountColumnAnswer} />
 				{/if}
 				{@render keptAnswerInputs()}
 
@@ -2251,8 +2266,8 @@
 			{/if}
 
 			<!-- #485. NO fallback value, unlike `dateOrder` above: see the desktop mount's comment. -->
-			{#if offersAccountColumn && accountColumnAnswer}
-				<input type="hidden" name="accountColumnAnswer" value={accountColumnAnswer} />
+			{#if offersAccountColumn && liveAccountColumnAnswer}
+				<input type="hidden" name="accountColumnAnswer" value={liveAccountColumnAnswer} />
 			{/if}
 			{@render keptAnswerInputs()}
 

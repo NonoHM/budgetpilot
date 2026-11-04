@@ -57,12 +57,14 @@ const READING_OFFER = {
 };
 
 const answers = (
-	fields: Partial<Record<'accountId' | 'dateOrder' | 'accountColumnAnswer', string>>
+	fields: Partial<Record<'accountId' | 'dateOrder', string>> & {
+		accountColumnAnswers?: { column: number; answer: 'is-account' | 'not-account' }[];
+	}
 ) => ({
 	key: KEY,
 	accountId: null,
 	dateOrder: null,
-	accountColumnAnswer: null,
+	accountColumnAnswers: [],
 	...fields
 });
 
@@ -77,7 +79,10 @@ const DATE_ASKED = {
 const ACCOUNT_ASKED = {
 	error: m.import_account_error_ambiguous_auto(),
 	account: ACCOUNT_OFFER,
-	answers: answers({ dateOrder: 'month-first', accountColumnAnswer: 'not-account' })
+	answers: answers({
+		dateOrder: 'month-first',
+		accountColumnAnswers: [{ column: 3, answer: 'not-account' }]
+	})
 };
 
 async function mount(form: Record<string, unknown>) {
@@ -133,7 +138,7 @@ describe('the answers kept for the file in hand', () => {
 
 		expect(posted(section, 'answersFor')).toEqual([KEY]);
 		expect(posted(section, 'dateOrder')).toEqual(['month-first']);
-		expect(posted(section, 'accountColumnAnswer')).toEqual(['not-account']);
+		expect(posted(section, 'accountColumnAnswer')).toEqual(['not-account:3']);
 		expect(posted(section, 'accountId')).toEqual(['acc-livret']);
 	});
 
@@ -162,14 +167,53 @@ describe('the answers kept for the file in hand', () => {
 			await userEvent.click(
 				page.getByRole('button', { name: m.import_account_column_deny() }).element() as HTMLElement
 			);
-			expect(posted(section, 'accountColumnAnswer')).toEqual(['not-account']);
+			expect(posted(section, 'accountColumnAnswer')).toEqual(['not-account:3']);
 
 			// The server accepted it and moved on to the account question.
 			await rerender({ data: DATA, form: ACCOUNT_ASKED as never });
 
-			expect(posted(section, 'accountColumnAnswer')).toEqual(['not-account']);
+			expect(posted(section, 'accountColumnAnswer')).toEqual(['not-account:3']);
 		}
 	);
+
+	it('asks about the next column of the same file and posts both answers (#1255)', async () => {
+		// SEPARATES: « an answer is about the column on screen » FROM « any answer closes the
+		// question », under which the second question never opened and the first answer was posted
+		// again as its answer.
+		await page.viewport(1280, 800);
+		const { container, rerender } = await render(Page, {
+			data: DATA,
+			form: {
+				error: m.import_error_ambiguous_account_column(),
+				accountColumn: { column: 1, header: 'ref', samples: ['12345678', '87654321'] },
+				answers: answers({})
+			} as never
+		});
+		const section = container.querySelectorAll('main > section')[0] as HTMLElement;
+		await chooseAndSubmit(section);
+		await userEvent.click(
+			page.getByRole('button', { name: m.import_account_column_deny() }).element() as HTMLElement
+		);
+		expect(posted(section, 'accountColumnAnswer')).toEqual(['not-account:1']);
+
+		// The server kept it and asks about the other column of the same file.
+		await rerender({
+			data: DATA,
+			form: {
+				error: m.import_error_ambiguous_account_column(),
+				accountColumn: { column: 4, header: 'compte', samples: ['10000001', '10000002'] },
+				answers: answers({ accountColumnAnswers: [{ column: 1, answer: 'not-account' }] })
+			} as never
+		});
+		await userEvent.click(
+			page.getByRole('button', { name: m.import_account_column_deny() }).element() as HTMLElement
+		);
+
+		expect(posted(section, 'accountColumnAnswer').sort()).toEqual([
+			'not-account:1',
+			'not-account:4'
+		]);
+	});
 
 	it('posts nothing kept once a different file is picked, even under the same name', async () => {
 		// SEPARATES: « the kept answers die with the file they were given for » FROM « they ride
@@ -207,7 +251,15 @@ describe('the answers kept for the file in hand', () => {
 		const section = await mount({
 			collision: existing,
 			incoming: { ...existing },
-			answers: answers({ accountId: 'acc-livret', dateOrder: 'month-first' })
+			answers: answers({
+				accountId: 'acc-livret',
+				dateOrder: 'month-first',
+				// #1255: two columns answered, so `set` in place of `append` would drop one.
+				accountColumnAnswers: [
+					{ column: 1, answer: 'not-account' },
+					{ column: 4, answer: 'not-account' }
+				]
+			})
 		});
 		// The run that raised the collision was submitted with this file: that is what makes the
 		// echo describe the file in hand. `requestSubmit` because the dialog is modal over the form.
@@ -228,11 +280,13 @@ describe('the answers kept for the file in hand', () => {
 			answersFor: body.get('answersFor'),
 			accountId: body.get('accountId'),
 			dateOrder: body.get('dateOrder'),
+			accountColumnAnswer: body.getAll('accountColumnAnswer'),
 			confirmCollision: body.get('confirmCollision')
 		}).toStrictEqual({
 			answersFor: KEY,
 			accountId: 'acc-livret',
 			dateOrder: 'month-first',
+			accountColumnAnswer: ['not-account:1', 'not-account:4'],
 			confirmCollision: '1'
 		});
 	});
