@@ -167,9 +167,12 @@
 	 * (`requestAccountCreation`, which says what it sends and why it resolves rather than throws).
 	 * No currency: this screen creates the account in the application default, as it always has.
 	 */
-	async function createAccount(name: string): Promise<AccountCreationAnswer> {
+	async function createAccount(
+		name: string,
+		hasHeaderRow: boolean
+	): Promise<AccountCreationAnswer> {
 		if (!pending) return { ok: false, error: m.import_account_create_error_generic() };
-		return requestAccountCreation({ name, file: pending.file });
+		return requestAccountCreation({ name, file: pending.file, hasHeaderRow });
 	}
 
 	function submit(result: {

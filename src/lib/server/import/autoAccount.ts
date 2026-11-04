@@ -97,7 +97,8 @@ function namesAnotherAccount(
 	account: { id: string; discriminant: string | null } | undefined
 ): boolean {
 	if (account === undefined || (account.discriminant ?? '').trim() === '') return false;
-	const verdict = findDiscriminantColumn(rows);
+	// `true`: the auto path always parses with a header row (#1211).
+	const verdict = findDiscriminantColumn(rows, true);
 	// Rank 1's own comparison, called rather than retyped: « holds this fragment » means one thing.
 	return (
 		verdict.kind === 'resolved' && accountHoldingFragment(verdict.fragment, [account]) === null

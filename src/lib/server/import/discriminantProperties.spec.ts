@@ -193,11 +193,14 @@ const noiseOnlyFile = fileAround(
  */
 function matchesGrammar(value: string): boolean {
 	return (
-		findDiscriminantColumn([
-			{ cells: ['header'], line: 1 },
-			{ cells: [value], line: 2 },
-			{ cells: [value], line: 3 }
-		]).kind === 'resolved'
+		findDiscriminantColumn(
+			[
+				{ cells: ['header'], line: 1 },
+				{ cells: [value], line: 2 },
+				{ cells: [value], line: 3 }
+			],
+			true
+		).kind === 'resolved'
 	);
 }
 
@@ -270,7 +273,7 @@ describe('findDiscriminantColumn, as a property', () => {
 	it('finds the column and exactly its last four characters, whenever one account is named', () => {
 		fc.assert(
 			fc.property(oneAccountFile, (file) => {
-				const result = findDiscriminantColumn(file.rows);
+				const result = findDiscriminantColumn(file.rows, true);
 				expect(result).toStrictEqual({
 					kind: 'resolved',
 					index: file.index,
@@ -290,7 +293,7 @@ describe('findDiscriminantColumn, as a property', () => {
 	it('refuses by name, and never answers resolved, whenever more than one account is named', () => {
 		fc.assert(
 			fc.property(twoAccountFile, (file) => {
-				expect(findDiscriminantColumn(file.rows)).toStrictEqual({
+				expect(findDiscriminantColumn(file.rows, true)).toStrictEqual({
 					kind: file.canonical.every(isVerifiedIban) ? 'contradictory' : 'ambiguous',
 					index: file.index
 				});
@@ -303,7 +306,9 @@ describe('findDiscriminantColumn, as a property', () => {
 	it('carries no identifier column in a file made only of dates, labels and amounts', () => {
 		fc.assert(
 			fc.property(noiseOnlyFile, (file) => {
-				expect(findDiscriminantColumn(file.rows)).toStrictEqual({ kind: 'nothing-to-decide' });
+				expect(findDiscriminantColumn(file.rows, true)).toStrictEqual({
+					kind: 'nothing-to-decide'
+				});
 			}),
 			{ seed: SEED, numRuns: RUNS }
 		);

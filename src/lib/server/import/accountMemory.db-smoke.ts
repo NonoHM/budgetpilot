@@ -89,10 +89,20 @@ describe('the writer', () => {
 		const courant = await account(userId, 'Compte courant', '4417');
 
 		expect(
-			await rememberAnsweredAccount({ userId, rows: statement(IDENTIFIER), accountId: courant.id })
+			await rememberAnsweredAccount({
+				userId,
+				rows: statement(IDENTIFIER),
+				accountId: courant.id,
+				hasHeaderRow: true
+			})
 		).toBe('remembered');
 		expect(
-			await rememberAnsweredAccount({ userId, rows: statement(IDENTIFIER), accountId: courant.id })
+			await rememberAnsweredAccount({
+				userId,
+				rows: statement(IDENTIFIER),
+				accountId: courant.id,
+				hasHeaderRow: true
+			})
 		).toBe('remembered');
 
 		const rows = await prisma.rememberedAccount.findMany({ where: { userId } });
@@ -106,10 +116,25 @@ describe('the writer', () => {
 		const userId = await freshUser();
 		const courant = await account(userId, 'Compte courant', '4417');
 		const joint = await account(userId, 'Compte joint');
-		await rememberAnsweredAccount({ userId, rows: statement(IDENTIFIER), accountId: courant.id });
-		await rememberAnsweredAccount({ userId, rows: statement(IDENTIFIER), accountId: courant.id });
+		await rememberAnsweredAccount({
+			userId,
+			rows: statement(IDENTIFIER),
+			accountId: courant.id,
+			hasHeaderRow: true
+		});
+		await rememberAnsweredAccount({
+			userId,
+			rows: statement(IDENTIFIER),
+			accountId: courant.id,
+			hasHeaderRow: true
+		});
 
-		await rememberAnsweredAccount({ userId, rows: statement(IDENTIFIER), accountId: joint.id });
+		await rememberAnsweredAccount({
+			userId,
+			rows: statement(IDENTIFIER),
+			accountId: joint.id,
+			hasHeaderRow: true
+		});
 
 		const rows = await prisma.rememberedAccount.findMany({ where: { userId } });
 		expect(rows).toHaveLength(1);
@@ -121,9 +146,39 @@ describe('the writer', () => {
 		const userId = await freshUser();
 		const courant = await account(userId, 'Compte courant', '4417');
 
-		expect(await rememberAnsweredAccount({ userId, rows: SILENT, accountId: courant.id })).toBe(
-			'not-applicable'
-		);
+		expect(
+			await rememberAnsweredAccount({
+				userId,
+				rows: SILENT,
+				accountId: courant.id,
+				hasHeaderRow: true
+			})
+		).toBe('not-applicable');
+		expect(await prisma.rememberedAccount.count({ where: { userId } })).toBe(0);
+	});
+
+	/**
+	 * #1211: on a file declared headerless, line 1 is a transaction. A second account named only
+	 * there makes the column evidence AGAINST one account, so nothing is remembered.
+	 * SEPARATES « line 1 is evidence » FROM « line 1 is skipped as a header »: the skipped reading
+	 * sees `IDENTIFIER` on every later line and remembers it.
+	 */
+	it('writes nothing for a headerless file whose line 1 names another account', async () => {
+		const userId = await freshUser();
+		const courant = await account(userId, 'Compte courant', '4417');
+		const headerless: ParsedCsvRow[] = [
+			{ cells: ['2026-08-01', 'CARTE MONOPRIX', '-32,10', '00099990001'], line: 1 },
+			...statement(IDENTIFIER).slice(1)
+		];
+
+		expect(
+			await rememberAnsweredAccount({
+				userId,
+				rows: headerless,
+				accountId: courant.id,
+				hasHeaderRow: false
+			})
+		).toBe('not-applicable');
 		expect(await prisma.rememberedAccount.count({ where: { userId } })).toBe(0);
 	});
 
@@ -136,7 +191,12 @@ describe('the writer', () => {
 		const courant = await account(userId, 'Compte courant', '4417');
 
 		expect(
-			await rememberAnsweredAccount({ userId, rows: statement(IDENTIFIER), accountId: courant.id })
+			await rememberAnsweredAccount({
+				userId,
+				rows: statement(IDENTIFIER),
+				accountId: courant.id,
+				hasHeaderRow: true
+			})
 		).toBe('not-applicable');
 		expect(await prisma.rememberedAccount.count({ where: { userId } })).toBe(0);
 	});
@@ -151,7 +211,8 @@ describe('the writer', () => {
 			await rememberAnsweredAccount({
 				userId: mine,
 				rows: statement(IDENTIFIER),
-				accountId: foreign.id
+				accountId: foreign.id,
+				hasHeaderRow: true
 			})
 		).toBe('not-found');
 		expect(await prisma.rememberedAccount.count({ where: { userId: mine } })).toBe(0);
@@ -169,7 +230,8 @@ describe('the reader is scoped to its owner', () => {
 		await rememberAnsweredAccount({
 			userId: theirs,
 			rows: statement(IDENTIFIER),
-			accountId: theirAccount.id
+			accountId: theirAccount.id,
+			hasHeaderRow: true
 		});
 
 		// Reading THEIR key under MY user: only the `userId` clause stands between the two.
@@ -195,7 +257,12 @@ describe('the reader is scoped to its owner', () => {
 			[mine, myAccount.id],
 			[theirs, theirAccount.id]
 		]) {
-			await rememberAnsweredAccount({ userId, rows: statement(IDENTIFIER), accountId });
+			await rememberAnsweredAccount({
+				userId,
+				rows: statement(IDENTIFIER),
+				accountId,
+				hasHeaderRow: true
+			});
 		}
 		const keys = await prisma.rememberedAccount.findMany({
 			where: { userId: { in: [mine, theirs] } },
@@ -213,12 +280,14 @@ describe('the reader is scoped to its owner', () => {
 		await rememberAnsweredAccount({
 			userId: mine,
 			rows: statement(IDENTIFIER),
-			accountId: myAccount.id
+			accountId: myAccount.id,
+			hasHeaderRow: true
 		});
 		await rememberAnsweredAccount({
 			userId: theirs,
 			rows: statement(IDENTIFIER),
-			accountId: theirAccount.id
+			accountId: theirAccount.id,
+			hasHeaderRow: true
 		});
 
 		expect(
@@ -240,12 +309,14 @@ describe('Settings: listed and forgotten, by the owner only', () => {
 		await rememberAnsweredAccount({
 			userId: mine,
 			rows: statement(IDENTIFIER),
-			accountId: myAccount.id
+			accountId: myAccount.id,
+			hasHeaderRow: true
 		});
 		await rememberAnsweredAccount({
 			userId: theirs,
 			rows: statement(IDENTIFIER),
-			accountId: theirAccount.id
+			accountId: theirAccount.id,
+			hasHeaderRow: true
 		});
 
 		const listed = await listRememberedAccounts(mine);
@@ -262,7 +333,8 @@ describe('Settings: listed and forgotten, by the owner only', () => {
 		await rememberAnsweredAccount({
 			userId: theirs,
 			rows: statement(IDENTIFIER),
-			accountId: theirAccount.id
+			accountId: theirAccount.id,
+			hasHeaderRow: true
 		});
 		const [theirRow] = await prisma.rememberedAccount.findMany({ where: { userId: theirs } });
 
@@ -276,7 +348,8 @@ describe('Settings: listed and forgotten, by the owner only', () => {
 		await rememberAnsweredAccount({
 			userId: mine,
 			rows: statement(IDENTIFIER),
-			accountId: myAccount.id
+			accountId: myAccount.id,
+			hasHeaderRow: true
 		});
 		const [row] = await prisma.rememberedAccount.findMany({ where: { userId: mine } });
 
@@ -296,7 +369,8 @@ describe('Settings: listed and forgotten, by the owner only', () => {
 		await rememberAnsweredAccount({
 			userId: mine,
 			rows: statement(IDENTIFIER),
-			accountId: myAccount.id
+			accountId: myAccount.id,
+			hasHeaderRow: true
 		});
 
 		await prisma.account.delete({ where: { id: myAccount.id } });
@@ -336,7 +410,8 @@ describe('the removal is scoped to its owner (third contradiction pass)', () => 
 		await rememberAnsweredAccount({
 			userId: b,
 			rows: statement(IDENTIFIER),
-			accountId: bAccount.id
+			accountId: bAccount.id,
+			hasHeaderRow: true
 		});
 
 		expect(await prisma.rememberedAccount.count({ where: { userId: b } })).toBe(0);
@@ -362,7 +437,12 @@ describe('the file overruling a remembered answer writes sensitive_delete (L4b-2
 			data: { userId, identifierKey: key.identifierKey, fragment: '0185', accountId: holder.id }
 		});
 		logged.length = 0;
-		await rememberAnsweredAccount({ userId, rows: statement(IDENTIFIER), accountId: holder.id });
+		await rememberAnsweredAccount({
+			userId,
+			rows: statement(IDENTIFIER),
+			accountId: holder.id,
+			hasHeaderRow: true
+		});
 		expect([await prisma.rememberedAccount.count({ where: { userId } }), deletes()]).toEqual([
 			0,
 			[
@@ -383,7 +463,12 @@ describe('the file overruling a remembered answer writes sensitive_delete (L4b-2
 		const userId = await freshUser();
 		const holder = await account(userId, 'Compte joint', '0185');
 		logged.length = 0;
-		await rememberAnsweredAccount({ userId, rows: statement(IDENTIFIER), accountId: holder.id });
+		await rememberAnsweredAccount({
+			userId,
+			rows: statement(IDENTIFIER),
+			accountId: holder.id,
+			hasHeaderRow: true
+		});
 		expect(deletes()).toEqual([]);
 	});
 });

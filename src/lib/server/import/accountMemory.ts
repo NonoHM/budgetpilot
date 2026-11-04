@@ -53,15 +53,16 @@ export function accountMemoryKeyOf(
 	rows: ParsedCsvRow[],
 	destinations: readonly ResolvableAccount[]
 ): AccountMemoryKey | null {
-	const named = namedIdentifierOf(userId, rows);
+	// The auto path's reader: `/import` always parses with a header row.
+	const named = namedIdentifierOf(userId, rows, true);
 	if (named === null) return null;
 	if (named.holder(destinations) !== null) return null;
 	return named.key;
 }
 
 /** The file's one constant identifier, keyed, and a way to ask which destination holds it. */
-function namedIdentifierOf(userId: string, rows: ParsedCsvRow[]) {
-	const verdict = findDiscriminantColumn(rows);
+function namedIdentifierOf(userId: string, rows: ParsedCsvRow[], hasHeaderRow: boolean) {
+	const verdict = findDiscriminantColumn(rows, hasHeaderRow);
 	if (verdict.kind !== 'resolved') return null;
 	return {
 		key: {
@@ -112,6 +113,8 @@ export async function rememberAnsweredAccount(input: {
 	userId: string;
 	rows: ParsedCsvRow[];
 	accountId: string;
+	/** The member's answer about line 1, required for the reason `findDiscriminantColumn` gives. */
+	hasHeaderRow: boolean;
 }): Promise<RememberOutcome> {
 	const held = await prisma.account.findMany({
 		where: { userId: input.userId },
@@ -121,7 +124,7 @@ export async function rememberAnsweredAccount(input: {
 
 	// The destinations the READER compares against (`buildAccountOffer` hands the resolver
 	// `accountsForPicker`), so the two sides of « the file decides » read one set.
-	const named = namedIdentifierOf(input.userId, input.rows);
+	const named = namedIdentifierOf(input.userId, input.rows, input.hasHeaderRow);
 	if (named === null) return 'not-applicable';
 	// THE FILE DECIDES, on every door and whatever was answered: no row is written, and one left
 	// from an earlier answer is REMOVED (second contradiction pass). The reader would never consult

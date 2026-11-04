@@ -111,3 +111,71 @@ describe('#1087: POST /import/accounts writes sensitive_create', () => {
 		}).toEqual({ status: 429, called: 0, lines: [] });
 	});
 });
+
+/**
+ * #1211: the fragment stored on a new account is read from the file, and on a file the member
+ * declared headerless line 1 is a transaction. The designation screen posts that answer beside the
+ * file; absent, the file is read with a header row, as `/import`'s currency refusal always sends.
+ */
+describe('#1211: the new account reads a headerless file from line 1', () => {
+	const IBAN_A = 'FR7630006000011234567890189';
+	const IBAN_B = 'DE89370400440532013000';
+
+	async function postFile(lines: string[], hasHeaderRow?: 'true' | 'false'): Promise<void> {
+		const body = new FormData();
+		body.set('name', 'Compte joint');
+		body.set('csvFile', new File([lines.join('\n')], 'releve.csv', { type: 'text/csv' }));
+		if (hasHeaderRow !== undefined) body.set('hasHeaderRow', hasHeaderRow);
+		const request = new Request('http://localhost/import/accounts', { method: 'POST', body });
+		await POST({
+			locals: { user: testUser },
+			request,
+			getClientAddress: () => '192.0.2.10'
+		} as never);
+	}
+
+	const storedFragment = () =>
+		(accounts.createStatementAccount.mock.calls.at(-1)?.[0] as { discriminant: string | null })
+			?.discriminant;
+
+	const TWO_ACCOUNTS = [
+		`2026-06-01,${IBAN_A},CB A,-10.00`,
+		`2026-06-02,${IBAN_B},CB B,-20.00`,
+		`2026-06-03,${IBAN_B},CB C,-30.00`
+	];
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		limiter.isImportRateLimited.mockResolvedValue(null);
+		accounts.createStatementAccount.mockReset();
+		accounts.createStatementAccount.mockResolvedValue({
+			id: 'account-new',
+			name: 'Compte joint',
+			discriminant: null,
+			currency: 'EUR'
+		});
+	});
+
+	// SEPARATES « line 1 is evidence » FROM « line 1 is skipped as a header ». Skipped, the file
+	// reads as account B throughout and B's fragment is stored on an account the file contradicts.
+	it('stores no fragment when line 1 of a headerless file names another account', async () => {
+		await postFile(TWO_ACCOUNTS, 'false');
+		expect(storedFragment()).toBeNull();
+	});
+
+	// Guards against over-refusal: a headerless file naming one account on every line keeps its
+	// fragment once line 1 counts.
+	it('stores the fragment a headerless file names on every line', async () => {
+		await postFile(
+			TWO_ACCOUNTS.map((line) => line.replace(IBAN_A, IBAN_B)),
+			'false'
+		);
+		expect(storedFragment()).toBe('3000');
+	});
+
+	// Calibration: the same bytes with no answer posted are read with a header row, as before.
+	it('reads line 1 as a header when no answer is posted', async () => {
+		await postFile(TWO_ACCOUNTS);
+		expect(storedFragment()).toBe('3000');
+	});
+});

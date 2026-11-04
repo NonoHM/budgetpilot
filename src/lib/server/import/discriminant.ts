@@ -1,6 +1,7 @@
 import type { ParsedCsvRow } from './types';
 import type { FileVerdict } from '$lib/domain/fileVerdict';
 import { foldComparableHeader } from './utils/encoding';
+import { firstDataRowIndex } from './utils/csv';
 export { ACCOUNT_COLUMN_ANSWERS, readAccountColumnAnswer } from '$lib/domain/accountColumnAnswer';
 export type { AccountColumnAnswer } from '$lib/domain/accountColumnAnswer';
 
@@ -169,10 +170,18 @@ function counterpartyColumns(header: readonly string[]): Set<number> {
  * qualified on, never the first: one row failing the IBAN check downgrades the whole column to
  * `ambiguous`, because a column proven only on most of its rows is not proven.
  *
- * @param rows As `parseRows` returns them: `rows[0]` is the HEADER row and the data starts at 1.
+ * @param rows As `parseRows` returns them.
+ * @param hasHeaderRow The member's answer about line 1, REQUIRED so the compiler names every reader
+ *   (#1211). False: line 1 is a transaction, so it is evidence like every other line. Six readers
+ *   once skipped it on a file declared headerless, and a second account named only on line 1 was
+ *   filed as the first. The counterparty names are still read off `rows[0]`: a transaction's cells
+ *   never spell a header such as « Partner Iban », so on a headerless file they exclude nothing.
  */
-export function findDiscriminantColumn(rows: ParsedCsvRow[]): DiscriminantResult {
-	const dataRows = rows.slice(1);
+export function findDiscriminantColumn(
+	rows: ParsedCsvRow[],
+	hasHeaderRow: boolean
+): DiscriminantResult {
+	const dataRows = rows.slice(firstDataRowIndex(hasHeaderRow));
 	if (dataRows.length === 0) return { kind: 'nothing-to-decide' };
 
 	const columnCount = dataRows.reduce((widest, row) => Math.max(widest, row.cells.length), 0);

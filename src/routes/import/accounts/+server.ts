@@ -112,7 +112,12 @@ export const POST: RequestHandler = async ({ locals, request, getClientAddress }
 		return json({ error: m.import_account_create_error_generic() }, { status: 400 });
 	}
 
-	const discriminant = await fragmentFromFile(formData.get('csvFile'));
+	// The member's answer about line 1, read exactly as `/import/columns` reads it (#1211). Both hosts
+	// post it; a request without it is read with a header row, as every file was before.
+	const discriminant = await fragmentFromFile(
+		formData.get('csvFile'),
+		formData.get('hasHeaderRow') !== 'false'
+	);
 
 	try {
 		const account = await createStatementAccount({
@@ -157,7 +162,10 @@ export const POST: RequestHandler = async ({ locals, request, getClientAddress }
  * single account and must not be turned into one). The user asked to create an account with a name,
  * and none of those is a reason to refuse them one.
  */
-async function fragmentFromFile(posted: FormDataEntryValue | null): Promise<string | null> {
+async function fragmentFromFile(
+	posted: FormDataEntryValue | null,
+	hasHeaderRow: boolean
+): Promise<string | null> {
 	if (!(posted instanceof File) || posted.size === 0) return null;
 	if (!isSupportedImportFile(posted.name)) return null;
 	if (posted.size > IMPORT_FILE_MAX_BYTES) return null;
@@ -177,7 +185,7 @@ async function fragmentFromFile(posted: FormDataEntryValue | null): Promise<stri
 		) {
 			return null;
 		}
-		const found = findDiscriminantColumn(read.rows);
+		const found = findDiscriminantColumn(read.rows, hasHeaderRow);
 		return found.kind === 'resolved' ? found.fragment : null;
 	} catch {
 		return null;

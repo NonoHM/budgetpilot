@@ -149,7 +149,8 @@ describe('the auto path’s destination, now that the file is read too', () => {
 		await rememberAnsweredAccount({
 			userId: mine,
 			rows: statement('12340185'),
-			accountId: courant.id
+			accountId: courant.id,
+			hasHeaderRow: true
 		});
 		const decision = await decideAutoAccount({
 			userId: mine,

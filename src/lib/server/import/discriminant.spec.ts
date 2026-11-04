@@ -43,7 +43,8 @@ describe('findDiscriminantColumn', () => {
 			rowsOf(HEADER, [
 				['01/06/2026', 'A', '-1,00', ACCOUNT_A],
 				['02/06/2026', 'B', '-2,00', ACCOUNT_A]
-			])
+			]),
+			true
 		);
 		expect(result).toStrictEqual({ kind: 'resolved', index: 3, fragment: '0185' });
 	});
@@ -60,7 +61,8 @@ describe('findDiscriminantColumn', () => {
 			rowsOf(HEADER, [
 				['01/06/2026', 'A', '-1,00', ACCOUNT_A],
 				['02/06/2026', 'B', '-2,00', ACCOUNT_B]
-			])
+			]),
+			true
 		);
 		expect(result).toStrictEqual({ kind: 'contradictory', index: 3 });
 	});
@@ -76,7 +78,8 @@ describe('findDiscriminantColumn', () => {
 					['01/06/2026', 'A', '-1,00', '10000001'],
 					['02/06/2026', 'B', '-2,00', '10000002']
 				]
-			)
+			),
+			true
 		);
 		expect(result).toStrictEqual({ kind: 'ambiguous', index: 3 });
 	});
@@ -89,7 +92,8 @@ describe('findDiscriminantColumn', () => {
 			rowsOf(HEADER, [
 				['01/06/2026', 'A', '-1,00', ACCOUNT_A],
 				['02/06/2026', 'B', '-2,00', '10000002']
-			])
+			]),
+			true
 		);
 		expect(result).toStrictEqual({ kind: 'ambiguous', index: 3 });
 	});
@@ -99,7 +103,8 @@ describe('findDiscriminantColumn', () => {
 			rowsOf(HEADER, [
 				['01/06/2026', 'A', '-1,00', 'FR7630001007941234567890186'],
 				['02/06/2026', 'B', '-2,00', 'FR7630001007941234567890186']
-			])
+			]),
+			true
 		);
 		expect(result).toStrictEqual({ kind: 'nothing-to-decide' });
 	});
@@ -112,7 +117,8 @@ describe('findDiscriminantColumn', () => {
 					['01/06/2026', 'A', '-1,00'],
 					['02/06/2026', 'B', '-2,00']
 				]
-			)
+			),
+			true
 		);
 		expect(result).toStrictEqual({ kind: 'nothing-to-decide' });
 	});
@@ -122,7 +128,8 @@ describe('findDiscriminantColumn', () => {
 			rowsOf(HEADER, [
 				['01/06/2026', 'A', '-1,00', ACCOUNT_A],
 				['02/06/2026', 'B', '-2,00', ACCOUNT_A]
-			])
+			]),
+			true
 		);
 		expect(result.kind === 'resolved' && result.fragment.length).toBe(4);
 		expect(DISCRIMINANT_LENGTH).toBe(4);
@@ -136,7 +143,8 @@ describe('findDiscriminantColumn', () => {
 					['01/06/2026', 'A', '-1,00', '12345678901'],
 					['02/06/2026', 'B', '-2,00', '12345678901']
 				]
-			)
+			),
+			true
 		);
 		expect(result).toStrictEqual({ kind: 'resolved', index: 3, fragment: '8901' });
 	});
@@ -152,7 +160,8 @@ describe('findDiscriminantColumn', () => {
 					['01/06/2026', '-1234,56'],
 					['01/06/2026', '-1234,56']
 				]
-			)
+			),
+			true
 		);
 		expect(result).toStrictEqual({ kind: 'nothing-to-decide' });
 	});
@@ -162,16 +171,17 @@ describe('findDiscriminantColumn', () => {
 			rowsOf(HEADER, [
 				['01/06/2026', 'A', '-1,00', ACCOUNT_A],
 				['02/06/2026', 'B', '-2,00', '']
-			])
+			]),
+			true
 		);
 		expect(result).toStrictEqual({ kind: 'nothing-to-decide' });
 	});
 
 	it('finds nothing in a file that carries no data row at all', () => {
-		expect(findDiscriminantColumn(rowsOf(HEADER, []))).toStrictEqual({
+		expect(findDiscriminantColumn(rowsOf(HEADER, []), true)).toStrictEqual({
 			kind: 'nothing-to-decide'
 		});
-		expect(findDiscriminantColumn([])).toStrictEqual({ kind: 'nothing-to-decide' });
+		expect(findDiscriminantColumn([], true)).toStrictEqual({ kind: 'nothing-to-decide' });
 	});
 });
 
@@ -209,13 +219,13 @@ describe('a counterparty account column (#702)', () => {
 	// pins the file to the counterparty's account ». The one-row statement is the recorded row
 	// itself: every one-row N26 file is constant by construction.
 	it('does not read a one-row statement’s counterparty IBAN as the file’s account', () => {
-		expect(findDiscriminantColumn(rowsOf(header, [recordedRow]))).toStrictEqual({
+		expect(findDiscriminantColumn(rowsOf(header, [recordedRow]), true)).toStrictEqual({
 			kind: 'nothing-to-decide'
 		});
 	});
 
 	it('does not read a constant counterparty IBAN as the file’s account', () => {
-		expect(findDiscriminantColumn(n26([ACCOUNT_A, ACCOUNT_A]))).toStrictEqual({
+		expect(findDiscriminantColumn(n26([ACCOUNT_A, ACCOUNT_A]), true)).toStrictEqual({
 			kind: 'nothing-to-decide'
 		});
 	});
@@ -223,7 +233,7 @@ describe('a counterparty account column (#702)', () => {
 	// SEPARATES: « the counterparty column is not evidence about the holder's accounts » FROM « an
 	// ordinary N26 statement of transfers to two people is a PROVEN multi-account export ».
 	it('does not read varying counterparty IBANs as two of the holder’s accounts', () => {
-		expect(findDiscriminantColumn(n26([ACCOUNT_A, ACCOUNT_B]))).toStrictEqual({
+		expect(findDiscriminantColumn(n26([ACCOUNT_A, ACCOUNT_B]), true)).toStrictEqual({
 			kind: 'nothing-to-decide'
 		});
 	});
@@ -234,7 +244,8 @@ describe('a counterparty account column (#702)', () => {
 	it('still reads a constant own account column that sits beside it', () => {
 		expect(
 			findDiscriminantColumn(
-				n26([ACCOUNT_B, ACCOUNT_A], { header: 'Compte', values: [ACCOUNT_A, ACCOUNT_A] })
+				n26([ACCOUNT_B, ACCOUNT_A], { header: 'Compte', values: [ACCOUNT_A, ACCOUNT_A] }),
+				true
 			)
 		).toStrictEqual({ kind: 'resolved', index: header.length, fragment: '0185' });
 	});
@@ -245,7 +256,8 @@ describe('a counterparty account column (#702)', () => {
 	it('does not let a constant counterparty IBAN hide a varying own account column', () => {
 		expect(
 			findDiscriminantColumn(
-				n26([ACCOUNT_A, ACCOUNT_A], { header: 'Compte', values: [ACCOUNT_A, ACCOUNT_B] })
+				n26([ACCOUNT_A, ACCOUNT_A], { header: 'Compte', values: [ACCOUNT_A, ACCOUNT_B] }),
+				true
 			)
 		).toStrictEqual({ kind: 'contradictory', index: header.length });
 	});
@@ -305,7 +317,8 @@ describe('every header in COUNTERPARTY_ACCOUNT_HEADERS', () => {
 			rowsOf(
 				['Date', 'Libelle', 'Montant', spelled],
 				values.map((value, i) => [`0${i + 1}/06/2026`, 'A', '-1,00', value])
-			)
+			),
+			true
 		);
 		expect(result).toStrictEqual({ kind: 'nothing-to-decide' });
 	});
@@ -324,7 +337,8 @@ describe('every header in COUNTERPARTY_ACCOUNT_HEADERS', () => {
 						['01/06/2026', 'A', '-1,00', ACCOUNT_A],
 						['02/06/2026', 'B', '-2,00', ACCOUNT_A]
 					]
-				)
+				),
+				true
 			);
 			expect(result).toStrictEqual({ kind: 'resolved', index: 3, fragment: '0185' });
 		}
@@ -394,7 +408,8 @@ describe('every pair in COUNTERPARTY_LAYOUTS', () => {
 						? [`0${i + 1}/06/2026`, '-1,00', value]
 						: [`0${i + 1}/06/2026`, 'Paul Mercier', '-1,00', value]
 				)
-			)
+			),
+			true
 		);
 	}
 
@@ -480,7 +495,7 @@ describe('every recorded account column, read in its own recorded row', () => {
 	// read by its values alone », per column and per shape.
 	it.each(cases)('%s %s (%s), carrying %s', (row, column, party, _shape, values, holder) => {
 		const file = recordedFile(row, column, values);
-		expect(findDiscriminantColumn(file.rows)).toStrictEqual(
+		expect(findDiscriminantColumn(file.rows, true)).toStrictEqual(
 			party === 'counterparty' ? { kind: 'nothing-to-decide' } : { ...holder, index: file.index }
 		);
 	});

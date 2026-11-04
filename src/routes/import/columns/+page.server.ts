@@ -232,7 +232,8 @@ export const actions: Actions = {
 			 * cannot do), never a third state that guesses.
 			 */
 			const accountColumnHeader =
-				accountColumnRefusal && headers[accountColumnRefusal.column]
+				// On a headerless file line 1 is a transaction, never a column name (#1211).
+				hasHeaderRow && accountColumnRefusal && headers[accountColumnRefusal.column]
 					? headers[accountColumnRefusal.column]
 					: undefined;
 			return fail(400, {
@@ -498,7 +499,9 @@ export const actions: Actions = {
 			await rememberAnsweredAccount({
 				userId: user.id,
 				rows: importData.rows,
-				accountId: bucket.accountId
+				accountId: bucket.accountId,
+				// The member's answer, the one the parse above read (#1211).
+				hasHeaderRow
 			});
 		} catch {
 			log({ event: EVENT.importAccountNotRemembered, attributes: {} });

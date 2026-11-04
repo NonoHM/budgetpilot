@@ -1,4 +1,4 @@
-import { page } from 'vitest/browser';
+import { page, userEvent } from 'vitest/browser';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import '../../../routes/layout.css';
@@ -162,6 +162,26 @@ describe('creating an account without leaving the file in your hand', () => {
 		expect(document.querySelectorAll('[role="listbox"]')).toHaveLength(0);
 	});
 
+	it('hands the create the answer about line 1 the member gave, not the detection', async () => {
+		// #1211. SEPARATES « the live answer » FROM « detection's guess » (and from a constant): the
+		// endpoint reads the new account's fragment from the file under this answer, and on a file
+		// whose line 1 is data, the guess skips the line that names a second account.
+		const onCreateAccount = vi.fn(async () => ({ ok: true as const, account: CREATED }));
+		await mount({ onCreateAccount });
+		// The real path to the switch: a role row's picker panel.
+		await page
+			.getByRole('button', { name: /^Date,/ })
+			.first()
+			.click();
+		await page.getByRole('switch').first().click();
+		await userEvent.keyboard('{Escape}');
+		await openPanel();
+		await footerAction().click();
+		await nameField().fill('Livret A');
+		await primary().click();
+		expect(onCreateAccount).toHaveBeenCalledWith('Livret A', false);
+	});
+
 	it('adds the created account to the panel and selects it on the row', async () => {
 		// SEPARATES: « the account created is the account chosen » FROM « it was created and the user
 		// has to go and pick it ». The second is a screen that reports success and leaves the primary
@@ -172,7 +192,8 @@ describe('creating an account without leaving the file in your hand', () => {
 		await footerAction().click();
 		await nameField().fill('Livret A');
 		await primary().click();
-		expect(onCreateAccount).toHaveBeenCalledWith('Livret A');
+		expect(onCreateAccount).toHaveBeenCalledWith('Livret A', true);
+		// (#1211's case, the member's own answer rather than detection's, is the next test.)
 		// The ROW says it, which is where the user is looking, and it says it through its own
 		// accessible name rather than through an added live region. 6g settles that.
 		await expect

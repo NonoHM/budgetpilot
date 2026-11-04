@@ -149,6 +149,11 @@ vi.mock('$lib/server/import/persist', async (importOriginal) => ({
 vi.mock('$lib/server/import/collision', () => collision);
 vi.mock('$lib/server/import/deleteBatch', () => deleteBatch);
 vi.mock('$lib/server/db', () => ({ prisma: db.prisma }));
+// The real writer, observed: #1211 asserts which answer about line 1 this door hands it.
+vi.mock('$lib/server/import/accountMemory', async (importOriginal) => {
+	const original = await importOriginal<typeof import('$lib/server/import/accountMemory')>();
+	return { ...original, rememberAnsweredAccount: vi.fn(original.rememberAnsweredAccount) };
+});
 // Every line the route writes, captured instead of printed (L4b-2 reads `sensitive_delete`).
 const logWriter = vi.hoisted(() => ({ log: vi.fn() }));
 vi.mock('$lib/server/logging', async (importOriginal) => ({
@@ -157,6 +162,7 @@ vi.mock('$lib/server/logging', async (importOriginal) => ({
 }));
 
 const { actions } = await import('./+page.server');
+const { rememberAnsweredAccount } = await import('$lib/server/import/accountMemory');
 const { logUserPseudonym } = await import('$lib/server/logging/pseudonym');
 
 /** Four transactions, three columns, and NO title row. */
@@ -1057,6 +1063,50 @@ describe('a file naming more than one account, on the designation door', () => {
 			m.import_error_account_column_unanswerable({ header: 'compte' })
 		);
 		expect(result.data?.error).not.toBe(m.import_error_ambiguous_account_column());
+		expect(persist.createImportBatch).not.toHaveBeenCalled();
+	});
+
+	/**
+	 * #1211 on the door that carries the answer: a file declared headerless has a transaction on
+	 * line 1, so a second account named only there is evidence like any other line.
+	 */
+	const IBAN_A = 'FR7630006000011234567890189';
+	const IBAN_B = 'DE89370400440532013000';
+	const headerless = (first: string, later: string) =>
+		[
+			`2026-06-01,AUCHAN,-42.10,${first}`,
+			`2026-06-02,SNCF,-30.00,${later}`,
+			`2026-06-03,FNAC,-5.00,${later}`
+		].join('\n');
+
+	// SEPARATES « line 1 is evidence » FROM « line 1 is skipped as a header »: skipped, the file
+	// reads as account B throughout and three rows are written under one account.
+	it('#1211: refuses a headerless file whose line 1 alone proves a second account', async () => {
+		expect.assertions(2);
+		const result = await submit(headerless(IBAN_A, IBAN_B), false);
+		expect(result.data?.error).toBe(refusalLabel({ code: 'multi-account-file', column: 3 }));
+		expect(persist.createImportBatch).not.toHaveBeenCalled();
+	});
+
+	// SEPARATES « the memory reads the file under the member's answer » FROM « under a header row »:
+	// confirmed as not an account, the file imports, and a header reading of it would remember the
+	// identifier lines 2 and 3 share although line 1 names another.
+	it('#1211: hands the memory writer the answer the parse read', async () => {
+		expect.assertions(1);
+		await submit(headerless('12345678', '87654321'), false, { accountColumnAnswer: 'not-account' });
+		expect(vi.mocked(rememberAnsweredAccount)).toHaveBeenCalledWith(
+			expect.objectContaining({ hasHeaderRow: false })
+		);
+	});
+
+	// SEPARATES « the refusal names the column by position » FROM « by line 1's cell »: on a
+	// headerless file line 1 is a transaction, so its account number is no header name (pass F1).
+	it('#1211: names the column by position, never by line 1, on a headerless file', async () => {
+		expect.assertions(2);
+		const result = await submit(headerless('12345678', '87654321'), false);
+		expect(result.data?.error).toBe(
+			m.import_error_account_column_unanswerable_no_header({ count: 4 })
+		);
 		expect(persist.createImportBatch).not.toHaveBeenCalled();
 	});
 

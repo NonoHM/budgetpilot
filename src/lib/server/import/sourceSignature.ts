@@ -127,7 +127,10 @@ export async function resolveStatementAccount({
 	// could (see #485's PR): a caller reaching this point with an unresolved `ambiguous` column,
 	// source ambiguity notwithstanding, has either none to begin with or already had it answered
 	// upstream.
-	const named = findDiscriminantColumn(rows);
+	// `true`: only `/import` resolves a statement account, and it always parses with a header row.
+	// The designation screen's account prefill comes from here too, before the member answers about
+	// line 1; a wrong prefill is refused by the parse, which has the answer (#1211).
+	const named = findDiscriminantColumn(rows, true);
 	if (named.kind === 'contradictory') {
 		return { rank: 1, kind: 'multi-account' };
 	}

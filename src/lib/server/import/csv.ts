@@ -395,7 +395,7 @@ export function parseImportRows(
 	 * one destination account; it does not read the file's own account column), so #485's fix
 	 * applies identically to both with no exclusion to draw.
 	 */
-	const discriminant = findDiscriminantColumn(normalizedRows);
+	const discriminant = findDiscriminantColumn(normalizedRows, options.hasHeaderRow !== false);
 	if (
 		(discriminant.kind === 'contradictory' || discriminant.kind === 'ambiguous') &&
 		parsed.transactions.length > 0 &&
@@ -424,7 +424,12 @@ export function parseImportRows(
 						{
 							code: 'ambiguous-account-column',
 							column: discriminant.index,
-							sample: refusalCellValue(normalizedRows[1]?.cells[discriminant.index] ?? '')
+							// The first DATA line, which is line 1 on a headerless file (#1211).
+							sample: refusalCellValue(
+								normalizedRows[firstDataRowIndex(options.hasHeaderRow)]?.cells[
+									discriminant.index
+								] ?? ''
+							)
 						}
 					],
 					parser ? parser.profile : 'mapped',
