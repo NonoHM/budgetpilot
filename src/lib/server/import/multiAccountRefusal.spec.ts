@@ -250,3 +250,37 @@ describe('a counterparty account column at the parse door (#702)', () => {
 		}
 	);
 });
+
+/** #1252: the issue's own reproduction, a blank account cell on the first data line. */
+describe('a multi-account column with a blank cell (#1252)', () => {
+	it('refuses the file instead of filing every row under one account', () => {
+		expect.assertions(2);
+
+		const result = parseCsvTransactions(
+			`${HEADER}\n` +
+				'2026-06-01,CB A,-10.00,\n' +
+				'2026-06-02,CB B,-20.00,FR7630001007941234567890185\n' +
+				'2026-06-03,CB C,-30.00,FR3730001007949876543210192'
+		);
+
+		expect(result.transactions).toHaveLength(0);
+		expect(result.invalidRows[0]?.fact).toEqual({ code: 'multi-account-file', column: 3 });
+	});
+
+	it('asks with a value the member can recognise, never a blank one', () => {
+		expect.assertions(1);
+
+		const result = parseCsvTransactions(
+			`${HEADER}\n` +
+				'2026-06-01,CB A,-10.00,\n' +
+				'2026-06-02,CB B,-20.00,12349032\n' +
+				'2026-06-03,CB C,-30.00,12340185'
+		);
+
+		expect(result.invalidRows[0]?.fact).toEqual({
+			code: 'ambiguous-account-column',
+			column: 3,
+			sample: '12349032'
+		});
+	});
+});

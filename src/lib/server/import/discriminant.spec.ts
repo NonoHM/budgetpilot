@@ -528,3 +528,90 @@ describe('assertDiscriminantFree', () => {
 		expect(message).not.toContain('0185');
 	});
 });
+
+/**
+ * #1252, the owner's ruling of 2026-11-04: an empty cell is a row WITHOUT a value, not a reason to
+ * stop reading the column. The varying, well-formed values among the non-empty cells are evidence
+ * on their own; `resolved` still requires every row. Before the ruling a single blank disqualified
+ * the column, so two verified IBANs below a blank read as `nothing-to-decide` and every row was
+ * filed under one account.
+ */
+describe('a column with blank cells (#1252)', () => {
+	it('refuses two verified accounts that a blank cell on another line used to hide', () => {
+		const result = findDiscriminantColumn(
+			rowsOf(HEADER, [
+				['01/06/2026', 'A', '-1,00', ''],
+				['02/06/2026', 'B', '-2,00', ACCOUNT_A],
+				['03/06/2026', 'C', '-3,00', ACCOUNT_B]
+			]),
+			true
+		);
+		expect(result).toStrictEqual({ kind: 'contradictory', index: 3 });
+	});
+
+	it('asks about two varying digit runs beside a blank cell', () => {
+		const result = findDiscriminantColumn(
+			rowsOf(HEADER, [
+				['01/06/2026', 'A', '-1,00', '12349032'],
+				['02/06/2026', 'B', '-2,00', ''],
+				['03/06/2026', 'C', '-3,00', '12340185']
+			]),
+			true
+		);
+		expect(result).toStrictEqual({ kind: 'ambiguous', index: 3 });
+	});
+
+	it('does not pin an account on a constant value when another row is blank', () => {
+		const result = findDiscriminantColumn(
+			rowsOf(HEADER, [
+				['01/06/2026', 'A', '-1,00', ACCOUNT_A],
+				['02/06/2026', 'B', '-2,00', ''],
+				['03/06/2026', 'C', '-3,00', ACCOUNT_A]
+			]),
+			true
+		);
+		expect(result).toStrictEqual({ kind: 'nothing-to-decide' });
+	});
+
+	it('still drops a column whose non-empty cells fail the grammar', () => {
+		const result = findDiscriminantColumn(
+			rowsOf(HEADER, [
+				['01/06/2026', 'A', '-1,00', ACCOUNT_A],
+				['02/06/2026', 'B', '-2,00', ''],
+				['03/06/2026', 'C', '-3,00', 'REF01'],
+				['04/06/2026', 'D', '-4,00', ACCOUNT_B]
+			]),
+			true
+		);
+		expect(result).toStrictEqual({ kind: 'nothing-to-decide' });
+	});
+
+	it('reads a blank on a later line of a headerless file the same way', () => {
+		const result = findDiscriminantColumn(
+			[
+				['01/06/2026', 'A', '-1,00', ACCOUNT_A],
+				['02/06/2026', 'B', '-2,00', ''],
+				['03/06/2026', 'C', '-3,00', ACCOUNT_B]
+			].map((cells, index) => ({ cells, line: index + 1 })),
+			false
+		);
+		expect(result).toStrictEqual({ kind: 'contradictory', index: 3 });
+	});
+
+	// More columns qualify once a blank no longer disqualifies, so the order of the columns must not
+	// decide between proof and a question: an unproven column on the left used to win.
+	it('lets a proven column win over an unproven one to its left', () => {
+		const result = findDiscriminantColumn(
+			rowsOf(
+				['Date', 'Reference', 'Montant', 'Numero de compte'],
+				[
+					['01/06/2026', '12349032', '-1,00', ACCOUNT_A],
+					['02/06/2026', '', '-2,00', ACCOUNT_B],
+					['03/06/2026', '12340185', '-3,00', ACCOUNT_A]
+				]
+			),
+			true
+		);
+		expect(result).toStrictEqual({ kind: 'contradictory', index: 3 });
+	});
+});

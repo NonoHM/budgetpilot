@@ -55,11 +55,14 @@ export type DiscriminantResult = FileVerdict<
  * whichever bank means the other party. Neither is proven by the header, so it stays a candidate
  * and the constancy decides, as it does for every header not listed here.
  *
- * **Where this bites, and where it cannot.** A card payment has no counterparty account, and a
- * column is disqualified by ANY empty cell (see `findDiscriminantColumn`), so on a statement whose
- * card rows leave the counterparty cell empty the column was never a candidate in the first place:
- * the defect and this exclusion both act only on a statement where EVERY row carries a counterparty
- * (transfers only, or one row). How often an N26 statement has that shape is not measured here.
+ * **Where this bites.** A card payment has no counterparty account, so card rows leave the cell
+ * empty. Until #1252 any empty cell disqualified a column, and this exclusion acted only on a
+ * statement where every row carried a counterparty. Since #1252 an empty cell is a row without a
+ * value, so a varying counterparty column beside blank card rows IS a candidate, and this list is
+ * now what keeps every N26 statement with a transfer in it from being refused. THE COST, NAMED: a
+ * counterparty column its header does not name (a bank's bare `IBAN` meaning the payee, or any
+ * counterparty column on a file declared headerless) is refused as `contradictory` once two of its
+ * values verify. No row in `profiles/realHeaders.fixture.ts` has that shape.
  *
  * **It needs `rows[0]` to be the header.** The column is named by the header row alone, so a file
  * with a title line above its header, or one the user declared headerless, gives this nothing to
@@ -209,12 +212,20 @@ function verdictOver(dataRows: ParsedCsvRow[], counterparty: Set<number>): Discr
 		// Before the grammar, so a counterparty column is no candidate in any of the three states.
 		if (counterparty.has(index)) continue;
 
+		// An empty cell is a row WITHOUT a value (#1252, owner's ruling 2026-11-04): it no longer
+		// disqualifies the column, it only keeps the column from pinning one account. A NON-empty cell
+		// outside the grammar still disqualifies it.
 		const values: string[] = [];
+		let blank = false;
 		let qualifies = true;
 
 		for (const row of dataRows) {
 			const value = canonicalize(row.cells[index] ?? '');
-			if (value === '' || !matchesIdentifierGrammar(value)) {
+			if (value === '') {
+				blank = true;
+				continue;
+			}
+			if (!matchesIdentifierGrammar(value)) {
 				qualifies = false;
 				break;
 			}
@@ -223,11 +234,15 @@ function verdictOver(dataRows: ParsedCsvRow[], counterparty: Set<number>): Discr
 		if (!qualifies) continue;
 
 		if (values.every((value) => value === values[0])) {
-			return { kind: 'resolved', index, fragment: values[0].slice(-DISCRIMINANT_LENGTH) };
+			// `resolved` still requires EVERY row, which is what `statementIdentifier` relies on.
+			if (!blank)
+				return { kind: 'resolved', index, fragment: values[0].slice(-DISCRIMINANT_LENGTH) };
+			continue;
 		}
-		if (varying === null) {
-			varying = { index, proven: values.every(isVerifiedIban) };
-		}
+		// Proof wins over a question whatever the column order: more columns qualify since #1252, and
+		// an unproven one on the left must not weaken a proven one on the right.
+		const proven = values.every(isVerifiedIban);
+		if (varying === null || (proven && !varying.proven)) varying = { index, proven };
 	}
 
 	if (varying === null) return { kind: 'nothing-to-decide' };
