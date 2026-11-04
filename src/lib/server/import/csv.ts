@@ -424,11 +424,14 @@ export function parseImportRows(
 						{
 							code: 'ambiguous-account-column',
 							column: discriminant.index,
-							// The first DATA line, which is line 1 on a headerless file (#1211).
+							// The first NON-EMPTY data cell: a blank one is a row without a value since
+							// #1252, and the member is asked about a value they can recognise. Data lines
+							// start at line 1 on a headerless file (#1211).
 							sample: refusalCellValue(
-								normalizedRows[firstDataRowIndex(options.hasHeaderRow)]?.cells[
-									discriminant.index
-								] ?? ''
+								normalizedRows
+									.slice(firstDataRowIndex(options.hasHeaderRow))
+									.map((row) => (row.cells[discriminant.index] ?? '').trim())
+									.find((cell) => cell !== '') ?? ''
 							)
 						}
 					],
