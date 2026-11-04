@@ -62,7 +62,7 @@ describe('a proven multi-account file (kind: contradictory)', () => {
 		expect.assertions(2);
 
 		const result = parseCsvTransactions(AMBIGUOUS_TWO_VALUES, {
-			accountColumnAnswer: 'is-account'
+			accountColumnAnswers: [{ column: 3, answer: 'is-account' }]
 		});
 
 		expect(result.transactions).toHaveLength(0);
@@ -88,7 +88,7 @@ describe('an unproven multi-account column (kind: ambiguous)', () => {
 		expect.assertions(2);
 
 		const result = parseCsvTransactions(AMBIGUOUS_TWO_VALUES, {
-			accountColumnAnswer: 'not-account'
+			accountColumnAnswers: [{ column: 3, answer: 'not-account' }]
 		});
 
 		expect(result.invalidRows).toHaveLength(0);
@@ -156,7 +156,7 @@ describe('order against the other auto-path question, #433s ambiguous-date-order
 		expect.assertions(2);
 
 		const result = parseCsvTransactions(AMBIGUOUS_ACCOUNT_AND_DATE, {
-			accountColumnAnswer: 'not-account'
+			accountColumnAnswers: [{ column: 3, answer: 'not-account' }]
 		});
 
 		expect(result.transactions).toHaveLength(0);
@@ -218,7 +218,10 @@ describe('a counterparty account column at the parse door (#702)', () => {
 		categoryIndex: null,
 		columnCount: 10
 	};
-	const ANSWERS = { none: undefined, 'not-account': 'not-account' } as const;
+	const ANSWERS = {
+		none: undefined,
+		'not-account': [{ column: 2, answer: 'not-account' }]
+	} as const;
 	const legacyCases = N26_LEGACY_HEADERS.flatMap(([name, header]) =>
 		(Object.keys(ANSWERS) as Array<keyof typeof ANSWERS>).map(
 			(answer) => [name, answer, header] as const
@@ -240,7 +243,7 @@ describe('a counterparty account column at the parse door (#702)', () => {
 				profile: 'mapped',
 				columnMapping: BY_POSITION,
 				categorizationRules: [],
-				accountColumnAnswer: ANSWERS[answer]
+				accountColumnAnswers: ANSWERS[answer]
 			});
 
 			expect({
@@ -282,5 +285,91 @@ describe('a multi-account column with a blank cell (#1252)', () => {
 			column: 3,
 			sample: '12349032'
 		});
+	});
+});
+
+/**
+ * #1255: an answer is about THE COLUMN the question named, never about the file. The issue's own
+ * reproduction: two unproven varying columns, `ref` (index 1) asked first by the evidence order,
+ * `compte` (index 3) the one that names two accounts. Before the fix, « not an account » about
+ * `ref` imported both rows under one account and `compte` was never asked about.
+ */
+describe('an answer about one unproven column (#1255)', () => {
+	const TWO_UNPROVEN =
+		'date,ref,label,amount,compte\n' +
+		'2026-06-01,12345678,CB A,-10.00,12349032\n' +
+		'2026-06-02,87654321,CB B,-20.00,12340185';
+
+	// SEPARATES: « the answer cleared the column it named » FROM « it cleared the whole file ».
+	it('asks about the second column once the first is answered « not an account »', () => {
+		expect.assertions(2);
+
+		const result = parseCsvTransactions(TWO_UNPROVEN, {
+			accountColumnAnswers: [{ column: 1, answer: 'not-account' }]
+		});
+
+		expect(result.transactions).toHaveLength(0);
+		expect(result.invalidRows[0]?.fact).toEqual({
+			code: 'ambiguous-account-column',
+			column: 4,
+			sample: '12349032'
+		});
+	});
+
+	it('imports once both columns are answered « not an account »', () => {
+		expect.assertions(1);
+
+		const result = parseCsvTransactions(TWO_UNPROVEN, {
+			accountColumnAnswers: [
+				{ column: 1, answer: 'not-account' },
+				{ column: 4, answer: 'not-account' }
+			]
+		});
+
+		expect({
+			refusals: result.invalidRows.map((row) => row.fact.code),
+			imported: result.transactions.length
+		}).toStrictEqual({ refusals: [], imported: 2 });
+	});
+
+	// SEPARATES: « is-account applies to the column it names » FROM « to whatever is asked next ».
+	it('refuses on the second column once it is confirmed to name accounts', () => {
+		expect.assertions(1);
+
+		const result = parseCsvTransactions(TWO_UNPROVEN, {
+			accountColumnAnswers: [
+				{ column: 1, answer: 'not-account' },
+				{ column: 4, answer: 'is-account' }
+			]
+		});
+
+		expect(result.invalidRows[0]?.fact).toEqual({ code: 'multi-account-file', column: 4 });
+	});
+
+	// SEPARATES: « an answer about another column is no answer to this question » FROM « any
+	// answer closes the question ».
+	it('still asks about the first column when the only answer is about another one', () => {
+		expect.assertions(1);
+
+		const result = parseCsvTransactions(TWO_UNPROVEN, {
+			accountColumnAnswers: [{ column: 4, answer: 'is-account' }]
+		});
+
+		expect(result.invalidRows[0]?.fact).toMatchObject({
+			code: 'ambiguous-account-column',
+			column: 1
+		});
+	});
+
+	// SEPARATES: « « not an account » clears a question » FROM « it clears a proof ». A hand-made
+	// post naming a PROVEN column must not unlock the import.
+	it('still refuses a proven column that an answer claims is not an account', () => {
+		expect.assertions(1);
+
+		const result = parseCsvTransactions(PROVEN_TWO_ACCOUNTS, {
+			accountColumnAnswers: [{ column: 3, answer: 'not-account' }]
+		});
+
+		expect(result.invalidRows[0]?.fact).toEqual({ code: 'multi-account-file', column: 3 });
 	});
 });

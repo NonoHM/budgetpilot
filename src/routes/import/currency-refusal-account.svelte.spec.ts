@@ -57,7 +57,7 @@ const answers = (accountId: string | null) => ({
 	key: KEY,
 	accountId,
 	dateOrder: null,
-	accountColumnAnswer: null
+	accountColumnAnswers: []
 });
 
 /** The account question, first asked. */

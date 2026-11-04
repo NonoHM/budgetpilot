@@ -395,7 +395,12 @@ export function parseImportRows(
 	 * one destination account; it does not read the file's own account column), so #485's fix
 	 * applies identically to both with no exclusion to draw.
 	 */
-	const discriminant = findDiscriminantColumn(normalizedRows, options.hasHeaderRow !== false);
+	const columnAnswers = options.accountColumnAnswers ?? [];
+	const discriminant = findDiscriminantColumn(
+		normalizedRows,
+		options.hasHeaderRow !== false,
+		new Set(columnAnswers.filter((a) => a.answer === 'not-account').map((a) => a.column))
+	);
 	if (
 		(discriminant.kind === 'contradictory' || discriminant.kind === 'ambiguous') &&
 		parsed.transactions.length > 0 &&
@@ -407,7 +412,12 @@ export function parseImportRows(
 		// gap: this app ships as a distroless container with no log aggregation configured, so a line
 		// written to stdout reaches nobody and is indistinguishable from never having run. The gap is
 		// recorded on the issue instead of manufactured as a log line nothing reads.
-		if (discriminant.kind === 'contradictory' || options.accountColumnAnswer === 'is-account') {
+		// An answer counts only for the column it names (#1255): 'is-account' about another column is
+		// no answer to this question, which is asked below.
+		const confirmed = columnAnswers.some(
+			(a) => a.column === discriminant.index && a.answer === 'is-account'
+		);
+		if (discriminant.kind === 'contradictory' || confirmed) {
 			return carryDeclaration(
 				emptyResult(
 					[{ code: 'multi-account-file', column: discriminant.index }],
@@ -417,32 +427,31 @@ export function parseImportRows(
 				parsed
 			);
 		}
-		if (options.accountColumnAnswer !== 'not-account') {
-			return carryDeclaration(
-				emptyResult(
-					[
-						{
-							code: 'ambiguous-account-column',
-							column: discriminant.index,
-							// The first NON-EMPTY data cell: a blank one is a row without a value since
-							// #1252, and the member is asked about a value they can recognise. Data lines
-							// start at line 1 on a headerless file (#1211).
-							sample: refusalCellValue(
-								normalizedRows
-									.slice(firstDataRowIndex(options.hasHeaderRow))
-									.map((row) => (row.cells[discriminant.index] ?? '').trim())
-									.find((cell) => cell !== '') ?? ''
-							)
-						}
-					],
-					parser ? parser.profile : 'mapped',
-					dataRowCount
-				),
-				parsed
-			);
-		}
-		// 'not-account': the column is confirmed noise, and `parsed` proceeds untouched, exactly as
-		// a `kind: 'nothing-to-decide'` verdict would have.
+		// Still `ambiguous` after every column answered « not an account » was set aside: THIS column
+		// has no answer yet. Once every unproven column has one, the verdict is `nothing-to-decide` and
+		// `parsed` proceeds untouched.
+		return carryDeclaration(
+			emptyResult(
+				[
+					{
+						code: 'ambiguous-account-column',
+						column: discriminant.index,
+						// The first NON-EMPTY data cell: a blank one is a row without a value since
+						// #1252, and the member is asked about a value they can recognise. Data lines
+						// start at line 1 on a headerless file (#1211).
+						sample: refusalCellValue(
+							normalizedRows
+								.slice(firstDataRowIndex(options.hasHeaderRow))
+								.map((row) => (row.cells[discriminant.index] ?? '').trim())
+								.find((cell) => cell !== '') ?? ''
+						)
+					}
+				],
+				parser ? parser.profile : 'mapped',
+				dataRowCount
+			),
+			parsed
+		);
 	}
 
 	/**

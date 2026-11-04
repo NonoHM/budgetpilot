@@ -97,7 +97,7 @@ export interface ImportSummaryResult {
 	 * successful import could at least say so after the fact. #485's fix moved the question BEFORE
 	 * the write: a file `discriminant.ts` calls `contradictory` now refuses outright and never
 	 * reaches this object at all. A file it calls `ambiguous` only reaches a SUCCESSFUL import
-	 * after the user has just answered `accountColumnAnswer: 'not-account'` — and re-running
+	 * after the user has just answered `not-account` about every unproven column (#1255) — and re-running
 	 * `findDiscriminantColumn` here would still report `ambiguous`, unchanged, because the raw
 	 * grammar over the file's cells has not moved. Showing this notice in that surviving case would
 	 * not inform the user of anything new: it would CONTRADICT the answer they gave thirty seconds

@@ -56,7 +56,7 @@ async function mount(
 	const form = {
 		error,
 		account,
-		answers: { key: 'k', dateOrder: null, accountId: null, accountColumnAnswer: null }
+		answers: { key: 'k', dateOrder: null, accountId: null, accountColumnAnswers: [] }
 	};
 	const rendered = await render(Page, { data: DATA, form: form as never });
 	const sections = rendered.container.querySelectorAll('main > section');

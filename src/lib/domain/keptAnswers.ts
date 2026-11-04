@@ -1,4 +1,4 @@
-import type { AccountColumnAnswer } from './accountColumnAnswer';
+import type { AccountColumnAnswerFor } from './accountColumnAnswer';
 import type { DateOrder } from './dateReading';
 
 /**
@@ -15,5 +15,6 @@ export interface KeptAnswers {
 	key: string;
 	dateOrder: DateOrder | null;
 	accountId: string | null;
-	accountColumnAnswer: AccountColumnAnswer | null;
+	/** One per account-column question answered, each naming its column (#1255). */
+	accountColumnAnswers: AccountColumnAnswerFor[];
 }

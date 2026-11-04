@@ -4,7 +4,7 @@ import type { CsvRefusal } from './refusals';
 import type { UntrustedColumnMapping } from './mapping/model';
 import type { DateOrder } from './dateOrder';
 import type { DateOrderDisclosure } from '$lib/domain/importSummary';
-import type { AccountColumnAnswer } from './discriminant';
+import type { AccountColumnAnswerFor } from '$lib/domain/accountColumnAnswer';
 
 export interface CsvImportOptions {
 	sourceName?: string;
@@ -66,16 +66,18 @@ export interface CsvImportOptions {
 	 */
 	dateOrder?: DateOrder;
 	/**
-	 * The user's answer to a previous `ambiguous-account-column` refusal, when there has been one.
+	 * The user's answers to previous `ambiguous-account-column` refusals, each about the column the
+	 * question named (#1255): one file can carry two unproven columns, and an answer about one says
+	 * nothing about the other.
 	 *
 	 * Absent means nobody has decided. Both doors — `/import`'s auto path and `/import/columns`'s
 	 * designation path — call this same parser with no prior mechanism that already asked whether
 	 * a file covers more than one account, so #485's fix applies to both with one flag and no
-	 * exclusion. `'is-account'` promotes the column to PROVEN (the same refusal a verified IBAN
-	 * pair gets); `'not-account'` drops it and lets the parse proceed as if the column were noise.
+	 * exclusion. `'is-account'` promotes its column to PROVEN (the same refusal a verified IBAN
+	 * pair gets); `'not-account'` drops its column only, and the next unproven one is asked.
 	 * See `discriminant.ts`'s `kind` (contradictory vs ambiguous) and #485.
 	 */
-	accountColumnAnswer?: AccountColumnAnswer;
+	accountColumnAnswers?: readonly AccountColumnAnswerFor[];
 }
 
 /**

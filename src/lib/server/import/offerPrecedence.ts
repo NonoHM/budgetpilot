@@ -34,8 +34,9 @@ import type { DeclaredCurrencyMismatch } from './declaredCurrency';
  * That guarantee lives where the answer is CONSUMED, because the answer changes what is computed:
  * - the date reading: `csv.ts` refuses an ambiguous column only when no answer was passed
  *   (`!options.dateOrder`), and otherwise parses with it, so an answered file never yields the fact;
- * - the account column: `csv.ts`'s `accountColumnAnswer` branches turn `is-account` into the
- *   `multi-account-file` refusal and let `not-account` parse on;
+ * - the account column: `csv.ts`'s `accountColumnAnswers`, each about one column (#1255), turn
+ *   `is-account` into the `multi-account-file` refusal and set a `not-account` column aside, so the
+ *   next unproven column, if any, is asked;
  * - the account: `decideAutoAccount` resolves a posted answer before it looks for a question;
  * - and the page, which posts every kept answer back (`keptAnswers`).
  * Moving it here would need `csv.ts` to report a question it has already answered, which this

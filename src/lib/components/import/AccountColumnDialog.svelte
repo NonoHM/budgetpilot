@@ -29,8 +29,8 @@
 	 * ## Confirming is the CALLER's business, same convention as `DuplicateStatementDialog`
 	 *
 	 * Both buttons are `type="button"`: this dialog is not itself submitting a form load-bearing
-	 * enough to answer either question. The caller (`/import`, `/import/columns`) resubmits with the
-	 * file it already holds and `accountColumnAnswer` set to the answer, mirroring how the reading
+	 * enough to answer either question. The caller (`/import`) resubmits with the file it already
+	 * holds and the answer posted for THIS `column` (#1255), mirroring how the reading
 	 * offer's chosen order is threaded back through the SAME resubmission mechanism.
 	 */
 	let {
