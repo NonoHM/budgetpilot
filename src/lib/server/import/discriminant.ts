@@ -190,8 +190,8 @@ export function findDiscriminantColumn(
 	if (hasHeaderRow) return every;
 	// NEVER WEAKER THAN LINES 2 ONWARD (#1211, pass A F1). They are data under both answers, so a
 	// contradiction among them is evidence whatever line 1 holds, and line 1 alone must not erase it:
-	// a blank there disqualifies the column under the blank-cell rule, and an 8-digit cell above two
-	// verified IBANs turns proof into a question. Only the refusal side lifts: a `resolved` from
+	// a cell there outside the grammar disqualifies the column, and an 8-digit cell above two verified
+	// IBANs turns proof into a question. (A blank there no longer disqualifies anything, #1252.) Only the refusal side lifts: a `resolved` from
 	// lines 2 onward over a blank line 1 stays `nothing-to-decide`, as on a headed file.
 	const rest = verdictOver(rows.slice(1), counterparty);
 	return refusalStrength(rest) > refusalStrength(every) ? rest : every;
@@ -206,7 +206,7 @@ function verdictOver(dataRows: ParsedCsvRow[], counterparty: Set<number>): Discr
 	if (dataRows.length === 0) return { kind: 'nothing-to-decide' };
 
 	const columnCount = dataRows.reduce((widest, row) => Math.max(widest, row.cells.length), 0);
-	let varying: { index: number; proven: boolean } | null = null;
+	let varying: { index: number; strength: number } | null = null;
 
 	for (let index = 0; index < columnCount; index += 1) {
 		// Before the grammar, so a counterparty column is no candidate in any of the three states.
@@ -239,14 +239,16 @@ function verdictOver(dataRows: ParsedCsvRow[], counterparty: Set<number>): Discr
 				return { kind: 'resolved', index, fragment: values[0].slice(-DISCRIMINANT_LENGTH) };
 			continue;
 		}
-		// Proof wins over a question whatever the column order: more columns qualify since #1252, and
-		// an unproven one on the left must not weaken a proven one on the right.
-		const proven = values.every(isVerifiedIban);
-		if (varying === null || (proven && !varying.proven)) varying = { index, proven };
+		// The strongest evidence wins, whatever the column order: proof, then a column filled on every
+		// row, then a sparse one. More columns qualify since #1252, and one « not an account » answer
+		// clears the whole file (`answerBinding.ts`), so a sparse column on the left must neither weaken
+		// proof nor take the question from the column a filled-only reading would have asked about.
+		const strength = values.every(isVerifiedIban) ? 2 : blank ? 0 : 1;
+		if (varying === null || strength > varying.strength) varying = { index, strength };
 	}
 
 	if (varying === null) return { kind: 'nothing-to-decide' };
-	return varying.proven
+	return varying.strength === 2
 		? { kind: 'contradictory', index: varying.index }
 		: { kind: 'ambiguous', index: varying.index };
 }

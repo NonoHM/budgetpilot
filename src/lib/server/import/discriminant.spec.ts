@@ -614,4 +614,22 @@ describe('a column with blank cells (#1252)', () => {
 		);
 		expect(result).toStrictEqual({ kind: 'contradictory', index: 3 });
 	});
+
+	// Code pass A on #1252: one « not an account » answer clears the whole file, so the question
+	// must stay on the column it was on before blanks counted. A sparse reference column on the left
+	// took it, the member truthfully said no, and two account numbers in « Compte » were filed as one.
+	it('keeps the question on a filled column rather than a sparse one to its left', () => {
+		const result = findDiscriminantColumn(
+			rowsOf(
+				['Date', 'Reference', 'Montant', 'Compte'],
+				[
+					['01/06/2026', '12345678', '-1,00', '12349032'],
+					['02/06/2026', '', '-2,00', '12340185'],
+					['03/06/2026', '87654321', '-3,00', '12349032']
+				]
+			),
+			true
+		);
+		expect(result).toStrictEqual({ kind: 'ambiguous', index: 3 });
+	});
 });
