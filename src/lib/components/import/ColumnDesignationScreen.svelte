@@ -319,7 +319,9 @@
 		 * route sets is a draft, not a feature: `/import/columns/+page.svelte` sets it.
 		 */
 		onCreateAccount?: (
-			name: string
+			name: string,
+			/** The live answer about line 1: the fragment is read from the file under it (#1211). */
+			hasHeaderRow: boolean
 		) => Promise<
 			| { ok: true; account: AccountPickerOption }
 			| { ok: false; error: string; field?: string | null }
@@ -1009,7 +1011,7 @@
 		createPhase = 'busy';
 		createError = null;
 		createErrorField = null;
-		const answer = await onCreateAccount(name);
+		const answer = await onCreateAccount(name, hasHeaderRow);
 		if (!answer.ok) {
 			createPhase = 'error';
 			createError = answer.error;

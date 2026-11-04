@@ -1,6 +1,7 @@
 import type { ParsedCsvRow } from './types';
 import type { FileVerdict } from '$lib/domain/fileVerdict';
 import { foldComparableHeader } from './utils/encoding';
+import { firstDataRowIndex } from './utils/csv';
 export { ACCOUNT_COLUMN_ANSWERS, readAccountColumnAnswer } from '$lib/domain/accountColumnAnswer';
 export type { AccountColumnAnswer } from '$lib/domain/accountColumnAnswer';
 
@@ -169,15 +170,40 @@ function counterpartyColumns(header: readonly string[]): Set<number> {
  * qualified on, never the first: one row failing the IBAN check downgrades the whole column to
  * `ambiguous`, because a column proven only on most of its rows is not proven.
  *
- * @param rows As `parseRows` returns them: `rows[0]` is the HEADER row and the data starts at 1.
+ * @param rows As `parseRows` returns them.
+ * @param hasHeaderRow The member's answer about line 1, REQUIRED so the compiler names every reader
+ *   (#1211). False: line 1 is a transaction, so it is evidence like every other line. Six readers
+ *   once skipped it on a file declared headerless, and a second account named only on line 1 was
+ *   filed as the first. The counterparty names are still read off `rows[0]`: a transaction's cells
+ *   never spell a header such as « Partner Iban », so on a headerless file they exclude nothing.
  */
-export function findDiscriminantColumn(rows: ParsedCsvRow[]): DiscriminantResult {
-	const dataRows = rows.slice(1);
+export function findDiscriminantColumn(
+	rows: ParsedCsvRow[],
+	hasHeaderRow: boolean
+): DiscriminantResult {
+	if (rows.length === 0) return { kind: 'nothing-to-decide' };
+	const counterparty = counterpartyColumns(rows[0].cells);
+	const every = verdictOver(rows.slice(firstDataRowIndex(hasHeaderRow)), counterparty);
+	if (hasHeaderRow) return every;
+	// NEVER WEAKER THAN LINES 2 ONWARD (#1211, pass A F1). They are data under both answers, so a
+	// contradiction among them is evidence whatever line 1 holds, and line 1 alone must not erase it:
+	// a blank there disqualifies the column under the blank-cell rule, and an 8-digit cell above two
+	// verified IBANs turns proof into a question. Only the refusal side lifts: a `resolved` from
+	// lines 2 onward over a blank line 1 stays `nothing-to-decide`, as on a headed file.
+	const rest = verdictOver(rows.slice(1), counterparty);
+	return refusalStrength(rest) > refusalStrength(every) ? rest : every;
+}
+
+function refusalStrength(verdict: DiscriminantResult): number {
+	return verdict.kind === 'contradictory' ? 2 : verdict.kind === 'ambiguous' ? 1 : 0;
+}
+
+/** The verdict over these DATA rows, read with these counterparty columns excluded. */
+function verdictOver(dataRows: ParsedCsvRow[], counterparty: Set<number>): DiscriminantResult {
 	if (dataRows.length === 0) return { kind: 'nothing-to-decide' };
 
 	const columnCount = dataRows.reduce((widest, row) => Math.max(widest, row.cells.length), 0);
 	let varying: { index: number; proven: boolean } | null = null;
-	const counterparty = counterpartyColumns(rows[0].cells);
 
 	for (let index = 0; index < columnCount; index += 1) {
 		// Before the grammar, so a counterparty column is no candidate in any of the three states.

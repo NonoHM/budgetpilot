@@ -149,7 +149,8 @@ export async function buildAccountOffer(input: {
 	 * to create one. The case the sheet exists for, a fragment no account holds, is the case the
 	 * answer has thrown away. `findDiscriminantColumn` is pure over the rows the caller already has.
 	 */
-	const named = findDiscriminantColumn(input.rows);
+	// `true`, as `resolveStatementAccount` above reads it (#1211).
+	const named = findDiscriminantColumn(input.rows, true);
 
 	return {
 		// Over EVERY account, archived included: the set `assertDiscriminantFree` refuses the create

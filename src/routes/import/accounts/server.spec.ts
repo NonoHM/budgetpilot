@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import * as m from '$lib/paraglide/messages';
 
 // The handler reaches the database through the limiter and `createStatementAccount`, both mocked.
 vi.mock('$lib/server/db', () => ({ prisma: {} }));
@@ -109,5 +110,107 @@ describe('#1087: POST /import/accounts writes sensitive_create', () => {
 			called: accounts.createStatementAccount.mock.calls.length,
 			lines: creates()
 		}).toEqual({ status: 429, called: 0, lines: [] });
+	});
+});
+
+/**
+ * #1211: the fragment stored on a new account is read from the file, and on a file the member
+ * declared headerless line 1 is a transaction. The designation screen posts that answer beside the
+ * file; absent, the file is read with a header row, as `/import`'s currency refusal always sends.
+ */
+describe('#1211: the new account reads a headerless file from line 1', () => {
+	const IBAN_A = 'FR7630006000011234567890189';
+	const IBAN_B = 'DE89370400440532013000';
+
+	async function postFile(lines: string[], hasHeaderRow?: 'true' | 'false'): Promise<void> {
+		const body = new FormData();
+		body.set('name', 'Compte joint');
+		body.set('csvFile', new File([lines.join('\n')], 'releve.csv', { type: 'text/csv' }));
+		if (hasHeaderRow !== undefined) body.set('hasHeaderRow', hasHeaderRow);
+		const request = new Request('http://localhost/import/accounts', { method: 'POST', body });
+		await POST({
+			locals: { user: testUser },
+			request,
+			getClientAddress: () => '192.0.2.10'
+		} as never);
+	}
+
+	const storedFragment = () =>
+		(accounts.createStatementAccount.mock.calls.at(-1)?.[0] as { discriminant: string | null })
+			?.discriminant;
+
+	const TWO_ACCOUNTS = [
+		`2026-06-01,${IBAN_A},CB A,-10.00`,
+		`2026-06-02,${IBAN_B},CB B,-20.00`,
+		`2026-06-03,${IBAN_B},CB C,-30.00`
+	];
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		limiter.isImportRateLimited.mockResolvedValue(null);
+		accounts.createStatementAccount.mockReset();
+		accounts.createStatementAccount.mockResolvedValue({
+			id: 'account-new',
+			name: 'Compte joint',
+			discriminant: null,
+			currency: 'EUR'
+		});
+	});
+
+	// SEPARATES « line 1 is evidence » FROM « line 1 is skipped as a header ». Skipped, the file
+	// reads as account B throughout and B's fragment is stored on an account the file contradicts.
+	it('stores no fragment when line 1 of a headerless file names another account', async () => {
+		await postFile(TWO_ACCOUNTS, 'false');
+		expect(storedFragment()).toBeNull();
+	});
+
+	// Guards against over-refusal: a headerless file naming one account on every line keeps its
+	// fragment once line 1 counts.
+	it('stores the fragment a headerless file names on every line', async () => {
+		await postFile(
+			TWO_ACCOUNTS.map((line) => line.replace(IBAN_A, IBAN_B)),
+			'false'
+		);
+		expect(storedFragment()).toBe('3000');
+	});
+
+	// Pass B, N13: the floor every other door applies (fewer than two rows is an empty file).
+	// SEPARATES « one row is no evidence of an account » FROM « one row resolves by construction ».
+	it('stores no fragment from a one-line headerless file', async () => {
+		await postFile([`2026-06-01,${IBAN_B},CB A,-10.00`], 'false');
+		expect(storedFragment()).toBeNull();
+	});
+
+	// Security pass F2: the product limit counts the rows the read takes. SEPARATES « a headerless
+	// file of 1001 data rows is over the 1000 cap » FROM « line 1 is subtracted as a header ».
+	it('stores no fragment from a headerless file one row over the cap', async () => {
+		const lines = Array.from({ length: 1001 }, (_, i) => `2026-06-01,${IBAN_B},CB ${i},-1.00`);
+		await postFile(lines, 'false');
+		expect(storedFragment()).toBeNull();
+	});
+
+	// Security pass F1: the answer is validated positively. SEPARATES « refused » FROM « folded into
+	// a header row », and asserts the reason: the generic sentence, nothing created.
+	it('refuses an answer outside true and false', async () => {
+		const body = new FormData();
+		body.set('name', 'Compte joint');
+		body.set('csvFile', new File([TWO_ACCOUNTS.join('\n')], 'releve.csv', { type: 'text/csv' }));
+		body.set('hasHeaderRow', 'maybe');
+		const response = await POST({
+			locals: { user: testUser },
+			request: new Request('http://localhost/import/accounts', { method: 'POST', body }),
+			getClientAddress: () => '192.0.2.10'
+		} as never);
+		expect({
+			status: response.status,
+			error: ((await response.json()) as { error?: string }).error,
+			created: accounts.createStatementAccount.mock.calls.length
+		}).toStrictEqual({ status: 400, error: m.import_account_create_error_generic(), created: 0 });
+	});
+
+	// Calibration: the same bytes with no answer posted are read with a header row, as before.
+	it('reads line 1 as a header when no answer is posted', async () => {
+		await postFile(TWO_ACCOUNTS);
+		expect(storedFragment()).toBe('3000');
 	});
 });

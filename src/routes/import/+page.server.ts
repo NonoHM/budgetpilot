@@ -858,7 +858,9 @@ export const actions: Actions = {
 				await rememberAnsweredAccount({
 					userId: user.id,
 					rows: importData.rows,
-					accountId: decision.bucket.accountId
+					accountId: decision.bucket.accountId,
+					// This door always parses with a header row (#1211).
+					hasHeaderRow: true
 				});
 			} catch {
 				log({ event: EVENT.importAccountNotRemembered, attributes: {} });

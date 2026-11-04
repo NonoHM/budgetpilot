@@ -14,6 +14,7 @@ import {
 	type AccountWriteRefusal
 } from '$lib/server/accounts/service';
 import { findDiscriminantColumn } from '$lib/server/import/discriminant';
+import { firstDataRowIndex } from '$lib/server/import/utils/csv';
 import { accountDenominationFor } from '$lib/server/import/currencyDeclaration';
 import {
 	IMPORT_FILE_MAX_BYTES,
@@ -52,9 +53,9 @@ import type { RequestHandler } from './$types';
  * gained by omitting it: a null is not shared, so the « two accounts may not hold one fragment »
  * invariant is untouched, and the create stays reusable by a caller that has no file at all.
  *
- * ## The closed allow list is the three lines that read the body
+ * ## The closed allow list is the four lines that read the body
  *
- * `name`, `csvFile` and `currency`. Nothing else is read, so `source`, `discriminant`,
+ * `name`, `csvFile`, `currency` and `hasHeaderRow`. Nothing else is read, so `source`, `discriminant`,
  * `netWorthAccountId`, `archivedAt` and `institution` cannot be set whatever the request carries.
  * Validating positively rather than stripping a deny list is the difference between a rule about
  * this endpoint and a claim about every field the schema will ever have.
@@ -112,7 +113,14 @@ export const POST: RequestHandler = async ({ locals, request, getClientAddress }
 		return json({ error: m.import_account_create_error_generic() }, { status: 400 });
 	}
 
-	const discriminant = await fragmentFromFile(formData.get('csvFile'));
+	// The member's answer about line 1 (#1211), validated positively: absent is a header row, as every
+	// file was before; `true` and `false` are read; anything else is refused like a bad currency. It
+	// only chooses which lines of the member's own file count as evidence, never an object.
+	const postedHeader = formData.get('hasHeaderRow');
+	if (postedHeader !== null && postedHeader !== 'true' && postedHeader !== 'false') {
+		return json({ error: m.import_account_create_error_generic() }, { status: 400 });
+	}
+	const discriminant = await fragmentFromFile(formData.get('csvFile'), postedHeader !== 'false');
 
 	try {
 		const account = await createStatementAccount({
@@ -157,7 +165,10 @@ export const POST: RequestHandler = async ({ locals, request, getClientAddress }
  * single account and must not be turned into one). The user asked to create an account with a name,
  * and none of those is a reason to refuse them one.
  */
-async function fragmentFromFile(posted: FormDataEntryValue | null): Promise<string | null> {
+async function fragmentFromFile(
+	posted: FormDataEntryValue | null,
+	hasHeaderRow: boolean
+): Promise<string | null> {
 	if (!(posted instanceof File) || posted.size === 0) return null;
 	if (!isSupportedImportFile(posted.name)) return null;
 	if (posted.size > IMPORT_FILE_MAX_BYTES) return null;
@@ -169,15 +180,18 @@ async function fragmentFromFile(posted: FormDataEntryValue | null): Promise<stri
 		// apply did not exist here. Same two numbers, from the module that owns them, rather than a
 		// third spelling of the rule. (The resource ceiling is already enforced inside
 		// `readImportFile`, so this is the product half only.)
+		// Under two rows read is an empty file on every door (`fileDimensionRefusal`), so this door
+		// reads no fragment from one either. The rows counted against the limit are the data rows read.
 		if (
+			read.rows.length < 2 ||
 			exceedsCsvProductLimit({
-				columns: read.rows.length === 0 ? 0 : read.rows[0].cells.length,
-				rows: Math.max(0, read.rows.length - 1)
+				columns: read.rows[0].cells.length,
+				rows: read.rows.length - firstDataRowIndex(hasHeaderRow)
 			})
 		) {
 			return null;
 		}
-		const found = findDiscriminantColumn(read.rows);
+		const found = findDiscriminantColumn(read.rows, hasHeaderRow);
 		return found.kind === 'resolved' ? found.fragment : null;
 	} catch {
 		return null;

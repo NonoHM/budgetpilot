@@ -549,7 +549,9 @@
 		const answer = await requestAccountCreation({
 			name,
 			file,
-			currency: declaredCurrency ?? undefined
+			currency: declaredCurrency ?? undefined,
+			// This door always parses with a header row (#1211).
+			hasHeaderRow: true
 		});
 		if (!answer.ok) {
 			createPhase = 'error';

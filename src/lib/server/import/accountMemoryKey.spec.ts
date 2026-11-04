@@ -119,7 +119,7 @@ describe('what the key is taken over', () => {
 
 	it('hands the key the whole identifier, not its fragment', () => {
 		const rows = statement('FR7630001007941234567890185');
-		const verdict = findDiscriminantColumn(rows);
+		const verdict = findDiscriminantColumn(rows, true);
 		expect(verdict.kind).toBe('resolved');
 		expect(verdict.kind === 'resolved' && statementIdentifier(rows, verdict)).toBe(
 			'FR7630001007941234567890185'

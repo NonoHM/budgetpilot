@@ -32,11 +32,14 @@ export async function requestAccountCreation(input: {
 	name: string;
 	file: File;
 	currency?: string;
+	/** The member's answer about line 1 (#1211): the fragment is read from the file under it. */
+	hasHeaderRow: boolean;
 }): Promise<AccountCreationAnswer> {
 	const body = new FormData();
 	body.set('name', input.name);
 	body.set('csvFile', input.file);
 	if (input.currency !== undefined) body.set('currency', input.currency);
+	body.set('hasHeaderRow', String(input.hasHeaderRow));
 	try {
 		const response = await fetch(resolve('/import/accounts'), { method: 'POST', body });
 		const payload = (await response.json()) as {
