@@ -1577,12 +1577,18 @@ describe('acceptSuggestion', () => {
 
 		const result = await runAcceptSuggestion({
 			transactionId: 'transaction-5',
+			proposed: 'Alimentation',
 			category: 'Alimentation'
 		});
 
 		expect(result).toEqual({ acceptSuccess: true });
 		expect(db.prisma.transaction.updateMany).toHaveBeenCalledWith({
-			where: { id: 'transaction-5', userId: testUser.id, splits: { none: {} } },
+			where: {
+				id: 'transaction-5',
+				userId: testUser.id,
+				splits: { none: {} },
+				manualCategory: null
+			},
 			data: {
 				manualCategory: 'Alimentation',
 				manualCategoryKey: computeNameKey('Alimentation'),

@@ -30,10 +30,13 @@ import {
 	applyCategoryRules,
 	parseCategoryRuleInput
 } from '$lib/server/categorization/rules';
+import { loadMemberHistory } from '$lib/server/categorization/history';
+import { suggestFromHistory, type HistoryIndex } from '$lib/domain/historySuggestion';
 import {
 	buildCategoryNatureMap,
 	getEffectiveCategory,
 	getEffectiveTransactionNature,
+	isUncategorizedByCategory,
 	mapTransactionAllocations,
 	EFFECTIVE_CATEGORY_SELECT,
 	type SplitRow
@@ -244,14 +247,15 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		uncategorizedCategoryId
 	});
 
-	const [uncategorizedCount, classifyStackRows] = await Promise.all([
+	const [uncategorizedCount, classifyStackRows, history] = await Promise.all([
 		prisma.transaction.count({ where: uncategorizedPileWhere }),
 		prisma.transaction.findMany({
 			where: uncategorizedPileWhere,
 			select: { id: true, label: true, manualCategory: true },
 			orderBy: [{ date: 'desc' }, { id: 'desc' }],
 			take: FOCUS_STACK_CAP
-		})
+		}),
+		loadMemberHistory(user.id, categories, uncategorizedCategoryId)
 	]);
 	const classifyStackIds = classifyStackRows.map((t) => t.id);
 	// Matching needs JS (accent-insensitive/regex), so it can't be pushed into SQL — but it's
@@ -263,29 +267,24 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 			null
 	).length;
 
-	let selectedSuggestion: {
-		category: string;
-		nature: TransactionNature | null;
-		source: 'rule';
-	} | null = null;
+	let selectedSuggestion: Proposal | null = null;
 	if (selectedTransaction && filters.type === 'classify') {
-		const selCat = getEffectiveCategory(selectedTransaction);
 		const selNat = getEffectiveTransactionNature(
 			{
 				amountCents: selectedTransaction.amountCents,
 				type: resolveTransactionType(selectedTransaction),
-				category: selCat,
+				category: getEffectiveCategory(selectedTransaction),
 				natureManual: selectedTransaction.natureManual
 			},
 			mappingMap
 		);
-		if (selNat.nature === 'uncategorized') {
-			selectedSuggestion = computeSuggestion(
-				{ label: selectedTransaction.label, manualCategory: selectedTransaction.manualCategory },
-				rules,
-				mappingMap
-			);
-		}
+		selectedSuggestion = computeSuggestion(
+			selectedTransaction,
+			selNat.nature,
+			rules,
+			history,
+			mappingMap
+		);
 	}
 
 	// Spreads EFFECTIVE_CATEGORY_SELECT rather than naming `manualCategory` and `category` by hand,
@@ -537,7 +536,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		splitFilterAvailable,
 		splitCounts,
 		transactions: transactions.map((t) =>
-			mapTransactionListItem(t, mappingMap, rules, categoryFilterNameKey)
+			mapTransactionListItem(t, mappingMap, rules, history, categoryFilterNameKey)
 		),
 		selectedTransaction: selectedTransaction
 			? mapTransactionDetail(selectedTransaction, mappingMap, categories, uncategorizedCategoryId)
@@ -597,8 +596,27 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 	};
 };
 
+type Proposal = {
+	category: string;
+	nature: TransactionNature | null;
+	source: 'rule' | 'history';
+};
+
+/**
+ * The one place a category is proposed for a row, for the list and the selected row alike.
+ *
+ * Only on a row with no pin at all (as `findMatchingCategoryRule` already requires), that is to
+ * classify by category (the pile) or by nature. The pile clause is #1014's: no seed maps the
+ * sentinel, so a pile row's nature falls back to spending or income by kind, and a gate on nature
+ * alone never proposed anything on a fresh install. `acceptSuggestion` refuses a proposal on a row
+ * pinned since, which is the same « no pin » condition.
+ *
+ * The member's rules first, then their own history. A history proposal carries no nature: the
+ * category's mapping decides it, as it does for a category the member picks by hand.
+ */
 function computeSuggestion(
-	transaction: { label: string; manualCategory: string | null },
+	transaction: { label: string; manualCategory: string | null; category: { name: string } | null },
+	nature: TransactionNature,
 	rules: Array<{
 		id?: string;
 		name: string;
@@ -607,13 +625,22 @@ function computeSuggestion(
 		targetNature?: TransactionNature | null;
 		enabled: boolean;
 	}>,
+	history: HistoryIndex,
 	mappingMap: Map<string, TransactionNature>
-): { category: string; nature: TransactionNature | null; source: 'rule' } | null {
+): Proposal | null {
+	if (transaction.manualCategory) return null;
+	if (nature !== 'uncategorized' && !isUncategorizedByCategory(transaction)) return null;
 	const matched = findMatchingCategoryRule(transaction, rules);
-	if (!matched) return null;
-	const cat = matched.targetCategory;
-	const nature = matched.targetNature ?? mappingMap.get(cat) ?? null;
-	return { category: cat, nature, source: 'rule' };
+	if (matched) {
+		const cat = matched.targetCategory;
+		return {
+			category: cat,
+			nature: matched.targetNature ?? mappingMap.get(cat) ?? null,
+			source: 'rule'
+		};
+	}
+	const fromHistory = suggestFromHistory(history, transaction.label);
+	return fromHistory ? { category: fromHistory, nature: null, source: 'history' } : null;
 }
 
 function buildCategoryOptions(categories: Array<{ name: string }>): string[] {
@@ -977,19 +1004,44 @@ export const actions: Actions = {
 			: { ok: true as const, value: null };
 		if (!natureResult.ok) return fail(400, { acceptError: natureResult.error });
 
-		// Same guard, same reason as saveManualCategory. Reachable even though the suggestion is only
-		// offered inside the classify pile — which no longer contains répartie rows — because a focus
-		// session holds its stack for its whole lifetime while another tab can split a row inside it.
+		// `proposed` is the category the page showed as a proposal, empty when it showed none (#1014).
+		// It decides two things and can only narrow either one: the author (the proposal accepted as
+		// shown, or the member's own pick after editing the card, which their history then learns), and
+		// whether the row must still carry no pin, so a proposal computed before the member filed the
+		// row by hand never overwrites that choice. With no proposal posted the card is a category
+		// editor, as before.
+		const proposedResult = parseManualCategory(getFormValue(formData, 'proposed'));
+		if (!proposedResult.ok) return fail(400, { acceptError: proposedResult.error });
+		const proposed = proposedResult.value;
+		const asProposed =
+			proposed !== null && computeNameKey(proposed) === computeNameKey(categoryResult.value);
+
+		// Same split guard, same reason as saveManualCategory. Reachable even though the suggestion is
+		// only offered inside the classify pile — which no longer contains répartie rows — because a
+		// focus session holds its stack for its whole lifetime while another tab can split a row inside it.
 		const result = await prisma.transaction.updateMany({
-			where: { id: transactionId, userId: user.id, splits: { none: {} } },
+			where: {
+				id: transactionId,
+				userId: user.id,
+				splits: { none: {} },
+				...(proposed === null ? {} : { manualCategory: null })
+			},
 			data: {
-				...manualCategoryUpdate(categoryResult.value, 'acceptedSuggestion'),
+				...manualCategoryUpdate(categoryResult.value, asProposed ? 'acceptedSuggestion' : 'member'),
 				natureManual: natureResult.value
 			}
 		});
 		if (result.count === 0) {
 			if (await isSplitTransaction(user.id, transactionId))
 				return fail(400, { acceptError: m.transactions_error_category_locked_by_split() });
+			// The member's own row, filed since the page showed the proposal: their stale page, not a
+			// refused reference, so no authz line. `userId` in the same where keeps another member's
+			// row on the not-found branch below.
+			if (
+				proposed !== null &&
+				(await prisma.transaction.count({ where: { id: transactionId, userId: user.id } })) > 0
+			)
+				return fail(409, { acceptError: m.transactions_error_categorized_since() });
 			logReferenceRefused(user.id, 'transaction');
 			return fail(404, { acceptError: m.transactions_error_transaction_not_found() });
 		}
@@ -1174,6 +1226,7 @@ function mapTransactionListItem(
 		targetNature?: TransactionNature | null;
 		enabled: boolean;
 	}>,
+	history: HistoryIndex,
 	/** The active `?category=` filter, folded once by the caller — `null` when no category filter
 	 *  is active. See `matchedCategoryAllocation` below. */
 	categoryFilterNameKey: string | null
@@ -1189,8 +1242,7 @@ function mapTransactionListItem(
 		},
 		mappingMap
 	);
-	const suggestion =
-		nature.nature === 'uncategorized' ? computeSuggestion(transaction, rules, mappingMap) : null;
+	const suggestion = computeSuggestion(transaction, nature.nature, rules, history, mappingMap);
 
 	// Through mapTransactionAllocations, which is the one supported way to read money out of a row —
 	// so the indicator resolves each part's nature exactly the way every per-category figure does
