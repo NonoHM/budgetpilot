@@ -182,6 +182,7 @@ describe('who set a category, per writer', () => {
 		const accept = (id: string) =>
 			post(transactionActions.acceptSuggestion, '/transactions?/acceptSuggestion', [
 				['transactionId', id],
+				['proposed', 'Courses'],
 				['category', 'Courses'],
 				['nature', '']
 			])(s);

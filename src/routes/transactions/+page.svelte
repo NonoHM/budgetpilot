@@ -8,6 +8,7 @@
 	import { formatCents } from '$lib/domain/budget';
 	import { resolveCategoryColorClass } from '$lib/domain/colors';
 	import { categoryDisplayName } from '$lib/domain/categoryLabels';
+	import { proposalSource } from '$lib/i18n/proposalSource';
 	import { natureLabel } from '$lib/domain/natureLabels';
 	import { isTransactionNature, type TransactionNature } from '$lib/domain/transaction';
 	import { isTagColorToken, MAX_TAG_NAME_LENGTH, type TagColorToken } from '$lib/domain/tags';
@@ -99,7 +100,12 @@
 	// (aside/list). "Create a rule" ALSO categorizes the current transaction (like Accept):
 	// quickAcceptTarget drives a 2nd hidden form (?/acceptSuggestion) submitted before the rule
 	// is created — only the rule itself is never applied retroactively to other pending transactions.
-	let quickAcceptTarget = $state<{ id: string; category: string; nature: string } | null>(null);
+	let quickAcceptTarget = $state<{
+		id: string;
+		proposed: string;
+		category: string;
+		nature: string;
+	} | null>(null);
 	let quickAcceptFormEl = $state<HTMLFormElement | null>(null);
 	let quickCreateRuleTarget = $state<{
 		id: string;
@@ -426,6 +432,16 @@
 	function handleTabReturn() {
 		if (document.visibilityState !== 'visible') return;
 		if (!splitEditorActive) return;
+		if (categoryIsDirty || natureIsDirty || tagsDirtyDesktop || tagsDirtyMobile) return;
+		invalidateAll();
+	}
+
+	/**
+	 * A list row's accept has no place to print a refusal (`acceptError` renders inside the proposal
+	 * card only), so a refused accept reloads the list and the row shows what it is now: filed since
+	 * the page loaded (#1014's 409), split, or gone. Same guard as above, so no held edit is lost.
+	 */
+	function refreshAfterRefusedAccept() {
 		if (categoryIsDirty || natureIsDirty || tagsDirtyDesktop || tagsDirtyMobile) return;
 		invalidateAll();
 	}
@@ -1355,12 +1371,16 @@
 		category: string,
 		nature: string | null
 	) {
+		// The proposal the focus card showed for this same row (the overlay shows the selected row,
+		// whose proposal is `selectedSuggestion`): an untouched one is then an accepted suggestion with
+		// the stale guard, as on the card (#1014, code pass 1).
+		const proposed = data.selectedSuggestion?.category ?? '';
 		const remainingBeforeRuleCreation = getRemainingFocusStackIds(
 			focusStackIds,
 			new Set([...resolvedIds, ...ignoredIds, id])
 		);
 
-		quickAcceptTarget = { id, category, nature: nature ?? '' };
+		quickAcceptTarget = { id, proposed, category, nature: nature ?? '' };
 		quickCreateRuleTarget = {
 			id,
 			name: label.slice(0, 40),
@@ -2886,25 +2906,30 @@
 												</td>
 												<td class="px-4 py-3 align-middle">
 													<div class="flex flex-wrap items-center justify-between gap-2">
-														<div class="flex items-center gap-2">
+														<div class="flex flex-col items-start gap-1">
 															{#if tx.suggestion}
-																<span
-																	class="inline-flex items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-2.5 py-1 text-[13px] font-medium text-zinc-800"
-																>
+																<div class="flex items-center gap-2">
 																	<span
-																		class="h-2 w-2 shrink-0 rounded-full {getCategoryColor(
-																			tx.suggestion.category
-																		)}"
-																	></span>
-																	{categoryDisplayName(tx.suggestion.category)}
-																</span>
-																{#if tx.suggestion.nature}
-																	<span
-																		class="rounded border border-zinc-200 bg-zinc-50 px-1.5 py-0.5 text-[11px] font-medium tracking-wide text-zinc-500 uppercase"
+																		class="inline-flex items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-2.5 py-1 text-[13px] font-medium text-zinc-800"
 																	>
-																		{formatNatureLabel(tx.suggestion.nature)}
+																		<span
+																			class="h-2 w-2 shrink-0 rounded-full {getCategoryColor(
+																				tx.suggestion.category
+																			)}"
+																		></span>
+																		{categoryDisplayName(tx.suggestion.category)}
 																	</span>
-																{/if}
+																	{#if tx.suggestion.nature}
+																		<span
+																			class="rounded border border-zinc-200 bg-zinc-50 px-1.5 py-0.5 text-[11px] font-medium tracking-wide text-zinc-500 uppercase"
+																		>
+																			{formatNatureLabel(tx.suggestion.nature)}
+																		</span>
+																	{/if}
+																</div>
+																<span class="text-xs text-zinc-500"
+																	>{proposalSource(tx.suggestion)}</span
+																>
 															{:else}
 																<span class="text-xs text-zinc-400"
 																	>{m.transactions_no_suggestion()}</span
@@ -2923,6 +2948,7 @@
 																			if (result.type === 'success')
 																				resolvedIds = new Set([...resolvedIds, txId]);
 																			await update({ reset: false });
+																			if (result.type === 'failure') refreshAfterRefusedAccept();
 																			acceptSubmittingIds = new Set(
 																				[...acceptSubmittingIds].filter((id) => id !== txId)
 																			);
@@ -2930,6 +2956,11 @@
 																	}}
 																>
 																	<input type="hidden" name="transactionId" value={tx.id} />
+																	<input
+																		type="hidden"
+																		name="proposed"
+																		value={tx.suggestion.category}
+																	/>
 																	<input
 																		type="hidden"
 																		name="category"
@@ -3774,13 +3805,16 @@
 													stroke-linejoin="round"
 												/>
 											</svg>
-											<span class="text-xs text-zinc-600">
-												{m.transactions_suggested_label()}
-												<strong class="font-bold text-zinc-900"
-													>{categoryDisplayName(tx.suggestion.category)}</strong
-												>
-												{#if tx.suggestion.nature}
-													· {formatNatureLabel(tx.suggestion.nature)}{/if}
+											<span class="flex flex-col gap-0.5 text-xs text-zinc-600">
+												<span>
+													{m.transactions_suggested_label()}
+													<strong class="font-bold text-zinc-900"
+														>{categoryDisplayName(tx.suggestion.category)}</strong
+													>
+													{#if tx.suggestion.nature}
+														· {formatNatureLabel(tx.suggestion.nature)}{/if}
+												</span>
+												<span class="text-zinc-500">{proposalSource(tx.suggestion)}</span>
 											</span>
 										</div>
 										<div class="mt-3 flex items-center gap-2">
@@ -3813,6 +3847,7 @@
 														if (result.type === 'success')
 															resolvedIds = new Set([...resolvedIds, txId]);
 														await update({ reset: false });
+														if (result.type === 'failure') refreshAfterRefusedAccept();
 														acceptSubmittingIds = new Set(
 															[...acceptSubmittingIds].filter((id) => id !== txId)
 														);
@@ -3820,6 +3855,7 @@
 												}}
 											>
 												<input type="hidden" name="transactionId" value={tx.id} />
+												<input type="hidden" name="proposed" value={tx.suggestion.category} />
 												<input type="hidden" name="category" value={tx.suggestion.category} />
 												<input type="hidden" name="nature" value={tx.suggestion.nature ?? ''} />
 												<Button
@@ -4628,6 +4664,7 @@
 		}}
 >
 	<input type="hidden" name="transactionId" value={quickAcceptTarget?.id ?? ''} />
+	<input type="hidden" name="proposed" value={quickAcceptTarget?.proposed ?? ''} />
 	<input type="hidden" name="category" value={quickAcceptTarget?.category ?? ''} />
 	<input type="hidden" name="nature" value={quickAcceptTarget?.nature ?? ''} />
 </form>

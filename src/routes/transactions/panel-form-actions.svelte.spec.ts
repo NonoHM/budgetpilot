@@ -1,5 +1,11 @@
-import { page } from 'vitest/browser';
-import { describe, it, expect } from 'vitest';
+import { page, userEvent } from 'vitest/browser';
+import { describe, it, expect, vi } from 'vitest';
+
+// Focus mode navigates with `goto` on open; the journey below only needs the overlay mounted.
+vi.mock('$app/navigation', async (importOriginal) => ({
+	...(await importOriginal<typeof import('$app/navigation')>()),
+	goto: vi.fn(async () => {})
+}));
 import { render } from 'vitest-browser-svelte';
 import '../layout.css';
 import Page from './+page.svelte';
@@ -332,6 +338,92 @@ describe('the detail panel posts without discarding the panel', () => {
 				const params = new URLSearchParams((action ?? '').slice((action ?? '').indexOf('?') + 1));
 				expect(params.get('selected'), `${surface}: ${action}`).toBe('tx-1');
 			}
+		}
+	});
+});
+
+/**
+ * #1014, the list half: a row's proposal says where it comes from, and both list accept forms
+ * (the desktop row and the mobile card) post the proposal they showed as `proposed`, which is what
+ * the server uses to refuse a proposal on a row filed since. The panel is left closed so every
+ * form counted here is a list form.
+ */
+describe('the proposal on the list rows (#1014)', () => {
+	it('names its source on both list layouts and posts the proposal from both forms', async () => {
+		await page.viewport(1280, 900);
+		const [row] = baseData().transactions;
+		const { container } = await render(Page, {
+			data: baseData({
+				filters: { ...baseData().filters, type: 'classify' },
+				transactions: [
+					{
+						...row,
+						category: 'uncategorized',
+						manualCategory: null,
+						isManualCategory: false,
+						suggestion: { category: 'Courses', nature: null, source: 'history' }
+					}
+				],
+				selectedTransaction: null,
+				uncategorizedCount: 1,
+				classifiableCount: 0,
+				classifyStackIds: ['tx-1']
+			}),
+			form: null
+		});
+
+		const labels = [...container.querySelectorAll('span')].filter(
+			(el) => el.textContent?.trim() === m.transactions_proposal_from_history()
+		);
+		expect(labels).toHaveLength(2);
+
+		// Three forms: the two list forms, and the hidden one focus mode's « Create a rule » submits
+		// before the rule. It carries the field too (empty at rest, filled with the proposal the
+		// focus card showed when the gesture fires), so an untouched proposal is recorded as
+		// accepted and gets the same stale guard (code pass 1, A F1).
+		const proposed = [...container.querySelectorAll('form[action="?/acceptSuggestion"]')].map(
+			(form) => (form.querySelector('input[name="proposed"]') as HTMLInputElement | null)?.value
+		);
+		expect(proposed).toEqual(['Courses', 'Courses', '']);
+	});
+});
+
+/**
+ * #1014, code pass 1 (A F1) and the narrow pass on its fix: focus mode's « Create a rule » first
+ * accepts the row through a hidden form, and that form must post the proposal the focus card
+ * showed. Posting none stored an untouched proposal as the member's own choice, which the history
+ * then learned, and dropped the stale guard. The field's value is only set when the gesture fires,
+ * so this presses R in the open overlay and reads what the form submits.
+ */
+describe('focus mode « Create a rule » (#1014)', () => {
+	it('posts the proposal the focus card showed', async () => {
+		await page.viewport(1280, 900);
+		const submitted: FormData[] = [];
+		const spy = vi.spyOn(HTMLFormElement.prototype, 'requestSubmit').mockImplementation(function (
+			this: HTMLFormElement
+		) {
+			submitted.push(new FormData(this));
+		});
+		try {
+			await render(Page, {
+				data: baseData({
+					filters: { ...baseData().filters, type: 'classify' },
+					uncategorizedCount: 1,
+					classifiableCount: 0,
+					classifyStackIds: ['tx-1'],
+					selectedSuggestion: { category: 'Loisirs', nature: null, source: 'history' }
+				}),
+				form: null
+			});
+			await page.getByRole('button', { name: m.transactions_focus_mode() }).first().click();
+			await expect.element(page.getByRole('dialog')).toBeVisible();
+			await userEvent.keyboard('r');
+			await expect.poll(() => submitted.length).toBeGreaterThan(0);
+			const accept = submitted.find((form) => form.has('proposed'));
+			expect(accept?.get('proposed')).toBe('Loisirs');
+			expect(accept?.get('category')).toBe('Loisirs');
+		} finally {
+			spy.mockRestore();
 		}
 	});
 });
