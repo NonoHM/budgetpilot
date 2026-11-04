@@ -1369,9 +1369,12 @@
 		id: string,
 		label: string,
 		category: string,
-		nature: string | null,
-		proposed: string
+		nature: string | null
 	) {
+		// The proposal the focus card showed for this same row (the overlay shows the selected row,
+		// whose proposal is `selectedSuggestion`): an untouched one is then an accepted suggestion with
+		// the stale guard, as on the card (#1014, code pass 1).
+		const proposed = data.selectedSuggestion?.category ?? '';
 		const remainingBeforeRuleCreation = getRemainingFocusStackIds(
 			focusStackIds,
 			new Set([...resolvedIds, ...ignoredIds, id])
@@ -4641,10 +4644,7 @@
 				data.selectedTransaction.id,
 				data.selectedTransaction.label,
 				category,
-				nature,
-				// The proposal the focus card showed for this same row: an untouched one is then an
-				// accepted suggestion with the stale guard, as on the card (#1014, code pass 1).
-				data.selectedSuggestion?.category ?? ''
+				nature
 			);
 	}}
 />
