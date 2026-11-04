@@ -11,16 +11,19 @@ const MAX_HISTORY_ROWS = 5000;
  * The member's own category choices, as the index `suggestFromHistory` reads (#1014).
  *
  * Only rows whose pin `categorySetBy` reads as `member`: never a rule's, never an accepted
- * suggestion (proposals would then reinforce themselves), never `unknown`, and never the file's
- * own `categoryId` (an imported column, the poisoning route AISVS 1.0 C1.3.2 is about). Scoped by
- * `userId` in the one where clause. A pin whose category no longer exists, or the « uncategorized »
+ * suggestion (proposals would then reinforce themselves), never `unknown`, and never an imported
+ * file's category column, `categoryId` (the poisoning route AISVS 1.0 C1.3.2 is about). A restored
+ * backup keeps the author its file states (ruled under #1013), so a member's own backup feeds
+ * their own history. Scoped by `userId` in the one where clause, and the source clause sits there
+ * too, before the cap, so the cap counts member rows only. A pin whose category no longer exists, or the « uncategorized »
  * sentinel, is dropped; the index holds the live category's NAME, matched on its key, because
  * `acceptSuggestion` posts a name and the page shows one.
  */
 export async function loadMemberHistory(
 	userId: string,
 	categories: ReadonlyArray<{ id: string; name: string }>,
-	uncategorizedCategoryId: string | null
+	uncategorizedCategoryId: string | null,
+	limit = MAX_HISTORY_ROWS
 ): Promise<HistoryIndex> {
 	const nameByKey = new Map(
 		categories
@@ -30,7 +33,7 @@ export async function loadMemberHistory(
 	const rows = await prisma.transaction.findMany({
 		where: { userId, manualCategorySource: 'member' },
 		orderBy: [{ date: 'desc' }, { id: 'desc' }],
-		take: MAX_HISTORY_ROWS,
+		take: limit,
 		select: {
 			label: true,
 			date: true,

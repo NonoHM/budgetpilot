@@ -150,6 +150,17 @@ describe('what the history suggester may learn from (#1014)', () => {
 		expect(suggestFromHistory(index, 'CB PRIMEUR LOMI 09/03')).toBeNull();
 	});
 
+	// Code pass 1 (A N17a, B node 5): the source clause sits BEFORE the row cap, so the cap counts
+	// member rows only. With a cap of one, a newer rule row must not crowd out the older member
+	// row. Separates a where clause that filters before `take` from a filter applied after it.
+	it('counts only member rows against the cap, so newer rule rows cannot crowd them out', async () => {
+		const s = await seed();
+		await row(s, 'CB PRIMEUR LOMI 02/03', 'Courses', 'member', 2);
+		await row(s, 'CB CINEMA ZUPEL 05/03', 'Loisirs', 'rule', 5);
+		const index = await loadMemberHistory(s.userId, s.categories, s.uncategorizedId, 1);
+		expect(suggestFromHistory(index, 'CB PRIMEUR LOMI 09/03')).toBe('Courses');
+	});
+
 	// ASVS v5.0.0-8.2.2: another member's choices never reach this member's suggestions.
 	it('never learns from another member', async () => {
 		const s = await seed();
@@ -237,6 +248,61 @@ describe('the proposal on the transactions page (#1014)', () => {
 			url: new URL('http://localhost/transactions')
 		} as never)) as { transactions: Listed[] };
 		expect(data.transactions.find((t) => t.id === pinned)?.suggestion).toBeNull();
+	});
+});
+
+// Code pass 1: three row states the widened gate must still leave alone, each one the accept
+// could not apply cleanly. Every fixture carries a history that clears the floor, so a missing
+// clause shows as a proposal.
+describe('rows the gate leaves without a proposal (#1014)', () => {
+	async function withHistory(s: Seed) {
+		for (let day = 1; day <= 5; day++)
+			await row(s, 'CB PRIMEUR LOMI 02/03', 'Courses', 'member', day);
+	}
+	async function listedAnyTab(s: Seed, id: string) {
+		const data = (await load({
+			locals: s.locals,
+			url: new URL('http://localhost/transactions')
+		} as never)) as { transactions: Listed[] };
+		return data.transactions.find((t) => t.id === id);
+	}
+
+	// B 7a, at the bar: accepting would write the proposal's empty nature over the member's own.
+	it('a pile row whose nature the member set by hand', async () => {
+		const s = await seed();
+		await withHistory(s);
+		const id = await row(s, 'CB PRIMEUR LOMI 09/03', null, null, 20);
+		await prisma.transaction.update({ where: { id }, data: { natureManual: 'transfer' } });
+		expect((await listed(s, id))?.suggestion).toBeNull();
+	});
+
+	// B 7b, A: the parts carry the categories; the accept would answer « locked by split ».
+	it('a split row whose parent still carries the sentinel', async () => {
+		const s = await seed();
+		await withHistory(s);
+		const id = await row(s, 'CB PRIMEUR LOMI 09/03', null, null, 20);
+		const courses = s.categories.find((c) => c.name === 'Courses')!;
+		const loisirs = s.categories.find((c) => c.name === 'Loisirs')!;
+		await prisma.transactionSplit.createMany({
+			data: [
+				{ transactionId: id, categoryId: courses.id, amountCents: BigInt(-2100), position: 0 },
+				{ transactionId: id, categoryId: loisirs.id, amountCents: BigInt(-2100), position: 1 }
+			]
+		});
+		expect((await listedAnyTab(s, id))?.suggestion).toBeNull();
+	});
+
+	// A F2: the gate and the accept read « no pin » as the same predicate, so an empty pin a
+	// restore can write is a pin for both, never a proposal the accept then refuses.
+	it('a row carrying an empty pin', async () => {
+		const s = await seed();
+		await withHistory(s);
+		const id = await row(s, 'CB PRIMEUR LOMI 09/03', null, null, 20);
+		await prisma.transaction.update({
+			where: { id },
+			data: { manualCategory: '', natureManual: 'uncategorized' }
+		});
+		expect((await listedAnyTab(s, id))?.suggestion).toBeNull();
 	});
 });
 

@@ -100,7 +100,12 @@
 	// (aside/list). "Create a rule" ALSO categorizes the current transaction (like Accept):
 	// quickAcceptTarget drives a 2nd hidden form (?/acceptSuggestion) submitted before the rule
 	// is created — only the rule itself is never applied retroactively to other pending transactions.
-	let quickAcceptTarget = $state<{ id: string; category: string; nature: string } | null>(null);
+	let quickAcceptTarget = $state<{
+		id: string;
+		proposed: string;
+		category: string;
+		nature: string;
+	} | null>(null);
 	let quickAcceptFormEl = $state<HTMLFormElement | null>(null);
 	let quickCreateRuleTarget = $state<{
 		id: string;
@@ -1354,14 +1359,15 @@
 		id: string,
 		label: string,
 		category: string,
-		nature: string | null
+		nature: string | null,
+		proposed: string
 	) {
 		const remainingBeforeRuleCreation = getRemainingFocusStackIds(
 			focusStackIds,
 			new Set([...resolvedIds, ...ignoredIds, id])
 		);
 
-		quickAcceptTarget = { id, category, nature: nature ?? '' };
+		quickAcceptTarget = { id, proposed, category, nature: nature ?? '' };
 		quickCreateRuleTarget = {
 			id,
 			name: label.slice(0, 40),
@@ -4623,7 +4629,10 @@
 				data.selectedTransaction.id,
 				data.selectedTransaction.label,
 				category,
-				nature
+				nature,
+				// The proposal the focus card showed for this same row: an untouched one is then an
+				// accepted suggestion with the stale guard, as on the card (#1014, code pass 1).
+				data.selectedSuggestion?.category ?? ''
 			);
 	}}
 />
@@ -4643,6 +4652,7 @@
 		}}
 >
 	<input type="hidden" name="transactionId" value={quickAcceptTarget?.id ?? ''} />
+	<input type="hidden" name="proposed" value={quickAcceptTarget?.proposed ?? ''} />
 	<input type="hidden" name="category" value={quickAcceptTarget?.category ?? ''} />
 	<input type="hidden" name="nature" value={quickAcceptTarget?.nature ?? ''} />
 </form>

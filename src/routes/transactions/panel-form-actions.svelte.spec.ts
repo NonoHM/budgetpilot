@@ -371,11 +371,13 @@ describe('the proposal on the list rows (#1014)', () => {
 		);
 		expect(labels).toHaveLength(2);
 
-		// Three forms: the two list forms, and the hidden one the rule modal submits with the
-		// category the member typed for the new rule, which is their own pick and posts no proposal.
+		// Three forms: the two list forms, and the hidden one focus mode's « Create a rule » submits
+		// before the rule. It carries the field too (empty at rest, filled with the proposal the
+		// focus card showed when the gesture fires), so an untouched proposal is recorded as
+		// accepted and gets the same stale guard (code pass 1, A F1).
 		const proposed = [...container.querySelectorAll('form[action="?/acceptSuggestion"]')].map(
 			(form) => (form.querySelector('input[name="proposed"]') as HTMLInputElement | null)?.value
 		);
-		expect(proposed).toEqual(['Courses', 'Courses', undefined]);
+		expect(proposed).toEqual(['Courses', 'Courses', '']);
 	});
 });

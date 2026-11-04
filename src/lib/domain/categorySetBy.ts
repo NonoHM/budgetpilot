@@ -10,8 +10,9 @@
  * 1.3 clears a pin and then re-sets the same name, so the key matches again; the operator closes it
  * with `scripts/reset-category-authors.mjs` after rolling forward (owner ruling on #1013).
  *
- * `acceptedSuggestion` is the member accepting a proposal, kept apart from `member` because every
- * proposal today is a rule's output, and learning from it would reinforce the rule (#1009 R10).
+ * `acceptedSuggestion` is the member accepting a proposal, kept apart from `member` because a
+ * proposal is a rule's output or the history's own (#1014), and learning from it would reinforce
+ * the rule or the history (#1009 R10).
  */
 export const CATEGORY_SET_BY = ['member', 'rule', 'acceptedSuggestion'] as const;
 export type CategorySetBy = (typeof CATEGORY_SET_BY)[number];

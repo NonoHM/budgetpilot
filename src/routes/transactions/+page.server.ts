@@ -605,17 +605,23 @@ type Proposal = {
 /**
  * The one place a category is proposed for a row, for the list and the selected row alike.
  *
- * Only on a row with no pin at all (as `findMatchingCategoryRule` already requires), that is to
- * classify by category (the pile) or by nature. The pile clause is #1014's: no seed maps the
- * sentinel, so a pile row's nature falls back to spending or income by kind, and a gate on nature
- * alone never proposed anything on a fresh install. `acceptSuggestion` refuses a proposal on a row
- * pinned since, which is the same « no pin » condition.
+ * Only on a row with no pin at all and no parts, that is to classify by nature, or by category
+ * (the pile) when the member set no nature by hand. The pile clause is #1014's: no seed maps the
+ * sentinel, so a pile row with no manual nature falls back to spending or income by kind, and a
+ * gate on nature alone proposed nothing on such a row. `acceptSuggestion` refuses a proposal on a
+ * row pinned since, which is the same « no pin » condition.
  *
  * The member's rules first, then their own history. A history proposal carries no nature: the
  * category's mapping decides it, as it does for a category the member picks by hand.
  */
 function computeSuggestion(
-	transaction: { label: string; manualCategory: string | null; category: { name: string } | null },
+	transaction: {
+		label: string;
+		manualCategory: string | null;
+		natureManual: TransactionNature | null;
+		category: { name: string } | null;
+		splits: readonly unknown[];
+	},
 	nature: TransactionNature,
 	rules: Array<{
 		id?: string;
@@ -628,8 +634,13 @@ function computeSuggestion(
 	history: HistoryIndex,
 	mappingMap: Map<string, TransactionNature>
 ): Proposal | null {
-	if (transaction.manualCategory) return null;
-	if (nature !== 'uncategorized' && !isUncategorizedByCategory(transaction)) return null;
+	// `=== null`, the accept's own predicate: an empty pin a restore can write is a pin for both.
+	// A split row is classified by its parts, and the accept refuses it.
+	if (transaction.manualCategory !== null || transaction.splits.length > 0) return null;
+	// The pile clause only where the member set no nature by hand: accepting writes the
+	// proposal's nature, which would replace theirs (code pass 1, B 7a).
+	const inPile = transaction.natureManual === null && isUncategorizedByCategory(transaction);
+	if (nature !== 'uncategorized' && !inPile) return null;
 	const matched = findMatchingCategoryRule(transaction, rules);
 	if (matched) {
 		const cat = matched.targetCategory;
