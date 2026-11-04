@@ -58,22 +58,31 @@
 	let natureValue = $state('');
 	let acceptSubmitting = $state(false);
 
-	// Deriveds, compared by value: a reload that brings the same row back must not re-seed the fields.
-	const seenCategory = $derived(seen.category);
-	const seenNature = $derived(seen.nature);
+	// What each field starts on: the proposal when there is one, otherwise the row's own pin and
+	// manual nature, so an accept that only changes the category keeps what the member set (#1233).
+	// UNCLASSIFIED_CATEGORY on a row with no pin. Deriveds, compared by value, one per field: a
+	// field re-seeds only when ITS seed changes, so the panel's nature editor saving does not throw
+	// away a category picked here and not yet accepted (pass 1A), and a reload that brings the same
+	// row back re-seeds nothing.
+	const categorySeed = $derived(
+		suggestion ? suggestion.category : (seen.category ?? resolveProposalCategory(null))
+	);
+	const natureSeed = $derived(suggestion ? (suggestion.nature ?? '') : (seen.nature ?? ''));
 
-	// Re-seeds the editable fields whenever the target transaction changes (new transactionId,
-	// a fresh suggestion object from the server, or the row itself changed): the proposal when
-	// there is one, otherwise the row's own pin and manual nature, so an accept that only changes
-	// the category keeps what the member set (#1233). UNCLASSIFIED_CATEGORY on a row with no pin.
+	// Re-seeds on a new row too, so moving to another row with the same seed resets a pick. Through
+	// a derived, compared by value: a parent whose `data` is replaced on every reload re-reads the
+	// prop's getter, and the effects must only see the value.
+	const rowId = $derived(transactionId);
 	$effect(() => {
-		// Deliberate: reads transactionId to register it as a reactive dependency of this effect.
+		// Deliberate: reads rowId to register it as a reactive dependency of this effect.
 		// eslint-disable-next-line @typescript-eslint/no-unused-expressions
-		transactionId;
-		categoryValue = suggestion
-			? suggestion.category
-			: (seenCategory ?? resolveProposalCategory(null));
-		natureValue = suggestion ? (suggestion.nature ?? '') : (seenNature ?? '');
+		rowId;
+		categoryValue = categorySeed;
+	});
+	$effect(() => {
+		// eslint-disable-next-line @typescript-eslint/no-unused-expressions
+		rowId;
+		natureValue = natureSeed;
 	});
 
 	// Exposed for TransactionFocusOverlay's keyboard shortcuts (Enter/R): the current

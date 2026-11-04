@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { render } from 'vitest-browser-svelte';
+import { page, userEvent } from 'vitest/browser';
 import TransactionProposalCard from './TransactionProposalCard.svelte';
 import * as m from '$lib/paraglide/messages';
 import type { SeenRow } from '$lib/domain/seenRow';
@@ -79,6 +80,19 @@ describe.each(['panel', 'compact'] as const)('the proposal card (%s)', (variant)
 		const { container } = await render(TransactionProposalCard, { ...props(null), variant });
 		expect(field(container, 'nature')).toBe('');
 		expect(field(container, 'category')).toBe(UNCLASSIFIED_CATEGORY);
+	});
+
+	// Code pass 1A, F2: the panel's own nature editor saves, the page reloads, and the row's nature
+	// moves under the card. Separates re-seeding each field on its own source from re-seeding both
+	// on either, which threw away a category the member had picked but not yet accepted.
+	it('keeps a picked category when only the row’s nature changed under the card', async () => {
+		const screen = await render(TransactionProposalCard, { ...props(null), variant });
+		await userEvent.click(page.getByRole('button', { name: m.common_combobox_open_list_aria() }));
+		await userEvent.click(page.getByRole('option', { name: 'Loisirs' }));
+		await expect.poll(() => field(screen.container, 'category')).toBe('Loisirs');
+		await screen.rerender({ seen: { category: null, nature: 'spending' } });
+		await expect.poll(() => field(screen.container, 'nature')).toBe('spending');
+		expect(field(screen.container, 'category')).toBe('Loisirs');
 	});
 
 	// A proposal still decides both fields: the history proposal's empty nature lets the category's

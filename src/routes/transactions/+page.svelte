@@ -4756,6 +4756,9 @@
 	use:enhance={() =>
 		async ({ result, update }) => {
 			await update({ reset: false });
+			// A refusal reloads the row, as the card does: its `seen` is built from the selected row,
+			// so without it every later « Create a rule » posts the same stale row (pass 1A, 1B F1).
+			if (result.type === 'failure') refreshAfterRefusedAccept();
 			quickAcceptDone?.(result.type === 'success');
 			quickAcceptDone = null;
 		}}
