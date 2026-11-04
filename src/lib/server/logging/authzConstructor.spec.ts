@@ -217,12 +217,12 @@ describe('every 404 in shipped src is a logged refusal or says why not (L4a inva
 	// fail a stream. Since then one `status: 404`, `handleDoubleSlash` in hooks.server.ts (exempt: a
 	// path no route matches). A changed figure means a 404 was added or removed: read the diff before
 	// moving the number.
-	it('reads every file and the 47 lines of the 404 class', () => {
+	it('reads every file and the 49 lines of the 404 class', () => {
 		expect({
 			filesRead: files.length > 100,
 			lines404: scanned.reduce((sum, file) => sum + file.lines.length, 0),
 			filesWith404: scanned.filter((file) => file.lines.length > 0).length
-		}).toEqual({ filesRead: true, lines404: 47, filesWith404: 13 });
+		}).toEqual({ filesRead: true, lines404: 49, filesWith404: 13 });
 	});
 
 	it('finds no 404 line that is neither preceded by its log call nor exempt with a reason', () => {

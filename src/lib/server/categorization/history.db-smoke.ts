@@ -316,7 +316,7 @@ describe('accepting a proposal (#1014)', () => {
 			['category', 'Courses'],
 			['nature', '']
 		]);
-		expect(result).toEqual({ acceptSuccess: true });
+		expect(result).toMatchObject({ acceptSuccess: true });
 		expect(await stored(id)).toEqual({ pin: 'Courses', by: 'acceptedSuggestion' });
 	});
 

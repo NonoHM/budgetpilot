@@ -120,7 +120,6 @@ function baseData(overrides: Record<string, unknown> = {}): PageData {
 			hasNext: true
 		},
 		uncategorizedCount: 0,
-		classifiableCount: 0,
 		classifyStackIds: [],
 		transferProposals: { pairs: [], ambiguousCount: 0 },
 		transferPartner: null,
@@ -319,7 +318,6 @@ describe('the detail panel posts without discarding the panel', () => {
 			data: baseData({
 				filters: { ...baseData().filters, type: 'classify' },
 				uncategorizedCount: 1,
-				classifiableCount: 1,
 				classifyStackIds: ['tx-1']
 			}),
 			form: null
@@ -366,7 +364,6 @@ describe('the proposal on the list rows (#1014)', () => {
 				],
 				selectedTransaction: null,
 				uncategorizedCount: 1,
-				classifiableCount: 0,
 				classifyStackIds: ['tx-1']
 			}),
 			form: null
@@ -409,7 +406,6 @@ describe('focus mode « Create a rule » (#1014)', () => {
 				data: baseData({
 					filters: { ...baseData().filters, type: 'classify' },
 					uncategorizedCount: 1,
-					classifiableCount: 0,
 					classifyStackIds: ['tx-1'],
 					selectedSuggestion: { category: 'Loisirs', nature: null, source: 'history' }
 				}),
@@ -425,5 +421,123 @@ describe('focus mode « Create a rule » (#1014)', () => {
 		} finally {
 			spy.mockRestore();
 		}
+	});
+});
+
+/**
+ * #1230: « Accept all » names the proposals the page shows and posts them back as shown, and the
+ * undo banner says what the server counted. Two list rows carry a proposal, a third carries none,
+ * so a button counting rows rather than proposals reads 3 and fails here.
+ */
+describe('« Accept all » over the proposals the page shows (#1230)', () => {
+	function classifyFixture() {
+		const [row] = baseData().transactions;
+		const pending = { ...row, category: 'uncategorized', manualCategory: null };
+		return baseData({
+			filters: { ...baseData().filters, type: 'classify' },
+			transactions: [
+				{
+					...pending,
+					id: 'tx-1',
+					suggestion: { category: 'Courses', nature: null, source: 'history' }
+				},
+				{
+					...pending,
+					id: 'tx-2',
+					suggestion: { category: 'Loisirs', nature: 'spending', source: 'rule' }
+				},
+				{ ...pending, id: 'tx-3', suggestion: null }
+			],
+			selectedTransaction: null,
+			uncategorizedCount: 3,
+			classifyStackIds: ['tx-1', 'tx-2', 'tx-3']
+		});
+	}
+
+	it.each([
+		[1280, 900],
+		[390, 844]
+	])('at %i px, counts the proposals and posts each as shown', async (width, height) => {
+		await page.viewport(width, height);
+		const { container } = await render(Page, { data: classifyFixture(), form: null });
+		const forms = [
+			...container.querySelectorAll<HTMLFormElement>('form[action="?/acceptAllProposals"]')
+		].filter((form) => form.offsetParent !== null);
+		expect(forms).toHaveLength(1);
+		expect(forms[0].querySelector('button')?.textContent?.trim()).toBe(
+			m.transactions_accept_all({ count: 2 })
+		);
+		const posted = (forms[0].querySelector('input[name="proposals"]') as HTMLInputElement).value;
+		expect(JSON.parse(posted)).toEqual([
+			{ id: 'tx-1', category: 'Courses', nature: null },
+			{ id: 'tx-2', category: 'Loisirs', nature: 'spending' }
+		]);
+	});
+
+	it('offers no « Accept all » when no row on the page carries a proposal', async () => {
+		await page.viewport(1280, 900);
+		const fixture = classifyFixture();
+		const { container } = await render(Page, {
+			data: {
+				...fixture,
+				transactions: fixture.transactions.map((tx) => ({ ...tx, suggestion: null }))
+			},
+			form: null
+		});
+		expect(container.querySelectorAll('form[action="?/acceptAllProposals"]')).toHaveLength(0);
+	});
+
+	function bannerText(container: HTMLElement): string {
+		const banner = [...container.querySelectorAll('[role="status"], [role="alert"]')].find((el) =>
+			el.querySelector('form[action="?/undoAcceptedProposals"]')
+		);
+		return banner ? (banner.textContent ?? '').replace(/\s+/g, ' ').trim() : '';
+	}
+
+	it('says how many it categorized and how many it skipped, beside an undo of exactly them', async () => {
+		await page.viewport(1280, 900);
+		const { container } = await render(Page, {
+			data: classifyFixture(),
+			form: { proposalsAccepted: { accepted: 2, changedSince: 1, undo: 'RECORD' } } as never
+		});
+		expect(bannerText(container)).toContain(
+			`${m.transactions_accepted_many({ count: 2 })} ${m.transactions_accepted_skipped_one()} ${m.transactions_accepted_undo()}`
+		);
+		const undo = container.querySelector(
+			'form[action="?/undoAcceptedProposals"] input[name="undo"]'
+		) as HTMLInputElement;
+		expect(undo.value).toBe('RECORD');
+	});
+
+	// Code pass 1A U1: a second Undo would find every row restored and, answering last, say they
+	// were kept. Separates an Undo held while its post is in flight from one that can be sent twice.
+	it('holds Undo while its post is in flight', async () => {
+		await page.viewport(1280, 900);
+		const pending = vi.spyOn(window, 'fetch').mockImplementation(() => new Promise(() => {}));
+		try {
+			const { container } = await render(Page, {
+				data: classifyFixture(),
+				form: { proposalsAccepted: { accepted: 2, changedSince: 0, undo: 'RECORD' } } as never
+			});
+			const button = container.querySelector(
+				'form[action="?/undoAcceptedProposals"] button'
+			) as HTMLButtonElement;
+			expect(button.disabled).toBe(false);
+			await userEvent.click(button);
+			await expect.poll(() => button.disabled).toBe(true);
+		} finally {
+			pending.mockRestore();
+		}
+	});
+
+	it('after an undo that found every row changed, says only that they were kept', async () => {
+		await page.viewport(1280, 900);
+		const { container } = await render(Page, {
+			data: classifyFixture(),
+			form: { proposalsUndone: { undone: 0, changedSince: 2 } } as never
+		});
+		const text = (container.textContent ?? '').replace(/\s+/g, ' ');
+		expect(text).toContain(m.transactions_accepted_undone_kept_many({ count: 2 }));
+		expect(text).not.toContain(m.transactions_accepted_undone());
 	});
 });

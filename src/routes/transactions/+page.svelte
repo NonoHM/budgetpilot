@@ -121,7 +121,10 @@
 	// Submission-in-flight tracking for the button spinner (Button's `loading` prop) — see
 	// ui/Spinner.svelte / ui/Skeleton.svelte migration. `acceptSubmittingIds` is per-transaction
 	// (several accept-suggestion forms can be visible at once, one per row/card).
-	let classifyAllSubmitting = $state(false);
+	let acceptAllSubmitting = $state(false);
+	// One undo in flight at a time: a second post would find every row restored and its answer,
+	// arriving last, would say they were kept (code pass 1A U1).
+	let undoAcceptSubmitting = $state(false);
 	let acceptSubmittingIds = $state(new Set<string>());
 	let deleteSubmitting = $state(false);
 	let createRuleSubmitting = $state(false);
@@ -138,6 +141,17 @@
 	});
 
 	const classificationMode = $derived(data.filters.type === 'classify');
+	// #1230: « Accept all » names exactly the proposals this page shows, and posts them back as
+	// shown: the server writes its own proposal for each, and only where it is still this one.
+	const shownProposals = $derived(
+		classificationMode
+			? data.transactions.flatMap((tx) =>
+					tx.suggestion
+						? [{ id: tx.id, category: tx.suggestion.category, nature: tx.suggestion.nature }]
+						: []
+				)
+			: []
+	);
 	// Real perceptible-delay site (see CLAUDE.md's Skeleton decision): a paginated transactions
 	// list, potentially thousands of rows server-side, reloaded via `load()` on every filter/page
 	// link click. `navigating` is only truthy for the duration of that client-side navigation —
@@ -1212,7 +1226,7 @@
 	 * site that was noticed and the others go on shipping the defect.
 	 *
 	 * THE VERDICT FOR THE FORMS THAT DO NOT USE THIS, recorded here because #200 asked for it and
-	 * because this is where the next person adding a form will be looking. `classifyAll`,
+	 * because this is where the next person adding a form will be looking. `acceptAllProposals`,
 	 * `deleteTransaction`, `undoBulkTag`, `createRule` and `acceptSuggestion` all keep a bare
 	 * `action="?/..."`. Every one of them is `use:enhance`d, so no navigation happens and nothing a
 	 * reader can see is lost; without javascript they would drop the filters, and that is a decision
@@ -1529,6 +1543,71 @@
 				{/if}
 			{/snippet}
 		</AlertBanner>
+	{/if}
+{/snippet}
+
+{#snippet acceptedProposalsBanner()}
+	<!-- #1230: an accept is reversible, so it is confirmed by an exact undo, kept until dismissed
+	     like the bulk-tag and transfer-pair ones. The server counts the rows it left because they
+	     changed since the page loaded, and says so rather than leaving the count to be guessed. -->
+	{#if form?.proposalsAccepted}
+		{@const result = form.proposalsAccepted}
+		{#key form}
+			{#if result.accepted > 0}
+				<AlertBanner variant="success" autoDismissMs={Infinity}>
+					{result.accepted === 1
+						? m.transactions_accepted_one()
+						: m.transactions_accepted_many({ count: result.accepted })}
+					{#if result.changedSince > 0}
+						{result.changedSince === 1
+							? m.transactions_accepted_skipped_one()
+							: m.transactions_accepted_skipped_many({ count: result.changedSince })}
+					{/if}
+					{#snippet action()}
+						<form
+							method="POST"
+							action="?/undoAcceptedProposals"
+							use:enhance={() => {
+								undoAcceptSubmitting = true;
+								return async ({ update }) => {
+									await update({ reset: false });
+									undoAcceptSubmitting = false;
+								};
+							}}
+							class="-my-2.5 shrink-0"
+						>
+							<input type="hidden" name="undo" value={result.undo} />
+							<button
+								type="submit"
+								disabled={undoAcceptSubmitting}
+								class="inline-flex min-h-11 items-center rounded font-semibold underline underline-offset-2 focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+							>
+								{m.transactions_accepted_undo()}
+							</button>
+						</form>
+					{/snippet}
+				</AlertBanner>
+			{:else}
+				<AlertBanner variant="warning">{m.transactions_accepted_none()}</AlertBanner>
+			{/if}
+		{/key}
+	{:else if form?.proposalsUndone}
+		{@const result = form.proposalsUndone}
+		{#key form}
+			<!-- An undo that found every row changed since restores nothing, so it says only that. -->
+			<AlertBanner variant={result.undone > 0 ? 'success' : 'warning'}>
+				{#if result.undone > 0}{m.transactions_accepted_undone()}{/if}
+				{#if result.changedSince > 0}
+					{result.changedSince === 1
+						? m.transactions_accepted_undone_kept_one()
+						: m.transactions_accepted_undone_kept_many({ count: result.changedSince })}
+				{/if}
+			</AlertBanner>
+		{/key}
+	{:else if form?.acceptAllError}
+		{#key form}
+			<AlertBanner variant="error">{form.acceptAllError}</AlertBanner>
+		{/key}
 	{/if}
 {/snippet}
 
@@ -1876,24 +1955,25 @@
 				</div>
 				<div class="flex items-center gap-2">
 					{#if classificationMode}
-						{#if data.classifiableCount > 0}
+						{#if shownProposals.length > 0}
 							<form
 								method="POST"
-								action="?/classifyAll"
+								action="?/acceptAllProposals"
 								class="flex-1"
 								use:enhance={() => {
-									classifyAllSubmitting = true;
+									acceptAllSubmitting = true;
 									return async ({ update }) => {
 										await update({ reset: false });
-										classifyAllSubmitting = false;
+										acceptAllSubmitting = false;
 									};
 								}}
 							>
+								<input type="hidden" name="proposals" value={JSON.stringify(shownProposals)} />
 								<Button
 									type="submit"
 									variant="secondary"
 									size="sm"
-									loading={classifyAllSubmitting}
+									loading={acceptAllSubmitting}
 									class="!flex h-11 w-full items-center justify-center gap-1.5"
 								>
 									<svg width="14" height="14" viewBox="0 0 20 20" fill="none" aria-hidden="true">
@@ -1904,7 +1984,7 @@
 											stroke-linejoin="round"
 										/>
 									</svg>
-									{m.transactions_accept_all({ count: data.classifiableCount })}
+									{m.transactions_accept_all({ count: shownProposals.length })}
 								</Button>
 							</form>
 						{/if}
@@ -1931,6 +2011,7 @@
 			</div>
 		{/if}
 
+		{@render acceptedProposalsBanner()}
 		<!-- #1189: proposed transfer pairs, one composition at both widths. -->
 		{@render transferPairBanner()}
 		<TransferPairsBand
@@ -1975,20 +2056,21 @@
 					{/each}
 				</div>
 
-				{#if classificationMode && data.classifiableCount > 0}
+				{#if shownProposals.length > 0}
 					<form
 						method="POST"
-						action="?/classifyAll"
+						action="?/acceptAllProposals"
 						use:enhance={() => {
-							classifyAllSubmitting = true;
+							acceptAllSubmitting = true;
 							return async ({ update }) => {
 								await update({ reset: false });
-								classifyAllSubmitting = false;
+								acceptAllSubmitting = false;
 							};
 						}}
 					>
-						<Button type="submit" variant="secondary" size="sm" loading={classifyAllSubmitting}>
-							{m.transactions_accept_all({ count: data.classifiableCount })}
+						<input type="hidden" name="proposals" value={JSON.stringify(shownProposals)} />
+						<Button type="submit" variant="secondary" size="sm" loading={acceptAllSubmitting}>
+							{m.transactions_accept_all({ count: shownProposals.length })}
 						</Button>
 					</form>
 				{/if}

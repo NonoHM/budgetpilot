@@ -189,63 +189,6 @@ describe('applyCategoryRules', () => {
 		expect(db.rows.find((r) => r.id === 't3')?.natureManual).toBe('transfer');
 	});
 
-	it("scope à un categoryId (pile 'à classer' via classifyAll) sans toucher aux autres catégories", async () => {
-		expect.assertions(2);
-
-		setUpCategories(['Alimentation']);
-		db.prisma.categoryRule.findMany.mockResolvedValue([
-			{
-				id: 'rule-a',
-				name: 'Auchan',
-				matchText: 'auchan',
-				targetCategory: 'Alimentation',
-				targetNature: null,
-				enabled: true,
-				isRegex: false
-			}
-		]);
-
-		setUpRows([
-			{
-				id: 't1',
-				userId: 'user-1',
-				label: 'Auchan paris',
-				manualCategory: null,
-				natureManual: null,
-				categoryId: 'cat-uncat'
-			},
-			// Same label match, but a different (already-categorized) bucket — classifyAll's
-			// categoryId scoping must not touch it, only rules/+page.server.ts's global
-			// "apply rules" (no categoryId) does.
-			{
-				id: 't2',
-				userId: 'user-1',
-				label: 'Auchan lyon',
-				manualCategory: null,
-				natureManual: null,
-				categoryId: 'cat-food'
-			}
-		]);
-
-		const updated = await applyCategoryRules('user-1', { categoryId: 'cat-uncat' });
-
-		expect(updated).toBe(1);
-		expect(db.rows.find((r) => r.id === 't2')?.manualCategory).toBeNull();
-	});
-
-	// #161. THE BREAK-CHECK LIVES HERE, and what it has to prove is not "the rule did not fire"
-	// but "the deleted name did not come back". Those are different assertions and only the second
-	// one names the defect: a rule left pointing at a deleted category makes the next rules run
-	// write that name onto transactions, including the ones the delete had just moved to the
-	// fallback, so the delete leaves a mechanism that reverses itself.
-	//
-	// Removing the `isRuleTargetLive` filter in `applyCategoryRules` must turn this red. The line
-	// is reachable: the rule row is still `enabled: true`, so the SQL filter that was already there
-	// does not cover the case, and a green here would be a finding rather than a pass. That is
-	// worth stating because the stored alternative does NOT have this property: had the delete
-	// written `enabled = false`, the pre-existing `enabled: true` filter would have covered the
-	// case on its own, this break would have gone green, and the correct reading of that green
-	// would have been "there is no guard here to hold" rather than "the guard holds".
 	it('does not write a deleted category name back onto a transaction', async () => {
 		expect.assertions(3);
 

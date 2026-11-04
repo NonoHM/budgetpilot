@@ -59,7 +59,6 @@ function baseData(overrides: Record<string, unknown> = {}): PageData {
 			hasNext: true
 		},
 		uncategorizedCount: 0,
-		classifiableCount: 0,
 		classifyStackIds: [],
 		transferProposals: { pairs: [], ambiguousCount: 0 },
 		transferPartner: null,

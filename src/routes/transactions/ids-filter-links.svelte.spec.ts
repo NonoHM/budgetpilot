@@ -87,7 +87,6 @@ function baseData(overrides: Record<string, unknown> = {}): PageData {
 			hasNext: true
 		},
 		uncategorizedCount: 0,
-		classifiableCount: 0,
 		classifyStackIds: [],
 		transferProposals: { pairs: [], ambiguousCount: 0 },
 		transferPartner: null,
@@ -170,7 +169,7 @@ describe('?ids= propagation through the generated links', () => {
 		await page.viewport(1280, 800);
 		goto.mockClear();
 		await render(Page, {
-			data: baseData({ uncategorizedCount: 3, classifiableCount: 0, classifyStackIds: ['tx-1'] }),
+			data: baseData({ uncategorizedCount: 3, classifyStackIds: ['tx-1'] }),
 			form: null
 		});
 
