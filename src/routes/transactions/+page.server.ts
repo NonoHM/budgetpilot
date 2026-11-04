@@ -1000,8 +1000,10 @@ export const actions: Actions = {
 		const shown = parseShownProposals(getFormValue(formData, 'proposals'));
 		if (!shown) return fail(400, { acceptAllError: m.transactions_accept_all_error() });
 		const result = await acceptShownProposals(user.id, shown);
-		if (!result.ok)
+		if (!result.ok) {
+			// authz-exempt: logged by acceptShownProposals, the function that ran the userId-scoped lookup
 			return fail(404, { acceptAllError: m.transactions_error_transaction_not_found() });
+		}
 		return {
 			proposalsAccepted: {
 				accepted: result.accepted.length,
@@ -1017,8 +1019,10 @@ export const actions: Actions = {
 		const record = parseUndoRecord(getFormValue(formData, 'undo'));
 		if (!record) return fail(400, { acceptAllError: m.transactions_accept_all_undo_error() });
 		const result = await undoAcceptedRows(user.id, record);
-		if (!result.ok)
+		if (!result.ok) {
+			// authz-exempt: logged by undoAcceptedRows, the function that ran the userId-scoped lookup
 			return fail(404, { acceptAllError: m.transactions_error_transaction_not_found() });
+		}
 		return { proposalsUndone: { undone: result.undone, changedSince: result.changedSince } };
 	},
 

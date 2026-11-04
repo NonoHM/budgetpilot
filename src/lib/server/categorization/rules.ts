@@ -322,7 +322,7 @@ export async function applyCategoryRules(
 			// silently rewrite. Repeated on the updateMany below rather than trusted from here: the
 			// scan and the write are two queries, and only the one on the WRITE is a protection.
 			splits: { none: {} },
-			...(options.transactionIds ? { id: { in: options.transactionIds } } : {}),
+			...(options.transactionIds ? { id: { in: options.transactionIds } } : {})
 		},
 		{ id: true, label: true, manualCategory: true, natureManual: true },
 		(rows) => {
