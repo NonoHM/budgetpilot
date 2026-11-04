@@ -231,6 +231,26 @@ describe('« Accept all » over the proposals the page shows (#1230)', () => {
 		expect(await stored(theirs)).toMatchObject({ pin: null });
 	});
 
+	// Code pass 1A F1 / 1B R1: a category may be named up to 80 characters, and the posted name is
+	// only compared by key. A 60 cap refused the whole page for one such row, and a reload could
+	// not help. Separates a bound at the stored name from one at the hand-typed pin.
+	it('accepts and undoes a proposal whose category name is longer than 60 characters', async () => {
+		const s = await seed();
+		const long = 'Abonnements et services numeriques partages avec la famille proche';
+		expect(long.length).toBeGreaterThan(60);
+		await prisma.category.create({
+			data: { userId: s.userId, name: long, nameKey: computeNameKey(long) }
+		});
+		await prisma.categoryRule.create({
+			data: { userId: s.userId, name: 'Stream', matchText: 'STREAMFLIX', targetCategory: long }
+		});
+		const pending = await row(s, 'PRLV STREAMFLIX');
+		const result = accepted(await acceptAll(s, [{ id: pending, category: long }]));
+		expect(result).toMatchObject({ accepted: 1, changedSince: 0 });
+		const undone = await undo(s, result.undo);
+		expect(undone.proposalsUndone).toEqual({ undone: 1, changedSince: 0 });
+	});
+
 	it('refuses a list longer than one page', async () => {
 		const s = await seed();
 		// Well-formed ids that resolve to nothing: without the cap this answers 404, not 400.

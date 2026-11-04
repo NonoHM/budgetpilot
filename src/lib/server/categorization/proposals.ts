@@ -1,4 +1,5 @@
 import { prisma } from '$lib/server/db';
+import { MAX_PORTABLE_STRING } from '$lib/server/backup/schema';
 import { computeNameKey } from '$lib/server/naming/nameKey';
 import { isRuleTargetLive, toCategoryNameKeys } from '$lib/server/categories/references';
 import { manualCategoryUpdate } from '$lib/server/transactions/manualCategory';
@@ -131,7 +132,9 @@ export type AcceptedRow = {
 	previousNature: TransactionNature | null;
 };
 
-const MAX_CATEGORY_LENGTH = 60;
+// The widest name a Category can store (a restore admits up to this), not the 60 a hand-typed pin
+// is held to: the posted name is only compared by key and never written (code pass 1A F1).
+const MAX_CATEGORY_LENGTH = MAX_PORTABLE_STRING;
 
 function isNatureOrNull(value: unknown): value is TransactionNature | null {
 	return value === null || (typeof value === 'string' && isTransactionNature(value));

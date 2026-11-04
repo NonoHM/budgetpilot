@@ -509,6 +509,27 @@ describe('« Accept all » over the proposals the page shows (#1230)', () => {
 		expect(undo.value).toBe('RECORD');
 	});
 
+	// Code pass 1A U1: a second Undo would find every row restored and, answering last, say they
+	// were kept. Separates an Undo held while its post is in flight from one that can be sent twice.
+	it('holds Undo while its post is in flight', async () => {
+		await page.viewport(1280, 900);
+		const pending = vi.spyOn(window, 'fetch').mockImplementation(() => new Promise(() => {}));
+		try {
+			const { container } = await render(Page, {
+				data: classifyFixture(),
+				form: { proposalsAccepted: { accepted: 2, changedSince: 0, undo: 'RECORD' } } as never
+			});
+			const button = container.querySelector(
+				'form[action="?/undoAcceptedProposals"] button'
+			) as HTMLButtonElement;
+			expect(button.disabled).toBe(false);
+			await userEvent.click(button);
+			await expect.poll(() => button.disabled).toBe(true);
+		} finally {
+			pending.mockRestore();
+		}
+	});
+
 	it('after an undo that found every row changed, says only that they were kept', async () => {
 		await page.viewport(1280, 900);
 		const { container } = await render(Page, {

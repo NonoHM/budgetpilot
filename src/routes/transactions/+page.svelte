@@ -122,6 +122,9 @@
 	// ui/Spinner.svelte / ui/Skeleton.svelte migration. `acceptSubmittingIds` is per-transaction
 	// (several accept-suggestion forms can be visible at once, one per row/card).
 	let acceptAllSubmitting = $state(false);
+	// One undo in flight at a time: a second post would find every row restored and its answer,
+	// arriving last, would say they were kept (code pass 1A U1).
+	let undoAcceptSubmitting = $state(false);
 	let acceptSubmittingIds = $state(new Set<string>());
 	let deleteSubmitting = $state(false);
 	let createRuleSubmitting = $state(false);
@@ -1564,13 +1567,20 @@
 						<form
 							method="POST"
 							action="?/undoAcceptedProposals"
-							use:enhance
+							use:enhance={() => {
+								undoAcceptSubmitting = true;
+								return async ({ update }) => {
+									await update({ reset: false });
+									undoAcceptSubmitting = false;
+								};
+							}}
 							class="-my-2.5 shrink-0"
 						>
 							<input type="hidden" name="undo" value={result.undo} />
 							<button
 								type="submit"
-								class="inline-flex min-h-11 items-center rounded font-semibold underline underline-offset-2 focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:outline-none"
+								disabled={undoAcceptSubmitting}
+								class="inline-flex min-h-11 items-center rounded font-semibold underline underline-offset-2 focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
 							>
 								{m.transactions_accepted_undo()}
 							</button>
