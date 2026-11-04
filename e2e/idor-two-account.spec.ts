@@ -418,7 +418,11 @@ const PROBES: Probe[] = [
 		label: 'acceptSuggestion',
 		outcome: 'refused-404',
 		path: '/transactions?/acceptSuggestion',
-		fields: (i) => ({ transactionId: i.transactionId, category: 'Logement' })
+		fields: (i) => ({
+			transactionId: i.transactionId,
+			category: 'Logement',
+			seen: '{"category":null,"nature":null}'
+		})
 	},
 	{
 		label: 'saveSplits-clear',

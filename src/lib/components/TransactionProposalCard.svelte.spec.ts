@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import TransactionProposalCard from './TransactionProposalCard.svelte';
 import * as m from '$lib/paraglide/messages';
+import type { SeenRow } from '$lib/domain/seenRow';
+import { UNCLASSIFIED_CATEGORY } from '$lib/domain/categories';
 
 /**
  * #1014: a proposal says where it comes from (1.4 plan, section 3b rule 5), and the accept posts
@@ -10,22 +12,28 @@ import * as m from '$lib/paraglide/messages';
  * desktop panel and the mobile/focus card are two separate blocks of markup.
  */
 
-function props(suggestion: { category: string; nature: null; source: 'rule' | 'history' } | null) {
+function props(
+	suggestion: { category: string; nature: null; source: 'rule' | 'history' } | null,
+	seen: SeenRow = { category: null, nature: null }
+) {
 	return {
 		transactionId: 'tx-1',
 		suggestion,
+		seen,
 		categoryOptions: ['Courses', 'Loisirs'],
 		natureOptions: [],
 		getCategoryColor: () => 'bg-zinc-400',
 		formatNatureLabel: (n: string | null) => n ?? '',
 		onAccepted: () => {},
+		onRefused: () => {},
 		onIgnore: () => {},
 		onCreateRule: () => {}
 	};
 }
 
-const posted = (container: HTMLElement) =>
-	(container.querySelector('input[name="proposed"]') as HTMLInputElement | null)?.value;
+const field = (container: HTMLElement, name: string) =>
+	(container.querySelector(`input[name="${name}"]`) as HTMLInputElement | null)?.value;
+const posted = (container: HTMLElement) => field(container, 'proposed');
 
 describe.each(['panel', 'compact'] as const)('the proposal card (%s)', (variant) => {
 	it('says a history proposal comes from the member’s history, and posts it as proposed', async () => {
@@ -54,5 +62,35 @@ describe.each(['panel', 'compact'] as const)('the proposal card (%s)', (variant)
 		expect(container.textContent).not.toContain(m.transactions_proposal_from_rule());
 		expect(container.textContent).not.toContain(m.transactions_proposal_from_history());
 		expect(posted(container)).toBe('');
+	});
+
+	// #1233, point 1: with no proposal the card edits the row as it is. Separates a card seeded from
+	// the row (the member's nature and pin survive an accept that only changes one of them) from a
+	// card seeded from defaults (« Automatic » and the sentinel, which the accept then writes).
+	it('starts on the row’s own nature and pin when nothing was proposed, and posts what it saw', async () => {
+		const seen: SeenRow = { category: 'Loisirs', nature: 'spending' };
+		const { container } = await render(TransactionProposalCard, { ...props(null, seen), variant });
+		expect(field(container, 'nature')).toBe('spending');
+		expect(field(container, 'category')).toBe('Loisirs');
+		expect(field(container, 'seen')).toBe('{"category":"Loisirs","nature":"spending"}');
+	});
+
+	it('starts on the sentinel with « Automatic » on a row with no pin and no manual nature', async () => {
+		const { container } = await render(TransactionProposalCard, { ...props(null), variant });
+		expect(field(container, 'nature')).toBe('');
+		expect(field(container, 'category')).toBe(UNCLASSIFIED_CATEGORY);
+	});
+
+	// A proposal still decides both fields: the history proposal's empty nature lets the category's
+	// mapping decide, which is what moves a row out of the nature pile.
+	it('starts on the proposal, not the row, when one was proposed', async () => {
+		const seen: SeenRow = { category: null, nature: 'uncategorized' };
+		const { container } = await render(TransactionProposalCard, {
+			...props({ category: 'Courses', nature: null, source: 'history' }, seen),
+			variant
+		});
+		expect(field(container, 'nature')).toBe('');
+		expect(field(container, 'category')).toBe('Courses');
+		expect(field(container, 'seen')).toBe('{"category":null,"nature":"uncategorized"}');
 	});
 });

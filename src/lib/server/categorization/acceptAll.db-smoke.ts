@@ -400,7 +400,8 @@ describe('the undo after an accept (#1230)', () => {
 			['transactionId', pending],
 			['category', 'Courses'],
 			['nature', ''],
-			['proposed', 'Courses']
+			['proposed', 'Courses'],
+			['seen', '{"category":null,"nature":"uncategorized"}']
 		]);
 		const record = (outcome.proposalsAccepted as Accepted | undefined)?.undo;
 		expect(record).toBeTypeOf('string');
@@ -494,6 +495,38 @@ describe('a single accept from a page older than the row (#1231, #1233)', () => 
 		});
 	});
 
+	// Note pass 1, #9a: only the nature changed, and no proposal. Separates a where that compares the
+	// nature on both paths from one that compares it only when a proposal is posted.
+	it('refuses a category picked with no proposal on a row whose nature the member set since', async () => {
+		const s = await seed();
+		const pending = await row(s, 'VIR SEPA INCONNU');
+		await prisma.transaction.update({ where: { id: pending }, data: { natureManual: 'spending' } });
+		const outcome = await acceptOne(s, pending, [
+			['category', 'Loisirs'],
+			['nature', ''],
+			['proposed', ''],
+			['seen', seen(null, null)]
+		]);
+		expect(outcome.status).toBe(409);
+		expect(await stored(pending)).toMatchObject({ pin: null, nature: 'spending' });
+	});
+
+	// Note point 3: a proposal is only shown on an unpinned row, so a pinned `seen` beside one is no
+	// page state. Separates refusing the pair from writing a proposal's author over a pin.
+	it('refuses a proposal posted beside a pinned row as no page state', async () => {
+		const s = await seed();
+		const pending = await row(s, 'VIR SEPA INCONNU', { pin: 'Courses', by: 'member' });
+		const outcome = await acceptOne(s, pending, [
+			['category', 'Courses'],
+			['nature', ''],
+			['proposed', 'Courses'],
+			['seen', seen('Courses', null)]
+		]);
+		expect(outcome.status).toBe(400);
+		expect((outcome.data as { acceptError?: string }).acceptError).toBe('Invalid transaction.');
+		expect(await stored(pending)).toMatchObject({ pin: 'Courses', by: 'member' });
+	});
+
 	// A pin the page saw is compared too: a pile row pinned to the sentinel, re-pinned since.
 	it('refuses a row whose pin changed since, whatever pin the page saw', async () => {
 		const s = await seed();
@@ -510,6 +543,26 @@ describe('a single accept from a page older than the row (#1231, #1233)', () => 
 		]);
 		expect(outcome.status).toBe(409);
 		expect(await stored(pending)).toMatchObject({ pin: 'Courses' });
+	});
+
+	// The pin is compared by its key: a case-only respelling since files the row under the same
+	// category, so it is no change, on every engine. Separates the key from the raw name, which
+	// sqlite and PostgreSQL compare case-sensitively and MariaDB's collation does not.
+	it('accepts on a row whose pin was only respelled in another case since', async () => {
+		const s = await seed();
+		const pending = await row(s, 'VIR SEPA INCONNU', { pin: 'Courses', by: 'member' });
+		await prisma.transaction.update({
+			where: { id: pending },
+			data: manualCategoryUpdate('COURSES', 'member')
+		});
+		const outcome = await acceptOne(s, pending, [
+			['category', 'Loisirs'],
+			['nature', ''],
+			['proposed', ''],
+			['seen', seen('Courses', null)]
+		]);
+		expect(outcome.status).toBeUndefined();
+		expect(await stored(pending)).toMatchObject({ pin: 'Loisirs', by: 'member' });
 	});
 
 	it('accepts an unchanged proposal row, and its undo restores what the page saw', async () => {

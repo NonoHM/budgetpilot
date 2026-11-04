@@ -6,6 +6,8 @@
 	import { getSwipeProgress, resolveSwipeDecision } from '$lib/domain/transactionFocus';
 	import { widthClass } from '$lib/domain/widthClass';
 	import * as m from '$lib/paraglide/messages';
+	import { seenRowOf } from '$lib/domain/seenRow';
+	import type { TransactionNature } from '$lib/domain/transaction';
 
 	// Focus mode: triage one transaction at a time. Based on Modal (variant "compact" +
 	// hideHeader + mobileFullscreen), not BottomSheet — the latter is designed for
@@ -37,6 +39,7 @@
 		onPrevious,
 		onNext,
 		onAccepted,
+		onRefused,
 		onIgnore,
 		onCreateRule
 	}: {
@@ -48,6 +51,8 @@
 			amountCents: number;
 			type: 'income' | 'expense';
 			source: string;
+			manualCategory: string | null;
+			manualNature: TransactionNature | null;
 		} | null;
 		suggestion: { category: string; nature: string | null; source: 'rule' | 'history' } | null;
 		categoryOptions: readonly string[];
@@ -68,6 +73,7 @@
 		onPrevious: () => void;
 		onNext: () => void;
 		onAccepted: (transactionId: string) => void;
+		onRefused: () => void;
 		onIgnore: (transactionId: string) => void;
 		onCreateRule: (category: string, nature: string | null) => void;
 	} = $props();
@@ -245,6 +251,7 @@
 				bind:this={cardRef}
 				transactionId={transaction.id}
 				{suggestion}
+				seen={seenRowOf(transaction)}
 				{categoryOptions}
 				{natureOptions}
 				variant="compact"
@@ -252,6 +259,7 @@
 				{formatNatureLabel}
 				{acceptError}
 				{onAccepted}
+				{onRefused}
 				{onIgnore}
 				{onCreateRule}
 			/>
