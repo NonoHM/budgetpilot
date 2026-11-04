@@ -87,3 +87,79 @@ describe('#1211: a headerless file is judged on every line, line 1 included', ()
 		}).toStrictEqual({ refusals: [], imported: 3 });
 	});
 });
+
+/**
+ * Pass A on #1211, F1: lines 2 onward are data under BOTH answers, so a contradiction among them is
+ * evidence whatever line 1 holds. Counting line 1 must never weaken the verdict they give: a blank
+ * or non-identifier cell there disqualifies the column under the blank-cell rule, and would turn a
+ * proven second account into « nothing to decide ».
+ */
+describe('#1211: counting line 1 never removes evidence', () => {
+	// SEPARATES « never weaker than lines 2 onward » FROM « line 1 decides alone »: a blank on line 1
+	// alone would drop the column, and three rows from two accounts would file as one.
+	it('refuses two proven accounts on lines 2 and 3 whatever line 1 holds', () => {
+		const result = parse(
+			[
+				'2026-06-01,,CB A,-10.00',
+				`2026-06-02,${IBAN_A},CB B,-20.00`,
+				`2026-06-03,${IBAN_B},CB C,-30.00`
+			].join('\n'),
+			false
+		);
+		expect({
+			refusals: result.invalidRows.map((row) => row.fact),
+			imported: result.transactions.length
+		}).toStrictEqual({ refusals: [{ code: 'multi-account-file', column: 1 }], imported: 0 });
+	});
+
+	// The same through a header row the member called data: its cell names no identifier.
+	it('refuses a two-account export whose header row was answered as data', () => {
+		const result = parse(
+			[
+				'date,iban,label,amount',
+				`2026-06-02,${IBAN_A},CB B,-20.00`,
+				`2026-06-03,${IBAN_B},CB C,-30.00`
+			].join('\n'),
+			false
+		);
+		expect(result.invalidRows.map((row) => row.fact).at(-1)).toStrictEqual({
+			code: 'multi-account-file',
+			column: 1
+		});
+		expect(result.transactions).toHaveLength(0);
+	});
+
+	// SEPARATES « proof stays proof » FROM « line 1 downgrades it to a question »: an 8-digit cell
+	// above two verified IBANs makes the column unproven over every line, and an unproven column can
+	// be answered « not an account » and imported.
+	it('refuses, never asks, when line 1 alone stops lines 2 and 3 being proof', () => {
+		const result = parse(
+			[
+				'2026-06-01,12345678,CB A,-10.00',
+				`2026-06-02,${IBAN_A},CB B,-20.00`,
+				`2026-06-03,${IBAN_B},CB C,-30.00`
+			].join('\n'),
+			false
+		);
+		expect(result.invalidRows.map((row) => row.fact)).toStrictEqual([
+			{ code: 'multi-account-file', column: 1 }
+		]);
+	});
+
+	// Guards the other direction: a blank on line 1 over a constant column is the blank-cell rule's
+	// « nothing to decide », as on a headed file, and the file imports whole.
+	it('imports a file whose line 1 is blank over one account', () => {
+		const result = parse(
+			[
+				'2026-06-01,,CB A,-10.00',
+				`2026-06-02,${IBAN_B},CB B,-20.00`,
+				`2026-06-03,${IBAN_B},CB C,-30.00`
+			].join('\n'),
+			false
+		);
+		expect({
+			refusals: result.invalidRows.map((row) => row.fact.code),
+			imported: result.transactions.length
+		}).toStrictEqual({ refusals: [], imported: 3 });
+	});
+});

@@ -1089,11 +1089,11 @@ describe('a file naming more than one account, on the designation door', () => {
 	});
 
 	// SEPARATES « the memory reads the file under the member's answer » FROM « under a header row »:
-	// confirmed as not an account, the file imports, and a header reading of it would remember the
-	// identifier lines 2 and 3 share although line 1 names another.
+	// line 1's account cell is blank, so the file imports, and a header reading of it would remember
+	// the identifier lines 2 and 3 share although line 1 is a transaction that names none (pass A, F3).
 	it('#1211: hands the memory writer the answer the parse read', async () => {
 		expect.assertions(1);
-		await submit(headerless('12345678', '87654321'), false, { accountColumnAnswer: 'not-account' });
+		await submit(headerless('', IBAN_B), false);
 		expect(vi.mocked(rememberAnsweredAccount)).toHaveBeenCalledWith(
 			expect.objectContaining({ hasHeaderRow: false })
 		);

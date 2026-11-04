@@ -181,12 +181,29 @@ export function findDiscriminantColumn(
 	rows: ParsedCsvRow[],
 	hasHeaderRow: boolean
 ): DiscriminantResult {
-	const dataRows = rows.slice(firstDataRowIndex(hasHeaderRow));
+	if (rows.length === 0) return { kind: 'nothing-to-decide' };
+	const counterparty = counterpartyColumns(rows[0].cells);
+	const every = verdictOver(rows.slice(firstDataRowIndex(hasHeaderRow)), counterparty);
+	if (hasHeaderRow) return every;
+	// NEVER WEAKER THAN LINES 2 ONWARD (#1211, pass A F1). They are data under both answers, so a
+	// contradiction among them is evidence whatever line 1 holds, and line 1 alone must not erase it:
+	// a blank there disqualifies the column under the blank-cell rule, and an 8-digit cell above two
+	// verified IBANs turns proof into a question. Only the refusal side lifts: a `resolved` from
+	// lines 2 onward over a blank line 1 stays `nothing-to-decide`, as on a headed file.
+	const rest = verdictOver(rows.slice(1), counterparty);
+	return refusalStrength(rest) > refusalStrength(every) ? rest : every;
+}
+
+function refusalStrength(verdict: DiscriminantResult): number {
+	return verdict.kind === 'contradictory' ? 2 : verdict.kind === 'ambiguous' ? 1 : 0;
+}
+
+/** The verdict over these DATA rows, read with these counterparty columns excluded. */
+function verdictOver(dataRows: ParsedCsvRow[], counterparty: Set<number>): DiscriminantResult {
 	if (dataRows.length === 0) return { kind: 'nothing-to-decide' };
 
 	const columnCount = dataRows.reduce((widest, row) => Math.max(widest, row.cells.length), 0);
 	let varying: { index: number; proven: boolean } | null = null;
-	const counterparty = counterpartyColumns(rows[0].cells);
 
 	for (let index = 0; index < columnCount; index += 1) {
 		// Before the grammar, so a counterparty column is no candidate in any of the three states.

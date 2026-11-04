@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import * as m from '$lib/paraglide/messages';
 
 // The handler reaches the database through the limiter and `createStatementAccount`, both mocked.
 vi.mock('$lib/server/db', () => ({ prisma: {} }));
@@ -171,6 +172,40 @@ describe('#1211: the new account reads a headerless file from line 1', () => {
 			'false'
 		);
 		expect(storedFragment()).toBe('3000');
+	});
+
+	// Pass B, N13: the floor every other door applies (fewer than two rows is an empty file).
+	// SEPARATES « one row is no evidence of an account » FROM « one row resolves by construction ».
+	it('stores no fragment from a one-line headerless file', async () => {
+		await postFile([`2026-06-01,${IBAN_B},CB A,-10.00`], 'false');
+		expect(storedFragment()).toBeNull();
+	});
+
+	// Security pass F2: the product limit counts the rows the read takes. SEPARATES « a headerless
+	// file of 1001 data rows is over the 1000 cap » FROM « line 1 is subtracted as a header ».
+	it('stores no fragment from a headerless file one row over the cap', async () => {
+		const lines = Array.from({ length: 1001 }, (_, i) => `2026-06-01,${IBAN_B},CB ${i},-1.00`);
+		await postFile(lines, 'false');
+		expect(storedFragment()).toBeNull();
+	});
+
+	// Security pass F1: the answer is validated positively. SEPARATES « refused » FROM « folded into
+	// a header row », and asserts the reason: the generic sentence, nothing created.
+	it('refuses an answer outside true and false', async () => {
+		const body = new FormData();
+		body.set('name', 'Compte joint');
+		body.set('csvFile', new File([TWO_ACCOUNTS.join('\n')], 'releve.csv', { type: 'text/csv' }));
+		body.set('hasHeaderRow', 'maybe');
+		const response = await POST({
+			locals: { user: testUser },
+			request: new Request('http://localhost/import/accounts', { method: 'POST', body }),
+			getClientAddress: () => '192.0.2.10'
+		} as never);
+		expect({
+			status: response.status,
+			error: ((await response.json()) as { error?: string }).error,
+			created: accounts.createStatementAccount.mock.calls.length
+		}).toStrictEqual({ status: 400, error: m.import_account_create_error_generic(), created: 0 });
 	});
 
 	// Calibration: the same bytes with no answer posted are read with a header row, as before.
