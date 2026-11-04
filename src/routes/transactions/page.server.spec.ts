@@ -616,6 +616,12 @@ vi.mock('$lib/server/tags/bulk', async (importOriginal) => {
 	};
 });
 
+// An interactive transaction hands its callback the same fake, as the single accept reads and
+// writes through `tx` (#1230). The fake models no rollback; the all-or-none claim is db-smoke's.
+(db.prisma as unknown as { $transaction: unknown }).$transaction = vi.fn(
+	async (run: (tx: typeof db.prisma) => unknown) => run(db.prisma)
+);
+
 const { applyKindSign } = await import('$lib/domain/transaction');
 const { ATTRIBUTE: A, EVENT: E } = await import('$lib/server/logging/names');
 const { logUserPseudonym } = await import('$lib/server/logging/pseudonym');
@@ -630,6 +636,7 @@ const testUser = { id: 'user-a', email: 'a@example.test', role: 'USER' as const 
 interface TestTransactionPageData {
 	transactions: Array<{
 		id: string;
+		suggestion: { category: string; source: string } | null;
 		category: string;
 		isManualCategory: boolean;
 		// Read by the sign block at the foot of this file. Narrow on purpose, like the rest of this
@@ -639,7 +646,6 @@ interface TestTransactionPageData {
 		amountCents: number;
 	}>;
 	uncategorizedCount: number;
-	classifiableCount: number;
 	selectedTransaction: {
 		type: string;
 		amountCents: number;
@@ -1307,7 +1313,7 @@ describe('/transactions load — "to classify" pile', () => {
 			splits: []
 		});
 		// Targets a category the fixture actually carries. Since #161 a rule whose target no longer
-		// resolves to a Category is paused and excluded from `classifiableCount`, so a target of
+		// resolves to a Category is paused and proposes nothing, so a target of
 		// "Loisirs" here would have made this test assert 0 for a reason that has nothing to do
 		// with its subject, which is that the UNCLASSIFIED_CATEGORY sentinel counts as classifiable.
 		db.prisma.categoryRule.findMany.mockResolvedValueOnce([
@@ -1322,10 +1328,13 @@ describe('/transactions load — "to classify" pile', () => {
 			}
 		]);
 
-		const withUnclassified = await runLoad('/transactions');
+		// The pile tab, where this row is listed: the default tab's first page is the 25 generated rows.
+		const withUnclassified = await runLoad('/transactions?type=classify');
 
 		expect(withUnclassified.uncategorizedCount).toBe(baseline.uncategorizedCount + 1);
-		expect(withUnclassified.classifiableCount).toBeGreaterThanOrEqual(1);
+		expect(
+			withUnclassified.transactions.find((t) => t.id === 'transaction-unclassified')?.suggestion
+		).toMatchObject({ category: 'Alimentation', source: 'rule' });
 	});
 });
 
@@ -1581,13 +1590,14 @@ describe('acceptSuggestion', () => {
 			category: 'Alimentation'
 		});
 
-		expect(result).toEqual({ acceptSuccess: true });
+		expect(result).toMatchObject({ acceptSuccess: true });
 		expect(db.prisma.transaction.updateMany).toHaveBeenCalledWith({
 			where: {
 				id: 'transaction-5',
 				userId: testUser.id,
 				splits: { none: {} },
-				manualCategory: null
+				manualCategory: null,
+				natureManual: null
 			},
 			data: {
 				manualCategory: 'Alimentation',

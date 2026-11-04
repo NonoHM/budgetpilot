@@ -13,7 +13,6 @@ import {
 import { requireUser } from '$lib/server/auth';
 import { prisma } from '$lib/server/db';
 import { computeNameKey } from '$lib/server/naming/nameKey';
-import { isRuleTargetLive, toCategoryNameKeys } from '$lib/server/categories/references';
 import { manualCategoryUpdate } from '$lib/server/transactions/manualCategory';
 import { setTransactionTags } from '$lib/server/tags/service';
 import { clearSplits, replaceSplits } from '$lib/server/transactions/splits';
@@ -25,18 +24,24 @@ import {
 	MAX_BULK_TAG_TRANSACTIONS
 } from '$lib/server/tags/bulk';
 import { MAX_TAGS_PER_TRANSACTION, normalizeTagName } from '$lib/domain/tags';
-import {
-	findMatchingCategoryRule,
-	applyCategoryRules,
-	parseCategoryRuleInput
-} from '$lib/server/categorization/rules';
+import { findMatchingCategoryRule, parseCategoryRuleInput } from '$lib/server/categorization/rules';
 import { loadMemberHistory } from '$lib/server/categorization/history';
-import { suggestFromHistory, type HistoryIndex } from '$lib/domain/historySuggestion';
+import type { HistoryIndex } from '$lib/domain/historySuggestion';
+import {
+	acceptShownProposals,
+	computeSuggestion,
+	loadProposalRules,
+	parseShownProposals,
+	parseUndoRecord,
+	undoAcceptedRows,
+	MAX_ACCEPT_ALL_ROWS,
+	type AcceptedRow,
+	type Proposal
+} from '$lib/server/categorization/proposals';
 import {
 	buildCategoryNatureMap,
 	getEffectiveCategory,
 	getEffectiveTransactionNature,
-	isUncategorizedByCategory,
 	mapTransactionAllocations,
 	EFFECTIVE_CATEGORY_SELECT,
 	type SplitRow
@@ -84,7 +89,8 @@ interface TagLinkRow {
 	tag: { id: string; name: string; colorToken: string };
 }
 
-const PAGE_SIZE = 25;
+// One page is what « Accept all » posts back, so the page and the accept's cap are one figure.
+const PAGE_SIZE = MAX_ACCEPT_ALL_ROWS;
 const MAX_MANUAL_CATEGORY_LENGTH = 60;
 const MAX_MANUAL_NATURE_LENGTH = 32;
 // Defensive cap on the Focus mode stack (see forEachTransactionBatch/rawForClassify removal in
@@ -97,119 +103,84 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 	const page = parsePositiveInteger(url.searchParams.get('page')) ?? 1;
 	const selectedId = normalizeId(url.searchParams.get('selected'));
 
-	const [
-		categories,
-		mappings,
-		selectedTransaction,
-		candidateRules,
-		uncategorizedCategoryId,
-		allTags
-	] = await Promise.all([
-		prisma.category.findMany({
-			where: { userId: user.id },
-			orderBy: { name: 'asc' },
-			// `id` is here for the split editor: a part references its category by id, and
-			// `replaceSplits` re-resolves that id under the session. The manual-category selector
-			// beside it works in NAMES because `Transaction.manualCategory` is a free-text column;
-			// the two are not interchangeable and the load hands out both rather than making the
-			// page convert between them.
-			select: { id: true, name: true }
-		}),
-		prisma.categoryNatureMapping.findMany({
-			where: { userId: user.id },
-			orderBy: { categoryName: 'asc' },
-			select: { categoryName: true, nature: true }
-		}),
-		selectedId
-			? prisma.transaction.findFirst({
-					where: { id: selectedId, userId: user.id },
-					select: {
-						id: true,
-						date: true,
-						label: true,
-						amountCents: true,
-						type: true,
-						source: true,
-						notes: true,
-						bankOperationType: true,
-						manualCategory: true,
-						natureManual: true,
-						dedupeKey: true,
-						metadataJson: true,
-						transferPairId: true,
-						createdAt: true,
-						updatedAt: true,
-						category: { select: { name: true } },
-						account: {
-							select: {
-								name: true,
-								// Selected for `displayAccountName` alone: the generic bucket's stored name is
-								// the machine's, and the substitution that turns it into a sentence needs the
-								// folded key and the institution to know which rows it applies to.
-								nameKey: true,
-								institution: true,
-								source: true,
-								netWorthAccount: { select: { name: true } }
-							}
-						},
-						importBatch: {
-							select: { id: true, fileName: true, source: true, rowCount: true, createdAt: true }
-						},
-						// Blast-radius row 42. Ordered by `position` because that order is
-						// user-visible rather than incidental: it decides which part carries the
-						// rounding cent (1e), and the editor's accessible names — « Montant de la
-						// part 2 » — are built from the index it produces.
-						splits: {
-							select: { categoryId: true, amountCents: true, note: true, position: true },
-							orderBy: { position: 'asc' }
-						},
-						tags: { select: { tag: { select: { id: true, name: true, colorToken: true } } } }
-					}
-				})
-			: Promise.resolve(null),
-		prisma.categoryRule.findMany({
-			where: { userId: user.id, enabled: true },
-			orderBy: { createdAt: 'asc' },
-			select: {
-				id: true,
-				name: true,
-				matchText: true,
-				targetCategory: true,
-				targetNature: true,
-				isRegex: true,
-				enabled: true
-			}
-		}),
-		resolveUncategorizedCategoryId(user.id),
-		// The whole tag list, not a page of it: MAX_TAGS_PER_TRANSACTION bounds what one
-		// transaction carries, and a user's total tag count is small by construction because a
-		// tag with no transactions is pruned the moment it loses its last one.
-		prisma.tag.findMany({
-			where: { userId: user.id },
-			orderBy: { name: 'asc' },
-			select: { id: true, name: true, colorToken: true }
-		})
-	]);
+	const [categories, mappings, selectedTransaction, uncategorizedCategoryId, allTags] =
+		await Promise.all([
+			prisma.category.findMany({
+				where: { userId: user.id },
+				orderBy: { name: 'asc' },
+				// `id` is here for the split editor: a part references its category by id, and
+				// `replaceSplits` re-resolves that id under the session. The manual-category selector
+				// beside it works in NAMES because `Transaction.manualCategory` is a free-text column;
+				// the two are not interchangeable and the load hands out both rather than making the
+				// page convert between them.
+				select: { id: true, name: true }
+			}),
+			prisma.categoryNatureMapping.findMany({
+				where: { userId: user.id },
+				orderBy: { categoryName: 'asc' },
+				select: { categoryName: true, nature: true }
+			}),
+			selectedId
+				? prisma.transaction.findFirst({
+						where: { id: selectedId, userId: user.id },
+						select: {
+							id: true,
+							date: true,
+							label: true,
+							amountCents: true,
+							type: true,
+							source: true,
+							notes: true,
+							bankOperationType: true,
+							manualCategory: true,
+							natureManual: true,
+							dedupeKey: true,
+							metadataJson: true,
+							transferPairId: true,
+							createdAt: true,
+							updatedAt: true,
+							category: { select: { name: true } },
+							account: {
+								select: {
+									name: true,
+									// Selected for `displayAccountName` alone: the generic bucket's stored name is
+									// the machine's, and the substitution that turns it into a sentence needs the
+									// folded key and the institution to know which rows it applies to.
+									nameKey: true,
+									institution: true,
+									source: true,
+									netWorthAccount: { select: { name: true } }
+								}
+							},
+							importBatch: {
+								select: { id: true, fileName: true, source: true, rowCount: true, createdAt: true }
+							},
+							// Blast-radius row 42. Ordered by `position` because that order is
+							// user-visible rather than incidental: it decides which part carries the
+							// rounding cent (1e), and the editor's accessible names — « Montant de la
+							// part 2 » — are built from the index it produces.
+							splits: {
+								select: { categoryId: true, amountCents: true, note: true, position: true },
+								orderBy: { position: 'asc' }
+							},
+							tags: { select: { tag: { select: { id: true, name: true, colorToken: true } } } }
+						}
+					})
+				: Promise.resolve(null),
+			resolveUncategorizedCategoryId(user.id),
+			// The whole tag list, not a page of it: MAX_TAGS_PER_TRANSACTION bounds what one
+			// transaction carries, and a user's total tag count is small by construction because a
+			// tag with no transactions is pruned the moment it loses its last one.
+			prisma.tag.findMany({
+				where: { userId: user.id },
+				orderBy: { name: 'asc' },
+				select: { id: true, name: true, colorToken: true }
+			})
+		]);
 
 	// No authz_fail for a `?selected=` that resolves to nothing: it is the panel's own state, and the
 	// page re-runs this load with the id it just deleted after every panel delete, so a line here
 	// would be written on each ordinary delete (L4a, code contradiction pass). The panel stays closed.
-
-	// #161: a rule whose target no longer resolves to a Category is PAUSED, and this page has to
-	// know it even though it writes nothing.
-	//
-	// These rules feed `findMatchingCategoryRule` twice below: `classifiableCount`, the number on
-	// the "accept all" control, and `selectedSuggestion`, the detail panel's proposed category.
-	// Both are promises about what pressing a button will do, and `applyCategoryRules` refuses a
-	// paused rule, so leaving one in this list makes the page offer a categorisation that cannot
-	// happen. Same false-claim shape as the write the issue is about, minus the write, which is
-	// why it was missed: nothing here looked like a rules engine.
-	//
-	// Free: `categories` is already loaded above for the split editor and the category selector.
-	const categoryNameKeys = toCategoryNameKeys(categories);
-	const rules = candidateRules.filter((rule) =>
-		isRuleTargetLive(rule.targetCategory, categoryNameKeys)
-	);
 
 	const mappingMap = buildCategoryNatureMap(mappings);
 
@@ -247,7 +218,9 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		uncategorizedCategoryId
 	});
 
-	const [uncategorizedCount, classifyStackRows, history] = await Promise.all([
+	// The rules and the history every proposal on this page reads, loaded as the accept loads them
+	// (`loadProposalRules`), so a proposal shown is the one the accept recomputes.
+	const [uncategorizedCount, classifyStackRows, history, rules] = await Promise.all([
 		prisma.transaction.count({ where: uncategorizedPileWhere }),
 		prisma.transaction.findMany({
 			where: uncategorizedPileWhere,
@@ -255,18 +228,10 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 			orderBy: [{ date: 'desc' }, { id: 'desc' }],
 			take: FOCUS_STACK_CAP
 		}),
-		loadMemberHistory(user.id, categories, uncategorizedCategoryId)
+		loadMemberHistory(user.id, categories, uncategorizedCategoryId),
+		loadProposalRules(user.id, categories)
 	]);
 	const classifyStackIds = classifyStackRows.map((t) => t.id);
-	// Matching needs JS (accent-insensitive/regex), so it can't be pushed into SQL — but it's
-	// scoped to the already-fetched, FOCUS_STACK_CAP-bounded stack (not a separate unbounded scan
-	// over the whole pile): the "accept all" button only ever acts on that same stack anyway.
-	const classifiableCount = classifyStackRows.filter(
-		(row) =>
-			findMatchingCategoryRule({ label: row.label, manualCategory: row.manualCategory }, rules) !==
-			null
-	).length;
-
 	let selectedSuggestion: Proposal | null = null;
 	if (selectedTransaction && filters.type === 'classify') {
 		const selNat = getEffectiveTransactionNature(
@@ -588,71 +553,12 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 			hasNext: safePage < totalPages
 		},
 		uncategorizedCount,
-		classifiableCount,
 		// Always exposed (not gated by `type === 'classify'` like `selectedSuggestion`): the
 		// "Mode focus" button lives in the banner shown on every tab, so it needs the full stack
 		// to jump to the first uncategorized id regardless of the tab the user is currently on.
 		classifyStackIds
 	};
 };
-
-type Proposal = {
-	category: string;
-	nature: TransactionNature | null;
-	source: 'rule' | 'history';
-};
-
-/**
- * The one place a category is proposed for a row, for the list and the selected row alike.
- *
- * Only on a row with no pin at all and no parts, that is to classify by nature, or by category
- * (the pile) when the member set no nature by hand. The pile clause is #1014's: no seed maps the
- * sentinel, so a pile row with no manual nature falls back to spending or income by kind, and a
- * gate on nature alone proposed nothing on such a row. `acceptSuggestion` refuses a proposal on a
- * row pinned since, which is the same « no pin » condition.
- *
- * The member's rules first, then their own history. A history proposal carries no nature: the
- * category's mapping decides it, as it does for a category the member picks by hand.
- */
-function computeSuggestion(
-	transaction: {
-		label: string;
-		manualCategory: string | null;
-		natureManual: TransactionNature | null;
-		category: { name: string } | null;
-		splits: readonly unknown[];
-	},
-	nature: TransactionNature,
-	rules: Array<{
-		id?: string;
-		name: string;
-		matchText: string;
-		targetCategory: string;
-		targetNature?: TransactionNature | null;
-		enabled: boolean;
-	}>,
-	history: HistoryIndex,
-	mappingMap: Map<string, TransactionNature>
-): Proposal | null {
-	// `=== null`, the accept's own predicate: an empty pin a restore can write is a pin for both.
-	// A split row is classified by its parts, and the accept refuses it.
-	if (transaction.manualCategory !== null || transaction.splits.length > 0) return null;
-	// The pile clause only where the member set no nature by hand: accepting writes the
-	// proposal's nature, which would replace theirs (code pass 1, B 7a).
-	const inPile = transaction.natureManual === null && isUncategorizedByCategory(transaction);
-	if (nature !== 'uncategorized' && !inPile) return null;
-	const matched = findMatchingCategoryRule(transaction, rules);
-	if (matched) {
-		const cat = matched.targetCategory;
-		return {
-			category: cat,
-			nature: matched.targetNature ?? mappingMap.get(cat) ?? null,
-			source: 'rule'
-		};
-	}
-	const fromHistory = suggestFromHistory(history, transaction.label);
-	return fromHistory ? { category: fromHistory, nature: null, source: 'history' } : null;
-}
 
 function buildCategoryOptions(categories: Array<{ name: string }>): string[] {
 	return categories.map((c) => c.name).sort((left, right) => left.localeCompare(right, 'fr'));
@@ -1030,19 +936,34 @@ export const actions: Actions = {
 		// Same split guard, same reason as saveManualCategory. Reachable even though the suggestion is
 		// only offered inside the classify pile — which no longer contains répartie rows — because a
 		// focus session holds its stack for its whole lifetime while another tab can split a row inside it.
-		const result = await prisma.transaction.updateMany({
-			where: {
-				id: transactionId,
-				userId: user.id,
-				splits: { none: {} },
-				...(proposed === null ? {} : { manualCategory: null })
-			},
-			data: {
-				...manualCategoryUpdate(categoryResult.value, asProposed ? 'acceptedSuggestion' : 'member'),
-				natureManual: natureResult.value
-			}
+		//
+		// With a proposal posted, the nature it replaces is read in the same transaction and repeated
+		// on the write, so the undo record below names exactly what this click replaced (#1230).
+		const by = asProposed ? 'acceptedSuggestion' : 'member';
+		const outcome = await prisma.$transaction(async (tx) => {
+			const before =
+				proposed === null
+					? null
+					: await tx.transaction.findFirst({
+							where: { id: transactionId, userId: user.id, manualCategory: null },
+							select: { natureManual: true }
+						});
+			if (proposed !== null && !before) return null;
+			const result = await tx.transaction.updateMany({
+				where: {
+					id: transactionId,
+					userId: user.id,
+					splits: { none: {} },
+					...(before ? { manualCategory: null, natureManual: before.natureManual } : {})
+				},
+				data: {
+					...manualCategoryUpdate(categoryResult.value, by),
+					natureManual: natureResult.value
+				}
+			});
+			return result.count === 0 ? null : { previousNature: before?.natureManual ?? null };
 		});
-		if (result.count === 0) {
+		if (outcome === null) {
 			if (await isSplitTransaction(user.id, transactionId))
 				return fail(400, { acceptError: m.transactions_error_category_locked_by_split() });
 			// The member's own row, filed since the page showed the proposal: their stale page, not a
@@ -1056,23 +977,49 @@ export const actions: Actions = {
 			logReferenceRefused(user.id, 'transaction');
 			return fail(404, { acceptError: m.transactions_error_transaction_not_found() });
 		}
-		return { acceptSuccess: true };
+		// No undo without a proposal: the card was then a category editor, as saveManualCategory.
+		if (proposed === null) return { acceptSuccess: true };
+		const accepted: AcceptedRow = {
+			id: transactionId,
+			category: categoryResult.value,
+			by,
+			nature: natureResult.value,
+			previousNature: outcome.previousNature
+		};
+		return {
+			acceptSuccess: true,
+			proposalsAccepted: { accepted: 1, changedSince: 0, undo: JSON.stringify([accepted]) }
+		};
 	},
 
-	classifyAll: async ({ locals }) => {
+	// #1230. The page posts the rows it showed with a proposal; what is written is the server's own
+	// proposal for each, and only where it is still the one shown (acceptShownProposals).
+	acceptAllProposals: async ({ locals, request }) => {
 		const user = requireUser(locals.user);
-		// Scopes applyCategoryRules to the "à classer" pile directly by categoryId (its own
-		// `manualCategory: null` filter already excludes the other classify-pile branch —
-		// manualCategory === UNCLASSIFIED_CATEGORY — same as before this refactor) instead of
-		// pre-loading every pile id into memory just to pass them back as `id: { in: [...] }`.
-		const uncategorizedCategoryId = await resolveUncategorizedCategoryId(user.id);
-		// Fail-closed like buildTransactionWhere's own sentinel (where.ts): an unresolved category
-		// must degrade to "match nothing", never to "no categoryId filter at all" (which would
-		// widen the scope to every manualCategory:null transaction, not just the pile).
-		const updated = await applyCategoryRules(user.id, {
-			categoryId: uncategorizedCategoryId ?? '__none__'
-		});
-		return { classifyAllSuccess: true, updated };
+		const formData = await request.formData();
+		const shown = parseShownProposals(getFormValue(formData, 'proposals'));
+		if (!shown) return fail(400, { acceptAllError: m.transactions_accept_all_error() });
+		const result = await acceptShownProposals(user.id, shown);
+		if (!result.ok)
+			return fail(404, { acceptAllError: m.transactions_error_transaction_not_found() });
+		return {
+			proposalsAccepted: {
+				accepted: result.accepted.length,
+				changedSince: result.changedSince,
+				undo: result.accepted.length > 0 ? JSON.stringify(result.accepted) : ''
+			}
+		};
+	},
+
+	undoAcceptedProposals: async ({ locals, request }) => {
+		const user = requireUser(locals.user);
+		const formData = await request.formData();
+		const record = parseUndoRecord(getFormValue(formData, 'undo'));
+		if (!record) return fail(400, { acceptAllError: m.transactions_accept_all_undo_error() });
+		const result = await undoAcceptedRows(user.id, record);
+		if (!result.ok)
+			return fail(404, { acceptAllError: m.transactions_error_transaction_not_found() });
+		return { proposalsUndone: { undone: result.undone, changedSince: result.changedSince } };
 	},
 
 	// #1189. Each refusal is the server's answer, never the page's: the ids posted are claims, and
@@ -1159,8 +1106,8 @@ export const actions: Actions = {
 		// pile that match it — wherever they are in the pile, not just the next consecutive ones
 		// (two non-contiguous matches, e.g. positions 5 and 30 out of 43, are both applied; the
 		// counter can therefore jump non-contiguously). ONLY against the rule that was just created —
-		// never other already-active rules (those only apply on import or via "Apply rules"/
-		// classifyAll, which remain the only mechanisms touching the full history). Reuses
+		// never other already-active rules (those only apply on import or via « Apply » on /rules,
+		// which remains the only mechanism touching the full history). Reuses
 		// findMatchingCategoryRule as-is, no new matching logic.
 		// No authz_fail for an id dropped below (L4a design point 6): the page built this list from the
 		// user's own pile, so a drop is a row changed since, not a refused reference.

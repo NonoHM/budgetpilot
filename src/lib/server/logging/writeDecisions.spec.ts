@@ -200,6 +200,10 @@ const DECISIONS: Record<string, { sites: number; decisions: Decision[] }> = {
 			'exempt: the default rules an account starts with, chosen by the application at registration or first sign-in'
 		]
 	},
+	'src/lib/server/categorization/proposals.ts': {
+		sites: 2,
+		decisions: ['covered: #1080, a category, nature or suggestion set on transactions']
+	},
 	'src/lib/server/categorization/rules.ts': {
 		sites: 1,
 		decisions: [
@@ -410,7 +414,7 @@ describe('every database write has a logging decision', () => {
 		expect(
 			Object.values(measured).reduce((total, sites) => total + sites, 0),
 			QUESTION
-		).toBe(222);
+		).toBe(224);
 	});
 
 	it('pins every file holding a write, with its number of sites', () => {
@@ -440,6 +444,6 @@ describe('every database write has a logging decision', () => {
 				.filter((decision) => !wellFormed(decision))
 				.map((decision) => `${path}: ${decision}`)
 		);
-		expect([Object.keys(DECISIONS).length, malformed]).toEqual([44, []]);
+		expect([Object.keys(DECISIONS).length, malformed]).toEqual([45, []]);
 	});
 });
