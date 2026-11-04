@@ -8,6 +8,7 @@
 	import { formatCents } from '$lib/domain/budget';
 	import { resolveCategoryColorClass } from '$lib/domain/colors';
 	import { categoryDisplayName } from '$lib/domain/categoryLabels';
+	import { proposalSource } from '$lib/i18n/proposalSource';
 	import { natureLabel } from '$lib/domain/natureLabels';
 	import { isTransactionNature, type TransactionNature } from '$lib/domain/transaction';
 	import { isTagColorToken, MAX_TAG_NAME_LENGTH, type TagColorToken } from '$lib/domain/tags';
@@ -2886,25 +2887,30 @@
 												</td>
 												<td class="px-4 py-3 align-middle">
 													<div class="flex flex-wrap items-center justify-between gap-2">
-														<div class="flex items-center gap-2">
+														<div class="flex flex-col items-start gap-1">
 															{#if tx.suggestion}
-																<span
-																	class="inline-flex items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-2.5 py-1 text-[13px] font-medium text-zinc-800"
-																>
+																<div class="flex items-center gap-2">
 																	<span
-																		class="h-2 w-2 shrink-0 rounded-full {getCategoryColor(
-																			tx.suggestion.category
-																		)}"
-																	></span>
-																	{categoryDisplayName(tx.suggestion.category)}
-																</span>
-																{#if tx.suggestion.nature}
-																	<span
-																		class="rounded border border-zinc-200 bg-zinc-50 px-1.5 py-0.5 text-[11px] font-medium tracking-wide text-zinc-500 uppercase"
+																		class="inline-flex items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-2.5 py-1 text-[13px] font-medium text-zinc-800"
 																	>
-																		{formatNatureLabel(tx.suggestion.nature)}
+																		<span
+																			class="h-2 w-2 shrink-0 rounded-full {getCategoryColor(
+																				tx.suggestion.category
+																			)}"
+																		></span>
+																		{categoryDisplayName(tx.suggestion.category)}
 																	</span>
-																{/if}
+																	{#if tx.suggestion.nature}
+																		<span
+																			class="rounded border border-zinc-200 bg-zinc-50 px-1.5 py-0.5 text-[11px] font-medium tracking-wide text-zinc-500 uppercase"
+																		>
+																			{formatNatureLabel(tx.suggestion.nature)}
+																		</span>
+																	{/if}
+																</div>
+																<span class="text-xs text-zinc-500"
+																	>{proposalSource(tx.suggestion)}</span
+																>
 															{:else}
 																<span class="text-xs text-zinc-400"
 																	>{m.transactions_no_suggestion()}</span
@@ -2930,6 +2936,11 @@
 																	}}
 																>
 																	<input type="hidden" name="transactionId" value={tx.id} />
+																	<input
+																		type="hidden"
+																		name="proposed"
+																		value={tx.suggestion.category}
+																	/>
 																	<input
 																		type="hidden"
 																		name="category"
@@ -3774,13 +3785,16 @@
 													stroke-linejoin="round"
 												/>
 											</svg>
-											<span class="text-xs text-zinc-600">
-												{m.transactions_suggested_label()}
-												<strong class="font-bold text-zinc-900"
-													>{categoryDisplayName(tx.suggestion.category)}</strong
-												>
-												{#if tx.suggestion.nature}
-													· {formatNatureLabel(tx.suggestion.nature)}{/if}
+											<span class="flex flex-col gap-0.5 text-xs text-zinc-600">
+												<span>
+													{m.transactions_suggested_label()}
+													<strong class="font-bold text-zinc-900"
+														>{categoryDisplayName(tx.suggestion.category)}</strong
+													>
+													{#if tx.suggestion.nature}
+														· {formatNatureLabel(tx.suggestion.nature)}{/if}
+												</span>
+												<span class="text-zinc-500">{proposalSource(tx.suggestion)}</span>
 											</span>
 										</div>
 										<div class="mt-3 flex items-center gap-2">
@@ -3820,6 +3834,7 @@
 												}}
 											>
 												<input type="hidden" name="transactionId" value={tx.id} />
+												<input type="hidden" name="proposed" value={tx.suggestion.category} />
 												<input type="hidden" name="category" value={tx.suggestion.category} />
 												<input type="hidden" name="nature" value={tx.suggestion.nature ?? ''} />
 												<Button

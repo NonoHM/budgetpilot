@@ -10,6 +10,7 @@
 	// label is a pure function of the stored name, so the prop was threading a constant through
 	// two components.
 	import { categoryDisplayName } from '$lib/domain/categoryLabels';
+	import { proposalSource } from '$lib/i18n/proposalSource';
 
 	// Proposal (category/nature suggestion) + Accept/Create rule/Ignore actions, shared by the
 	// desktop detail panel, the mobile bottom sheet, and TransactionFocusOverlay (see CLAUDE.md
@@ -33,7 +34,7 @@
 		onCreateRule
 	}: {
 		transactionId: string;
-		suggestion: { category: string; nature: string | null } | null;
+		suggestion: { category: string; nature: string | null; source: 'rule' | 'history' } | null;
 		categoryOptions: readonly string[];
 		natureOptions: readonly string[];
 		variant?: 'panel' | 'compact';
@@ -98,6 +99,9 @@
 				/>
 			</svg>
 			<span class="text-[12.5px] font-bold text-zinc-900">{m.transactions_proposal_heading()}</span>
+			{#if suggestion}
+				<span class="text-xs text-zinc-500">{proposalSource(suggestion)}</span>
+			{/if}
 		</div>
 		<div class="grid grid-cols-2 gap-2">
 			<Combobox
@@ -135,6 +139,7 @@
 			}}
 		>
 			<input type="hidden" name="transactionId" value={transactionId} />
+			<input type="hidden" name="proposed" value={suggestion?.category ?? ''} />
 			<input type="hidden" name="category" value={categoryValue} />
 			<input type="hidden" name="nature" value={natureValue} />
 			<Button
@@ -182,6 +187,9 @@
 		<p class="text-[11px] font-semibold tracking-wide text-zinc-500 uppercase">
 			{m.transactions_proposal_heading()}
 		</p>
+		{#if suggestion}
+			<p class="mt-0.5 text-xs text-zinc-500">{proposalSource(suggestion)}</p>
+		{/if}
 		<div class="mt-2 flex flex-wrap items-center gap-2">
 			<Combobox
 				value={categoryValue}
@@ -226,6 +234,7 @@
 				}}
 			>
 				<input type="hidden" name="transactionId" value={transactionId} />
+				<input type="hidden" name="proposed" value={suggestion?.category ?? ''} />
 				<input type="hidden" name="category" value={categoryValue} />
 				<input type="hidden" name="nature" value={natureValue} />
 				<Button type="submit" variant="primary" size="sm" loading={acceptSubmitting}

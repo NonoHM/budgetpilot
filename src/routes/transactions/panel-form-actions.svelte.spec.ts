@@ -335,3 +335,47 @@ describe('the detail panel posts without discarding the panel', () => {
 		}
 	});
 });
+
+/**
+ * #1014, the list half: a row's proposal says where it comes from, and both list accept forms
+ * (the desktop row and the mobile card) post the proposal they showed as `proposed`, which is what
+ * the server uses to refuse a proposal on a row filed since. The panel is left closed so every
+ * form counted here is a list form.
+ */
+describe('the proposal on the list rows (#1014)', () => {
+	it('names its source on both list layouts and posts the proposal from both forms', async () => {
+		await page.viewport(1280, 900);
+		const [row] = baseData().transactions;
+		const { container } = await render(Page, {
+			data: baseData({
+				filters: { ...baseData().filters, type: 'classify' },
+				transactions: [
+					{
+						...row,
+						category: 'uncategorized',
+						manualCategory: null,
+						isManualCategory: false,
+						suggestion: { category: 'Courses', nature: null, source: 'history' }
+					}
+				],
+				selectedTransaction: null,
+				uncategorizedCount: 1,
+				classifiableCount: 0,
+				classifyStackIds: ['tx-1']
+			}),
+			form: null
+		});
+
+		const labels = [...container.querySelectorAll('span')].filter(
+			(el) => el.textContent?.trim() === m.transactions_proposal_from_history()
+		);
+		expect(labels).toHaveLength(2);
+
+		// Three forms: the two list forms, and the hidden one the rule modal submits with the
+		// category the member typed for the new rule, which is their own pick and posts no proposal.
+		const proposed = [...container.querySelectorAll('form[action="?/acceptSuggestion"]')].map(
+			(form) => (form.querySelector('input[name="proposed"]') as HTMLInputElement | null)?.value
+		);
+		expect(proposed).toEqual(['Courses', 'Courses', undefined]);
+	});
+});

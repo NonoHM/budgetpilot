@@ -49,7 +49,7 @@
 			type: 'income' | 'expense';
 			source: string;
 		} | null;
-		suggestion: { category: string; nature: string | null } | null;
+		suggestion: { category: string; nature: string | null; source: 'rule' | 'history' } | null;
 		categoryOptions: readonly string[];
 		natureOptions: readonly string[];
 		position: number;
