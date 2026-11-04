@@ -273,7 +273,7 @@ export async function previewCategoryRules(userId: string): Promise<CategoryRule
 
 export async function applyCategoryRules(
 	userId: string,
-	options: { transactionIds?: string[]; categoryId?: string } = {}
+	options: { transactionIds?: string[] } = {}
 ): Promise<number> {
 	const [candidateRules, categoryNameKeys] = await Promise.all([
 		prisma.categoryRule.findMany({
@@ -323,7 +323,6 @@ export async function applyCategoryRules(
 			// scan and the write are two queries, and only the one on the WRITE is a protection.
 			splits: { none: {} },
 			...(options.transactionIds ? { id: { in: options.transactionIds } } : {}),
-			...(options.categoryId ? { categoryId: options.categoryId } : {})
 		},
 		{ id: true, label: true, manualCategory: true, natureManual: true },
 		(rows) => {
