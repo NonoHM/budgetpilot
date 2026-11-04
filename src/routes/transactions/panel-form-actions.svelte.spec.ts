@@ -359,6 +359,8 @@ describe('the proposal on the list rows (#1014)', () => {
 						category: 'uncategorized',
 						manualCategory: null,
 						isManualCategory: false,
+						// The one manual nature a proposal is still shown beside (computeSuggestion).
+						manualNature: 'uncategorized',
 						suggestion: { category: 'Courses', nature: null, source: 'history' }
 					}
 				],
@@ -382,6 +384,16 @@ describe('the proposal on the list rows (#1014)', () => {
 			(form) => (form.querySelector('input[name="proposed"]') as HTMLInputElement | null)?.value
 		);
 		expect(proposed).toEqual(['Courses', 'Courses', '']);
+
+		// #1231: both list forms post the row as the page loaded it, the stale guard's other half.
+		const seen = [...container.querySelectorAll('form[action="?/acceptSuggestion"]')].map(
+			(form) => (form.querySelector('input[name="seen"]') as HTMLInputElement | null)?.value
+		);
+		expect(seen).toEqual([
+			'{"category":null,"nature":"uncategorized"}',
+			'{"category":null,"nature":"uncategorized"}',
+			''
+		]);
 	});
 });
 
@@ -407,6 +419,12 @@ describe('focus mode « Create a rule » (#1014)', () => {
 					filters: { ...baseData().filters, type: 'classify' },
 					uncategorizedCount: 1,
 					classifyStackIds: ['tx-1'],
+					// A proposal is only computed for an unpinned row, so the selected row is one.
+					selectedTransaction: {
+						...baseData().selectedTransaction!,
+						manualCategory: null,
+						manualNature: 'uncategorized'
+					},
 					selectedSuggestion: { category: 'Loisirs', nature: null, source: 'history' }
 				}),
 				form: null
@@ -418,6 +436,43 @@ describe('focus mode « Create a rule » (#1014)', () => {
 			const accept = submitted.find((form) => form.has('proposed'));
 			expect(accept?.get('proposed')).toBe('Loisirs');
 			expect(accept?.get('category')).toBe('Loisirs');
+			// #1233: the row as the page loaded it, the quick accept's stale guard.
+			expect(accept?.get('seen')).toBe('{"category":null,"nature":"uncategorized"}');
+		} finally {
+			spy.mockRestore();
+		}
+	});
+
+	it('accepts with Enter from the focus card, posting the row as the page loaded it (#1231)', async () => {
+		await page.viewport(1280, 900);
+		const submitted: FormData[] = [];
+		const spy = vi.spyOn(HTMLFormElement.prototype, 'requestSubmit').mockImplementation(function (
+			this: HTMLFormElement
+		) {
+			submitted.push(new FormData(this));
+		});
+		try {
+			await render(Page, {
+				data: baseData({
+					filters: { ...baseData().filters, type: 'classify' },
+					uncategorizedCount: 1,
+					classifyStackIds: ['tx-1'],
+					// A proposal is only computed for an unpinned row, so the selected row is one.
+					selectedTransaction: {
+						...baseData().selectedTransaction!,
+						manualCategory: null,
+						manualNature: 'uncategorized'
+					},
+					selectedSuggestion: { category: 'Loisirs', nature: null, source: 'history' }
+				}),
+				form: null
+			});
+			await page.getByRole('button', { name: m.transactions_focus_mode() }).first().click();
+			await expect.element(page.getByRole('dialog')).toBeVisible();
+			await userEvent.keyboard('{Enter}');
+			await expect.poll(() => submitted.length).toBeGreaterThan(0);
+			const accept = submitted.find((form) => form.get('proposed') === 'Loisirs');
+			expect(accept?.get('seen')).toBe('{"category":null,"nature":"uncategorized"}');
 		} finally {
 			spy.mockRestore();
 		}

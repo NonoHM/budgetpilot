@@ -314,7 +314,8 @@ describe('accepting a proposal (#1014)', () => {
 			['transactionId', id],
 			['proposed', 'Courses'],
 			['category', 'Courses'],
-			['nature', '']
+			['nature', ''],
+			['seen', '{"category":null,"nature":null}']
 		]);
 		expect(result).toMatchObject({ acceptSuccess: true });
 		expect(await stored(id)).toEqual({ pin: 'Courses', by: 'acceptedSuggestion' });
@@ -330,7 +331,8 @@ describe('accepting a proposal (#1014)', () => {
 			['transactionId', id],
 			['proposed', 'Courses'],
 			['category', 'Loisirs'],
-			['nature', '']
+			['nature', ''],
+			['seen', '{"category":null,"nature":null}']
 		]);
 		expect(await stored(id)).toEqual({ pin: 'Loisirs', by: 'member' });
 	});
@@ -349,7 +351,8 @@ describe('accepting a proposal (#1014)', () => {
 			['transactionId', id],
 			['proposed', 'Courses'],
 			['category', 'Courses'],
-			['nature', '']
+			['nature', ''],
+			['seen', '{"category":null,"nature":null}']
 		]);
 		expect(refused).toMatchObject({ status: 409 });
 		expect(await stored(id)).toEqual({ pin: 'Loisirs', by: 'member' });
@@ -364,7 +367,8 @@ describe('accepting a proposal (#1014)', () => {
 			['transactionId', id],
 			['proposed', ''],
 			['category', 'Loisirs'],
-			['nature', '']
+			['nature', ''],
+			['seen', '{"category":"Courses","nature":null}']
 		]);
 		expect(result).toEqual({ acceptSuccess: true });
 		expect(await stored(id)).toEqual({ pin: 'Loisirs', by: 'member' });
@@ -380,7 +384,8 @@ describe('accepting a proposal (#1014)', () => {
 			['transactionId', theirs],
 			['proposed', 'Courses'],
 			['category', 'Courses'],
-			['nature', '']
+			['nature', ''],
+			['seen', '{"category":null,"nature":null}']
 		]);
 		expect(refused).toMatchObject({ status: 404 });
 		expect(await stored(theirs)).toEqual({ pin: 'Loisirs', by: 'member' });

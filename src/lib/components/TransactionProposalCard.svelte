@@ -11,6 +11,7 @@
 	// two components.
 	import { categoryDisplayName } from '$lib/domain/categoryLabels';
 	import { proposalSource } from '$lib/i18n/proposalSource';
+	import { encodeSeenRow, type SeenRow } from '$lib/domain/seenRow';
 
 	// Proposal (category/nature suggestion) + Accept/Create rule/Ignore actions, shared by the
 	// desktop detail panel, the mobile bottom sheet, and TransactionFocusOverlay (see CLAUDE.md
@@ -18,11 +19,12 @@
 	// (desktop detail panel), 'compact' = card (mobile / focus mode).
 	//
 	// Always a real editable form (category Combobox + nature Select), never static text:
-	// pre-filled with the rule suggestion if there is one, otherwise with UNCLASSIFIED_CATEGORY
-	// ("Non catégorisé", existing default behavior) — never hidden or left empty when no rule matches.
+	// pre-filled with the proposal if there is one, otherwise with the row's own pin and manual
+	// nature (UNCLASSIFIED_CATEGORY on a row with no pin) — never hidden or left empty.
 	let {
 		transactionId,
 		suggestion,
+		seen,
 		categoryOptions,
 		natureOptions,
 		variant = 'panel',
@@ -30,11 +32,14 @@
 		formatNatureLabel,
 		acceptError,
 		onAccepted,
+		onRefused,
 		onIgnore,
 		onCreateRule
 	}: {
 		transactionId: string;
 		suggestion: { category: string; nature: string | null; source: 'rule' | 'history' } | null;
+		/** The row's pin and manual nature as the page loaded them, posted back as the stale guard. */
+		seen: SeenRow;
 		categoryOptions: readonly string[];
 		natureOptions: readonly string[];
 		variant?: 'panel' | 'compact';
@@ -42,6 +47,8 @@
 		formatNatureLabel: (nature: string | null) => string;
 		acceptError?: string;
 		onAccepted: (transactionId: string) => void;
+		/** A refused accept: the page decides whether it can reload the row without losing an edit. */
+		onRefused: () => void;
 		onIgnore: (transactionId: string) => void;
 		onCreateRule: (category: string, nature: string | null) => void;
 	} = $props();
@@ -51,16 +58,31 @@
 	let natureValue = $state('');
 	let acceptSubmitting = $state(false);
 
-	// Re-seeds the editable fields whenever the target transaction changes (new transactionId or
-	// a fresh suggestion object from the server): pre-filled with the rule-matched suggestion, or
-	// UNCLASSIFIED_CATEGORY when no rule matched. Stable while the user edits the current
-	// transaction (transactionId/suggestion don't change), so it never stomps an in-progress pick.
+	// What each field starts on: the proposal when there is one, otherwise the row's own pin and
+	// manual nature, so an accept that only changes the category keeps what the member set (#1233).
+	// UNCLASSIFIED_CATEGORY on a row with no pin. Deriveds, compared by value, one per field: a
+	// field re-seeds only when ITS seed changes, so the panel's nature editor saving does not throw
+	// away a category picked here and not yet accepted (pass 1A), and a reload that brings the same
+	// row back re-seeds nothing.
+	const categorySeed = $derived(
+		suggestion ? suggestion.category : (seen.category ?? resolveProposalCategory(null))
+	);
+	const natureSeed = $derived(suggestion ? (suggestion.nature ?? '') : (seen.nature ?? ''));
+
+	// Re-seeds on a new row too, so moving to another row with the same seed resets a pick. Through
+	// a derived, compared by value: a parent whose `data` is replaced on every reload re-reads the
+	// prop's getter, and the effects must only see the value.
+	const rowId = $derived(transactionId);
 	$effect(() => {
-		// Deliberate: reads transactionId to register it as a reactive dependency of this effect.
+		// Deliberate: reads rowId to register it as a reactive dependency of this effect.
 		// eslint-disable-next-line @typescript-eslint/no-unused-expressions
-		transactionId;
-		categoryValue = resolveProposalCategory(suggestion);
-		natureValue = suggestion?.nature ?? '';
+		rowId;
+		categoryValue = categorySeed;
+	});
+	$effect(() => {
+		// eslint-disable-next-line @typescript-eslint/no-unused-expressions
+		rowId;
+		natureValue = natureSeed;
 	});
 
 	// Exposed for TransactionFocusOverlay's keyboard shortcuts (Enter/R): the current
@@ -135,11 +157,13 @@
 					await update({ reset: false });
 					acceptSubmitting = false;
 					if (result.type === 'success') onAccepted(transactionId);
+					else if (result.type === 'failure') onRefused();
 				};
 			}}
 		>
 			<input type="hidden" name="transactionId" value={transactionId} />
 			<input type="hidden" name="proposed" value={suggestion?.category ?? ''} />
+			<input type="hidden" name="seen" value={encodeSeenRow(seen)} />
 			<input type="hidden" name="category" value={categoryValue} />
 			<input type="hidden" name="nature" value={natureValue} />
 			<Button
@@ -230,11 +254,13 @@
 						await update({ reset: false });
 						acceptSubmitting = false;
 						if (result.type === 'success') onAccepted(transactionId);
+						else if (result.type === 'failure') onRefused();
 					};
 				}}
 			>
 				<input type="hidden" name="transactionId" value={transactionId} />
 				<input type="hidden" name="proposed" value={suggestion?.category ?? ''} />
+				<input type="hidden" name="seen" value={encodeSeenRow(seen)} />
 				<input type="hidden" name="category" value={categoryValue} />
 				<input type="hidden" name="nature" value={natureValue} />
 				<Button type="submit" variant="primary" size="sm" loading={acceptSubmitting}

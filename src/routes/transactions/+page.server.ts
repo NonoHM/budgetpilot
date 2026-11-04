@@ -12,7 +12,8 @@ import {
 } from '$lib/domain/transaction';
 import { requireUser } from '$lib/server/auth';
 import { prisma } from '$lib/server/db';
-import { computeNameKey } from '$lib/server/naming/nameKey';
+import { computeNameKey, computeNullableNameKey } from '$lib/server/naming/nameKey';
+import { parseSeenRow } from '$lib/domain/seenRow';
 import { manualCategoryUpdate } from '$lib/server/transactions/manualCategory';
 import { setTransactionTags } from '$lib/server/tags/service';
 import { clearSplits, replaceSplits } from '$lib/server/transactions/splits';
@@ -933,47 +934,39 @@ export const actions: Actions = {
 		const asProposed =
 			proposed !== null && computeNameKey(proposed) === computeNameKey(categoryResult.value);
 
+		// The row as the page loaded it (#1231, #1233), compared in the same where as the write, so a
+		// pin or a nature set in another tab since is refused rather than overwritten, proposal or not.
+		// A proposal is only ever shown on an unpinned row (computeSuggestion), so the pair is no page.
+		const seen = parseSeenRow(getFormValue(formData, 'seen'));
+		if (!seen || (proposed !== null && seen.category !== null))
+			return fail(400, { acceptError: m.transactions_error_invalid_transaction() });
+
 		// Same split guard, same reason as saveManualCategory. Reachable even though the suggestion is
 		// only offered inside the classify pile — which no longer contains répartie rows — because a
 		// focus session holds its stack for its whole lifetime while another tab can split a row inside it.
-		//
-		// With a proposal posted, the nature it replaces is read in the same transaction and repeated
-		// on the write, so the undo record below names exactly what this click replaced (#1230).
+		// The key rather than the name: the same comparison on every engine's collation.
 		const by = asProposed ? 'acceptedSuggestion' : 'member';
-		const outcome = await prisma.$transaction(async (tx) => {
-			const before =
-				proposed === null
-					? null
-					: await tx.transaction.findFirst({
-							where: { id: transactionId, userId: user.id, manualCategory: null },
-							select: { natureManual: true }
-						});
-			if (proposed !== null && !before) return null;
-			const result = await tx.transaction.updateMany({
-				where: {
-					id: transactionId,
-					userId: user.id,
-					splits: { none: {} },
-					...(before ? { manualCategory: null, natureManual: before.natureManual } : {})
-				},
-				data: {
-					...manualCategoryUpdate(categoryResult.value, by),
-					natureManual: natureResult.value
-				}
-			});
-			return result.count === 0 ? null : { previousNature: before?.natureManual ?? null };
+		const result = await prisma.transaction.updateMany({
+			where: {
+				id: transactionId,
+				userId: user.id,
+				splits: { none: {} },
+				manualCategoryKey: computeNullableNameKey(seen.category),
+				natureManual: seen.nature
+			},
+			data: {
+				...manualCategoryUpdate(categoryResult.value, by),
+				natureManual: natureResult.value
+			}
 		});
-		if (outcome === null) {
+		if (result.count === 0) {
 			if (await isSplitTransaction(user.id, transactionId))
 				return fail(400, { acceptError: m.transactions_error_category_locked_by_split() });
-			// The member's own row, filed since the page showed the proposal: their stale page, not a
-			// refused reference, so no authz line. `userId` in the same where keeps another member's
-			// row on the not-found branch below.
-			if (
-				proposed !== null &&
-				(await prisma.transaction.count({ where: { id: transactionId, userId: user.id } })) > 0
-			)
-				return fail(409, { acceptError: m.transactions_error_categorized_since() });
+			// The member's own row, changed since the page loaded it: their stale page, not a refused
+			// reference, so no authz line. `userId` in the same where keeps another member's row on the
+			// not-found branch below.
+			if ((await prisma.transaction.count({ where: { id: transactionId, userId: user.id } })) > 0)
+				return fail(409, { acceptError: m.transactions_error_changed_since() });
 			logReferenceRefused(user.id, 'transaction');
 			return fail(404, { acceptError: m.transactions_error_transaction_not_found() });
 		}
@@ -984,7 +977,8 @@ export const actions: Actions = {
 			category: categoryResult.value,
 			by,
 			nature: natureResult.value,
-			previousNature: outcome.previousNature
+			// What the where above matched, so exactly what this click replaced (#1230).
+			previousNature: seen.nature
 		};
 		return {
 			acceptSuccess: true,

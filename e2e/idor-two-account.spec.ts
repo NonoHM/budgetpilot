@@ -418,7 +418,15 @@ const PROBES: Probe[] = [
 		label: 'acceptSuggestion',
 		outcome: 'refused-404',
 		path: '/transactions?/acceptSuggestion',
-		fields: (i) => ({ transactionId: i.transactionId, category: 'Logement' })
+		// `seen` is the row as the owner's page shows it at this point: the two legs above pinned it
+		// to Logement and set income, and the accept refuses a row that differs (#1231) with a 409,
+		// which the calibration below would read as a broken probe. The attacker leg is a 404
+		// whatever `seen` says, so the same value serves both.
+		fields: (i) => ({
+			transactionId: i.transactionId,
+			category: 'Logement',
+			seen: '{"category":"Logement","nature":"income"}'
+		})
 	},
 	{
 		label: 'saveSplits-clear',

@@ -31,6 +31,7 @@
 	import Avatar from '$lib/components/Avatar.svelte';
 	import TapLink from '$lib/components/ui/TapLink.svelte';
 	import TransactionProposalCard from '$lib/components/TransactionProposalCard.svelte';
+	import { encodeSeenRow, seenRowOf } from '$lib/domain/seenRow';
 	import TransactionTagsEditor from '$lib/components/TransactionTagsEditor.svelte';
 	import SplitEditor from '$lib/components/splits/SplitEditor.svelte';
 	import TransactionFocusOverlay from '$lib/components/TransactionFocusOverlay.svelte';
@@ -103,6 +104,7 @@
 	let quickAcceptTarget = $state<{
 		id: string;
 		proposed: string;
+		seen: string;
 		category: string;
 		nature: string;
 	} | null>(null);
@@ -1394,7 +1396,9 @@
 			new Set([...resolvedIds, ...ignoredIds, id])
 		);
 
-		quickAcceptTarget = { id, proposed, category, nature: nature ?? '' };
+		// The row the overlay shows, as the page loaded it: the same stale guard as the card (#1233).
+		const seen = data.selectedTransaction ? encodeSeenRow(seenRowOf(data.selectedTransaction)) : '';
+		quickAcceptTarget = { id, proposed, seen, category, nature: nature ?? '' };
 		quickCreateRuleTarget = {
 			id,
 			name: label.slice(0, 40),
@@ -3045,6 +3049,11 @@
 																	/>
 																	<input
 																		type="hidden"
+																		name="seen"
+																		value={encodeSeenRow(seenRowOf(tx))}
+																	/>
+																	<input
+																		type="hidden"
 																		name="category"
 																		value={tx.suggestion.category}
 																	/>
@@ -3314,6 +3323,7 @@
 								<TransactionProposalCard
 									transactionId={data.selectedTransaction.id}
 									suggestion={data.selectedSuggestion}
+									seen={seenRowOf(data.selectedTransaction)}
 									categoryOptions={data.categoryOptions}
 									natureOptions={data.natureOptions}
 									variant="panel"
@@ -3321,6 +3331,7 @@
 									{formatNatureLabel}
 									acceptError={form?.acceptError}
 									onAccepted={handleAccepted}
+									onRefused={refreshAfterRefusedAccept}
 									onIgnore={handleIgnore}
 									onCreateRule={(category, nature) =>
 										openRuleModal(data.selectedTransaction!.id, data.selectedTransaction!.label, {
@@ -3938,6 +3949,7 @@
 											>
 												<input type="hidden" name="transactionId" value={tx.id} />
 												<input type="hidden" name="proposed" value={tx.suggestion.category} />
+												<input type="hidden" name="seen" value={encodeSeenRow(seenRowOf(tx))} />
 												<input type="hidden" name="category" value={tx.suggestion.category} />
 												<input type="hidden" name="nature" value={tx.suggestion.nature ?? ''} />
 												<Button
@@ -4276,6 +4288,7 @@
 				<TransactionProposalCard
 					transactionId={data.selectedTransaction.id}
 					suggestion={data.selectedSuggestion}
+					seen={seenRowOf(data.selectedTransaction)}
 					categoryOptions={data.categoryOptions}
 					natureOptions={data.natureOptions}
 					variant="compact"
@@ -4283,6 +4296,7 @@
 					{formatNatureLabel}
 					acceptError={form?.acceptError}
 					onAccepted={handleAccepted}
+					onRefused={refreshAfterRefusedAccept}
 					onIgnore={handleIgnore}
 					onCreateRule={(category, nature) =>
 						openRuleModal(data.selectedTransaction!.id, data.selectedTransaction!.label, {
@@ -4719,6 +4733,7 @@
 			goto(resolve(buildSelectedHref(focusNextId)), { keepFocus: true, noScroll: true });
 	}}
 	onAccepted={handleAccepted}
+	onRefused={refreshAfterRefusedAccept}
 	onIgnore={handleIgnore}
 	onCreateRule={(category, nature) => {
 		if (data.selectedTransaction)
@@ -4741,12 +4756,16 @@
 	use:enhance={() =>
 		async ({ result, update }) => {
 			await update({ reset: false });
+			// A refusal reloads the row, as the card does: its `seen` is built from the selected row,
+			// so without it every later « Create a rule » posts the same stale row (pass 1A, 1B F1).
+			if (result.type === 'failure') refreshAfterRefusedAccept();
 			quickAcceptDone?.(result.type === 'success');
 			quickAcceptDone = null;
 		}}
 >
 	<input type="hidden" name="transactionId" value={quickAcceptTarget?.id ?? ''} />
 	<input type="hidden" name="proposed" value={quickAcceptTarget?.proposed ?? ''} />
+	<input type="hidden" name="seen" value={quickAcceptTarget?.seen ?? ''} />
 	<input type="hidden" name="category" value={quickAcceptTarget?.category ?? ''} />
 	<input type="hidden" name="nature" value={quickAcceptTarget?.nature ?? ''} />
 </form>

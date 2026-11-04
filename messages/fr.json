@@ -828,7 +828,7 @@
 	"transactions_suggested_label": "Suggéré :",
 	"transactions_proposal_from_history": "D'après votre historique",
 	"transactions_proposal_from_rule": "D'après une règle",
-	"transactions_error_categorized_since": "Cette transaction a été catégorisée après le chargement de la page. Rechargez pour voir sa catégorie.",
+	"transactions_error_changed_since": "Cette transaction a changé après le chargement de la page. Rechargez pour la voir.",
 	"settings_page_title": "Paramètres - BudgetPilot",
 	"settings_heading": "Paramètres",
 	"settings_account_heading": "Compte",

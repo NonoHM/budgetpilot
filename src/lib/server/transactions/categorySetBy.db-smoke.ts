@@ -184,7 +184,8 @@ describe('who set a category, per writer', () => {
 				['transactionId', id],
 				['proposed', 'Courses'],
 				['category', 'Courses'],
-				['nature', '']
+				['nature', ''],
+				['seen', '{"category":null,"nature":null}']
 			])(s);
 
 		await accept(mine);

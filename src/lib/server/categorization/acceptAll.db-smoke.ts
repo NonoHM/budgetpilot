@@ -400,12 +400,221 @@ describe('the undo after an accept (#1230)', () => {
 			['transactionId', pending],
 			['category', 'Courses'],
 			['nature', ''],
-			['proposed', 'Courses']
+			['proposed', 'Courses'],
+			['seen', '{"category":null,"nature":"uncategorized"}']
 		]);
 		const record = (outcome.proposalsAccepted as Accepted | undefined)?.undo;
 		expect(record).toBeTypeOf('string');
 		const undone = await undo(s, record!);
 		expect(undone.proposalsUndone).toEqual({ undone: 1, changedSince: 0 });
 		expect(await stored(pending)).toEqual(before);
+	});
+});
+
+/**
+ * #1231 and #1233: the single accept compares the row with what the page showed it as, its pin and
+ * its manual nature, posted as `seen`, in the same where as the write. Each test below separates a
+ * guard that compares against the PAGE from one that compares against the row as read at click
+ * time, which is what the accept did before: the click-time read sees the other tab's change and
+ * repeats it, so the write goes through.
+ */
+describe('a single accept from a page older than the row (#1231, #1233)', () => {
+	const seen = (category: string | null, nature: TransactionNature | null) =>
+		JSON.stringify({ category, nature });
+	const acceptOne = (s: Seed, id: string, fields: [string, string][]) =>
+		post(s, 'acceptSuggestion', [['transactionId', id], ...fields]);
+
+	// #1231: a nature the member set in another tab after the page showed the proposal.
+	it('refuses a proposal on a row whose nature the member set since, and keeps that nature', async () => {
+		const s = await seed();
+		await primeurHistory(s);
+		const pending = await row(s, 'CB PRIMEUR LOMI 09/03');
+		await prisma.transaction.update({ where: { id: pending }, data: { natureManual: 'spending' } });
+		const outcome = await acceptOne(s, pending, [
+			['category', 'Courses'],
+			['nature', ''],
+			['proposed', 'Courses'],
+			['seen', seen(null, null)]
+		]);
+		expect(outcome.status).toBe(409);
+		expect(await stored(pending)).toMatchObject({ pin: null, nature: 'spending' });
+	});
+
+	// #1231, the case the proposal gate still shows a proposal for: set by hand to uncategorized.
+	it('refuses a proposal on a row whose nature moved to uncategorized since', async () => {
+		const s = await seed();
+		await primeurHistory(s);
+		const pending = await row(s, 'CB PRIMEUR LOMI 09/03');
+		await prisma.transaction.update({
+			where: { id: pending },
+			data: { natureManual: 'uncategorized' }
+		});
+		const outcome = await acceptOne(s, pending, [
+			['category', 'Courses'],
+			['nature', ''],
+			['proposed', 'Courses'],
+			['seen', seen(null, null)]
+		]);
+		expect(outcome.status).toBe(409);
+		expect(await stored(pending)).toMatchObject({ pin: null, nature: 'uncategorized' });
+	});
+
+	// #1233, point 2: no proposal shown, the row filed in another tab since focus opened.
+	it('refuses a category picked with no proposal on a row filed since, and keeps the pin', async () => {
+		const s = await seed();
+		const pending = await row(s, 'VIR SEPA INCONNU');
+		await prisma.transaction.update({
+			where: { id: pending },
+			data: manualCategoryUpdate('Courses', 'member')
+		});
+		const outcome = await acceptOne(s, pending, [
+			['category', 'Loisirs'],
+			['nature', ''],
+			['proposed', ''],
+			['seen', seen(null, null)]
+		]);
+		expect(outcome.status).toBe(409);
+		expect(await stored(pending)).toMatchObject({ pin: 'Courses', by: 'member', nature: null });
+	});
+
+	// #1233, point 1, the server half: the card now posts the nature it started on, the row's own.
+	it('accepts a category picked with no proposal on an unchanged row, keeping its manual nature', async () => {
+		const s = await seed();
+		const pending = await row(s, 'VIR SEPA INCONNU', { nature: 'spending' });
+		const outcome = await acceptOne(s, pending, [
+			['category', 'Loisirs'],
+			['nature', 'spending'],
+			['proposed', ''],
+			['seen', seen(null, 'spending')]
+		]);
+		expect(outcome.status).toBeUndefined();
+		expect(await stored(pending)).toMatchObject({
+			pin: 'Loisirs',
+			by: 'member',
+			nature: 'spending'
+		});
+	});
+
+	// Note pass 1, #9a: only the nature changed, and no proposal. Separates a where that compares the
+	// nature on both paths from one that compares it only when a proposal is posted.
+	it('refuses a category picked with no proposal on a row whose nature the member set since', async () => {
+		const s = await seed();
+		const pending = await row(s, 'VIR SEPA INCONNU');
+		await prisma.transaction.update({ where: { id: pending }, data: { natureManual: 'spending' } });
+		const outcome = await acceptOne(s, pending, [
+			['category', 'Loisirs'],
+			['nature', ''],
+			['proposed', ''],
+			['seen', seen(null, null)]
+		]);
+		expect(outcome.status).toBe(409);
+		expect(await stored(pending)).toMatchObject({ pin: null, nature: 'spending' });
+	});
+
+	// Note point 3: a proposal is only shown on an unpinned row, so a pinned `seen` beside one is no
+	// page state. Separates refusing the pair from writing a proposal's author over a pin.
+	it('refuses a proposal posted beside a pinned row as no page state', async () => {
+		const s = await seed();
+		const pending = await row(s, 'VIR SEPA INCONNU', { pin: 'Courses', by: 'member' });
+		const outcome = await acceptOne(s, pending, [
+			['category', 'Courses'],
+			['nature', ''],
+			['proposed', 'Courses'],
+			['seen', seen('Courses', null)]
+		]);
+		expect(outcome.status).toBe(400);
+		expect((outcome.data as { acceptError?: string }).acceptError).toBe('Invalid transaction.');
+		expect(await stored(pending)).toMatchObject({ pin: 'Courses', by: 'member' });
+	});
+
+	// A pin the page saw is compared too: a pile row pinned to the sentinel, re-pinned since.
+	it('refuses a row whose pin changed since, whatever pin the page saw', async () => {
+		const s = await seed();
+		const pending = await row(s, 'VIR SEPA INCONNU', { pin: UNCLASSIFIED_CATEGORY, by: 'member' });
+		await prisma.transaction.update({
+			where: { id: pending },
+			data: manualCategoryUpdate('Courses', 'member')
+		});
+		const outcome = await acceptOne(s, pending, [
+			['category', 'Loisirs'],
+			['nature', ''],
+			['proposed', ''],
+			['seen', seen(UNCLASSIFIED_CATEGORY, null)]
+		]);
+		expect(outcome.status).toBe(409);
+		expect(await stored(pending)).toMatchObject({ pin: 'Courses' });
+	});
+
+	// The pin is compared by its key: a case-only respelling since files the row under the same
+	// category, so it is no change, on every engine. Separates the key from the raw name, which
+	// sqlite and PostgreSQL compare case-sensitively and MariaDB's collation does not.
+	it('accepts on a row whose pin was only respelled in another case since', async () => {
+		const s = await seed();
+		const pending = await row(s, 'VIR SEPA INCONNU', { pin: 'Courses', by: 'member' });
+		await prisma.transaction.update({
+			where: { id: pending },
+			data: manualCategoryUpdate('COURSES', 'member')
+		});
+		const outcome = await acceptOne(s, pending, [
+			['category', 'Loisirs'],
+			['nature', ''],
+			['proposed', ''],
+			['seen', seen('Courses', null)]
+		]);
+		expect(outcome.status).toBeUndefined();
+		expect(await stored(pending)).toMatchObject({ pin: 'Loisirs', by: 'member' });
+	});
+
+	it('accepts an unchanged proposal row, and its undo restores what the page saw', async () => {
+		const s = await seed();
+		await primeurHistory(s);
+		const pending = await row(s, 'CB PRIMEUR LOMI 09/03', { nature: 'uncategorized' });
+		const before = await stored(pending);
+		const outcome = await acceptOne(s, pending, [
+			['category', 'Courses'],
+			['nature', ''],
+			['proposed', 'Courses'],
+			['seen', seen(null, 'uncategorized')]
+		]);
+		expect(await stored(pending)).toMatchObject({ pin: 'Courses', by: 'acceptedSuggestion' });
+		const undone = await undo(s, accepted(outcome).undo);
+		expect(undone.proposalsUndone).toEqual({ undone: 1, changedSince: 0 });
+		expect(await stored(pending)).toEqual(before);
+	});
+
+	// The reason, not only the refusal: a missing or malformed `seen` is the page's fault, a 400
+	// with the invalid-transaction sentence, and nothing is written.
+	it('refuses an accept that does not say what the page saw', async () => {
+		const s = await seed();
+		const pending = await row(s, 'VIR SEPA INCONNU');
+		for (const value of [null, '', 'null', '{}', seen(null, null).replace('null}', '"bogus"}')]) {
+			const fields: [string, string][] = [
+				['category', 'Loisirs'],
+				['nature', ''],
+				['proposed', '']
+			];
+			if (value !== null) fields.push(['seen', value]);
+			const outcome = await acceptOne(s, pending, fields);
+			expect(outcome.status, String(value)).toBe(400);
+			expect((outcome.data as { acceptError?: string }).acceptError, String(value)).toBe(
+				'Invalid transaction.'
+			);
+		}
+		expect(await stored(pending)).toMatchObject({ pin: null, by: null });
+	});
+
+	// Ownership stays the not-found answer, `seen` matching the foreign row exactly.
+	it('refuses another member’s row as not found, whatever the page says it saw', async () => {
+		const mine = await seed();
+		const theirs = await seed();
+		const foreign = await row(theirs, 'VIR SEPA INCONNU');
+		const outcome = await acceptOne(mine, foreign, [
+			['category', 'Loisirs'],
+			['nature', ''],
+			['proposed', ''],
+			['seen', seen(null, null)]
+		]);
+		expect(outcome.status).toBe(404);
+		expect(await stored(foreign)).toMatchObject({ pin: null, by: null });
 	});
 });

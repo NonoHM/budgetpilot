@@ -1596,7 +1596,7 @@ describe('acceptSuggestion', () => {
 				id: 'transaction-5',
 				userId: testUser.id,
 				splits: { none: {} },
-				manualCategory: null,
+				manualCategoryKey: null,
 				natureManual: null
 			},
 			data: {
@@ -2445,9 +2445,14 @@ async function runSaveManualNature(input: Record<string, string>) {
 	})) as { status?: number; manualNatureSuccess?: boolean };
 }
 
+// The page always posts what it saw (#1231); these rows are unpinned with no manual nature.
 async function runAcceptSuggestion(input: Record<string, string>) {
 	const formData = new FormData();
-	for (const [key, value] of Object.entries(input)) formData.set(key, value);
+	for (const [key, value] of Object.entries({
+		seen: '{"category":null,"nature":null}',
+		...input
+	}))
+		formData.set(key, value);
 
 	return (await (
 		actions.acceptSuggestion as (event: {
