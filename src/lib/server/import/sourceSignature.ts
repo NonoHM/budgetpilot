@@ -108,11 +108,14 @@ export type AccountResolution =
 export async function resolveStatementAccount({
 	userId,
 	rows,
-	accounts
+	accounts,
+	hasHeaderRow
 }: {
 	userId: string;
 	rows: ParsedCsvRow[];
 	accounts: ResolvableAccount[];
+	/** The answer about line 1 the caller reads the file under: line 1 is evidence when it is data (#1248). */
+	hasHeaderRow: boolean;
 }): Promise<AccountResolution> {
 	const destinations = accounts.filter(isDestination);
 
@@ -127,10 +130,10 @@ export async function resolveStatementAccount({
 	// could (see #485's PR): a caller reaching this point with an unresolved `ambiguous` column,
 	// source ambiguity notwithstanding, has either none to begin with or already had it answered
 	// upstream.
-	// `true`: only `/import` resolves a statement account, and it always parses with a header row.
-	// The designation screen's account prefill comes from here too, before the member answers about
-	// line 1; a wrong prefill is refused by the parse, which has the answer (#1211).
-	const named = findDiscriminantColumn(rows, true);
+	// Under the caller's answer: the designation offer passes the one `headerRowVerdict` gave (#1248),
+	// the auto path `true`. A member who then contradicts it is refused by the parse, which reads the
+	// member's answer (#1211).
+	const named = findDiscriminantColumn(rows, hasHeaderRow);
 	if (named.kind === 'contradictory') {
 		return { rank: 1, kind: 'multi-account' };
 	}
@@ -162,7 +165,7 @@ export async function resolveStatementAccount({
 	//
 	// `userId` is in the SAME where clause as the key (`readRememberedAccount`), never a check
 	// performed afterwards. ASVS v5.0.0-8.2.2.
-	const key = accountMemoryKeyOf(userId, rows, destinations);
+	const key = accountMemoryKeyOf(userId, rows, destinations, hasHeaderRow);
 	if (key === null) return { rank: 3, kind: 'unknown' };
 	const remembered = await readRememberedAccount(userId, key);
 	if (remembered === null) return { rank: 3, kind: 'unknown' };

@@ -11,7 +11,9 @@ import { parseRows } from './utils/csv';
  */
 describe('withoutDesignations', () => {
 	const facts = designationFactsAsDetected(
-		parseRows('Date;Détail;Montant\n24/02/2026;CARREFOUR;-24,90')
+		parseRows('Date;Détail;Montant\n24/02/2026;CARREFOUR;-24,90'),
+		1,
+		{ kind: 'resolved', hasHeaderRow: true }
 	);
 
 	it('starts from a fixture where detection designates, or the withdrawal is unobservable', () => {

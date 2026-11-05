@@ -67,7 +67,7 @@ describe('the account offer the designation screen is given', () => {
 				source: 'csv'
 			}
 		});
-		const offer = await buildAccountOffer({ userId: mine, rows: ROWS });
+		const offer = await buildAccountOffer({ hasHeaderRow: true, userId: mine, rows: ROWS });
 		expect(offer.options).toHaveLength(1);
 		expect(offer.options[0].transactionCount).toBe(1);
 		expect(offer.options[0].discriminant).toBe('4417');
@@ -79,7 +79,7 @@ describe('the account offer the designation screen is given', () => {
 		// typed themselves, which is the mixture the whole model exists to prevent.
 		expect.assertions(2);
 		await makeAccount('Saisie manuelle', 'manual');
-		const offer = await buildAccountOffer({ userId: mine, rows: ROWS });
+		const offer = await buildAccountOffer({ hasHeaderRow: true, userId: mine, rows: ROWS });
 		expect(offer.options).toHaveLength(0);
 		expect(await prisma.account.count({ where: { userId: mine } })).toBe(1);
 	});
@@ -92,7 +92,7 @@ describe('the account offer the designation screen is given', () => {
 		await makeAccount('Vieux BP', 'banque_populaire', {
 			archivedAt: new Date('2026-01-01T00:00:00.000Z')
 		});
-		const offer = await buildAccountOffer({ userId: mine, rows: ROWS });
+		const offer = await buildAccountOffer({ hasHeaderRow: true, userId: mine, rows: ROWS });
 		expect(offer.options).toHaveLength(0);
 	});
 
@@ -112,7 +112,7 @@ describe('the account offer the designation screen is given', () => {
 		// fixture that pre-filled `nameKey` would pass while the real row failed.
 		expect.assertions(3);
 		await makeAccount(GENERIC_BUCKET_STORED_NAME, 'csv');
-		const offer = await buildAccountOffer({ userId: mine, rows: ROWS });
+		const offer = await buildAccountOffer({ hasHeaderRow: true, userId: mine, rows: ROWS });
 		expect(offer.options).toHaveLength(1);
 		expect(offer.options[0].name).toBe(m.accounts_generic_bucket());
 		// The companion, because the assertion above would also pass if the substitution replaced
@@ -126,7 +126,7 @@ describe('the account offer the designation screen is given', () => {
 		// renderer », which would quietly change what a user typed.
 		expect.assertions(2);
 		await makeAccount('Compte courant', 'csv');
-		const offer = await buildAccountOffer({ userId: mine, rows: ROWS });
+		const offer = await buildAccountOffer({ hasHeaderRow: true, userId: mine, rows: ROWS });
 		expect(offer.options).toHaveLength(1);
 		expect(offer.options[0].name).toBe('Compte courant');
 	});
@@ -137,7 +137,7 @@ describe('the account offer the designation screen is given', () => {
 		// FROM « resolution did not run ».
 		expect.assertions(2);
 		await makeAccount('BP · Compte courant', 'banque_populaire');
-		const offer = await buildAccountOffer({ userId: mine, rows: ROWS });
+		const offer = await buildAccountOffer({ hasHeaderRow: true, userId: mine, rows: ROWS });
 		expect(offer.resolution).toStrictEqual({ rank: 3, kind: 'unknown' });
 		expect(offer.options).toHaveLength(1);
 	});
@@ -160,7 +160,7 @@ describe('« Nouveau compte » and the fragment the create refuses (third contra
 			discriminant: '0185',
 			archivedAt: new Date('2026-01-01T00:00:00.000Z')
 		});
-		const offer = await buildAccountOffer({ userId: mine, rows: NAMING_0185 });
+		const offer = await buildAccountOffer({ hasHeaderRow: true, userId: mine, rows: NAMING_0185 });
 		expect(offer.offersNewAccount).toBe(false);
 	});
 
@@ -168,7 +168,7 @@ describe('« Nouveau compte » and the fragment the create refuses (third contra
 		expect.assertions(1);
 		await makeAccount('Compte courant', 'csv');
 		await makeAccount('Revolut', 'revolut', { discriminant: '0185' });
-		const offer = await buildAccountOffer({ userId: mine, rows: NAMING_0185 });
+		const offer = await buildAccountOffer({ hasHeaderRow: true, userId: mine, rows: NAMING_0185 });
 		expect(offer.offersNewAccount).toBe(false);
 	});
 
@@ -176,7 +176,7 @@ describe('« Nouveau compte » and the fragment the create refuses (third contra
 		// The calibration: the same fixture with no holder does offer it.
 		expect.assertions(1);
 		await makeAccount('Compte courant', 'csv');
-		const offer = await buildAccountOffer({ userId: mine, rows: NAMING_0185 });
+		const offer = await buildAccountOffer({ hasHeaderRow: true, userId: mine, rows: NAMING_0185 });
 		expect(offer.offersNewAccount).toBe(true);
 	});
 });

@@ -20,6 +20,7 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as m from '$lib/paraglide/messages';
+import { prefillAccountName } from '$lib/server/accounts/service';
 import type { ImportInvalidRowDetail } from './+page.server';
 
 const db = vi.hoisted(() => {
@@ -1756,22 +1757,11 @@ describe('/import actions', () => {
 		});
 
 		/**
-		 * THE PRECONDITION `readWithHeaderRow` LEANS ON, asserted where its cause would be.
-		 *
-		 * That function resolves one direction only, and the reason is this action: the payload always
-		 * declares a header row, and `rowCount` is already reduced by that line, so the user can only
-		 * ever flip the answer to « data ». The opposite flip is unrepresentable from here.
-		 *
-		 * Nothing checked that. The day this payload sends `false`, the function would silently return
-		 * a reading wrong in the other direction, and the symptom is the eaten transaction again, three
-		 * files away from the change that caused it. This is the cheap half of « name the route that
-		 * produces it » applied to a precondition rather than to a state: the guard fails here, at the
-		 * line that would break it.
-		 *
-		 * If this ever legitimately becomes `false`, the fix is to build the second direction in
-		 * `readWithHeaderRow`, not to relax this.
+		 * A file whose line 1 names its columns still declares a header row (#1217), and the count
+		 * excludes that line. Its headerless twin is the test above: the two together are the ruling
+		 * that the guess follows the file, and `declareHeaderRow` moves the count by one either way.
 		 */
-		it('always declares a header row, which is what lets the reader resolve one direction', async () => {
+		it('declares a header row when line 1 names the columns', async () => {
 			const result = (await runImportWithFile(RECOGNISED_HEADERS_UNREADABLE_DATES)) as unknown as {
 				data: { designation?: { detectedHeaderRow: boolean; rowCount: number } };
 			};
@@ -1780,6 +1770,78 @@ describe('/import actions', () => {
 			// Asserted beside it, because the two are one claim: the count excludes the line the flag
 			// says is a header, which is exactly what the +1 on the other side restores.
 			expect(result.data.designation?.rowCount).toBe(2);
+		});
+
+		/**
+		 * #1217, #797 and #1248 at the door that produces them: a statement whose line 1 is a
+		 * transaction opens read as data, counted, and its account prefill is read under that same
+		 * answer. Line 1 names a second account here (#1248's shape), so only a reader that sees line 1
+		 * can answer multi-account.
+		 */
+		it('opens a headerless file read as data, with its account read under the same answer', async () => {
+			const result = (await runImportWithFile(
+				[
+					'2026-06-01,FR7630006000011234567890189,CB A,-10.00',
+					'2026-06-02,DE89370400440532013000,CB B,-20.00',
+					'2026-06-03,DE89370400440532013000,CB C,-30.00'
+				].join('\n')
+			)) as unknown as {
+				data: {
+					designation?: {
+						detectedHeaderRow: boolean;
+						rowCount: number;
+						account: { resolution: unknown };
+					};
+				};
+			};
+
+			expect(result.data.designation?.detectedHeaderRow).toBe(false);
+			expect(result.data.designation?.rowCount).toBe(3);
+			expect(result.data.designation?.account.resolution).toStrictEqual({
+				rank: 1,
+				kind: 'multi-account'
+			});
+		});
+
+		/**
+		 * The verdict's `contradictory`: line 1 reads as a date in one date column and not in the
+		 * other, so it is neither headers nor a transaction, and the file is refused with both cells
+		 * named (AGENTS.md, the four outcomes). The sentence is compared whole, so a doubled or
+		 * missing part reddens it.
+		 */
+		/**
+		 * The « New account » name follows the same answer (#1248). #1248's bytes: read as data, line
+		 * 1's IBAN differs from the others, so no single fragment names the file and the name carries
+		 * none; read with a header row, lines 2 and 3 alone name `…3000` and the sheet would open on
+		 * it. Separate from the resolution above so neither figure hides the other.
+		 */
+		it('prefills the new account name under the same answer as the resolution', async () => {
+			const result = (await runImportWithFile(
+				[
+					'2026-06-01,FR7630006000011234567890189,CB A,-10.00',
+					'2026-06-02,DE89370400440532013000,CB B,-20.00',
+					'2026-06-03,DE89370400440532013000,CB C,-30.00'
+				].join('\n')
+			)) as unknown as { data: { designation?: { account: { prefillName: string } } } };
+
+			expect(result.data.designation?.account.prefillName).toBe(
+				prefillAccountName({ institution: null, fragment: null })
+			);
+		});
+
+		it('refuses a file whose line 1 is a date in one date column and not in the other', async () => {
+			const result = (await runImportWithFile(
+				[
+					'2026-06-01,Valeur,CB A,-10.00',
+					'2026-06-02,2026-06-02,CB B,-20.00',
+					'2026-06-03,2026-06-03,CB C,-30.00'
+				].join('\n')
+			)) as unknown as { data: { error?: string; designation?: unknown } };
+
+			expect(result.data.error).toBe(
+				m.import_error_line_one_contradicts({ dateCell: '2026-06-01', otherCell: 'Valeur' })
+			);
+			expect(result.data.designation).toBeUndefined();
 		});
 
 		it('names the expected date form beside the value that was rejected', async () => {
@@ -2082,6 +2144,62 @@ describe('/import actions', () => {
 				category: null,
 				currency: null
 			});
+		});
+
+		/**
+		 * #1217, layer 1 before layer 2 (#1203): a mapping saved under « line 1 is headers » over a
+		 * file whose line 1 is a transaction (what the old constant guess let a member save) is the
+		 * member's own answer. The file's evidence says data; the remembered answer wins, on both
+		 * doors that build an offer from a remembered mapping.
+		 */
+		const SAVED_OVER_LINE_ONE = ['2026-06-01', 'carrefour', '-24,90', 'paiement'];
+		const headerlessUnder = (columns: { date: string; label: string; amount: string }) =>
+			({
+				id: 'mapping-1217',
+				userId: testUser.id,
+				fingerprint: fingerprintFor(SAVED_OVER_LINE_ONE, 'name'),
+				matchBy: 'name' as const,
+				dateColumn: columns.date,
+				labelColumn: columns.label,
+				amountColumn: columns.amount,
+				categoryColumn: null,
+				dateIndex: null,
+				labelIndex: null,
+				amountIndex: null,
+				categoryIndex: null,
+				columnCount: 4,
+				useCount: 0,
+				lastUsedAt: null as Date | null
+			}) as (typeof db.state.columnMappings)[number];
+		const HEADERLESS_FILE = [
+			SAVED_OVER_LINE_ONE.join(';'),
+			'2026-06-02;monoprix;-12,10;paiement',
+			'2026-06-03;fnac;-30,00;paiement'
+		].join('\n');
+
+		it('keeps the header answer a correction was saved under, though line 1 reads as data', async () => {
+			db.state.columnMappings.push(
+				headerlessUnder({ date: '2026-06-01', label: 'paiement', amount: '-24,90' })
+			);
+
+			const result = (await runImportWithFileAndFields(HEADERLESS_FILE, {
+				correctMappingId: 'mapping-1217'
+			})) as unknown as { data: { designation?: DesignationFile } };
+
+			expect(result.data.designation?.detectedHeaderRow).toBe(true);
+			expect(result.data.designation?.rowCount).toBe(2);
+		});
+
+		it('keeps it on the ordinary door too, when the remembered mapping no longer applies', async () => {
+			db.state.columnMappings.push(
+				headerlessUnder({ date: 'absent', label: 'absent-too', amount: 'absent-also' })
+			);
+
+			const result = (await runImportWithFile(HEADERLESS_FILE)) as unknown as {
+				data: { designation?: DesignationFile };
+			};
+
+			expect(result.data.designation?.detectedHeaderRow).toBe(true);
 		});
 	});
 
