@@ -152,6 +152,17 @@ describe('buildCollisionRepost', () => {
 		expect(buildCollisionRepost(PENDING, { ...ANSWER, dateOrder: null }).dateOrder).toBeNull();
 	});
 
+	/**
+	 * #1213: the decline survives the dialog, and so does its absence. Separates « No currency column
+	 * was answered » from « nobody answered », which the door asks about from a dialog with no screen.
+	 */
+	it('carries a currency decline, and its absence', () => {
+		expect(
+			buildCollisionRepost(PENDING, { ...ANSWER, currencyDeclined: true }).currencyDeclined
+		).toBe(true);
+		expect(buildCollisionRepost(PENDING, ANSWER).currencyDeclined).toBe(false);
+	});
+
 	it('carries no correction when the run is not one', () => {
 		const repost = buildCollisionRepost({ ...PENDING, correction: null }, ANSWER);
 
