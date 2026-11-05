@@ -306,7 +306,12 @@
 		</span>
 	{:else if optional}
 		<!-- A consequence, not a warning: no triangle, no tint, zinc-500. -->
-		<span class="truncate {answerClass} text-zinc-500">{m.import_columns_row_category_empty()}</span
+		<!-- Each optional role says what its absence MEANS: Category's sentence on the Currency row
+		     (#1213) told the reader their transactions would arrive uncategorised. -->
+		<span class="truncate {answerClass} text-zinc-500"
+			>{role === 'currency'
+				? m.import_columns_row_currency_empty()
+				: m.import_columns_row_category_empty()}</span
 		>
 	{:else}
 		<span class="truncate {answerClass} text-zinc-500">{m.import_columns_row_empty()}</span>

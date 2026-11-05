@@ -1496,6 +1496,7 @@
 	"import_columns_row_vacated": "Reprise par {role} — à redésigner",
 	"import_columns_row_missing": "« {header} » n'est plus dans le fichier",
 	"import_columns_row_category_empty": "Aucune — les transactions arriveront non catégorisées",
+	"import_columns_row_currency_empty": "Aucune : la devise du compte s'applique",
 	"import_designate_date_reading": "{raw} → {pretty}",
 	"import_designate_date_reading_unconfirmed": "{raw} → {pretty} · Confirmer",
 	"import_designate_date_reading_inconsistent": "Deux ordres de date dans cette colonne",

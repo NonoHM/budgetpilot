@@ -42,6 +42,29 @@ const VIEW: DesignationFile = {
 	detectedHeaderRow: true
 };
 
+async function sayLineOneIsData() {
+	await page
+		.getByRole('button', { name: /^Date,/ })
+		.first()
+		.click();
+	await page.getByRole('switch').first().click();
+	await page.getByRole('button', { name: m.import_columns_picker_close() }).first().click();
+}
+
+/** Already read as headerless, with column 4 a column of codes the screen would prefill. */
+const HEADERLESS_WITH_CODES: DesignationFile = {
+	name: 'releve.csv',
+	headers: ['2026-06-01', 'CB A', '-10.00', 'USD'],
+	samples: [['2026-06-01'], ['CB A'], ['-10.00'], ['USD']],
+	firstRow: ['2026-06-01', 'CB A', '-10.00', 'USD'],
+	rowCount: 3,
+	detectedHeaderRow: false,
+	proposals: {
+		designated: { ...EMPTY_ASSIGNMENT, currency: 3 },
+		candidates: { date: [], label: [], amount: [], category: [], currency: [3] }
+	}
+};
+
 const ROWS_FAILED = () =>
 	new Response(
 		JSON.stringify({
@@ -52,12 +75,31 @@ const ROWS_FAILED = () =>
 		{ status: 200 }
 	);
 
+/** A duplicate statement: the action answers the collision question rather than importing. */
+const COLLISION = () =>
+	new Response(
+		JSON.stringify({
+			type: 'failure',
+			status: 400,
+			data: { collision: { batchId: 'b1' }, incoming: { rows: 3 } }
+		}),
+		{ status: 400 }
+	);
+
+let answer: () => Response = ROWS_FAILED;
+let posted: FormData[] = [];
+
 beforeEach(async () => {
 	clearPendingCollision();
 	vi.clearAllMocks();
+	answer = ROWS_FAILED;
+	posted = [];
 	vi.stubGlobal(
 		'fetch',
-		vi.fn(async () => ROWS_FAILED())
+		vi.fn(async (_url: string, init: { body: FormData }) => {
+			posted.push(init.body);
+			return answer();
+		})
 	);
 	await page.viewport(1280, 900);
 	setPendingDesignation({
@@ -82,17 +124,49 @@ describe('the rows-failed revisit', () => {
 	it('reopens with line 1 as data when the member said so', async () => {
 		expect.assertions(2);
 		await render(Page, { props: { data: {} } } as never);
-		await page
-			.getByRole('button', { name: /^Date,/ })
-			.first()
-			.click();
-		await page.getByRole('switch').first().click();
-		await page.getByRole('button', { name: m.import_columns_picker_close() }).first().click();
+		await sayLineOneIsData();
 		await page
 			.getByRole('button', { name: m.import_columns_submit_many({ count: 3 }) })
 			.first()
 			.click();
 		await vi.waitFor(() => expect(navigation.goto).toHaveBeenCalled());
 		expect(takePendingDesignation()?.view.detectedHeaderRow).toBe(false);
+	});
+
+	/**
+	 * #1213 narrow pass, finding 1: the duplicate dialog's interim write kept detection's view, so
+	 * browser Back from the dialog reopened « line 1 is data » as headers.
+	 */
+	it('the collision leg stores line 1 as data too', async () => {
+		expect.assertions(2);
+		answer = COLLISION;
+		await render(Page, { props: { data: {} } } as never);
+		await sayLineOneIsData();
+		await page
+			.getByRole('button', { name: m.import_columns_submit_many({ count: 3 }) })
+			.first()
+			.click();
+		await vi.waitFor(() => expect(navigation.goto).toHaveBeenCalled());
+		expect(takePendingDesignation()?.view.detectedHeaderRow).toBe(false);
+	});
+
+	/**
+	 * #1213 narrow pass, finding 2: the route seeds the screen with a stored decline, and posts it.
+	 * Separates « the page hands `currencyDeclined` to the screen » from « it drops it », which the
+	 * screen's own spec cannot see.
+	 */
+	it('posts a stored currency decline as none', async () => {
+		expect.assertions(1);
+		setPendingDesignation({
+			...takePendingDesignation()!,
+			view: HEADERLESS_WITH_CODES,
+			currencyDeclined: true
+		});
+		await render(Page, { props: { data: {} } } as never);
+		await page
+			.getByRole('button', { name: m.import_columns_submit_many({ count: 3 }) })
+			.first()
+			.click();
+		await vi.waitFor(() => expect(posted[0]?.get('currencyIndex')).toBe('none'));
 	});
 });

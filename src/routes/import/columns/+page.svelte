@@ -302,6 +302,9 @@
 					// reopens.
 					setPendingDesignation({
 						...pending,
+						// With the answer about line 1, as the revisit below: browser Back from the dialog
+						// reopens THIS write, and detection's view read « line 1 is data » as headers.
+						view: declareHeaderRow(pending.view, result.hasHeaderRow),
 						initialAssignment: result.assignment,
 						dateOrder: result.dateOrder,
 						currencyDeclined: result.currencyDeclined

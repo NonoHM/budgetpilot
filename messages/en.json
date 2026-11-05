@@ -1496,6 +1496,7 @@
 	"import_columns_row_vacated": "Taken by {role} — designate it again",
 	"import_columns_row_missing": "“{header}” is no longer in the file",
 	"import_columns_row_category_empty": "None — transactions will arrive uncategorised",
+	"import_columns_row_currency_empty": "None: the account's currency applies",
 	"import_designate_date_reading": "{raw} → {pretty}",
 	"import_designate_date_reading_unconfirmed": "{raw} → {pretty} · Confirm",
 	"import_designate_date_reading_inconsistent": "Two date orders in this column",

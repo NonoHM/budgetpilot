@@ -176,4 +176,22 @@ describe('#1213: the Currency role', () => {
 			.click();
 		expect(submissions[0]).toMatchObject({ assignment: { currency: null } });
 	});
+
+	/**
+	 * Found by the #1213 walk: a declined Currency row printed Category's empty sentence, « None,
+	 * transactions will arrive uncategorised », a false statement about the file. Compared whole.
+	 */
+	it('a declined Currency row says the account currency applies', async () => {
+		expect.assertions(1);
+		await page.viewport(1280, 900);
+		await open();
+		await toggleHeaderRow();
+		await currencyRow().first().click();
+		await page.getByRole('button', { name: m.import_columns_picker_no_currency() }).click();
+		await expect
+			.element(
+				currencyRow().first().getByText(m.import_columns_row_currency_empty(), { exact: true })
+			)
+			.toBeVisible();
+	});
 });
