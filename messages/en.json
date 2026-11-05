@@ -1716,7 +1716,7 @@
 	"import_account_option_detail_many": "···{fragment} · {count} transactions",
 	"import_account_error_archived": "This account is archived. Choose another account for this statement.",
 	"import_account_error_ambiguous_auto": "You have several accounts for this bank. Choose the one this statement belongs to.",
-	"import_error_line_one_contradicts": "Line 1 has a date in one date column (“{dateCell}”) but not in another (“{otherCell}”), so it is neither a heading row nor a transaction. Correct line 1, then choose the file again.",
+	"import_error_line_one_contradicts": "Line {line} has a date in one date column (“{dateCell}”) but not in another (“{otherCell}”), so it is neither a heading row nor a transaction. Correct line {line}, then choose the file again.",
 	"import_error_ambiguous_date_order": "We can't tell how to read this file's dates: day first or month first. Confirm the reading before importing.",
 	"import_error_ambiguous_account_column": "We can't tell whether this file covers one account or several. Confirm before importing.",
 	"import_error_account_column_unanswerable": "The \"{header}\" column might name more than one account, and this screen can't confirm it. Edit or remove it, or split the file by account, before importing.",

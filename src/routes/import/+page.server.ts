@@ -623,6 +623,8 @@ export const actions: Actions = {
 				return fail(400, {
 					answers: kept,
 					error: m.import_error_line_one_contradicts({
+						// The record's own line: the reader drops blank lines, so the first record can sit lower.
+						line: importData.rows[0]?.line ?? 1,
 						dateCell: refusalCellValue(cells[lineOne.dateColumn] ?? ''),
 						otherCell: refusalCellValue(cells[lineOne.otherColumn] ?? '')
 					})

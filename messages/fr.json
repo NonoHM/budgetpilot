@@ -1716,7 +1716,7 @@
 	"import_account_option_detail_many": "···{fragment} · {count} transactions",
 	"import_account_error_archived": "Ce compte est archivé. Choisissez un autre compte pour ce relevé.",
 	"import_account_error_ambiguous_auto": "Vous avez plusieurs comptes pour cette banque. Choisissez celui de ce relevé.",
-	"import_error_line_one_contradicts": "La ligne 1 contient une date dans une colonne de dates (« {dateCell} ») mais pas dans une autre (« {otherCell} ») : ce n’est ni une ligne d’en-têtes ni une opération. Corrigez la ligne 1, puis choisissez de nouveau le fichier.",
+	"import_error_line_one_contradicts": "La ligne {line} contient une date dans une colonne de dates (« {dateCell} ») mais pas dans une autre (« {otherCell} ») : ce n’est ni une ligne d’en-têtes ni une opération. Corrigez la ligne {line}, puis choisissez de nouveau le fichier.",
 	"import_error_ambiguous_date_order": "Nous ne savons pas comment lire les dates de ce fichier : jour en premier ou mois en premier. Confirmez la lecture avant d'importer.",
 	"import_error_ambiguous_account_column": "Nous ne savons pas si ce fichier concerne un seul compte ou plusieurs. Confirmez avant d'importer.",
 	"import_error_account_column_unanswerable": "La colonne « {header} » pourrait indiquer plusieurs comptes, et cet écran ne peut pas le confirmer. Modifiez-la, retirez-la, ou séparez le fichier par compte avant d'importer.",

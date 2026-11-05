@@ -1839,9 +1839,35 @@ describe('/import actions', () => {
 			)) as unknown as { data: { error?: string; designation?: unknown } };
 
 			expect(result.data.error).toBe(
-				m.import_error_line_one_contradicts({ dateCell: '2026-06-01', otherCell: 'Valeur' })
+				m.import_error_line_one_contradicts({
+					line: 1,
+					dateCell: '2026-06-01',
+					otherCell: 'Valeur'
+				})
 			);
 			expect(result.data.designation).toBeUndefined();
+		});
+
+		// The file reader drops blank lines and keeps each record's real line number, so a file that
+		// opens on an empty line has its first record on line 2: the sentence must send the reader
+		// there, not to the blank line (contradiction pass on the code, F2).
+		it('names the physical line of the first record in that refusal', async () => {
+			const result = (await runImportWithFile(
+				[
+					'',
+					'2026-06-01,Valeur,CB A,-10.00',
+					'2026-06-02,2026-06-02,CB B,-20.00',
+					'2026-06-03,2026-06-03,CB C,-30.00'
+				].join('\n')
+			)) as unknown as { data: { error?: string } };
+
+			expect(result.data.error).toBe(
+				m.import_error_line_one_contradicts({
+					line: 2,
+					dateCell: '2026-06-01',
+					otherCell: 'Valeur'
+				})
+			);
 		});
 
 		it('names the expected date form beside the value that was rejected', async () => {
