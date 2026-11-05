@@ -13,10 +13,10 @@ rule matcher does not, so it reports matches the rule will never make. -->
 
 # What renders
 
-Invoke `frontend-design:frontend-design` and `ui-ux-pro-max` before changing what a component or
-a route puts on screen. Neither can carry a `paths` trigger of its own — one is a plugin skill and
-the other is user-scope, so its frontmatter would fire in every repository on this machine. This
-rule is the trigger.
+Invoke `frontend-design:frontend-design`, `ui-ux-pro-max`, `impeccable` and `design-taste-frontend`
+before changing what a component or a route puts on screen. None can carry a `paths` trigger of its
+own — the first is a plugin skill and the others are user-scope, so their frontmatter would fire in
+every repository on this machine. This rule is the trigger.
 
 Not for a change that alters no markup and no style: a prop rename, a moved import, a comment.
 
@@ -29,6 +29,12 @@ The order: any process skill first, then those two, then the design, then the co
   the screen must show. Published text names it only as « a private Claude Design canvas ». Plates
   and canvases live outside the repository: without them, build from
   `docs/reference/design-referential.md` and ask in the PR for a design review of the new screen.
+- **Before the PR opens, critique the built screens** with `impeccable` (its `critique`, both
+  assessments) and `design-taste-frontend` (its app-screen review), on the walk's screenshots at 390
+  and 1280 in every shipped language. The question is the member's: can someone who reads nothing
+  tell what to do, and does each line say something the row beside it does not? Done when the PR
+  body lists each finding with its fix or the issue it was filed as. #1278 is what a screen shipped
+  without this cost.
 - **Every string is essential.** The fewest words that say what the server knows and the reader
   needs, checked against AGENTS.md « Writing a sentence for the interface ». Three lines at most at
   390 px. Reuse a key before adding one.

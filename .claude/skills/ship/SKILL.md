@@ -27,6 +27,7 @@ The owner pasted this order into 23 sessions; a line left out of the report is a
 - [ ] Every standard cited through `cite`; research written to docs/superpowers/ before quoting
 - [ ] Docs touched: Diátaxis type kept; every changed sentence checked against Google and Microsoft, read at the source (`.claude/rules/docs.md`)
 - [ ] Screen moved: `walk` at 390 and 1280; chantier end: blind test and clumsy-user pentest
+- [ ] Screen moved: `impeccable` critique and `design-taste-frontend` review on the walk's shots, every language (`.claude/rules/ui.md`); findings in the PR body
 - [ ] Out of scope below the bar: filed with a milestone, not folded in
 - [ ] Promises ledger empty (step 9)
 - [ ] Closing block (step 11)
