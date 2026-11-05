@@ -81,7 +81,8 @@ export function designationFactsAsDetected(
  * For an offer produced by a REMEMBERED mapping that read nothing: the member's own answer is on
  * record, so detection must not seed different columns that one press would save over it. Actual
  * Budget orders it the same way, the saved `csv-mappings` before any guess (#352, research.md).
- * Only the detected answer: under « données » `columnProposals` designates nothing to withdraw.
+ * Only the detected answer, the one a remembered mapping was made under (line 1 as headers). Under
+ * « données » `columnProposals` designates only the currency (#1213), which no stored mapping carries.
  */
 export function withoutDesignations<T extends ReturnType<typeof designationFactsAsDetected>>(
 	facts: T

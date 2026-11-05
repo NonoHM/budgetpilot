@@ -138,6 +138,7 @@
 		accounts = [],
 		initialAccountId = null,
 		initialDateOrder = null,
+		initialCurrencyDeclined = false,
 		accountHint = null,
 		accountHintAboutFile = false,
 		accountPrefill = '',
@@ -169,6 +170,8 @@
 		 * Captured once, like `initialAssignment`: this screen owns the answer from arrival.
 		 */
 		initialDateOrder?: DateOrder | null;
+		/** #1213: the member's earlier « Aucune colonne devise », on a reopened screen. Captured once. */
+		initialCurrencyDeclined?: boolean;
 		/** State 3b: per role, the remembered header that is gone from this file. */
 		lostHeaders?: Partial<Record<MappingRole, string>>;
 		submitting?: boolean;
@@ -369,7 +372,11 @@
 	// owns the assignment from that moment. A reactive read would make the user's designations
 	// disappear whenever the parent re-derived its detection result.
 	// svelte-ignore state_referenced_locally
-	let assignment = $state<RoleAssignment>({ ...initialAssignment });
+	// A screen that reads line 1 as headers holds no currency (#1213): a reopen can carry one in, and
+	// hidden it was still counted and labelled as the Currency column (code pass A, node 11).
+	let assignment = $state<RoleAssignment>(
+		file.detectedHeaderRow ? { ...initialAssignment, currency: null } : { ...initialAssignment }
+	);
 	/** Transient, and deliberately not stored: it describes the last gesture, not the file. */
 	let vacated = $state<Partial<Record<DesignationRole, DesignationRole>>>({});
 	let openRole = $state<DesignationRole | null>(null);
@@ -390,7 +397,8 @@
 	// THE ONLY READ OF THE GUESS in this component, and from here on the state is the DECLARATION.
 	let hasHeaderRow = $state(file.detectedHeaderRow);
 	/** #1213: « Aucune colonne devise » was chosen. Cleared by designating a currency column. */
-	let currencyDeclined = $state(false);
+	// svelte-ignore state_referenced_locally
+	let currencyDeclined = $state(initialCurrencyDeclined);
 
 	/**
 	 * #1213: THE CURRENCY ROLE FOLLOWS THE ANSWER ABOUT LINE 1. Offered only while line 1 is data,

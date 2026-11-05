@@ -1,5 +1,5 @@
 import { importColumnCells } from './columnDateState';
-import { isCurrencyCodeCell } from './currencyDeclaration';
+import { currencyOfCell, isCurrencyCodeCell } from './currencyDeclaration';
 import type { ColumnMappingInput } from './mapping/model';
 import type { ParsedCsvRow } from './types';
 
@@ -18,7 +18,10 @@ import type { ParsedCsvRow } from './types';
  */
 export function currencyCodeColumns(rows: ParsedCsvRow[]): number[] {
 	return importColumnCells(rows, false).flatMap((cells, index) => {
-		const filled = cells.filter((cell) => cell.trim() !== '');
+		// Blank as the declaration reads blank (`currencyOfCell`), invisible characters included: a
+		// zero-width space counted as filled hid the column, and its rows were stored in the account's
+		// currency (#1213 code pass A, finding 2).
+		const filled = cells.filter((cell) => currencyOfCell(cell) !== null);
 		return filled.length > 0 && filled.every(isCurrencyCodeCell) ? [index] : [];
 	});
 }

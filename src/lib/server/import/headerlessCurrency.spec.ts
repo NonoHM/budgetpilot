@@ -4,7 +4,7 @@ import { columnProposals } from './columnProposals';
 import type { ParsedCsvRow } from './types';
 
 function rowsOf(...lines: string[][]): ParsedCsvRow[] {
-	return lines.map((cells, index) => ({ cells, lineNumber: index + 1 }) as ParsedCsvRow);
+	return lines.map((cells, index) => ({ cells, lineNumber: index + 1 }) as unknown as ParsedCsvRow);
 }
 
 describe('currencyCodeColumns (#1213)', () => {

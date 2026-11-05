@@ -235,6 +235,21 @@ describe('#1213: a headerless file declares its currency through a designated co
 		expect(await storedCurrencies(userId)).toEqual(['EUR', 'EUR']);
 	});
 
+	/**
+	 * Code pass A, finding 2: a cell holding only a zero-width space is BLANK, as `currencyOfCell`
+	 * reads it. Counted as filled, it hid the column from the detector and the rows were stored EUR.
+	 * Built with `fromCharCode` so the source carries no invisible character.
+	 */
+	it('a zero-width-space cell is blank, so the column is still asked', async () => {
+		expect.assertions(2);
+		const { userId, eurId } = await seedUser('zero-width');
+		const zeroWidth = String.fromCharCode(0x200b);
+		const text = ['2026-06-01;CB A;-10.00;USD', `2026-06-02;CB B;-20.00;${zeroWidth}`].join('\n');
+		const asked = await postColumns(userId, headerless(text, eurId));
+		expect(await storedCurrencies(userId)).toEqual([]);
+		expect(asked.data?.error).toBe(m.import_columns_error_currency_unanswered({ count: 4 }));
+	});
+
 	/** A header row is still read by its names: `currencyIndex` is not read there at all. */
 	it('a file with a header row ignores currencyIndex', async () => {
 		expect.assertions(2);

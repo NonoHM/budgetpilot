@@ -1099,6 +1099,7 @@
 			// confirmed reading for the second, and the server records a decision for the second and
 			// a default for the first.
 			dateOrder: null,
+			currencyDeclined: false,
 			// What the SERVER worked out about which account this statement belongs to. Null when the
 			// payload carried none, which the screen reads as « ask ».
 			account: designation.account ?? null,
@@ -1282,6 +1283,8 @@
 			// as `hasHeaderRow`, which travels inside the view: declining must not cost the answer,
 			// or the one screen built to stop the application guessing asks again and then guesses.
 			dateOrder: carried.repost.dateOrder,
+			// #1213, the same leg: a decline that did not come back was prefilled over on reopen.
+			currencyDeclined: carried.repost.currencyDeclined,
 			// Carried back WITH the user's choice, so declining reopens the screen the way they left
 			// it rather than the way resolution guessed it.
 			account: carried.repost.account,

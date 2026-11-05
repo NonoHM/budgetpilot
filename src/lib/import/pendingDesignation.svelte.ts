@@ -52,6 +52,11 @@ export interface PendingDesignation {
 	 */
 	dateOrder: DateOrder | null;
 	/**
+	 * #1213: « Aucune colonne devise » was answered, carried like `dateOrder` so a reopened screen
+	 * shows the decline rather than prefilling the detected column over it. False on the way in.
+	 */
+	currencyDeclined: boolean;
+	/**
 	 * The accounts this statement could belong to, and which one the server worked out.
 	 *
 	 * Carried for the same reason `initialAssignment` is: it is what the SERVER derived from the

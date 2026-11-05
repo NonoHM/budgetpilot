@@ -302,7 +302,8 @@
 					setPendingDesignation({
 						...pending,
 						initialAssignment: result.assignment,
-						dateOrder: result.dateOrder
+						dateOrder: result.dateOrder,
+						currencyDeclined: result.currencyDeclined
 					});
 					setPendingCollision({
 						// Built by `buildCollisionRepost`, which is where the mapping is asserted: this
@@ -357,7 +358,8 @@
 					setPendingDesignation({
 						...pending,
 						initialAssignment: result.assignment,
-						dateOrder: result.dateOrder
+						dateOrder: result.dateOrder,
+						currencyDeclined: result.currencyDeclined
 					});
 				} else {
 					clearPendingDesignation();
@@ -427,6 +429,7 @@
 			<ColumnDesignationScreen
 				file={pending.view}
 				initialDateOrder={pending.dateOrder}
+				initialCurrencyDeclined={pending.currencyDeclined}
 				accounts={accountOffer.options}
 				initialAccountId={accountOffer.chosenId}
 				accountHint={accountOffer.hint}

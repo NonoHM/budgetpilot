@@ -98,6 +98,7 @@ beforeEach(async () => {
 		view: VIEW,
 		initialAssignment: COMPLETE,
 		dateOrder: null,
+		currencyDeclined: false,
 		account: {
 			options: [
 				{

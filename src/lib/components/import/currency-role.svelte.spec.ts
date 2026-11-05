@@ -119,4 +119,61 @@ describe('#1213: the Currency role', () => {
 			currencyDeclined: true
 		});
 	});
+
+	/**
+	 * Code pass B: a REOPENED screen (duplicate dialog declined, rows-failed revisit) arrives already
+	 * headerless with the member's earlier answer. A decline must come back as a decline: prefilling
+	 * the detected column over it posted the reverse of what the member said.
+	 */
+	it('a reopened screen keeps a decline rather than prefilling over it', async () => {
+		expect.assertions(1);
+		await page.viewport(1280, 900);
+		const submissions: Array<Record<string, unknown>> = [];
+		await render(ColumnDesignationScreen, {
+			file: {
+				...FILE,
+				...FILE.otherHeaderRowFacts,
+				detectedHeaderRow: false,
+				rowCount: 3,
+				otherHeaderRowFacts: undefined
+			},
+			initialAssignment: ASSIGNMENT,
+			initialCurrencyDeclined: true,
+			accounts: [
+				{ id: 'account-1', name: 'Compte courant', discriminant: '', transactionCount: 0 }
+			],
+			initialAccountId: 'account-1',
+			onSubmit: (result: Record<string, unknown>) => submissions.push(result)
+		} as never);
+		await submit();
+		expect(submissions[0]).toMatchObject({
+			assignment: { currency: null },
+			currencyDeclined: true
+		});
+	});
+
+	/**
+	 * Code pass A, node 11: a rows-failed reopen can arrive read as headers with a currency still in
+	 * the assignment. Hidden, it was still counted and labelled as Currency. Line 1 as headers holds
+	 * no currency, so the screen starts without one.
+	 */
+	it('drops a currency carried into a screen that reads line 1 as headers', async () => {
+		expect.assertions(1);
+		await page.viewport(1280, 900);
+		const submissions: Array<Record<string, unknown>> = [];
+		await render(ColumnDesignationScreen, {
+			file: FILE,
+			initialAssignment: { ...ASSIGNMENT, currency: 3 },
+			accounts: [
+				{ id: 'account-1', name: 'Compte courant', discriminant: '', transactionCount: 0 }
+			],
+			initialAccountId: 'account-1',
+			onSubmit: (result: Record<string, unknown>) => submissions.push(result)
+		} as never);
+		await page
+			.getByRole('button', { name: m.import_columns_submit_many({ count: 2 }) })
+			.first()
+			.click();
+		expect(submissions[0]).toMatchObject({ assignment: { currency: null } });
+	});
 });
