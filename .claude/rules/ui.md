@@ -13,14 +13,16 @@ rule matcher does not, so it reports matches the rule will never make. -->
 
 # What renders
 
-Invoke `frontend-design:frontend-design` and `ui-ux-pro-max` before changing what a component or
-a route puts on screen. Neither can carry a `paths` trigger of its own — one is a plugin skill and
-the other is user-scope, so its frontmatter would fire in every repository on this machine. This
-rule is the trigger.
+Invoke `impeccable` before changing what a component or a route puts on screen: it loads
+`PRODUCT.md` and `DESIGN.md`, shapes the change, and critiques it before the PR. Add
+`emil-design-eng` only when the change adds or alters motion, a gesture, or a press or open/close
+transition. One skill per job: these two replaced four (#1278 found the others repeated
+`impeccable`'s findings or returned nothing for an app screen). Both are user-scope, so a `paths`
+field on either would fire in every repository on this machine; this rule is the trigger.
 
 Not for a change that alters no markup and no style: a prop rename, a moved import, a comment.
 
-The order: any process skill first, then those two, then the design, then the code.
+The order: any process skill first, then `impeccable`, then the design, then the code.
 
 - **A screen no plate section draws is designed on a Claude Design canvas before it is built**: a new
   composition, a new state, a changed visible line. Where a plate section rules the screen, cite it
@@ -29,6 +31,11 @@ The order: any process skill first, then those two, then the design, then the co
   the screen must show. Published text names it only as « a private Claude Design canvas ». Plates
   and canvases live outside the repository: without them, build from
   `docs/reference/design-referential.md` and ask in the PR for a design review of the new screen.
+- **Before the PR opens, critique the built screens** with `impeccable`'s `critique` (both
+  assessments), on the walk's screenshots at 390 and 1280 in every shipped language. The question
+  is the member's: can someone who reads nothing tell what to do, and does each line say something
+  the row beside it does not? Done when the PR body lists each finding with its fix or the issue it
+  was filed as. #1278 is what a screen shipped without this cost.
 - **Every string is essential.** The fewest words that say what the server knows and the reader
   needs, checked against AGENTS.md « Writing a sentence for the interface ». Three lines at most at
   390 px. Reuse a key before adding one.
