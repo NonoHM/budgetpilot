@@ -124,7 +124,9 @@ export function accountAnswerFor(
 	if (resolution.rank === 2) {
 		return {
 			accountId: shown(resolution.accountId),
-			hint: m.import_account_hint_unknown(),
+			// #1207: the file's own account column named it. It used to say « First statement in this
+			// format » under an account the file had just supplied, which misstates where it came from.
+			hint: m.import_account_hint_from_file_column(),
 			aboutTheFile: false
 		};
 	}

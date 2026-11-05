@@ -448,6 +448,7 @@
 					: null}
 				onCreateAccount={createAccount}
 				initialAssignment={pending.initialAssignment}
+				remembered={pending.remembered ?? null}
 				{submitting}
 				{wide}
 				replaces={pending.correction && pending.correction.namedAt !== ''

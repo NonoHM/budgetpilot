@@ -75,6 +75,7 @@
 	<ColumnDesignationScreen
 		file={data.file}
 		initialAssignment={data.assignment}
+		remembered={{ assignment: data.assignment, layers: data.layers }}
 		readOnly
 		modifyAsksForFile
 		recapCaption={caption}

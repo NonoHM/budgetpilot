@@ -35,6 +35,7 @@
 	// note at the call site.
 	import Button from '$lib/components/Button.svelte';
 	import ColumnPicker from './ColumnPicker.svelte';
+	import { rowProvenance, type DesignationLayer } from '$lib/domain/designationLayer';
 	import AccountRow from './AccountRow.svelte';
 	import AccountPicker, { type AccountPickerOption } from './AccountPicker.svelte';
 	import CreateAccountSheet from './CreateAccountSheet.svelte';
@@ -143,12 +144,23 @@
 		accountHintAboutFile = false,
 		accountPrefill = '',
 		declaredCurrency = null,
+		remembered = null,
 		onCreateAccount,
 		onCancel,
 		onModify,
 		onSubmit
 	}: {
 		file: DesignationFile;
+		/**
+		 * #1207: the correspondance this screen reopens, where it reopens one (the correction and the
+		 * recap): each role's column under this file and the layer stored with it, read on the server
+		 * through `storedLayers`. A row still holding that column says « Remembered » and what it was
+		 * kept from. Null on a fresh file, where detection's own proposals label the rows.
+		 */
+		remembered?: {
+			assignment: RoleAssignment;
+			layers: Partial<Record<MappingRole, DesignationLayer | null>>;
+		} | null;
 		/**
 		 * What detection already worked out. The screen OWNS the assignment from here on, because
 		 * every state that matters (the move, the vacated row, the recount) is a consequence of one
@@ -881,6 +893,28 @@
 		return hasHeaderRow ? (file.headers[index] ?? null) : null;
 	}
 
+	/**
+	 * #1207: the line under one row, computed from facts the server already sent (its proposals under
+	 * the current header answer, its whole-column date states, the remembered layers). The member's
+	 * change removes it, because `rowProvenance` compares the row with what was detected or kept.
+	 */
+	function provenanceOf(role: DesignationRole) {
+		const index = assignment[role];
+		const kept =
+			remembered && role !== 'currency'
+				? { index: remembered.assignment[role], layer: remembered.layers[role] ?? null }
+				: null;
+		return rowProvenance({
+			role,
+			current: index,
+			detected: effectiveFile.proposals?.designated[role] ?? null,
+			remembered: kept,
+			hasHeaderRow,
+			header: headerOf(role) ?? undefined,
+			dateState: index === null ? undefined : (effectiveFile.dateStates?.[index] ?? undefined)
+		});
+	}
+
 	function sampleOf(role: DesignationRole): string {
 		const index = assignment[role];
 		if (index === null) return '';
@@ -1286,6 +1320,7 @@
 						candidateCount={candidateCounts[role]}
 						vacatedBy={vacated[role]}
 						lostHeader={role === 'currency' ? undefined : lostHeaders[role]}
+						provenance={provenanceOf(role)}
 						{...role === 'date'
 							? {
 									interpretation: dateInterpretation,

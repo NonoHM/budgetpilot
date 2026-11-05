@@ -51,6 +51,8 @@
 		type DesignationFile,
 		type RoleAssignment
 	} from '$lib/domain/columnDesignation';
+	import type { DesignationLayer } from '$lib/domain/designationLayer';
+	import type { MappingRole } from '$lib/domain/mappingRoles';
 	import {
 		clearPendingDesignation,
 		setPendingDesignation,
@@ -1036,6 +1038,12 @@
 			? (form.correctingAssignment as RoleAssignment | undefined)
 			: undefined
 	);
+	/** #1207: the layers stored with the correspondance being corrected, beside its assignment. */
+	const correctingLayers = $derived(
+		form && 'correctingLayers' in form
+			? (form.correctingLayers as Partial<Record<MappingRole, DesignationLayer | null>> | undefined)
+			: undefined
+	);
 
 	/**
 	 * The batch this correction replaces, read through the same `in` check.
@@ -1094,6 +1102,10 @@
 			// The member's remembered answer first, then what the file proves (#352, B3), then nothing.
 			initialAssignment:
 				correctingAssignment ?? designation.proposals?.designated ?? EMPTY_ASSIGNMENT,
+			// #1207: drawn as « Remembered » on each row still holding its remembered column.
+			remembered: correctingAssignment
+				? { assignment: correctingAssignment, layers: correctingLayers ?? {} }
+				: null,
 			// NOBODY HAS BEEN ASKED YET, and null says exactly that rather than `day-first`. The two
 			// are different facts: the screen's row carries « Confirmer » for the first and states a
 			// confirmed reading for the second, and the server records a decision for the second and

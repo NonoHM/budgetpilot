@@ -943,3 +943,100 @@ describe('RoleRow.svelte: the Date row speaks the reading in lower case mid-sent
 		});
 	});
 });
+
+/**
+ * #1207 C2b: one line under a prefilled row saying which layer produced its value, `Label · reason`.
+ * The line's PRESENCE decides the extra 18 px (16 compact), as `interpretation` decides line 3.
+ * The label and the reason come from the catalogue through `provenanceText`, never retyped here.
+ */
+describe('RoleRow.svelte: the provenance line (#1207)', () => {
+	const MATCHED = { layer: 'rule', reason: { code: 'header', header: 'Montant' } } as const;
+
+	// Separates « a line is rendered with its label and reason » from « no line ».
+	it('renders the label and the reason, and adds 18 px at 390', async () => {
+		const { provenanceText } = await import('$lib/i18n/provenanceText');
+		const { label, reason } = provenanceText(MATCHED);
+		const { row } = await mount({
+			state: 'designated',
+			columnHeader: 'Montant',
+			sampleValue: '-14,17',
+			provenance: MATCHED
+		});
+		const line = row.querySelector('[data-provenance]') as HTMLElement;
+		expect(line).not.toBeNull();
+		// The raw sentence: the French guillemets carry no-break spaces a normalisation would erase.
+		expect(line.textContent).toBe(`${label} · ${reason}`);
+		expect(row.getBoundingClientRect().height).toBe(86);
+	});
+
+	// Separates the compact track from the 390 track, each asserted absolutely.
+	it('adds 16 px on the compact row, and 18 on an interpreting row', async () => {
+		const { row: compact } = await mount({
+			state: 'designated',
+			compact: true,
+			columnHeader: 'Montant',
+			sampleValue: '-14,17',
+			provenance: MATCHED
+		});
+		expect(compact.getBoundingClientRect().height).toBe(72);
+		const { row: date } = await mount({
+			role: 'date',
+			state: 'designated',
+			columnHeader: 'Date',
+			sampleValue: '06/10/2026',
+			interpretation: null,
+			provenance: { layer: 'file', reason: { code: 'date-order', order: 'day-first' } }
+		});
+		expect(date.getBoundingClientRect().height).toBe(104);
+	});
+
+	// Separates « the reason reaches a screen reader » from « only the eye gets it ».
+	it('describes the row with the line, without the separator', async () => {
+		const { provenanceText } = await import('$lib/i18n/provenanceText');
+		const { label, reason } = provenanceText(MATCHED);
+		await mount({
+			state: 'designated',
+			columnHeader: 'Montant',
+			sampleValue: '-14,17',
+			provenance: MATCHED
+		});
+		await expect
+			.element(page.getByRole('button'))
+			.toHaveAccessibleDescription(`${label}, ${reason}`);
+	});
+
+	// The direction the change is NOT moving in: a row without provenance keeps 68.
+	it('keeps 68 px when there is no line', async () => {
+		const { row } = await mount({
+			state: 'designated',
+			columnHeader: 'Montant',
+			sampleValue: '-14,17',
+			provenance: null
+		});
+		expect(row.querySelector('[data-provenance]')).toBeNull();
+		expect(row.getBoundingClientRect().height).toBe(68);
+	});
+});
+
+describe('RoleRow.svelte: the recap row carries the line too (#1207)', () => {
+	// Separates the read-only recap with a line (83) from one without (64), absolutely.
+	it('is 83 px with a provenance line and 64 without', async () => {
+		const kept = { layer: 'remembered', reason: { code: 'kept', from: 'member' } } as const;
+		const { row } = await mount({
+			state: 'recap',
+			columnHeader: 'Montant',
+			columnIndex: 2,
+			sampleValue: '-14,17',
+			provenance: kept
+		});
+		expect(row.querySelector('[data-provenance]')).not.toBeNull();
+		expect(row.getBoundingClientRect().height).toBe(83);
+		const { row: bare } = await mount({
+			state: 'recap',
+			columnHeader: 'Montant',
+			columnIndex: 2,
+			sampleValue: '-14,17'
+		});
+		expect(bare.getBoundingClientRect().height).toBe(64);
+	});
+});
