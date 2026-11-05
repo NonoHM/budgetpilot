@@ -3,7 +3,8 @@
 	import { resolve } from '$app/paths';
 	import * as m from '$lib/paraglide/messages';
 	import { importWriteFailureLabel } from '$lib/i18n/importWriteLabel';
-	import { MAPPING_ROLES } from '$lib/domain/mappingRoles';
+	import { setDesignationFields } from '$lib/import/designationFields';
+	import { declareHeaderRow } from '$lib/domain/headerRowReading';
 	import type { RoleAssignment } from '$lib/domain/columnDesignation';
 	// TYPE ONLY. See `domain/columnDesignation.ts`: erased before the bundler sees it.
 	import type { DateOrder } from '$lib/server/import/dateOrder';
@@ -182,6 +183,7 @@
 		hasHeaderRow: boolean;
 		dateOrder: DateOrder | null;
 		deleteOldImport: boolean;
+		currencyDeclined: boolean;
 	}) {
 		if (!pending || !formEl) return;
 		submitting = true;
@@ -209,12 +211,7 @@
 		// post the four characters `null`, and posting a default would record the application's
 		// guess as the user's decision. See #639.
 		if (result.dateOrder) data.set('dateOrder', result.dateOrder);
-		for (const role of MAPPING_ROLES) {
-			const index = result.assignment[role];
-			// Indices, never names. The server resolves them against ITS own header list, so a name
-			// posted from here would be a string it has to re-derive anyway.
-			if (index !== null) data.set(`${role}Index`, String(index));
-		}
+		setDesignationFields(data, result);
 		// The batch this correction replaces, posted only when the user consented on the screen that
 		// is submitting. `result.deleteOldImport` and NOT a field of `pending`: Planche 5c moved the
 		// question into the designation footer, so the answer is the one just given rather than an
@@ -305,8 +302,12 @@
 					// reopens.
 					setPendingDesignation({
 						...pending,
+						// With the answer about line 1, as the revisit below: browser Back from the dialog
+						// reopens THIS write, and detection's view read « line 1 is data » as headers.
+						view: declareHeaderRow(pending.view, result.hasHeaderRow),
 						initialAssignment: result.assignment,
-						dateOrder: result.dateOrder
+						dateOrder: result.dateOrder,
+						currencyDeclined: result.currencyDeclined
 					});
 					setPendingCollision({
 						// Built by `buildCollisionRepost`, which is where the mapping is asserted: this
@@ -360,8 +361,13 @@
 					// reopens.
 					setPendingDesignation({
 						...pending,
+						// The view MOVES WITH the answer about line 1, as the duplicate dialog's leg does
+						// (`buildCollisionRepost`): reusing detection's view reopened « line 1 is data » as
+						// headers, and the next import read that transaction as a header.
+						view: declareHeaderRow(pending.view, result.hasHeaderRow),
 						initialAssignment: result.assignment,
-						dateOrder: result.dateOrder
+						dateOrder: result.dateOrder,
+						currencyDeclined: result.currencyDeclined
 					});
 				} else {
 					clearPendingDesignation();
@@ -431,6 +437,7 @@
 			<ColumnDesignationScreen
 				file={pending.view}
 				initialDateOrder={pending.dateOrder}
+				initialCurrencyDeclined={pending.currencyDeclined}
 				accounts={accountOffer.options}
 				initialAccountId={accountOffer.chosenId}
 				accountHint={accountOffer.hint}

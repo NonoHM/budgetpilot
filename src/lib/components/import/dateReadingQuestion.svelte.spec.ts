@@ -116,7 +116,13 @@ const ISO = {
 	]
 };
 
-const DATE_DESIGNATED: RoleAssignment = { date: 0, label: 1, amount: 2, category: null };
+const DATE_DESIGNATED: RoleAssignment = {
+	date: 0,
+	label: 1,
+	amount: 2,
+	category: null,
+	currency: null
+};
 
 const ACCOUNTS = [
 	{ id: 'account-1', name: 'BP · Compte courant', discriminant: '4417', transactionCount: 128 }

@@ -45,6 +45,7 @@ import type { ImportSummaryResult } from '$lib/domain/importSummary';
 import { readAccountDisplayName } from '$lib/server/accounts/service';
 import { logReferenceRefused } from '$lib/server/logging/authz';
 import { logSensitiveDelete } from '$lib/server/logging/data';
+import { currencyCodeColumns, readCurrencyAnswer } from '$lib/server/import/headerlessCurrency';
 
 /**
  * The import the designation screen submits, and the ONE place its choices become facts.
@@ -148,6 +149,36 @@ export const actions: Actions = {
 			return fail(400, { error: m.import_columns_error_invalid_designation() });
 		}
 
+		/**
+		 * #1213, THE CURRENCY OF A HEADERLESS FILE. A file with a header row declares by name and
+		 * never reads this field. A headerless one has no names, so its currency is the column the
+		 * member designated, or the account's when they said « No currency column ».
+		 *
+		 * And when nobody answered while a column reads as currency codes, the door ASKS rather than
+		 * filing the rows under the account's currency (owner ruling, options 3 and 2). This is the
+		 * control: the screen prefills the role from the same detector, but a post that skips it is
+		 * asked here. Only the Currency role answers (a code column given to Category is still asked),
+		 * and one answer covers every detected column: both decided in the PR, reversible.
+		 */
+		let currencyIndex: number | undefined;
+		if (!hasHeaderRow) {
+			const answer = readCurrencyAnswer(formData.get('currencyIndex'), resolved.mapping);
+			if (answer.kind === 'invalid')
+				return fail(400, { error: m.import_columns_error_invalid_designation() });
+			if (answer.kind === 'designated') currencyIndex = answer.index;
+			if (answer.kind === 'absent') {
+				const { dateIndex, labelIndex, amountIndex } = resolved.mapping;
+				const unanswered = currencyCodeColumns(importData.rows).find(
+					(index) => index !== dateIndex && index !== labelIndex && index !== amountIndex
+				);
+				if (unanswered !== undefined)
+					return fail(400, {
+						error: m.import_columns_error_currency_unanswered({ count: unanswered + 1 }),
+						keepDesignation: true
+					});
+			}
+		}
+
 		const categorizationRules = await prisma.categorizationRule.findMany({
 			where: { userId: user.id, active: true },
 			select: { id: true, pattern: true, targetCategory: true, type: true, active: true },
@@ -162,6 +193,7 @@ export const actions: Actions = {
 			// the parser consumed row 0 as a header on a file that has none, losing one
 			// transaction per import in silence. See `server/import/headerlessFile.spec.ts`.
 			hasHeaderRow,
+			currencyIndex,
 			// The user's answer, carried into the PARSE. Without it the parser re-derived the order
 			// and settled an ambiguous column with the application default, so a user who chose
 			// « Mois puis jour » read `4 mars 2026` on the row and the import stored `2026-04-03`.

@@ -12,14 +12,20 @@ import {
 	type RoleAssignment
 } from './columnDesignation';
 
-const FULL: RoleAssignment = { date: 0, label: 1, amount: 2, category: 3 };
+const FULL: RoleAssignment = { date: 0, label: 1, amount: 2, category: 3, currency: null };
 
 describe('missing roles are named in ROW ORDER, never counted', () => {
 	it('lists them in the order the rows are drawn, not in the order they went missing', () => {
 		// The plate requires « Il reste la date et le montant » rather than « 2 colonnes manquent ».
 		// Naming them in a different order than the rows are drawn in makes the reader hunt, so the
 		// order is asserted rather than the membership: a set comparison cannot see an order.
-		const assignment: RoleAssignment = { date: null, label: 1, amount: null, category: null };
+		const assignment: RoleAssignment = {
+			date: null,
+			label: 1,
+			amount: null,
+			category: null,
+			currency: null
+		};
 
 		expect(missingRequiredRoles(assignment)).toStrictEqual(['date', 'amount']);
 	});
@@ -29,7 +35,7 @@ describe('missing roles are named in ROW ORDER, never counted', () => {
 		// count `n sur 3` and the sentence beside it would disagree about what is required.
 		expect(missingRequiredRoles(EMPTY_ASSIGNMENT)).toStrictEqual(['date', 'label', 'amount']);
 		expect(missingRequiredRoles(FULL)).toStrictEqual([]);
-		expect(designatedRequiredCount({ ...FULL, category: null })).toBe(3);
+		expect(designatedRequiredCount({ ...FULL, category: null, currency: null })).toBe(3);
 	});
 });
 
@@ -37,7 +43,7 @@ describe('the ignored-column count, which is the figure state 2 shows', () => {
 	it('counts DISTINCT column indices rather than roles', () => {
 		// Counting roles gives the same answer today, because two roles may not share a column, and
 		// would go quietly wrong the moment that changes. The fixture makes the two disagree.
-		const shared: RoleAssignment = { date: 0, label: 1, amount: 2, category: 1 };
+		const shared: RoleAssignment = { date: 0, label: 1, amount: 2, category: 1, currency: null };
 
 		expect(ignoredColumnCount(shared, 15)).toBe(12);
 		expect(ignoredColumnCount(FULL, 15)).toBe(11);
@@ -45,7 +51,7 @@ describe('the ignored-column count, which is the figure state 2 shows', () => {
 
 	it('is 11 of 15 with a category and 12 without, which is the plate own pair', () => {
 		expect(ignoredColumnCount(FULL, 15)).toBe(11);
-		expect(ignoredColumnCount({ ...FULL, category: null }, 15)).toBe(12);
+		expect(ignoredColumnCount({ ...FULL, category: null, currency: null }, 15)).toBe(12);
 	});
 
 	it('never goes negative on a file with fewer columns than roles', () => {
@@ -131,9 +137,9 @@ describe('the page state is derived, so it cannot disagree with the assignment',
 	it('is complete without a category, because the category is optional', () => {
 		// The `3 sur 3` that has to explain why there are four rows. If this returned `partial`, the
 		// optional row would be required in fact while being labelled optional on screen.
-		expect(pageStateOf({ assignment: { ...FULL, category: null }, columnCount: 15 })).toBe(
-			'complete'
-		);
+		expect(
+			pageStateOf({ assignment: { ...FULL, category: null, currency: null }, columnCount: 15 })
+		).toBe('complete');
 	});
 
 	it('refuses a file with fewer than three columns BEFORE anything else', () => {
@@ -167,7 +173,7 @@ describe('canImport reads the three columns, never the state name', () => {
 	it('is true exactly when the three required roles hold a column', () => {
 		expect(canImport(EMPTY_ASSIGNMENT, 15)).toBe(false);
 		expect(canImport({ ...FULL, amount: null }, 15)).toBe(false);
-		expect(canImport({ ...FULL, category: null }, 15)).toBe(true);
+		expect(canImport({ ...FULL, category: null, currency: null }, 15)).toBe(true);
 		expect(canImport(FULL, 15)).toBe(true);
 	});
 

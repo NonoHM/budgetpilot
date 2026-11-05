@@ -4,7 +4,12 @@
 // code into the client bundle, and this repository has one expensive instance of a domain module
 // reaching across that line and failing at container startup after every gate had passed.
 import type { ColumnDateState } from '$lib/server/import/columnDateState';
-import { MAPPING_ROLES, REQUIRED_MAPPING_ROLES, type MappingRole } from './mappingRoles';
+import {
+	DESIGNATION_ROLES,
+	REQUIRED_MAPPING_ROLES,
+	type DesignationRole,
+	type MappingRole
+} from './mappingRoles';
 
 /**
  * The designation screen's state, derived rather than stored.
@@ -96,14 +101,18 @@ type ExactlyClassified = [Exclude<keyof DesignationFile, Classified>] extends [n
 const everyFieldClassified: ExactlyClassified = true;
 void everyFieldClassified;
 
-/** Which column index, if any, each role currently holds. */
-export type RoleAssignment = Readonly<Record<MappingRole, number | null>>;
+/**
+ * Which column index, if any, each role currently holds. `currency` is offered only while line 1
+ * is data (#1213) and is never stored; it is `null` everywhere else.
+ */
+export type RoleAssignment = Readonly<Record<DesignationRole, number | null>>;
 
 export const EMPTY_ASSIGNMENT: RoleAssignment = {
 	date: null,
 	label: null,
 	amount: null,
-	category: null
+	category: null,
+	currency: null
 };
 
 /**
@@ -114,7 +123,7 @@ export const EMPTY_ASSIGNMENT: RoleAssignment = {
  */
 export interface ColumnProposals {
 	designated: RoleAssignment;
-	candidates: Readonly<Record<MappingRole, readonly number[]>>;
+	candidates: Readonly<Record<DesignationRole, readonly number[]>>;
 }
 
 export interface DesignationFile {
@@ -347,7 +356,7 @@ export function designatedRequiredCount(assignment: RoleAssignment): number {
  */
 export function ignoredColumnCount(assignment: RoleAssignment, columnCount: number): number {
 	const used = new Set<number>();
-	for (const role of MAPPING_ROLES) {
+	for (const role of DESIGNATION_ROLES) {
 		const index = assignment[role];
 		if (index !== null) used.add(index);
 	}
@@ -361,8 +370,11 @@ export function ignoredColumnCount(assignment: RoleAssignment, columnCount: numb
  * is unambiguous today because `validateColumnMapping` refuses two roles sharing a column, and the
  * refusal is enforced on the server rather than only here.
  */
-export function roleHolding(assignment: RoleAssignment, columnIndex: number): MappingRole | null {
-	return MAPPING_ROLES.find((role) => assignment[role] === columnIndex) ?? null;
+export function roleHolding(
+	assignment: RoleAssignment,
+	columnIndex: number
+): DesignationRole | null {
+	return DESIGNATION_ROLES.find((role) => assignment[role] === columnIndex) ?? null;
 }
 
 /**
@@ -374,12 +386,14 @@ export function roleHolding(assignment: RoleAssignment, columnIndex: number): Ma
  */
 export function isUnavailableFor(
 	assignment: RoleAssignment,
-	role: MappingRole,
+	role: DesignationRole,
 	columnIndex: number
 ): boolean {
-	if (role !== 'category') return false;
+	// The two optional roles. Currency too may not take a required role's column: the door refuses
+	// it (`readCurrencyAnswer`), so the screen must not offer it.
+	if (role !== 'category' && role !== 'currency') return false;
 	const holder = roleHolding(assignment, columnIndex);
-	return holder !== null && holder !== 'category';
+	return holder !== null && holder !== 'category' && holder !== 'currency';
 }
 
 /**
@@ -394,11 +408,11 @@ export function isUnavailableFor(
  */
 export function designate(
 	assignment: RoleAssignment,
-	role: MappingRole,
+	role: DesignationRole,
 	columnIndex: number
-): { assignment: RoleAssignment; vacated: MappingRole | null } {
+): { assignment: RoleAssignment; vacated: DesignationRole | null } {
 	const previousHolder = roleHolding(assignment, columnIndex);
-	const next: Record<MappingRole, number | null> = { ...assignment };
+	const next: Record<DesignationRole, number | null> = { ...assignment };
 
 	if (previousHolder !== null && previousHolder !== role) {
 		next[previousHolder] = null;

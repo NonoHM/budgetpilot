@@ -50,8 +50,8 @@ const PAYLOAD: Required<DesignationFile> = {
 		{ dayFirst: [null, null, null], monthFirst: [null, null, null] }
 	],
 	proposals: {
-		designated: { date: 0, label: null, amount: 2, category: null },
-		candidates: { date: [0], label: [], amount: [2], category: [] }
+		designated: { date: 0, label: null, amount: 2, category: null, currency: null },
+		candidates: { date: [0], label: [], amount: [2], category: [], currency: [] }
 	},
 	rowCount: 66,
 	detectedHeaderRow: true,
@@ -78,8 +78,8 @@ const PAYLOAD: Required<DesignationFile> = {
 			{ dayFirst: [null, null, null], monthFirst: [null, null, null] }
 		],
 		proposals: {
-			designated: { date: null, label: null, amount: null, category: null },
-			candidates: { date: [0], label: [], amount: [2], category: [] }
+			designated: { date: null, label: null, amount: null, category: null, currency: null },
+			candidates: { date: [0], label: [], amount: [2], category: [], currency: [] }
 		}
 	}
 };

@@ -1,5 +1,5 @@
 import * as m from '$lib/paraglide/messages';
-import type { MappingRole } from './mappingRoles';
+import type { DesignationRole, MappingRole } from './mappingRoles';
 import {
 	designatedRequiredCount,
 	ignoredColumnCount,
@@ -125,7 +125,7 @@ export function bannerFor(input: {
 	assignment: RoleAssignment;
 	columnCount: number;
 	/** Per role, how many columns detection thinks could carry it. Only >= 2 reaches the copy. */
-	candidateCounts?: Partial<Record<MappingRole, number>>;
+	candidateCounts?: Partial<Record<DesignationRole, number>>;
 	/** State 3b only: how many remembered columns are gone from the new file. */
 	lostCount?: number;
 }): BannerCopy {

@@ -38,8 +38,8 @@ const AS_DATA: DesignationRowFacts = {
 	],
 	// Line 1's « Zone » cells parse as neither a date nor an amount, so nothing is proposed.
 	proposals: {
-		designated: { date: null, label: null, amount: null, category: null },
-		candidates: { date: [], label: [], amount: [], category: [] }
+		designated: { date: null, label: null, amount: null, category: null, currency: null },
+		candidates: { date: [], label: [], amount: [], category: [], currency: [] }
 	}
 };
 
@@ -62,8 +62,8 @@ const FILE: DesignationFile = {
 	],
 	// No header is an alias, so the value shapes propose and nothing is designated.
 	proposals: {
-		designated: { date: null, label: null, amount: null, category: null },
-		candidates: { date: [0], label: [], amount: [3], category: [] }
+		designated: { date: null, label: null, amount: null, category: null, currency: null },
+		candidates: { date: [0], label: [], amount: [3], category: [], currency: [] }
 	},
 	rowCount: 2,
 	detectedHeaderRow: true,

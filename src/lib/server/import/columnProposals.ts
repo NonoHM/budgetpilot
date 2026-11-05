@@ -1,5 +1,6 @@
 import { EMPTY_ASSIGNMENT, type ColumnProposals } from '$lib/domain/columnDesignation';
-import type { MappingRole } from '$lib/domain/mappingRoles';
+import type { DesignationRole } from '$lib/domain/mappingRoles';
+import { currencyCodeColumns } from './headerlessCurrency';
 import { columnDateState, importColumnCells } from './columnDateState';
 import {
 	REQUIRED_COLUMN_ALIASES,
@@ -52,12 +53,13 @@ export function columnProposals(rows: ParsedCsvRow[], hasHeaderRow: boolean): Co
 		? (normalizeParsedRows(rows)[0]?.cells ?? []).map((header) => foldComparableHeader(header))
 		: [];
 
-	const designated: Record<MappingRole, number | null> = { ...EMPTY_ASSIGNMENT };
-	const candidates: Record<MappingRole, number[]> = {
+	const designated: Record<DesignationRole, number | null> = { ...EMPTY_ASSIGNMENT };
+	const candidates: Record<DesignationRole, number[]> = {
 		date: [],
 		label: [],
 		amount: [],
-		category: []
+		category: [],
+		currency: []
 	};
 
 	for (const role of REQUIRED_ROLES) {
@@ -71,6 +73,14 @@ export function columnProposals(rows: ParsedCsvRow[], hasHeaderRow: boolean): Co
 			named.length > 0 || role === 'label'
 				? named
 				: columns.flatMap((_, index) => (valid(index) ? [index] : []));
+	}
+
+	// #1213: a headerless file's currency, from the detector `/import/columns` asks from. One column
+	// is designated, so the member confirms it in one action; two or more are proposed and neither
+	// designated, the rule above. With a header row the names declare it and nothing is proposed.
+	if (!hasHeaderRow) {
+		candidates.currency = currencyCodeColumns(rows);
+		if (candidates.currency.length === 1) designated.currency = candidates.currency[0];
 	}
 
 	return { designated, candidates };

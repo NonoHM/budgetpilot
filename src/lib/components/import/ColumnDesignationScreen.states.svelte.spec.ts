@@ -67,7 +67,7 @@ const FILE = {
 	detectedHeaderRow: true
 };
 
-const COMPLETE: RoleAssignment = { date: 0, label: 2, amount: 3, category: 4 };
+const COMPLETE: RoleAssignment = { date: 0, label: 2, amount: 3, category: 4, currency: null };
 
 /** FILE with detection's candidates on it, which is where the screen reads them since #352. */
 function withCandidates(candidates: Partial<Record<keyof RoleAssignment, number[]>>) {
@@ -212,7 +212,9 @@ describe('owner ruling 1, in the Categorie picker', () => {
 	it('offers a required role column as unchoosable, naming its holder', async () => {
 		// Categorie may not take a column a required role holds. The card STAYS, carrying the reason,
 		// because removing it would send the user hunting for a column visibly in their own file.
-		const { row } = await mount({ initialAssignment: { ...COMPLETE, category: null } });
+		const { row } = await mount({
+			initialAssignment: { ...COMPLETE, category: null, currency: null }
+		});
 
 		await row(/^Catégorie, aucune colonne désignée/).click();
 		const held = page.getByRole('option', { name: /^Libelle\./ });
@@ -235,7 +237,9 @@ describe('owner ruling 1, in the Categorie picker', () => {
 		// `textContent` synchronously. Measured 2026-08-15: the synchronous read passed under the
 		// break that lifts the ruling entirely, because Svelte flushes on a microtask and the read
 		// happened first. It was reading the DOM before the defect could reach it.
-		const { row } = await mount({ initialAssignment: { ...COMPLETE, category: null } });
+		const { row } = await mount({
+			initialAssignment: { ...COMPLETE, category: null, currency: null }
+		});
 
 		await row(/^Catégorie, aucune colonne désignée/).click();
 		((await page.getByRole('option', { name: /^Libelle\./ }).element()) as HTMLElement).click();

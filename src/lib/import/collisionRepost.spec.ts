@@ -52,6 +52,7 @@ const ANSWER = {
 	// The USER's answer, and it disagrees.
 	hasHeaderRow: false,
 	deleteOldImport: true,
+	currencyDeclined: false,
 	accountId: 'account-chosen',
 	// Unanswered on the way in, so each test states the reading it is about rather than inheriting
 	// one. The default is the value that makes a dropped field invisible, so it is never the fixture.
@@ -149,6 +150,17 @@ describe('buildCollisionRepost', () => {
 	 */
 	it('carries an unanswered question as unanswered', () => {
 		expect(buildCollisionRepost(PENDING, { ...ANSWER, dateOrder: null }).dateOrder).toBeNull();
+	});
+
+	/**
+	 * #1213: the decline survives the dialog, and so does its absence. Separates « No currency column
+	 * was answered » from « nobody answered », which the door asks about from a dialog with no screen.
+	 */
+	it('carries a currency decline, and its absence', () => {
+		expect(
+			buildCollisionRepost(PENDING, { ...ANSWER, currencyDeclined: true }).currencyDeclined
+		).toBe(true);
+		expect(buildCollisionRepost(PENDING, ANSWER).currencyDeclined).toBe(false);
 	});
 
 	it('carries no correction when the run is not one', () => {

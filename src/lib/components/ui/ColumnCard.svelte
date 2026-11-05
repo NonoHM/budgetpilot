@@ -1,6 +1,6 @@
 <script lang="ts">
 	import * as m from '$lib/paraglide/messages';
-	import type { MappingRole } from '$lib/domain/mappingRoles';
+	import type { DesignationRole } from '$lib/domain/mappingRoles';
 	import { roleLabel, spokenExample } from '$lib/domain/columnMappingLabels';
 
 	/**
@@ -153,10 +153,10 @@
 		 * this prop the sentence cannot be written, and a card would have to guess or omit the half
 		 * that carries the meaning.
 		 */
-		forRole: MappingRole;
+		forRole: DesignationRole;
 		marker?: 'none' | 'proposed' | 'designated' | 'heldBy';
 		/** Required when `marker` is `heldBy`: naming the other role is the whole point of the marker. */
-		heldByRole?: MappingRole;
+		heldByRole?: DesignationRole;
 		/** The header exists but is empty or undecodable. The raw bytes are still shown, never repaired. */
 		headerUnreadable?: boolean;
 		/** All three examples parse as numbers or dates. See the docstring: this is a predicate, not a style. */

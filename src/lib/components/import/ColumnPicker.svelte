@@ -1,6 +1,6 @@
 <script lang="ts">
 	import * as m from '$lib/paraglide/messages';
-	import type { MappingRole } from '$lib/domain/mappingRoles';
+	import type { DesignationRole } from '$lib/domain/mappingRoles';
 	import {
 		isSamplePadding,
 		isUnavailableFor,
@@ -125,6 +125,7 @@
 		onChooseReading,
 		onChangeColumn,
 		onChangeOrder,
+		onDecline,
 		onClose,
 		onToggleHeaderRow
 	}: {
@@ -141,7 +142,7 @@
 		 * around it changes.
 		 */
 		variant?: 'sheet' | 'anchored';
-		role: MappingRole;
+		role: DesignationRole;
 		file: ResolvedDesignationFile;
 		assignment: RoleAssignment;
 		/** Column indices detection proposes for this role. Never includes the designated one. */
@@ -182,6 +183,12 @@
 		 */
 		onChangeOrder?: () => void;
 		/**
+		 * Step 1's foot TapLink for the Currency role, « Aucune colonne devise » (#1213): the member's
+		 * answer that no column is the currency, posted as `currencyIndex=none`. ABSENT when omitted,
+		 * like `onChangeOrder`; the screen supplies it for the Currency row only.
+		 */
+		onDecline?: () => void;
+		/**
 		 * Fired for every close this component originates that is not already an `onChoose`: the
 		 * header's close control, and `BottomSheet`'s own Escape/backdrop/swipe.
 		 *
@@ -217,11 +224,12 @@
 		panelMaxHeight = Math.max(240, Math.round(window.innerHeight - box.top - 16));
 	});
 
-	const TITLES: Record<MappingRole, () => string> = {
+	const TITLES: Record<DesignationRole, () => string> = {
 		date: m.import_columns_picker_title_date,
 		label: m.import_columns_picker_title_label,
 		amount: m.import_columns_picker_title_amount,
-		category: m.import_columns_picker_title_category
+		category: m.import_columns_picker_title_category,
+		currency: m.import_columns_picker_title_currency
 	};
 
 	const designatedIndex = $derived(assignment[role]);
@@ -636,6 +644,15 @@
 		<div class="px-5 pt-2">
 			<div class="flex h-12 items-center">
 				<TapLink onclick={onChangeOrder}>{m.import_designate_date_change_order()}</TapLink>
+			</div>
+		</div>
+	{/if}
+
+	<!-- #1213: the Currency row's answer « none », out of the listbox for the same reason. -->
+	{#if onDecline && step === 'columns'}
+		<div class="px-5 pt-2">
+			<div class="flex h-12 items-center">
+				<TapLink onclick={onDecline}>{m.import_columns_picker_no_currency()}</TapLink>
 			</div>
 		</div>
 	{/if}

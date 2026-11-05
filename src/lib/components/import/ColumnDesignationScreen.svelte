@@ -1,12 +1,18 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
 	import * as m from '$lib/paraglide/messages';
-	import { MAPPING_ROLES, type MappingRole } from '$lib/domain/mappingRoles';
+	import {
+		DESIGNATION_ROLES,
+		MAPPING_ROLES,
+		type DesignationRole,
+		type MappingRole
+	} from '$lib/domain/mappingRoles';
 	import {
 		EMPTY_ASSIGNMENT,
 		canImport,
 		designate,
 		pageStateOf,
+		roleHolding,
 		type DesignationFile,
 		type RoleAssignment
 	} from '$lib/domain/columnDesignation';
@@ -132,6 +138,7 @@
 		accounts = [],
 		initialAccountId = null,
 		initialDateOrder = null,
+		initialCurrencyDeclined = false,
 		accountHint = null,
 		accountHintAboutFile = false,
 		accountPrefill = '',
@@ -163,6 +170,8 @@
 		 * Captured once, like `initialAssignment`: this screen owns the answer from arrival.
 		 */
 		initialDateOrder?: DateOrder | null;
+		/** #1213: the member's earlier « Aucune colonne devise », on a reopened screen. Captured once. */
+		initialCurrencyDeclined?: boolean;
 		/** State 3b: per role, the remembered header that is gone from this file. */
 		lostHeaders?: Partial<Record<MappingRole, string>>;
 		submitting?: boolean;
@@ -349,6 +358,12 @@
 			 * DELETE those two must not be the same value.
 			 */
 			deleteOldImport: boolean;
+			/**
+			 * #1213: the member said no column is the currency (« Aucune colonne devise »), posted as
+			 * `currencyIndex=none`. Distinct from `assignment.currency === null`, which is « nobody
+			 * answered » and makes the door ask about a column of codes.
+			 */
+			currencyDeclined: boolean;
 		}) => void;
 	} = $props();
 
@@ -357,10 +372,14 @@
 	// owns the assignment from that moment. A reactive read would make the user's designations
 	// disappear whenever the parent re-derived its detection result.
 	// svelte-ignore state_referenced_locally
-	let assignment = $state<RoleAssignment>({ ...initialAssignment });
+	// A screen that reads line 1 as headers holds no currency (#1213): a reopen can carry one in, and
+	// hidden it was still counted and labelled as the Currency column (code pass A, node 11).
+	let assignment = $state<RoleAssignment>(
+		file.detectedHeaderRow ? { ...initialAssignment, currency: null } : { ...initialAssignment }
+	);
 	/** Transient, and deliberately not stored: it describes the last gesture, not the file. */
-	let vacated = $state<Partial<Record<MappingRole, MappingRole>>>({});
-	let openRole = $state<MappingRole | null>(null);
+	let vacated = $state<Partial<Record<DesignationRole, DesignationRole>>>({});
+	let openRole = $state<DesignationRole | null>(null);
 	let remember = $state(true);
 	/**
 	 * Planche 5c, pre-ticked by owner ruling.
@@ -377,6 +396,44 @@
 	// svelte-ignore state_referenced_locally
 	// THE ONLY READ OF THE GUESS in this component, and from here on the state is the DECLARATION.
 	let hasHeaderRow = $state(file.detectedHeaderRow);
+	/** #1213: « Aucune colonne devise » was chosen. Cleared by designating a currency column. */
+	// svelte-ignore state_referenced_locally
+	let currencyDeclined = $state(initialCurrencyDeclined);
+
+	/**
+	 * #1213: THE CURRENCY ROLE FOLLOWS THE ANSWER ABOUT LINE 1. Offered only while line 1 is data,
+	 * because a header row declares its currency by name; so it is cleared when line 1 becomes
+	 * headers, and prefilled from detection when it becomes data, so a single column of codes is
+	 * confirmed in one action rather than designated by hand. Never over a decline or a choice.
+	 */
+	function prefillCurrency() {
+		const proposed = readWithHeaderRow(file, false).proposals?.designated.currency ?? null;
+		if (proposed === null || currencyDeclined || assignment.currency !== null) return;
+		if (roleHolding(assignment, proposed) !== null) return;
+		assignment = { ...assignment, currency: proposed };
+	}
+
+	function toggleHeaderRow() {
+		hasHeaderRow = !hasHeaderRow;
+		if (hasHeaderRow) assignment = { ...assignment, currency: null };
+		else prefillCurrency();
+	}
+
+	function declineCurrency() {
+		assignment = { ...assignment, currency: null };
+		currencyDeclined = true;
+		vacated = {};
+		openRole = null;
+		pickerStep = 'columns';
+	}
+
+	// A file that arrives already read as headerless (a reopened screen) is prefilled the same way.
+	// The initial value only, like `assignment`: from here the toggle owns it.
+	// svelte-ignore state_referenced_locally
+	if (!hasHeaderRow) prefillCurrency();
+
+	/** The rows drawn: the stored four, plus Currency while line 1 is data (#1213). */
+	const shownRoles = $derived(hasHeaderRow ? MAPPING_ROLES : DESIGNATION_ROLES);
 	// svelte-ignore state_referenced_locally
 	let recap = $state(readOnly);
 	let announcement = $state('');
@@ -410,13 +467,13 @@
 	 * file rather than handed in, so no door can open this screen with a hardcoded nothing. Two or
 	 * more make a row « n colonnes possibles »: detection never picks between equals.
 	 */
-	const candidates = $derived<Partial<Record<MappingRole, readonly number[]>>>(
+	const candidates = $derived<Partial<Record<DesignationRole, readonly number[]>>>(
 		effectiveFile.proposals?.candidates ?? {}
 	);
 	const candidateCounts = $derived(
 		Object.fromEntries(
 			Object.entries(candidates).map(([role, list]) => [role, list?.length ?? 0])
-		) as Partial<Record<MappingRole, number>>
+		) as Partial<Record<DesignationRole, number>>
 	);
 	const pageState = $derived(
 		pageStateOf({ assignment, columnCount, submitting, signaturePartial })
@@ -468,7 +525,7 @@
 	 * without readings for the column `ColumnPicker` falls back to step 1 anyway, so deferring the
 	 * close would hold the sheet open on the question it cannot render.
 	 */
-	function defersToReading(role: MappingRole, columnIndex: number): boolean {
+	function defersToReading(role: DesignationRole, columnIndex: number): boolean {
 		return (
 			role === 'date' &&
 			(effectiveFile.dateStates?.[columnIndex] ?? null) === 'ambiguous' &&
@@ -506,6 +563,7 @@
 		const deferred = defersToReading(role, columnIndex);
 		const moved = designate(assignment, role, columnIndex);
 		assignment = moved.assignment;
+		if (role === 'currency') currencyDeclined = false;
 		vacated = moved.vacated ? { [moved.vacated]: role } : {};
 
 		// THE CLOSE IS DEFERRED BY EXACTLY ONE QUESTION, and only here. Plate 7b: choosing an
@@ -610,7 +668,7 @@
 	 * sentence stood here before the link existed; the way back was then only re-choosing the same
 	 * column, which re-asks (see `choose`).
 	 */
-	function openPicker(role: MappingRole) {
+	function openPicker(role: DesignationRole) {
 		pickerStep =
 			role === 'date' && dateState === 'ambiguous' && !dateAnswered && dateReadingPairs
 				? 'reading'
@@ -804,17 +862,17 @@
 	);
 
 	function stateOf(
-		role: MappingRole
+		role: DesignationRole
 	): 'empty' | 'ambiguous' | 'designated' | 'vacated' | 'missingColumn' | 'recap' {
 		if (recap) return 'recap';
-		if (lostHeaders[role]) return 'missingColumn';
+		if (role !== 'currency' && lostHeaders[role]) return 'missingColumn';
 		if (vacated[role]) return 'vacated';
 		if (assignment[role] !== null) return 'designated';
 		if ((candidateCounts[role] ?? 0) >= 2) return 'ambiguous';
 		return 'empty';
 	}
 
-	function headerOf(role: MappingRole): string | null {
+	function headerOf(role: DesignationRole): string | null {
 		const index = assignment[role];
 		if (index === null) return null;
 		// Null when the first line is data: the row then names the column by position, which is what
@@ -823,7 +881,7 @@
 		return hasHeaderRow ? (file.headers[index] ?? null) : null;
 	}
 
-	function sampleOf(role: MappingRole): string {
+	function sampleOf(role: DesignationRole): string {
 		const index = assignment[role];
 		if (index === null) return '';
 		// The FIRST data row, for every role, and that is load bearing rather than convenient: it is
@@ -1056,7 +1114,8 @@
 			remember,
 			hasHeaderRow,
 			dateOrder: answeredReading,
-			deleteOldImport: false
+			deleteOldImport: false,
+			currencyDeclined: !hasHeaderRow && currencyDeclined
 		});
 	}
 
@@ -1071,7 +1130,8 @@
 			remember,
 			hasHeaderRow,
 			dateOrder: answeredReading,
-			deleteOldImport: true
+			deleteOldImport: true,
+			currencyDeclined: !hasHeaderRow && currencyDeclined
 		});
 	}
 
@@ -1096,8 +1156,9 @@
 		still fits because deleting the « Format du fichier » row had freed 62. A correction does
 		not: see the docstring's body budget.
 
-		Not inside the designation card, and not a fifth `RoleRow`. `RoleRow` takes a `MappingRole`,
-		a CLOSED union of four the plate verifies as a constraint (« Quatre rôles, ensemble fermé.
+		Not inside the designation card, and not a role `RoleRow`. `RoleRow` takes a `DesignationRole`:
+		the stored four, plus Currency on a headerless file only, by owner ruling on #1213. The four are
+		a CLOSED union the plate verifies as a constraint (« Quatre rôles, ensemble fermé.
 		Tenu. Le compte n'est pas un rôle : il est lu avant la correspondance, comme le préambule
 		d'un fichier »). Widening that union to carry an account would break the one thing that check
 		exists to protect, and a column named « Compte » in an export must still appear in the
@@ -1198,7 +1259,7 @@
 			{m.import_columns_section_label()}
 		</p>
 		<div class="mt-2.5">
-			{#each MAPPING_ROLES as role, position (role)}
+			{#each shownRoles as role, position (role)}
 				{#if role === 'category' && !recap}
 					<!-- A STRONGER separator than the hairlines above it, with 12 px either side. It
 					     is what marks the optional role as a different kind of thing, and it is why
@@ -1216,7 +1277,7 @@
 					<RoleRow
 						{role}
 						state={stateOf(role)}
-						optional={role === 'category'}
+						optional={role === 'category' || role === 'currency'}
 						compact={wide}
 						expanded={openRole === role}
 						columnHeader={headerOf(role)}
@@ -1224,7 +1285,7 @@
 						sampleValue={sampleOf(role)}
 						candidateCount={candidateCounts[role]}
 						vacatedBy={vacated[role]}
-						lostHeader={lostHeaders[role]}
+						lostHeader={role === 'currency' ? undefined : lostHeaders[role]}
 						{...role === 'date'
 							? {
 									interpretation: dateInterpretation,
@@ -1250,8 +1311,9 @@
 							onChangeOrder={role === 'date' && canChangeOrder
 								? () => (pickerStep = 'reading')
 								: undefined}
+							onDecline={role === 'currency' ? declineCurrency : undefined}
 							onClose={closeWithoutChoosing}
-							onToggleHeaderRow={() => (hasHeaderRow = !hasHeaderRow)}
+							onToggleHeaderRow={toggleHeaderRow}
 						/>
 					{/if}
 				</div>
@@ -1741,7 +1803,7 @@
 		role={openRole}
 		file={effectiveFile}
 		{assignment}
-		candidates={candidates[openRole as MappingRole] ?? []}
+		candidates={candidates[openRole as DesignationRole] ?? []}
 		step={openRole === 'date' ? pickerStep : 'columns'}
 		dateReading={openRole === 'date' ? (dateReadingPairs ?? undefined) : undefined}
 		onChoose={choose}
@@ -1750,8 +1812,9 @@
 		onChangeOrder={openRole === 'date' && canChangeOrder
 			? () => (pickerStep = 'reading')
 			: undefined}
+		onDecline={openRole === 'currency' ? declineCurrency : undefined}
 		onClose={closeWithoutChoosing}
-		onToggleHeaderRow={() => (hasHeaderRow = !hasHeaderRow)}
+		onToggleHeaderRow={toggleHeaderRow}
 	/>
 {/if}
 

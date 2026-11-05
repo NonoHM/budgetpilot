@@ -54,7 +54,7 @@ const FILE = {
 	detectedHeaderRow: true
 };
 
-const COMPLETE: RoleAssignment = { date: 0, label: 2, amount: 3, category: 4 };
+const COMPLETE: RoleAssignment = { date: 0, label: 2, amount: 3, category: 4, currency: null };
 
 async function mount(props: Record<string, unknown> = {}) {
 	const { container } = await render(ColumnDesignationScreen, {
@@ -369,7 +369,7 @@ describe('Lacune B: the preview table is drawn, and only when there are real row
 	it('lays the columns out at the plate figures rather than at whatever fitted', async () => {
 		const { container } = await mount({
 			file: { ...FILE, previewRows: [HEADERS.map((_, index) => `r0c${index}`)] },
-			initialAssignment: { date: 0, label: 1, amount: 2, category: null }
+			initialAssignment: { date: 0, label: 1, amount: 2, category: null, currency: null }
 		});
 
 		const ths = [...container.querySelectorAll('thead th')] as HTMLElement[];
@@ -395,7 +395,7 @@ describe('Lacune B: the preview table is drawn, and only when there are real row
 	it('leaves the columns in the file order rather than pulling designated ones left', async () => {
 		const { container } = await mount({
 			file: { ...FILE, previewRows: [HEADERS.map((_, index) => `r0c${index}`)] },
-			initialAssignment: { date: 3, label: 1, amount: 5, category: null }
+			initialAssignment: { date: 3, label: 1, amount: 5, category: null, currency: null }
 		});
 
 		const cells = [...container.querySelectorAll('tbody tr:first-child td')].map((td) =>

@@ -42,7 +42,7 @@ const FILE: DesignationFile = {
 	detectedHeaderRow: true
 };
 
-const ASSIGNMENT: RoleAssignment = { date: 0, label: 1, amount: 2, category: null };
+const ASSIGNMENT: RoleAssignment = { date: 0, label: 1, amount: 2, category: null, currency: null };
 
 async function open() {
 	const submissions: Array<Record<string, unknown>> = [];

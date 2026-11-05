@@ -51,6 +51,7 @@ describe('the columns page after the currency refusal', () => {
 			view: VIEW,
 			initialAssignment: COMPLETE,
 			dateOrder: null,
+			currencyDeclined: false,
 			account: {
 				options: [
 					{
@@ -115,6 +116,7 @@ describe('the remembered account after the currency refusal (second contradictio
 			view: VIEW,
 			initialAssignment: COMPLETE,
 			dateOrder: null,
+			currencyDeclined: false,
 			account: {
 				options: [
 					{

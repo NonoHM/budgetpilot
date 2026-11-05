@@ -1,5 +1,5 @@
 import * as m from '$lib/paraglide/messages';
-import type { MappingRole } from './mappingRoles';
+import type { DesignationRole } from './mappingRoles';
 
 /**
  * The four role labels, in ONE place, because two components render them and a third will.
@@ -14,15 +14,16 @@ import type { MappingRole } from './mappingRoles';
  * two-predicates-agreeing shape this repository has been caught by: the closed set is closed in one
  * place or it is not closed.
  */
-const ROLE_LABELS: Record<MappingRole, () => string> = {
+const ROLE_LABELS: Record<DesignationRole, () => string> = {
 	date: m.import_columns_role_date,
 	label: m.import_columns_role_label,
 	amount: m.import_columns_role_amount,
-	category: m.import_columns_role_category
+	category: m.import_columns_role_category,
+	currency: m.import_columns_role_currency
 };
 
 /** Translated row label for a mapping role. The role code itself is never shown. */
-export function roleLabel(role: MappingRole): string {
+export function roleLabel(role: DesignationRole): string {
 	return ROLE_LABELS[role]();
 }
 

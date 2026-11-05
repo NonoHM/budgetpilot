@@ -11,8 +11,8 @@ import { parseRows } from './utils/csv';
  * Every assertion compares the WHOLE result, because a proposal present in the wrong role or present
  * twice satisfies any check written about its presence.
  */
-const NONE = { date: [], label: [], amount: [], category: [] };
-const EMPTY = { date: null, label: null, amount: null, category: null };
+const NONE = { date: [], label: [], amount: [], category: [], currency: [] };
+const EMPTY = { date: null, label: null, amount: null, category: null, currency: null };
 
 function rows(...lines: string[]) {
 	return parseRows(lines.join('\n'));

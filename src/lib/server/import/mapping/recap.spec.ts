@@ -37,7 +37,13 @@ describe('the recap of a mapping remembered by name', () => {
 		});
 
 		expect(view.file.headers).toStrictEqual(['Champ A', 'Champ C', 'Champ D', '']);
-		expect(view.assignment).toStrictEqual({ date: 0, label: 1, amount: 2, category: null });
+		expect(view.assignment).toStrictEqual({
+			date: 0,
+			label: 1,
+			amount: 2,
+			category: null,
+			currency: null
+		});
 		expect(view.file.detectedHeaderRow).toBe(true);
 	});
 
@@ -80,7 +86,8 @@ describe('the recap of a mapping remembered by name', () => {
 			date: 0,
 			label: 1,
 			amount: 2,
-			category: 3
+			category: 3,
+			currency: null
 		});
 		expect(recapDesignation(NAMED, base()).assignment.category).toBeNull();
 	});
@@ -112,7 +119,13 @@ describe('the recap of a mapping remembered by position', () => {
 		});
 
 		expect(view.file.headers).toHaveLength(6);
-		expect(view.assignment).toStrictEqual({ date: 0, label: 3, amount: 5, category: null });
+		expect(view.assignment).toStrictEqual({
+			date: 0,
+			label: 3,
+			amount: 5,
+			category: null,
+			currency: null
+		});
 		expect(view.file.firstRow?.[0]).toBe('04/03/2019');
 		expect(view.file.firstRow?.[3]).toBe('RF00005');
 		expect(view.file.firstRow?.[5]).toBe('-24,90');
@@ -134,7 +147,13 @@ describe('re-opening the correction screen over a real file', () => {
 			'Champ D'
 		]);
 
-		expect(assignment).toStrictEqual({ date: 0, label: 2, amount: 3, category: null });
+		expect(assignment).toStrictEqual({
+			date: 0,
+			label: 2,
+			amount: 3,
+			category: null,
+			currency: null
+		});
 	});
 
 	it('leaves a role empty when its column is gone rather than guessing a neighbour', () => {
@@ -143,7 +162,13 @@ describe('re-opening the correction screen over a real file', () => {
 		// chantier exists to remove.
 		const assignment = designationAssignment(NAMED, ['Champ A', 'Champ B', 'Champ D']);
 
-		expect(assignment).toStrictEqual({ date: 0, label: null, amount: 2, category: null });
+		expect(assignment).toStrictEqual({
+			date: 0,
+			label: null,
+			amount: 2,
+			category: null,
+			currency: null
+		});
 	});
 
 	it('reads a positional mapping from its indices, and refuses one that points past the file', () => {
@@ -162,7 +187,8 @@ describe('re-opening the correction screen over a real file', () => {
 			date: 0,
 			label: 1,
 			amount: null,
-			category: null
+			category: null,
+			currency: null
 		});
 	});
 
@@ -176,7 +202,8 @@ describe('re-opening the correction screen over a real file', () => {
 			date: null,
 			label: null,
 			amount: null,
-			category: null
+			category: null,
+			currency: null
 		});
 	});
 });

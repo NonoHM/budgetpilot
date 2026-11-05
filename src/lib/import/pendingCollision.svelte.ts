@@ -71,6 +71,8 @@ export interface PendingCollision {
 		 * exactly that.
 		 */
 		dateOrder: DateOrder | null;
+		/** #1213: « Aucune colonne devise » was answered. Confirming re-posts it as `none`. */
+		currencyDeclined: boolean;
 		/**
 		 * The correction this run belongs to, when it is one. Carried WHOLE rather than as a batch
 		 * id, and the difference is what the dialog reads.
