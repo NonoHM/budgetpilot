@@ -301,7 +301,53 @@ describe('the designation action and a file with no header row', () => {
 	 * Separates « kept the remembered column » (its stored layer carried forward, `member` here
 	 * although detection also designates it) from « detected » (`rule`).
 	 */
-	it('carries a remembered role layer forward when the member keeps that column', async () => {
+	/**
+	 * #1207 pass A finding 1, at the bar: on a remembered offer the screen withdraws detection
+	 * (#352), so a member who moves a row onto the alias-named column sees no line there. The save
+	 * must not store that choice as a `rule`. Separates « the member chose it on a screen with no
+	 * detection » (member) from « detection proposed it » (rule).
+	 */
+	it('stores the member for a pick made on a remembered screen, even onto the alias column', async () => {
+		expect.assertions(1);
+		const columns = {
+			matchBy: 'name',
+			dateColumn: 'date',
+			labelColumn: 'note',
+			amountColumn: 'amount',
+			categoryColumn: null,
+			dateIndex: null,
+			labelIndex: null,
+			amountIndex: null,
+			categoryIndex: null,
+			columnCount: 4
+		};
+		const { layersKeyOf } = await import('$lib/server/import/mapping/layers');
+		store.readColumnMapping.mockResolvedValueOnce({
+			...columns,
+			dateLayer: 'rule',
+			labelLayer: 'member',
+			amountLayer: 'rule',
+			categoryLayer: null,
+			layersKey: layersKeyOf(columns)
+		});
+		const csv = `date,label,amount,note\n${HEADERLESS.split('\n')
+			.map((line) => `${line},x`)
+			.join('\n')}`;
+
+		await submit(csv, true, { labelIndex: '1' });
+
+		// No correction, so the screen drew blank rows: nothing is carried either (narrow pass).
+		expect(store.saveColumnMapping.mock.calls[0]?.slice(3)).toEqual([
+			{ dateLayer: 'member', labelLayer: 'member', amountLayer: 'member', categoryLayer: null }
+		]);
+	});
+
+	/**
+	 * #1207 narrow pass: a recognised file whose correspondance is partial or lost opens on BLANK
+	 * rows (detection withdrawn, no « Remembered » line). A column picked there is the member's, even
+	 * when it is the one the old row named. Separates « drawn as remembered » from « picked again ».
+	 */
+	it('carries nothing from a remembered row the screen did not draw', async () => {
 		expect.assertions(1);
 		const columns = {
 			matchBy: 'name',
@@ -330,7 +376,7 @@ describe('the designation action and a file with no header row', () => {
 		await submit(WITH_HEADER, true);
 
 		expect(store.saveColumnMapping.mock.calls[0]?.slice(3)).toEqual([
-			{ dateLayer: null, labelLayer: 'member', amountLayer: 'rule', categoryLayer: null }
+			{ dateLayer: 'member', labelLayer: 'member', amountLayer: 'member', categoryLayer: null }
 		]);
 	});
 });
@@ -370,6 +416,91 @@ describe('a corrected import replaces the batch it was launched from', () => {
 		// withholding one. The withholding tests set their own figure.
 		db.prisma.transaction.count.mockResolvedValue(0);
 		deleteBatch.deleteImportBatch.mockResolvedValue(0);
+	});
+
+	/**
+	 * #1207: a CORRECTION draws its rows as « Remembered », so a kept column carries the layer it
+	 * was stored with. The server learns it is a correction of THIS row from the batch it resolves
+	 * under the user, never from a posted flag. Separates « correction of the row read » (carried)
+	 * from « any remembered row » (not carried, the test above in the memorise block).
+	 */
+	it('carries a remembered layer on a correction of the row it read', async () => {
+		expect.assertions(1);
+		const columns = {
+			matchBy: 'name',
+			dateColumn: 'date',
+			labelColumn: 'label',
+			amountColumn: 'amount',
+			categoryColumn: null,
+			dateIndex: null,
+			labelIndex: null,
+			amountIndex: null,
+			categoryIndex: null,
+			columnCount: 3
+		};
+		const { layersKeyOf } = await import('$lib/server/import/mapping/layers');
+		store.readColumnMapping.mockResolvedValueOnce({
+			id: 'mapping-kept',
+			...columns,
+			dateLayer: null,
+			labelLayer: 'member',
+			amountLayer: 'rule',
+			categoryLayer: null,
+			layersKey: layersKeyOf(columns)
+		});
+		db.prisma.importBatch.findFirst.mockResolvedValueOnce({
+			id: 'batch-old',
+			createdAt: new Date('2026-06-30T10:00:00.000Z'),
+			periodStart: new Date('2026-06-01T00:00:00.000Z'),
+			periodEnd: new Date('2026-06-07T00:00:00.000Z'),
+			columnMappingId: 'mapping-kept'
+		} as never);
+
+		await submit(WITH_HEADER, true, { replaceBatchId: 'batch-old' });
+
+		expect(store.saveColumnMapping.mock.calls[0]?.slice(3)).toEqual([
+			{ dateLayer: null, labelLayer: 'member', amountLayer: 'rule', categoryLayer: null }
+		]);
+	});
+
+	// Separates « the batch was read through THIS row » from « any correction » (break F2).
+	it('carries nothing on a correction of a batch read through another row', async () => {
+		expect.assertions(1);
+		const columns = {
+			matchBy: 'name',
+			dateColumn: 'date',
+			labelColumn: 'label',
+			amountColumn: 'amount',
+			categoryColumn: null,
+			dateIndex: null,
+			labelIndex: null,
+			amountIndex: null,
+			categoryIndex: null,
+			columnCount: 3
+		};
+		const { layersKeyOf } = await import('$lib/server/import/mapping/layers');
+		store.readColumnMapping.mockResolvedValueOnce({
+			id: 'mapping-kept',
+			...columns,
+			dateLayer: null,
+			labelLayer: 'member',
+			amountLayer: 'rule',
+			categoryLayer: null,
+			layersKey: layersKeyOf(columns)
+		});
+		db.prisma.importBatch.findFirst.mockResolvedValueOnce({
+			id: 'batch-old',
+			createdAt: new Date('2026-06-30T10:00:00.000Z'),
+			periodStart: new Date('2026-06-01T00:00:00.000Z'),
+			periodEnd: new Date('2026-06-07T00:00:00.000Z'),
+			columnMappingId: 'mapping-other'
+		} as never);
+
+		await submit(WITH_HEADER, true, { replaceBatchId: 'batch-old' });
+
+		expect(store.saveColumnMapping.mock.calls[0]?.slice(3)).toEqual([
+			{ dateLayer: 'member', labelLayer: 'member', amountLayer: 'member', categoryLayer: null }
+		]);
 	});
 
 	it('deletes the named batch AFTER the rows are written', async () => {

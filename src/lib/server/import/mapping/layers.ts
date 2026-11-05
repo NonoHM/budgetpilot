@@ -116,7 +116,9 @@ export function producibleLayers(
 	for (const role of Object.keys(FIELD) as MappingRole[]) {
 		const field = FIELD[role];
 		const value = readStoredLayer(layers[field]);
-		const held = mapping[`${role}Column`] !== null || mapping[`${role}Index`] !== null;
+		// A save writes name mappings only (under a header row), so a position mapping holds no
+		// layer a save could have produced (pass A F3).
+		const held = mapping.matchBy === 'name' && mapping[`${role}Column`] !== null;
 		const allowed =
 			role === 'category' ? value === 'member' : value === 'rule' || value === 'member';
 		out[field] = held && allowed ? value : null;
@@ -133,17 +135,28 @@ export function columnMappingLayers(
 	rows: ParsedCsvRow[],
 	headers: readonly string[],
 	mapping: ColumnMappingInput,
-	remembered: Parameters<typeof storedLayers>[0] | null
+	remembered: Parameters<typeof storedLayers>[0] | null,
+	/**
+	 * The screen drew this row's columns as « Remembered »: a correction of THIS correspondance,
+	 * which the caller establishes from the batch it resolves under the user, never from the form.
+	 * A recognised file whose correspondance is partial or lost opens on blank rows instead, so a
+	 * column picked there is the member's even when the old row named it (narrow pass).
+	 */
+	drawnAsRemembered: boolean
 ): ColumnMappingLayers {
 	const posted = designationAssignment(mapping, headers);
-	const detected = columnProposals(rows, true).designated;
-	const kept = remembered === null ? null : designationAssignment(remembered, headers);
+	// The same proposals the screen showed. Over a remembered correspondance the screen withdraws
+	// detection (#352, `designationFactsAsRemembered`), so a pick there is the member's even when it
+	// lands on the alias-named column; consulting detection here stored it as a rule (pass A F1).
+	const detected = remembered === null ? columnProposals(rows, true).designated : null;
+	const kept =
+		remembered === null || !drawnAsRemembered ? null : designationAssignment(remembered, headers);
 	const keptLayers = remembered === null ? UNKNOWN_LAYERS : storedLayers(remembered);
 	const layers: ColumnMappingLayers = { ...UNKNOWN_LAYERS };
 	for (const role of Object.keys(FIELD) as MappingRole[]) {
 		layers[FIELD[role]] = layerAtSave({
 			posted: posted[role],
-			detected: detected[role],
+			detected: detected === null ? null : detected[role],
 			remembered:
 				kept === null || remembered === null
 					? null

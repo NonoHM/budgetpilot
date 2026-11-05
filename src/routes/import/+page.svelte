@@ -1297,6 +1297,9 @@
 			dateOrder: carried.repost.dateOrder,
 			// #1213, the same leg: a decline that did not come back was prefilled over on reopen.
 			currencyDeclined: carried.repost.currencyDeclined,
+			// #1207 pass B F1: the correction's remembered layers, or the reopened rows lose their
+			// « Remembered » line while the save still stores the layer they were kept from.
+			remembered: carried.repost.remembered,
 			// Carried back WITH the user's choice, so declining reopens the screen the way they left
 			// it rather than the way resolution guessed it.
 			account: carried.repost.account,

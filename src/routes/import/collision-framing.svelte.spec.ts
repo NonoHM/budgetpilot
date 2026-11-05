@@ -95,6 +95,8 @@ function carry(correction: { batchId: string; deleteOldImport: boolean } | null)
 			dateOrder: null,
 			hasHeaderRow: true,
 			currencyDeclined: false,
+			// #1207: a correction's remembered layers, which declining must hand back.
+			remembered: { assignment: ASSIGNMENT, layers: { date: 'rule', label: 'member' } },
 			correction: correction
 				? {
 						mappingId: 'mapping-1',
@@ -211,6 +213,11 @@ describe('declining keeps the designation work', () => {
 
 		const kept = takePendingDesignation();
 		expect(kept?.initialAssignment).toEqual(ASSIGNMENT);
+		// #1207 pass B F1: the « Remembered » lines come back with the answers.
+		expect(kept?.remembered).toEqual({
+			assignment: ASSIGNMENT,
+			layers: { date: 'rule', label: 'member' }
+		});
 		expect(kept?.file.name).toBe('releve (1).csv');
 		expect(kept?.view.headers).toEqual(VIEW.headers);
 		// The field a second attempt cannot do without: losing it would import beside the batch the

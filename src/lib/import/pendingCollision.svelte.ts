@@ -74,6 +74,11 @@ export interface PendingCollision {
 		/** #1213: « Aucune colonne devise » was answered. Confirming re-posts it as `none`. */
 		currencyDeclined: boolean;
 		/**
+		 * #1207: a correction's remembered assignment and layers, DRAWN only, carried so declining
+		 * reopens rows that still say « Remembered ». Never re-posted: the save re-reads the row.
+		 */
+		remembered: PendingDesignation['remembered'] | null;
+		/**
 		 * The correction this run belongs to, when it is one. Carried WHOLE rather than as a batch
 		 * id, and the difference is what the dialog reads.
 		 *

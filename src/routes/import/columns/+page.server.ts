@@ -321,7 +321,10 @@ export const actions: Actions = {
 							id: true,
 							createdAt: true,
 							periodStart: true,
-							periodEnd: true
+							periodEnd: true,
+							// #1207: which correspondance the corrected import was read through, so the
+							// save carries a remembered layer only for a correction of that very row.
+							columnMappingId: true
 						}
 					})
 				: null;
@@ -485,7 +488,13 @@ export const actions: Actions = {
 				user.id,
 				fingerprintFor(headers, resolved.mapping.matchBy),
 				resolved.mapping,
-				columnMappingLayers(importData.rows, headers, resolved.mapping, remembered)
+				columnMappingLayers(
+					importData.rows,
+					headers,
+					resolved.mapping,
+					remembered,
+					replacing !== null && remembered !== null && replacing.columnMappingId === remembered.id
+				)
 			);
 			// A refusal to REMEMBER never refuses the IMPORT: the user asked to import a file, and
 			// the memorisation is a convenience attached to it. The cap is reported and the rows land.

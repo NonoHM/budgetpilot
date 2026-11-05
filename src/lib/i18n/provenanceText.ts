@@ -4,8 +4,9 @@ import type { Provenance } from '$lib/domain/designationLayer';
 /**
  * The words of one provenance line (#1207): the layer's label and the file fact that is its reason.
  * The one place a `Provenance` becomes text, so the screen and the recap cannot word a layer twice.
- * A header cell is the file's own text and reaches here already bounded by the caller
- * (`refusalCellValue`).
+ * A header cell is the file's own text, unbounded and unfiltered for format characters: the same
+ * string the row already prints as its column (`importHeaderCells`). Svelte escapes it; nothing
+ * else here may assume it is safe to store, log or put in a refusal.
  */
 export function provenanceText(provenance: Provenance): { label: string; reason: string } {
 	const label =

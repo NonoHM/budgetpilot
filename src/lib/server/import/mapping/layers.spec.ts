@@ -49,6 +49,26 @@ describe('producibleLayers, what a restore may write (#1207)', () => {
 		).toEqual(UNKNOWN_LAYERS);
 	});
 
+	// Separates a name mapping, which a save writes, from a position one, which no save writes.
+	it('keeps no layer on a position mapping', () => {
+		expect.assertions(1);
+		expect(
+			producibleLayers(
+				{
+					...MAPPING,
+					matchBy: 'position',
+					dateColumn: null,
+					labelColumn: null,
+					amountColumn: null,
+					dateIndex: 0,
+					labelIndex: 1,
+					amountIndex: 2
+				},
+				LAYERS
+			)
+		).toEqual(UNKNOWN_LAYERS);
+	});
+
 	it('never keeps rule on the category, which detection never designates', () => {
 		expect.assertions(1);
 		expect(
