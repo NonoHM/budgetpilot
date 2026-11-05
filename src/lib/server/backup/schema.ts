@@ -1,3 +1,4 @@
+import { DESIGNATION_LAYERS } from '$lib/domain/designationLayer';
 import { isValidCurrencyCode } from '$lib/domain/money';
 import { z } from 'zod';
 import { isStorableYear, TRANSACTION_NATURES } from '$lib/domain/transaction';
@@ -415,7 +416,13 @@ const backupColumnMappingSchema = z
 		amountIndex: z.number().int().nullable(),
 		categoryIndex: z.number().int().nullable(),
 		columnCount: z.number().int(),
-		useCount: z.number().int()
+		useCount: z.number().int(),
+		// #1207. Optional, so a backup written before 1.4 still restores; the closed list is the
+		// allow list, and `producibleLayers` then drops any value the save path cannot produce.
+		dateLayer: z.enum(DESIGNATION_LAYERS).nullable().optional(),
+		labelLayer: z.enum(DESIGNATION_LAYERS).nullable().optional(),
+		amountLayer: z.enum(DESIGNATION_LAYERS).nullable().optional(),
+		categoryLayer: z.enum(DESIGNATION_LAYERS).nullable().optional()
 	})
 	.strict();
 

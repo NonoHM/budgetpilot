@@ -24,6 +24,14 @@ describe('what the account row is given to say', () => {
 		expect(answer.hint).toBe(m.import_account_hint_from_file({ fragment: '4417' }));
 	});
 
+	it('says the file named the account when its account column did (rank 2, #1207)', () => {
+		// SEPARATES: « the file's own account column named it » FROM « nothing known about this
+		// format », which this rank used to say under an account the file had just supplied.
+		const answer = accountAnswerFor({ rank: 2, accountId: 'a1' }, OPTIONS, null);
+		expect(answer.accountId).toBe('a1');
+		expect(answer.hint).toBe(m.import_account_hint_from_file_column());
+	});
+
 	it('states the account when MEMORY named it, with the figures behind the memory', () => {
 		// SEPARATES: « the answer remembered for this identifier, stated with its figures » FROM « a
 		// bare prefill ». The figures are what make the sentence checkable by the user: an answer

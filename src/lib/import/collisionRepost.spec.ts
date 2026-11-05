@@ -163,6 +163,18 @@ describe('buildCollisionRepost', () => {
 		expect(buildCollisionRepost(PENDING, ANSWER).currencyDeclined).toBe(false);
 	});
 
+	// #1207 pass B F1: the correction's remembered layers survive the dialog, or the reopened rows
+	// lose their « Remembered » line while the save still stores the layer they were kept from.
+	it('carries the remembered assignment and layers, and their absence', () => {
+		const remembered = {
+			mappingId: 'mapping-1',
+			assignment: ASSIGNMENT,
+			layers: { date: 'rule', label: 'member' }
+		} as const;
+		expect(buildCollisionRepost({ ...PENDING, remembered }, ANSWER).remembered).toEqual(remembered);
+		expect(buildCollisionRepost(PENDING, ANSWER).remembered).toBeNull();
+	});
+
 	it('carries no correction when the run is not one', () => {
 		const repost = buildCollisionRepost({ ...PENDING, correction: null }, ANSWER);
 

@@ -1,3 +1,4 @@
+import { layersKeyOf, producibleLayers } from '$lib/server/import/mapping/layers';
 import { DEFAULT_CURRENCY, DEFAULT_EXPONENT } from '$lib/domain/money';
 import * as m from '$lib/paraglide/messages';
 import { prisma } from '$lib/server/db';
@@ -380,7 +381,11 @@ export async function restoreBackup(
 					amountIndex: mapping.amountIndex,
 					categoryIndex: mapping.categoryIndex,
 					columnCount: mapping.columnCount,
-					useCount: mapping.useCount
+					useCount: mapping.useCount,
+					// A backup is an uploaded file: its layers are a claim (#1207). Only one the save
+					// path could produce is kept, and the key is this server's own.
+					...producibleLayers(mapping, mapping),
+					layersKey: layersKeyOf(mapping)
 				}
 			});
 		}

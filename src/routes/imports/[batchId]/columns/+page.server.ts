@@ -2,6 +2,7 @@ import { error } from '@sveltejs/kit';
 import { requireUser } from '$lib/server/auth';
 import { prisma } from '$lib/server/db';
 import { recapDesignation } from '$lib/server/import/mapping/recap';
+import { layersByRole, storedLayers } from '$lib/server/import/mapping/layers';
 import { formatCents } from '$lib/domain/budget';
 import { getLocale } from '$lib/paraglide/runtime';
 import type { PageServerLoad } from './$types';
@@ -47,7 +48,12 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 					categoryIndex: true,
 					columnCount: true,
 					createdAt: true,
-					useCount: true
+					useCount: true,
+					dateLayer: true,
+					labelLayer: true,
+					amountLayer: true,
+					categoryLayer: true,
+					layersKey: true
 				}
 			}
 		}
@@ -112,6 +118,9 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 		memorisedAt: batch.columnMapping.createdAt.toISOString(),
 		useCount: batch.columnMapping.useCount,
 		file: recap.file,
-		assignment: recap.assignment
+		assignment: recap.assignment,
+		// #1207: what each role was kept from, through the one reader. Like `assignment`, it is the
+		// correspondance as it is NOW, not as this batch was read (#379).
+		layers: layersByRole(storedLayers(batch.columnMapping))
 	};
 };

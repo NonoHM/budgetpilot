@@ -1,3 +1,4 @@
+import { storedLayers } from '$lib/server/import/mapping/layers';
 import { categorySetBy } from '$lib/domain/categorySetBy';
 import { prisma } from '$lib/server/db';
 import type { BackupExport } from './schema';
@@ -87,7 +88,12 @@ export async function buildBackupExport(userId: string): Promise<BackupExport> {
 				amountIndex: true,
 				categoryIndex: true,
 				columnCount: true,
-				useCount: true
+				useCount: true,
+				dateLayer: true,
+				labelLayer: true,
+				amountLayer: true,
+				categoryLayer: true,
+				layersKey: true
 			}
 		}),
 		prisma.transaction.findMany({
@@ -287,9 +293,13 @@ export async function buildBackupExport(userId: string): Promise<BackupExport> {
 		// only writer is the validated store, so a row carrying anything else is corruption; a cast
 		// would put it in the payload and let the restore refuse it later, on the user's machine,
 		// as a malformed backup. Refusing at export names the row instead.
-		columnMappings: columnMappings.map((mapping) => ({
+		// The layers go out through their one reader (#1207): a layer whose key no longer matches its
+		// columns is exported unknown rather than as a fact. The key itself is not carried; the
+		// restore recomputes it from the columns it writes.
+		columnMappings: columnMappings.map(({ layersKey, ...mapping }) => ({
 			...mapping,
-			matchBy: assertMatchBy(mapping.matchBy, mapping.fingerprint)
+			matchBy: assertMatchBy(mapping.matchBy, mapping.fingerprint),
+			...storedLayers({ ...mapping, layersKey })
 		})),
 		// ALWAYS EMPTY since the memory was keyed on the file's account identifier (#599): a
 		// remembered account is not carried by a backup at all. See `importSourceSignatures` in

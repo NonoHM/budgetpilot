@@ -3,6 +3,8 @@ import type { DesignationFile, RoleAssignment } from '$lib/domain/columnDesignat
 // the bundler sees it, and this module is imported by the browser.
 import type { DateOrder } from '$lib/server/import/dateOrder';
 import type { AccountResolution } from '$lib/server/import/sourceSignature';
+import type { DesignationLayer } from '$lib/domain/designationLayer';
+import type { MappingRole } from '$lib/domain/mappingRoles';
 
 /**
  * The file, held in the BROWSER, between the import screen and the designation screen.
@@ -37,6 +39,18 @@ export interface PendingDesignation {
 	view: DesignationFile;
 	/** What detection worked out, so the screen opens with the unambiguous columns already filled. */
 	initialAssignment: RoleAssignment;
+	/**
+	 * #1207: the correspondance a correction reopens and the layer stored with each role, for the
+	 * rows' « Remembered » line. DRAWN only, like `view`: the save path re-reads the stored row and
+	 * computes the layer it writes, so a tampered value changes a label and nothing stored. Absent
+	 * on a fresh file.
+	 */
+	remembered?: {
+		/** The correspondance reopened, re-posted so the save carries its layers (#1207). */
+		mappingId: string;
+		assignment: RoleAssignment;
+		layers: Partial<Record<MappingRole, DesignationLayer | null>>;
+	} | null;
 	/**
 	 * A READING ALREADY ANSWERED, or null when the question has not been put to anybody.
 	 *

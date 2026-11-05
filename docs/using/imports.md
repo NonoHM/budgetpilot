@@ -74,6 +74,11 @@ The **Account** row is at the top and is usually already filled in. See [which
 account is this statement from?](#which-account-is-this-statement-from) below.
 The rest of this section is about the four column rows.
 
+When the screen fills in a column for you, a grey line under the row says why.
+_Matched_ means the column's name says what it holds, _From the file_ means the
+values prove it, and _Remembered_ means it was used for files like this before. Pick
+another column and the line goes away, because the answer is now yours.
+
 ![The designation screen on a phone: an Account row at the top reading CSV import, then four rows for Date, Label, Amount and Category, each showing the file's own column name and its first value, with the banner reading all three columns are designated, 3 of 3, and the primary reading Import 3 rows](../screenshots/imports/columns-designation-mobile.png)
 
 Tap a row and you get your own file, one card per column, each showing the
@@ -225,6 +230,7 @@ is what it can say:
 | The row says                                                 | What to do                                               |
 | ------------------------------------------------------------ | -------------------------------------------------------- |
 | _IBAN ···4417 read from the file_                            | Nothing. Your bank printed the account number            |
+| _Named in the file’s account column_                         | Nothing. The statement names the account                 |
 | _Remembered, 3 imports since 15 August_                      | Nothing. Files like this went here before                |
 | _First statement in this format_                             | Pick an account. It will be remembered                   |
 | _Two accounts use this format. The file does not say which._ | Pick the right one                                       |

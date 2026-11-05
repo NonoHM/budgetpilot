@@ -75,7 +75,9 @@ const DATA = {
 		rowCount: 30,
 		detectedHeaderRow: true
 	},
-	assignment: { date: 0, label: 1, amount: 2, category: null }
+	assignment: { date: 0, label: 1, amount: 2, category: null },
+	// #1207: what `load` returns beside the assignment, through `storedLayers`.
+	layers: { date: 'rule', label: 'member', amount: null, category: null }
 } as unknown as PageData;
 
 function pageText(): string {
@@ -160,5 +162,25 @@ describe('the memorised-columns page, opened from an import', () => {
 		expect(text).toContain(m.import_columns_recap_column_fact({ column: MEMORISED_COLUMN }));
 		expect(text).toContain(m.import_columns_recap_value_fact({ value: IMPORTED_VALUE }));
 		expect(text).toContain(m.import_columns_recap_modify_note());
+	});
+});
+
+describe('the recap says what each remembered role was kept from (#1207)', () => {
+	// Separates « the stored layer reaches the recap rows » from « dropped at the page », and a
+	// known layer from an unknown one, each through the one place a layer becomes text.
+	it('labels each row by its stored layer', async () => {
+		const { provenanceText } = await import('$lib/i18n/provenanceText');
+		const words = (from: 'file' | 'member' | 'unknown') => {
+			const { label, reason } = provenanceText({
+				layer: 'remembered',
+				reason: { code: 'kept', from }
+			});
+			return `${label} · ${reason}`;
+		};
+		const { container } = await render(Page, { data: DATA });
+		const lines = [...container.querySelectorAll('[data-provenance]')].map(
+			(node) => node.textContent
+		);
+		expect(lines).toEqual([words('file'), words('member'), words('unknown')]);
 	});
 });

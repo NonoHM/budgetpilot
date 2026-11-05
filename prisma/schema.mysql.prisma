@@ -31,6 +31,17 @@ enum CategorySource {
   acceptedSuggestion
 }
 
+/// Which layer of the import onion (#1203) produced a kept column designation (#1207). Written only
+/// by the server from its own computation (`layerAtSave`, domain/designationLayer.ts), never posted.
+/// `model` exists before its producer (B4) so that piece needs no migration.
+enum DesignationLayer {
+  remembered
+  file
+  rule
+  model
+  member
+}
+
 enum TransactionNature {
   income
   spending
@@ -863,6 +874,18 @@ model ColumnMapping {
   /// user who has never seen the designation screen understand what happened to their file.
   useCount       Int           @default(0)
   lastUsedAt     DateTime?
+  /// Which onion layer produced each stored role (#1207), NULL on every mapping written before 1.4
+  /// (read « unknown », never promoted). Written only by `saveColumnMapping` from `layerAtSave` and
+  /// by the backup restore; read through `storedLayers` (mapping/layers.ts). The layer of the COLUMN:
+  /// a detected date column is `rule` (its header), although the screen's line under it names the
+  /// file's proof of its READING (`rowProvenance`). Both read « kept from the file » on reopen.
+  dateLayer      DesignationLayer?
+  labelLayer     DesignationLayer?
+  amountLayer    DesignationLayer?
+  categoryLayer  DesignationLayer?
+  /// SHA-256 of the role columns the four layers were written for (`layersKeyOf`, mapping/layers.ts):
+  /// a writer older than 1.4 moves a column without it, and the layers then read unknown.
+  layersKey      String?
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
   user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)

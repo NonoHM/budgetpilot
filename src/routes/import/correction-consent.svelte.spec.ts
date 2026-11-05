@@ -237,3 +237,27 @@ describe('the consent that travels to the deleting request', () => {
 		expect(takePendingDesignation()?.correction?.batchId).toBe(RESOLVED_BATCH);
 	});
 });
+
+describe('the remembered layers travel to the designation screen (#1207)', () => {
+	// Separates « the correction's stored layers reach the screen » from « dropped at the handoff »,
+	// which would leave every remembered row reading « from an earlier import ».
+	it('carries the assignment and the layers the reply named', async () => {
+		await page.viewport(1280, 800);
+		const layers = { date: 'rule', label: 'member', amount: null, category: null };
+		const rendered = await render(Page, {
+			data: DATA,
+			form: { ...FORM, correctingLayers: layers, correctingMappingId: 'mapping-1' } as never
+		});
+		const section = rendered.container.querySelectorAll('main > section')[0] as HTMLElement;
+		await chooseFile(section);
+		await userEvent.click(
+			page.getByRole('button', { name: m.import_columns_offer() }).first().element() as HTMLElement
+		);
+
+		expect(takePendingDesignation()?.remembered).toEqual({
+			mappingId: 'mapping-1',
+			assignment: ASSIGNMENT,
+			layers
+		});
+	});
+});

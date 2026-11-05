@@ -3,6 +3,8 @@
 	import type { DesignationRole } from '$lib/domain/mappingRoles';
 	import { roleLabel, spokenExample } from '$lib/domain/columnMappingLabels';
 	import Badge from './Badge.svelte';
+	import type { Provenance } from '$lib/domain/designationLayer';
+	import { provenanceText } from '$lib/i18n/provenanceText';
 
 	/**
 	 * One of the four roles, and the answer it currently holds.
@@ -84,6 +86,7 @@
 		interpretation,
 		interpretationConfirmed = false,
 		busy = false,
+		provenance = null,
 		onOpen
 	}: {
 		role: DesignationRole;
@@ -165,8 +168,21 @@
 		 * state, because the plate draws the two rows as one kind.
 		 */
 		busy?: boolean;
+		/**
+		 * #1207: which onion layer produced the value this row holds, or null when the value is the
+		 * member's own. One line, `Label · reason`, under the others. Its PRESENCE adds 18 px (16
+		 * compact), so the row grows when a line exists and shrinks when the member's change removes
+		 * it: that one shift is the cost of a label that disappears on override (IBM Carbon AI label).
+		 */
+		provenance?: Provenance | null;
 		onOpen?: () => void;
 	} = $props();
+
+	// The row's own grammar (« Colonne 1 · valeur »), spaces kept: a mustache, so the formatter cannot
+	// trim them between inline spans.
+	const SEPARATOR = ' · ';
+	const provenanceWords = $derived(provenance ? provenanceText(provenance) : null);
+	const provenanceId = $props.id();
 
 	const name = $derived(roleLabel(role));
 
@@ -243,11 +259,19 @@
 	const heightClass = $derived(
 		compact
 			? isInterpretingRow
-				? 'h-[74px]'
-				: 'h-14'
+				? provenanceWords
+					? 'h-[90px]'
+					: 'h-[74px]'
+				: provenanceWords
+					? 'h-[72px]'
+					: 'h-14'
 			: isInterpretingRow
-				? 'h-[86px]'
-				: 'h-[68px]'
+				? provenanceWords
+					? 'h-[104px]'
+					: 'h-[86px]'
+				: provenanceWords
+					? 'h-[86px]'
+					: 'h-[68px]'
 	);
 	const nameClass = $derived(compact ? 'text-[14px] font-semibold' : 'text-[15px] font-semibold');
 	const answerClass = $derived(compact ? 'text-[12.5px]' : 'text-[13px]');
@@ -270,6 +294,20 @@
 		<path d="M8 6.5v3.2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
 		<circle cx="8" cy="12" r="0.75" fill="currentColor" />
 	</svg>
+{/snippet}
+
+{#snippet provenanceLine()}
+	<!-- One line that truncates: the reason's variable part is a header from the file. The eye reads
+	     `Label · reason`; a screen reader gets the whole of it, untruncated and without the dot, from
+	     the hidden twin `aria-describedby` names. -->
+	<span
+		data-provenance
+		aria-hidden="true"
+		class="block h-4 min-w-0 truncate text-[12px] leading-4 text-zinc-500"
+		><span class="font-medium text-zinc-700">{provenanceWords?.label}</span
+		>{SEPARATOR}{provenanceWords?.reason}</span
+	>
+	<span id={provenanceId} class="sr-only">{provenanceWords?.label}, {provenanceWords?.reason}</span>
 {/snippet}
 
 {#snippet answer()}
@@ -405,7 +443,9 @@
 		gives every role an empty sample, and « Lu par cet import : » with nothing after it is a label
 		doing a fact's job.
 	-->
-	<div class="flex h-16 flex-col justify-center gap-[3px]">
+	<!-- #1207: 64, or 83 with the provenance line (one 16 px line and its 3 px gap). Like the column
+	     fact above it, the line describes the correspondance as it is NOW (#379). -->
+	<div class="flex {provenanceWords ? 'h-[83px]' : 'h-16'} flex-col justify-center gap-[3px]">
 		<span class="h-[18px] truncate text-[13px] leading-[18px] font-semibold text-zinc-900">
 			{name}
 		</span>
@@ -432,6 +472,9 @@
 				</span>
 			{/if}
 		{/if}
+		{#if provenanceWords}
+			{@render provenanceLine()}
+		{/if}
 	</div>
 {:else}
 	<button
@@ -439,6 +482,7 @@
 		aria-haspopup="listbox"
 		aria-expanded={expanded}
 		aria-label={accessibleName}
+		aria-describedby={provenanceWords ? provenanceId : undefined}
 		aria-disabled={busy ? 'true' : undefined}
 		class="flex w-full {heightClass} items-center gap-2.5 text-left focus-visible:ring-4 focus-visible:ring-zinc-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white focus-visible:outline-none {expanded
 			? 'bg-zinc-100 transition-none'
@@ -474,6 +518,9 @@
 					explicit line-height keeps the 18 px line box the invariant needs.
 				-->
 				<span class="block h-[18px] min-w-0 leading-[18px]">{@render interpretationLine()}</span>
+			{/if}
+			{#if provenanceWords}
+				{@render provenanceLine()}
 			{/if}
 		</span>
 		<!-- Decorative. The row is the target; this is not a second one. -->

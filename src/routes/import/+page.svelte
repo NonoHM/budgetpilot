@@ -51,6 +51,8 @@
 		type DesignationFile,
 		type RoleAssignment
 	} from '$lib/domain/columnDesignation';
+	import type { DesignationLayer } from '$lib/domain/designationLayer';
+	import type { MappingRole } from '$lib/domain/mappingRoles';
 	import {
 		clearPendingDesignation,
 		setPendingDesignation,
@@ -1036,6 +1038,18 @@
 			? (form.correctingAssignment as RoleAssignment | undefined)
 			: undefined
 	);
+	/** #1207: the correspondance being corrected, as the server resolved it. */
+	const correctingMappingId = $derived(
+		form && 'correctingMappingId' in form
+			? (form.correctingMappingId as string | undefined)
+			: undefined
+	);
+	/** #1207: the layers stored with the correspondance being corrected, beside its assignment. */
+	const correctingLayers = $derived(
+		form && 'correctingLayers' in form
+			? (form.correctingLayers as Partial<Record<MappingRole, DesignationLayer | null>> | undefined)
+			: undefined
+	);
 
 	/**
 	 * The batch this correction replaces, read through the same `in` check.
@@ -1094,6 +1108,15 @@
 			// The member's remembered answer first, then what the file proves (#352, B3), then nothing.
 			initialAssignment:
 				correctingAssignment ?? designation.proposals?.designated ?? EMPTY_ASSIGNMENT,
+			// #1207: drawn as « Remembered » on each row still holding its remembered column.
+			remembered:
+				correctingAssignment && correctingMappingId
+					? {
+							mappingId: correctingMappingId,
+							assignment: correctingAssignment,
+							layers: correctingLayers ?? {}
+						}
+					: null,
 			// NOBODY HAS BEEN ASKED YET, and null says exactly that rather than `day-first`. The two
 			// are different facts: the screen's row carries « Confirmer » for the first and states a
 			// confirmed reading for the second, and the server records a decision for the second and
@@ -1285,6 +1308,9 @@
 			dateOrder: carried.repost.dateOrder,
 			// #1213, the same leg: a decline that did not come back was prefilled over on reopen.
 			currencyDeclined: carried.repost.currencyDeclined,
+			// #1207 pass B F1: the correction's remembered layers, or the reopened rows lose their
+			// « Remembered » line while the save still stores the layer they were kept from.
+			remembered: carried.repost.remembered,
 			// Carried back WITH the user's choice, so declining reopens the screen the way they left
 			// it rather than the way resolution guessed it.
 			account: carried.repost.account,
@@ -1356,6 +1382,9 @@
 			if (carried.repost.correction?.deleteOldImport) {
 				body.set('replaceBatchId', carried.repost.correction.batchId);
 			}
+			// #1207: whatever the consent, the rows were drawn as « Remembered ».
+			if (carried.repost.remembered)
+				body.set('rememberedMappingId', carried.repost.remembered.mappingId);
 		} else {
 			/**
 			 * THE ANSWERS THIS RUN WAS ACCEPTED WITH, WITHOUT WHICH CONFIRMING IS A LOOP.
