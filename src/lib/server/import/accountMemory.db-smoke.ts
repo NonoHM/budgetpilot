@@ -235,10 +235,11 @@ describe('the reader is scoped to its owner', () => {
 		});
 
 		// Reading THEIR key under MY user: only the `userId` clause stands between the two.
-		const theirKey = accountMemoryKeyOf(theirs, statement(IDENTIFIER), [theirAccount]);
+		const theirKey = accountMemoryKeyOf(theirs, statement(IDENTIFIER), [theirAccount], true);
 		expect(await readRememberedAccount(mine, theirKey!)).toBeNull();
 		expect(
 			await resolveStatementAccount({
+				hasHeaderRow: true,
 				userId: mine,
 				rows: statement(IDENTIFIER),
 				accounts: [myAccount]
@@ -292,6 +293,7 @@ describe('the reader is scoped to its owner', () => {
 
 		expect(
 			await resolveStatementAccount({
+				hasHeaderRow: true,
 				userId: mine,
 				rows: statement(IDENTIFIER),
 				accounts: [myAccount]
@@ -356,6 +358,7 @@ describe('Settings: listed and forgotten, by the owner only', () => {
 		expect(await forgetRememberedAccount(mine, row.id)).toBe('forgotten');
 		expect(
 			await resolveStatementAccount({
+				hasHeaderRow: true,
 				userId: mine,
 				rows: statement(IDENTIFIER),
 				accounts: [myAccount]
@@ -388,7 +391,7 @@ describe('the removal is scoped to its owner (third contradiction pass)', () => 
 		const b = await freshUser();
 		const aAccount = await account(a, 'Compte courant');
 		const bAccount = await account(b, 'Compte joint', '0185');
-		const bKey = accountMemoryKeyOf(b, statement(IDENTIFIER), [])!;
+		const bKey = accountMemoryKeyOf(b, statement(IDENTIFIER), [], true)!;
 		await prisma.rememberedAccount.create({
 			data: {
 				userId: a,
@@ -432,7 +435,7 @@ describe('the file overruling a remembered answer writes sensitive_delete (L4b-2
 	it('a remembered row removed: one line, overrule_remembered_account', async () => {
 		const userId = await freshUser();
 		const holder = await account(userId, 'Compte joint', '0185');
-		const key = accountMemoryKeyOf(userId, statement(IDENTIFIER), [])!;
+		const key = accountMemoryKeyOf(userId, statement(IDENTIFIER), [], true)!;
 		await prisma.rememberedAccount.create({
 			data: { userId, identifierKey: key.identifierKey, fragment: '0185', accountId: holder.id }
 		});

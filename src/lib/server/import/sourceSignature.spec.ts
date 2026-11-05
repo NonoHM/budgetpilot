@@ -124,6 +124,7 @@ describe('rank 1, what the file itself names', () => {
 		remembers(bpCurrent('0185').id);
 
 		const resolution = await resolveStatementAccount({
+			hasHeaderRow: true,
 			userId,
 			rows: fileNaming('9032'),
 			accounts: [bpCurrent('0185'), bpSavings('9032')]
@@ -143,6 +144,7 @@ describe('rank 1, what the file itself names', () => {
 		remembers(bpCurrent('0185').id);
 
 		const resolution = await resolveStatementAccount({
+			hasHeaderRow: true,
 			userId,
 			rows: fileNamingTwoAccounts(),
 			accounts: [bpCurrent('0185'), bpSavings('9032')]
@@ -158,6 +160,7 @@ describe('rank 1, what the file itself names', () => {
 		remembers(bpCurrent('0185').id);
 
 		const resolution = await resolveStatementAccount({
+			hasHeaderRow: true,
 			userId,
 			rows: fileNamingTwoUnprovenValues(),
 			accounts: [bpCurrent('0185'), bpSavings('9032')]
@@ -171,6 +174,7 @@ describe('rank 1, what the file itself names', () => {
 describe("rank 2, what a V3 export's own compte column names", () => {
 	it('resolves the account when the name matches exactly one destination', async () => {
 		const resolution = await resolveStatementAccount({
+			hasHeaderRow: true,
 			userId,
 			rows: v3RowsNaming('Banque Populaire'),
 			accounts: [
@@ -184,6 +188,7 @@ describe("rank 2, what a V3 export's own compte column names", () => {
 
 	it('asks when the name matches none of the destinations', async () => {
 		const resolution = await resolveStatementAccount({
+			hasHeaderRow: true,
 			userId,
 			rows: v3RowsNaming('Compte disparu'),
 			accounts: [
@@ -201,6 +206,7 @@ describe("rank 2, what a V3 export's own compte column names", () => {
 	// guessed.
 	it("refuses rather than guesses when the name matches two of the user's own accounts", async () => {
 		const resolution = await resolveStatementAccount({
+			hasHeaderRow: true,
 			userId,
 			rows: v3RowsNaming('Compte import CSV'),
 			accounts: [
@@ -223,6 +229,7 @@ describe("rank 3, what the user answered for the file's identifier", () => {
 		remembers(bpSavings('9032').id);
 
 		const resolution = await resolveStatementAccount({
+			hasHeaderRow: true,
 			userId,
 			rows: fileNaming('7777'),
 			accounts: [bpCurrent('0185'), bpSavings('9032')]
@@ -239,6 +246,7 @@ describe("rank 3, what the user answered for the file's identifier", () => {
 		remembers(bpSavings('9032').id);
 
 		const resolution = await resolveStatementAccount({
+			hasHeaderRow: true,
 			userId,
 			rows: fileNaming('7777'),
 			accounts: [bpCurrent('0185')]
@@ -253,6 +261,7 @@ describe("rank 3, what the user answered for the file's identifier", () => {
 		remembers(null);
 
 		const resolution = await resolveStatementAccount({
+			hasHeaderRow: true,
 			userId,
 			rows: fileNaming('7777'),
 			accounts: [bpCurrent('0185')]
@@ -266,6 +275,7 @@ describe("rank 3, what the user answered for the file's identifier", () => {
 		remembers(archived.id);
 
 		const resolution = await resolveStatementAccount({
+			hasHeaderRow: true,
 			userId,
 			rows: fileNaming('7777'),
 			accounts: [bpCurrent('0185'), archived]
@@ -278,6 +288,7 @@ describe("rank 3, what the user answered for the file's identifier", () => {
 		remembers('manual-1');
 
 		const resolution = await resolveStatementAccount({
+			hasHeaderRow: true,
 			userId,
 			rows: fileNaming('7777'),
 			accounts: [
@@ -295,6 +306,7 @@ describe("rank 3, what the user answered for the file's identifier", () => {
 		remembers(bpCurrent('0185').id);
 
 		const resolution = await resolveStatementAccount({
+			hasHeaderRow: true,
 			userId,
 			rows: fileNamingNothing(),
 			accounts: [bpCurrent('0185'), bpSavings('9032')]
@@ -313,6 +325,7 @@ describe('the read is scoped', () => {
 	 */
 	it('names userId in the same where clause as the key of the FULL identifier', async () => {
 		await resolveStatementAccount({
+			hasHeaderRow: true,
 			userId,
 			rows: fileNaming('7777'),
 			accounts: [bpCurrent('0185')]
@@ -323,5 +336,67 @@ describe('the read is scoped', () => {
 			userId,
 			identifierKey: accountMemoryKeyFor(userId, '12347777')
 		});
+	});
+});
+
+/**
+ * #1248: the designation screen's account prefill was read with a header row before the member
+ * answered about line 1, so on a file whose line 1 names a second account the prefill came from
+ * lines 2 and 3 alone. The same bytes under both answers: the answer is the only variable.
+ */
+describe('rank 1 reads line 1 under the answer it is given (#1248)', () => {
+	const LINE_ONE_NAMES_ANOTHER_ACCOUNT: ParsedCsvRow[] = [
+		{ cells: ['2026-06-01', 'FR7630006000011234567890189', 'CB A', '-10.00'], line: 1 },
+		{ cells: ['2026-06-02', 'DE89370400440532013000', 'CB B', '-20.00'], line: 2 },
+		{ cells: ['2026-06-03', 'DE89370400440532013000', 'CB C', '-30.00'], line: 3 }
+	];
+
+	it('refuses the file as multi-account when line 1 is data', async () => {
+		const resolution = await resolveStatementAccount({
+			userId,
+			rows: LINE_ONE_NAMES_ANOTHER_ACCOUNT,
+			accounts: [],
+			hasHeaderRow: false
+		});
+
+		expect(resolution).toStrictEqual({ rank: 1, kind: 'multi-account' });
+	});
+
+	/**
+	 * Rank 3, the memory, under the same answer (contradiction pass on the code, F1). Line 1 carries a
+	 * bare digit run the later lines do not: read as data the column VARIES, which is no proof of
+	 * anything (#485), so no identifier names the file and the memory has no key to answer from.
+	 * Read with a header row, lines 2 and 3 are constant and a key exists. The memory here would
+	 * answer, so only the answer the key is read under keeps it from proposing « remembered ».
+	 */
+	it('does not read the memory under a line 1 that names another identifier', async () => {
+		remembers(bpCurrent('0185').id);
+
+		const resolution = await resolveStatementAccount({
+			userId,
+			rows: [
+				{ cells: ['2026-06-01', '12345678', 'CB A', '-10.00'], line: 1 },
+				{ cells: ['2026-06-02', '87654321', 'CB B', '-20.00'], line: 2 },
+				{ cells: ['2026-06-03', '87654321', 'CB C', '-30.00'], line: 3 }
+			],
+			accounts: [bpCurrent('0185')],
+			hasHeaderRow: false
+		});
+
+		expect(resolution).toStrictEqual({ rank: 3, kind: 'unknown' });
+		expect(findFirst).not.toHaveBeenCalled();
+	});
+
+	// Calibration: read with a header row, line 1 is a name, so the file reads as one account. If
+	// this went multi-account too, the case above would prove nothing about the answer.
+	it('does not when line 1 is a header row', async () => {
+		const resolution = await resolveStatementAccount({
+			userId,
+			rows: LINE_ONE_NAMES_ANOTHER_ACCOUNT,
+			accounts: [],
+			hasHeaderRow: true
+		});
+
+		expect(resolution).not.toStrictEqual({ rank: 1, kind: 'multi-account' });
 	});
 });

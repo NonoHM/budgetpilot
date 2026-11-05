@@ -189,7 +189,9 @@ export async function decideAutoAccount(input: {
 			offer: await buildAccountOffer({
 				userId: input.userId,
 				rows: input.rows,
-				source: input.source
+				source: input.source,
+				// The auto path parses with a header row: a recognised profile is found by its names.
+				hasHeaderRow: true
 			}),
 			cause: 'names-another-account'
 		};
@@ -198,7 +200,8 @@ export async function decideAutoAccount(input: {
 	const offer = await buildAccountOffer({
 		userId: input.userId,
 		rows: input.rows,
-		source: input.source
+		source: input.source,
+		hasHeaderRow: true
 	});
 
 	/**

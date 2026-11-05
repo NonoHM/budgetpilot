@@ -95,6 +95,8 @@ export async function buildAccountOffer(input: {
 	 * alone rather than a guess.
 	 */
 	source?: string;
+	/** The answer about line 1 every reader below uses, so the prefill reads the lines the screen shows (#1248). */
+	hasHeaderRow: boolean;
 }): Promise<AccountOffer> {
 	const accounts = await prisma.account.findMany({
 		where: { userId: input.userId, archivedAt: null },
@@ -123,6 +125,7 @@ export async function buildAccountOffer(input: {
 	const resolution = await resolveStatementAccount({
 		userId: input.userId,
 		rows: input.rows,
+		hasHeaderRow: input.hasHeaderRow,
 		accounts: destinations.map((account) => ({
 			id: account.id,
 			name: account.name,
@@ -137,7 +140,7 @@ export async function buildAccountOffer(input: {
 	 */
 	let memory: AccountMemory | null = null;
 	if (resolution.rank === 3 && resolution.kind === 'remembered') {
-		const key = accountMemoryKeyOf(input.userId, input.rows, destinations);
+		const key = accountMemoryKeyOf(input.userId, input.rows, destinations, input.hasHeaderRow);
 		const remembered = key === null ? null : await readRememberedAccount(input.userId, key);
 		memory = remembered && { useCount: remembered.useCount, rememberedAt: remembered.rememberedAt };
 	}
@@ -149,8 +152,8 @@ export async function buildAccountOffer(input: {
 	 * to create one. The case the sheet exists for, a fragment no account holds, is the case the
 	 * answer has thrown away. `findDiscriminantColumn` is pure over the rows the caller already has.
 	 */
-	// `true`, as `resolveStatementAccount` above reads it (#1211).
-	const named = findDiscriminantColumn(input.rows, true);
+	// The same answer `resolveStatementAccount` above reads under (#1248).
+	const named = findDiscriminantColumn(input.rows, input.hasHeaderRow);
 
 	return {
 		// Over EVERY account, archived included: the set `assertDiscriminantFree` refuses the create

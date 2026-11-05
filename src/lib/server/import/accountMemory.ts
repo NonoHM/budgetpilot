@@ -51,10 +51,10 @@ export interface AccountMemoryKey {
 export function accountMemoryKeyOf(
 	userId: string,
 	rows: ParsedCsvRow[],
-	destinations: readonly ResolvableAccount[]
+	destinations: readonly ResolvableAccount[],
+	hasHeaderRow: boolean
 ): AccountMemoryKey | null {
-	// The auto path's reader: `/import` always parses with a header row.
-	const named = namedIdentifierOf(userId, rows, true);
+	const named = namedIdentifierOf(userId, rows, hasHeaderRow);
 	if (named === null) return null;
 	if (named.holder(destinations) !== null) return null;
 	return named.key;

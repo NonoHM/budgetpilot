@@ -110,9 +110,10 @@ describe('what the key is taken over', () => {
 		const grouped = accountMemoryKeyOf(
 			'user-a',
 			statement('FR76 3000 1007 9412 3456 7890 185'),
-			[]
+			[],
+			true
 		);
-		const joined = accountMemoryKeyOf('user-a', statement('FR7630001007941234567890185'), []);
+		const joined = accountMemoryKeyOf('user-a', statement('FR7630001007941234567890185'), [], true);
 		expect(grouped?.identifierKey).toBe(joined?.identifierKey);
 		expect(grouped?.fragment).toBe('0185');
 	});
@@ -134,12 +135,15 @@ describe('what the key is taken over', () => {
 			{ cells: ['date', 'libelle', 'montant'], line: 1 },
 			{ cells: ['2026-08-01', 'CARTE', '-3,10'], line: 2 }
 		];
-		expect(accountMemoryKeyOf('user-a', silent, [])).toBeNull();
+		expect(accountMemoryKeyOf('user-a', silent, [], true)).toBeNull();
 		expect(
-			accountMemoryKeyOf('user-a', statement('11110185'), [
-				{ id: 'a', name: 'Courant', source: 'csv', archivedAt: null, discriminant: '0185' }
-			])
+			accountMemoryKeyOf(
+				'user-a',
+				statement('11110185'),
+				[{ id: 'a', name: 'Courant', source: 'csv', archivedAt: null, discriminant: '0185' }],
+				true
+			)
 		).toBeNull();
-		expect(accountMemoryKeyOf('user-a', statement('11110185'), [])).not.toBeNull();
+		expect(accountMemoryKeyOf('user-a', statement('11110185'), [], true)).not.toBeNull();
 	});
 });

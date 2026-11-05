@@ -230,9 +230,11 @@ currency field only in this situation and creates the account already set to
 it. This only comes up if you hold an account in another currency in the
 first place, so it never appears in an all-euro setup.
 
-If your statement has no header row at all, open **Designate the columns** and
-turn on **The first row contains data**. Without it, BudgetPilot reads your
-first transaction as a title and you lose it.
+If your statement has no header row and the designation screen says **headers
+detected**, open any column and turn on **The first row contains data**.
+Without it, BudgetPilot reads your first transaction as a title and you lose
+it. This happens when BudgetPilot can't read the file's dates, for example a
+year written with two digits.
 
 Still stuck? A new import profile is a welcome contribution, see
 [CONTRIBUTING.md](../CONTRIBUTING.md).

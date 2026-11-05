@@ -11,9 +11,12 @@ import {
 } from '$lib/server/import/csv';
 import {
 	designationFactsAsDetected,
-	designationRowFacts,
-	withoutDesignations
+	designationFactsAsRemembered,
+	designationRowFacts
 } from '$lib/server/import/designationFacts';
+import { headerRowVerdict } from '$lib/server/import/headerRowVerdict';
+import { normalizeParsedRows } from '$lib/server/import/utils/csv';
+import { refusalCellValue } from '$lib/server/import/utils/safety';
 import { applyColumnMapping } from '$lib/server/import/mapping/apply';
 import { readColumnMapping, recordColumnMappingUse } from '$lib/server/import/mapping/store';
 import { correctionMatchesFile, designationAssignment } from '$lib/server/import/mapping/recap';
@@ -156,8 +159,13 @@ export const load: PageServerLoad = async ({ locals, url }) => {
  * module reaching for an ambient locale on the server. `namedAt` on this same payload already
  * follows the convention.
  */
-async function accountOfferPayload(userId: string, rows: ParsedCsvRow[], source?: string) {
-	return accountOfferFrom(await buildAccountOffer({ userId, rows, source }));
+async function accountOfferPayload(
+	userId: string,
+	rows: ParsedCsvRow[],
+	hasHeaderRow: boolean,
+	source?: string
+) {
+	return accountOfferFrom(await buildAccountOffer({ userId, rows, source, hasHeaderRow }));
 }
 
 /**
@@ -332,14 +340,14 @@ export const actions: Actions = {
 		if (correcting && correctionOpens) {
 			return fail(400, {
 				designation: {
-					account: await accountOfferPayload(user.id, importData.rows),
+					// A correction is a remembered mapping, saved under a header row: layer 1 (#1203).
+					account: await accountOfferPayload(user.id, importData.rows, true),
 					name: importFile.name,
 					headers: headerCells,
 					// Every per-row fact, for line 1 as headers AND as data (#735): the « Première
 					// ligne » switch swaps them in the browser, and `designationRowFacts` is the one
-					// definition of both. A correction is a remembered mapping, so detection seeds none (#352).
-					...withoutDesignations(designationFactsAsDetected(importData.rows)),
-					rowCount: Math.max(0, importData.rows.length - 1)
+					// definition of both. Detection seeds no column over the remembered ones (#352).
+					...designationFactsAsRemembered(importData.rows, Math.max(0, importData.rows.length - 1))
 				},
 				// Null per role where the remembered column is not in this file. A neighbour picked by
 				// proximity would put the money column somewhere plausible and silent.
@@ -571,7 +579,13 @@ export const actions: Actions = {
 				// (a private Claude Design canvas).
 				account: {
 					...accountOfferFrom(
-						await buildAccountOffer({ userId: user.id, rows: importData.rows, source })
+						await buildAccountOffer({
+							userId: user.id,
+							rows: importData.rows,
+							source,
+							// A recognised profile, read with its header row.
+							hasHeaderRow: true
+						})
 					),
 					declaredCurrency: offer.fact.declared
 				},
@@ -597,6 +611,36 @@ export const actions: Actions = {
 			// reads.
 			let rowFacts: ReturnType<typeof designationRowFacts> | undefined;
 			const detectedRowFacts = () => (rowFacts ??= designationRowFacts(importData.rows, true));
+			/**
+			 * #1217: line 1 as the file shows it, for the detected offer only. A remembered mapping is
+			 * the member's own answer, saved under a header row, and layer 1 comes before the file's
+			 * evidence (#1203). A line 1 that reads as a transaction in one date column and not in
+			 * another proves two answers, so the file is refused (AGENTS.md, the four outcomes).
+			 */
+			const lineOne = offersDesignation && !remembered ? headerRowVerdict(importData.rows) : null;
+			if (lineOne?.kind === 'contradictory') {
+				const cells = normalizeParsedRows(importData.rows.slice(0, 1))[0]?.cells ?? [];
+				return fail(400, {
+					answers: kept,
+					error: m.import_error_line_one_contradicts({
+						// The record's own line: the reader drops blank lines, so the first record can sit lower.
+						line: importData.rows[0]?.line ?? 1,
+						dateCell: refusalCellValue(cells[lineOne.dateColumn] ?? ''),
+						otherCell: refusalCellValue(cells[lineOne.otherColumn] ?? '')
+					})
+				});
+			}
+			const headerReadingRowCount = Math.max(0, result.summary.totalRows);
+			const designationFacts = !offersDesignation
+				? undefined
+				: lineOne === null
+					? designationFactsAsRemembered(importData.rows, headerReadingRowCount, detectedRowFacts())
+					: designationFactsAsDetected(
+							importData.rows,
+							headerReadingRowCount,
+							lineOne,
+							detectedRowFacts()
+						);
 			const splitRefusal: ImportInvalidRowDetail[] = splitFact
 				? [
 						{
@@ -630,11 +674,14 @@ export const actions: Actions = {
 				// redesignate), `multiAccount`/`accountColumn` one level over (naming columns cannot
 				// answer "does this file cover more than one account" either) — and `resolveImportOffer`'s
 				// order is what guarantees at most one of them is ever true.
-				designation: offersDesignation
+				designation: designationFacts
 					? {
 							account: await accountOfferPayload(
 								user.id,
 								importData.rows,
+								// The answer the facts below are read under, so the prefill reads the lines the
+								// screen shows (#1248).
+								designationFacts.detectedHeaderRow,
 								// The profile IS known on this branch, unlike the correction branch above, which
 								// decides before anything is parsed. It is what lets the create sheet open on
 								// « Banque Populaire ···4417 » rather than on the fragment alone.
@@ -642,15 +689,7 @@ export const actions: Actions = {
 							),
 							name: importFile.name,
 							headers: headerCells,
-							// Every per-row fact, for both answers about line 1 (#735). Whenever a mapping is
-							// remembered for this file (recognised, partial or lost), detection seeds none
-							// over it: one press would save detection's columns as the member's (#352).
-							...(remembered
-								? withoutDesignations(
-										designationFactsAsDetected(importData.rows, detectedRowFacts())
-									)
-								: designationFactsAsDetected(importData.rows, detectedRowFacts())),
-							rowCount: Math.max(0, result.summary.totalRows)
+							...designationFacts
 						}
 					: undefined,
 				// Plate 7l: opens `ColumnPicker` at `step: 'reading'` alone, no column list, no back

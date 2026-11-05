@@ -244,6 +244,7 @@ describe('a file at the exact previous header', () => {
 		const { resolveStatementAccount } = await import('../sourceSignature');
 
 		const resolution = await resolveStatementAccount({
+			hasHeaderRow: true,
 			userId: 'user-mine',
 			rows: parseRows(v2File),
 			accounts: [

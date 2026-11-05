@@ -7,6 +7,7 @@ import {
 } from './csv';
 import { importColumnDateReadings, importColumnDateStates } from './columnDateState';
 import { columnProposals } from './columnProposals';
+import type { HeaderRowVerdict } from './headerRowVerdict';
 import type { ParsedCsvRow } from './types';
 
 /**
@@ -55,35 +56,63 @@ export function designationRowFacts(
 }
 
 /**
- * The designation payload's per-row half, as `/import` detects it: line 1 read as headers (the
- * only guess that route makes), the facts under that guess, and the facts under the other answer.
+ * The designation payload's per-row half, as `/import` detects it: the answer about line 1 the file
+ * shows (`headerRowVerdict`, #1217), the facts under that answer, the facts under the other answer,
+ * and the row count under it.
  *
- * The guess and the two fact sets leave together, from here, because they are one claim: the
- * top-level facts describe the file under `detectedHeaderRow`, and `otherHeaderRowFacts` under its
- * negation. A caller writing them separately could pair the wrong two.
+ * The four leave together, from here, because they are one claim: the top-level facts describe the
+ * file under `detectedHeaderRow`, `otherHeaderRowFacts` under its negation, and `rowCount` counts the
+ * lines the top-level facts read. A caller writing them separately could pair the wrong two, which
+ * is the defect #735 closed: the header-reading facts under a « données » guess.
  *
- * @param detected The facts under the guess, when the caller already holds them for another offer.
+ * `contradictory` is excluded by type: the caller refuses that file before building any offer.
+ * `nothing-to-decide` keeps the header reading, the answer every comparable defaults to.
+ *
+ * @param headerReadingRowCount The parse's count with line 1 as headers, which every route holds.
+ * @param headerFacts The facts with line 1 as headers, when the caller already holds them.
  */
 export function designationFactsAsDetected(
 	rows: ParsedCsvRow[],
-	detected: Required<DesignationRowFacts> = designationRowFacts(rows, true)
+	headerReadingRowCount: number,
+	verdict: Exclude<HeaderRowVerdict, { kind: 'contradictory' }>,
+	headerFacts: Required<DesignationRowFacts> = designationRowFacts(rows, true)
 ) {
+	const detectedHeaderRow = verdict.kind === 'resolved' ? verdict.hasHeaderRow : true;
+	const dataFacts = designationRowFacts(rows, false);
 	return {
-		...detected,
-		otherHeaderRowFacts: designationRowFacts(rows, false),
-		detectedHeaderRow: true as const
+		...(detectedHeaderRow ? headerFacts : dataFacts),
+		otherHeaderRowFacts: detectedHeaderRow ? dataFacts : headerFacts,
+		detectedHeaderRow,
+		rowCount: Math.max(0, headerReadingRowCount + (detectedHeaderRow ? 0 : 1))
 	};
 }
 
 /**
- * The same facts with detection's designations withdrawn, candidates kept.
+ * The same payload for an offer produced by a REMEMBERED mapping (recognised, partial, lost, or a
+ * correction): line 1 as headers, detection's designations withdrawn, candidates kept.
  *
- * For an offer produced by a REMEMBERED mapping that read nothing: the member's own answer is on
- * record, so detection must not seed different columns that one press would save over it. Actual
- * Budget orders it the same way, the saved `csv-mappings` before any guess (#352, research.md).
- * Only the detected answer, the one a remembered mapping was made under (line 1 as headers). Under
- * « données » `columnProposals` designates only the currency (#1213), which no stored mapping carries.
+ * Headers without consulting the file, because the member's past answer is layer 1 of the import
+ * onion and the file's own evidence is layer 2 (#1203): a mapping is saved only under a header row
+ * (`/import/columns`) and is found by line 1's fingerprint. Detection must not seed different
+ * columns either, which one press would save over the member's own (#352). Actual Budget orders it
+ * the same way, the saved `csv-mappings` before any guess (#352, research.md).
  */
+export function designationFactsAsRemembered(
+	rows: ParsedCsvRow[],
+	headerReadingRowCount: number,
+	headerFacts?: Required<DesignationRowFacts>
+) {
+	return withoutDesignations(
+		designationFactsAsDetected(
+			rows,
+			headerReadingRowCount,
+			{ kind: 'resolved', hasHeaderRow: true },
+			headerFacts
+		)
+	);
+}
+
+/** The same facts with detection's designations withdrawn, candidates kept. */
 export function withoutDesignations<T extends ReturnType<typeof designationFactsAsDetected>>(
 	facts: T
 ): T {
