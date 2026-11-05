@@ -277,7 +277,10 @@ describe('confirming keeps the remembered correspondance (#1207)', () => {
 		carry({ batchId: 'batch-old', deleteOldImport: false });
 		await render(Page, { data: DATA, form: null });
 
-		await page.getByRole('button', { name: m.import_collision_correction_confirm() }).last().click();
+		await page
+			.getByRole('button', { name: m.import_collision_correction_confirm() })
+			.last()
+			.click();
 
 		await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
 		const body = (fetchSpy.mock.calls[0] as unknown as [string, { body: FormData }])[1].body;
