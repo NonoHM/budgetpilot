@@ -20,8 +20,20 @@ import { EMPTY_ASSIGNMENT, type RoleAssignment } from './columnDesignation';
  * BREAK MATRIX per site is recorded in the PR, one matrix per site rather than one for the file.
  */
 
-const COMPLETE_WITH_CATEGORY: RoleAssignment = { date: 0, label: 1, amount: 2, category: 3 };
-const COMPLETE_WITHOUT_CATEGORY: RoleAssignment = { date: 0, label: 1, amount: 2, category: null };
+const COMPLETE_WITH_CATEGORY: RoleAssignment = {
+	date: 0,
+	label: 1,
+	amount: 2,
+	category: 3,
+	currency: null
+};
+const COMPLETE_WITHOUT_CATEGORY: RoleAssignment = {
+	date: 0,
+	label: 1,
+	amount: 2,
+	category: null,
+	currency: null
+};
 
 function consequenceOf(assignment: RoleAssignment, columnCount: number): string {
 	return bannerFor({ state: 'complete', assignment, columnCount }).consequence;

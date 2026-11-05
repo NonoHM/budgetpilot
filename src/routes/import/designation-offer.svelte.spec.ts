@@ -61,8 +61,8 @@ const VIEW: DesignationFile = {
 	firstRow: ['24/06/2026', 'MERCERIE', '-24,90'],
 	// What the server proved about this file, which the offer seeds the screen with (#352).
 	proposals: {
-		designated: { date: 0, label: null, amount: 2, category: null },
-		candidates: { date: [0], label: [], amount: [2], category: [] }
+		designated: { date: 0, label: null, amount: 2, category: null, currency: null },
+		candidates: { date: [0], label: [], amount: [2], category: [], currency: [] }
 	},
 	rowCount: 1,
 	detectedHeaderRow: true

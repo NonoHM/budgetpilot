@@ -1,6 +1,6 @@
 <script lang="ts">
 	import * as m from '$lib/paraglide/messages';
-	import type { MappingRole } from '$lib/domain/mappingRoles';
+	import type { DesignationRole } from '$lib/domain/mappingRoles';
 	import { roleLabel, spokenExample } from '$lib/domain/columnMappingLabels';
 	import Badge from './Badge.svelte';
 
@@ -86,7 +86,7 @@
 		busy = false,
 		onOpen
 	}: {
-		role: MappingRole;
+		role: DesignationRole;
 		state: 'empty' | 'ambiguous' | 'designated' | 'vacated' | 'missingColumn' | 'recap';
 		/** Renders the `Optionnel` badge. Required-ness is marked BY EXCEPTION: no asterisks anywhere. */
 		optional?: boolean;
@@ -106,7 +106,7 @@
 		/** The first data row's value in the designated column. Truncates; the header does not. */
 		sampleValue?: string;
 		candidateCount?: number;
-		vacatedBy?: MappingRole;
+		vacatedBy?: DesignationRole;
 		/** The OLD header, quoted, when a remembered column is gone from the new file. */
 		lostHeader?: string;
 		/**

@@ -35,6 +35,12 @@ export interface CsvImportOptions {
 	 */
 	hasHeaderRow?: boolean;
 	/**
+	 * The column the member designated as the currency of a headerless file (#1213), read only by
+	 * the `mapped` profile and only when `hasHeaderRow` is false: that column is then the file's
+	 * declaration, exactly as a `currency` header is. Absent means none was designated.
+	 */
+	currencyIndex?: number;
+	/**
 	 * Which component an ambiguous `06/01/2026` writes first.
 	 *
 	 * Absent means nobody has decided: a column that reads both ways is then refused, never read

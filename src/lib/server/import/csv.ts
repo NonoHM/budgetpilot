@@ -370,6 +370,7 @@ export function parseImportRows(
 				categorizationRules: options.categorizationRules ?? [],
 				columnMapping: options.columnMapping,
 				hasHeaderRow: options.hasHeaderRow,
+				currencyIndex: options.currencyIndex,
 				dateOrder: decision.order
 			})
 		: parser.parse({

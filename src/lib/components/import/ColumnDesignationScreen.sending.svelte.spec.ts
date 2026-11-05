@@ -48,7 +48,7 @@ const FILE = {
 	rowCount: 132,
 	detectedHeaderRow: true
 };
-const COMPLETE: RoleAssignment = { date: 0, label: 2, amount: 3, category: 4 };
+const COMPLETE: RoleAssignment = { date: 0, label: 2, amount: 3, category: 4, currency: null };
 
 async function mountSending(wide: boolean, onCancel = vi.fn()) {
 	await page.viewport(wide ? 1280 : 390, wide ? 800 : 844);

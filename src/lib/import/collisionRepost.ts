@@ -32,6 +32,7 @@ export function buildCollisionRepost(
 		hasHeaderRow: boolean;
 		dateOrder: DateOrder | null;
 		deleteOldImport: boolean;
+		currencyDeclined: boolean;
 	}
 ): PendingCollision['repost'] {
 	return {
@@ -53,6 +54,9 @@ export function buildCollisionRepost(
 		// declining reopens the screen showing it. There is no guess to fall back to here, because
 		// the value's whole purpose is that the application would otherwise guess.
 		dateOrder: result.dateOrder,
+		// #1213, the same way: a decline dropped here would make the door ask again from a dialog
+		// that has no screen to answer on.
+		currencyDeclined: result.currencyDeclined,
 		// The pending correction WHOLE, plus the answer just given. The three naming fields travel so
 		// declining can reopen the screen able to ask again; `deleteOldImport` travels because
 		// answering re-posts the same run, and a correction that lost it here would import beside the

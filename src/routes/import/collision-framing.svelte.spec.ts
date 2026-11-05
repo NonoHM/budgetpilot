@@ -94,6 +94,7 @@ function carry(correction: { batchId: string; deleteOldImport: boolean } | null)
 			// its cases. Null is also the value a run that never met the question carries.
 			dateOrder: null,
 			hasHeaderRow: true,
+			currencyDeclined: false,
 			correction: correction
 				? {
 						mappingId: 'mapping-1',

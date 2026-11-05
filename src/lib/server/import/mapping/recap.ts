@@ -1,4 +1,9 @@
-import type { DesignationFile, RoleAssignment } from '$lib/domain/columnDesignation';
+import {
+	EMPTY_ASSIGNMENT,
+	type DesignationFile,
+	type RoleAssignment
+} from '$lib/domain/columnDesignation';
+import type { DesignationRole } from '$lib/domain/mappingRoles';
 import { MAPPING_ROLES, type MappingRole, type UntrustedColumnMapping } from './model';
 import { candidateFingerprints } from './fingerprint';
 import { foldExactHeader } from '../utils/encoding';
@@ -84,12 +89,7 @@ function recapByName(
 	const firstRow: string[] = [];
 	// Mutable while it is being filled, `RoleAssignment` on the way out: the exported type is
 	// Readonly because the screen owns it once handed over.
-	const assignment: Record<MappingRole, number | null> = {
-		date: null,
-		label: null,
-		amount: null,
-		category: null
-	};
+	const assignment: Record<DesignationRole, number | null> = { ...EMPTY_ASSIGNMENT };
 
 	for (const role of MAPPING_ROLES) {
 		const column = columnOf(mapping, role);
@@ -135,12 +135,7 @@ function recapByPosition(
 	const firstRow = Array.from({ length: width }, () => '');
 	// Mutable while it is being filled, `RoleAssignment` on the way out: the exported type is
 	// Readonly because the screen owns it once handed over.
-	const assignment: Record<MappingRole, number | null> = {
-		date: null,
-		label: null,
-		amount: null,
-		category: null
-	};
+	const assignment: Record<DesignationRole, number | null> = { ...EMPTY_ASSIGNMENT };
 
 	for (const role of MAPPING_ROLES) {
 		const index = indexOf(mapping, role);
@@ -180,12 +175,7 @@ export function designationAssignment(
 ): RoleAssignment {
 	// Mutable while it is being filled, `RoleAssignment` on the way out: the exported type is
 	// Readonly because the screen owns it once handed over.
-	const assignment: Record<MappingRole, number | null> = {
-		date: null,
-		label: null,
-		amount: null,
-		category: null
-	};
+	const assignment: Record<DesignationRole, number | null> = { ...EMPTY_ASSIGNMENT };
 	// An unrecognised `matchBy` resolves nothing, exactly as `applyColumnMapping` refuses it. A
 	// stored record must not get the name treatment by being malformed.
 	if (mapping.matchBy !== 'name' && mapping.matchBy !== 'position') return assignment;

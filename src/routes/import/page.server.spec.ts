@@ -1936,8 +1936,8 @@ describe('/import actions', () => {
 				// No header names under « données », so nothing is designated; the value shapes
 				// propose the date and the amount, never the label (#352).
 				proposals: {
-					designated: { date: null, label: null, amount: null, category: null },
-					candidates: { date: [0], label: [], amount: [2], category: [] }
+					designated: { date: null, label: null, amount: null, category: null, currency: null },
+					candidates: { date: [0], label: [], amount: [2], category: [], currency: [] }
 				}
 			};
 
@@ -2079,7 +2079,8 @@ describe('/import actions', () => {
 				date: null,
 				label: null,
 				amount: null,
-				category: null
+				category: null,
+				currency: null
 			});
 		});
 	});
@@ -2424,7 +2425,13 @@ describe('/import actions', () => {
 			};
 
 			const detected = await offerOf();
-			expect(detected?.designated).toEqual({ date: null, label: 1, amount: 2, category: null });
+			expect(detected?.designated).toEqual({
+				date: null,
+				label: 1,
+				amount: 2,
+				category: null,
+				currency: null
+			});
 
 			const row = rememberFor(testUser.id);
 			Object.assign(row, {
@@ -2438,7 +2445,8 @@ describe('/import actions', () => {
 				date: null,
 				label: null,
 				amount: null,
-				category: null
+				category: null,
+				currency: null
 			});
 			expect(remembered?.candidates).toEqual(detected?.candidates);
 		});

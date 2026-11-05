@@ -28,7 +28,7 @@ const FILE = {
 	detectedHeaderRow: true
 };
 
-const COMPLETE: RoleAssignment = { date: 0, label: 1, amount: 2, category: null };
+const COMPLETE: RoleAssignment = { date: 0, label: 1, amount: 2, category: null, currency: null };
 
 const ALL_USD = [
 	{

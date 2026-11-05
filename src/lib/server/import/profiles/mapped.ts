@@ -25,6 +25,8 @@ export interface MappedParseInput extends CsvProfileParseInput {
 	columnMapping: UntrustedColumnMapping | undefined;
 	/** False when row 0 is a transaction rather than a title row. Defaults to true. */
 	hasHeaderRow?: boolean;
+	/** The designated currency column of a headerless file (#1213). Ignored with a header row. */
+	currencyIndex?: number;
 }
 
 /**
@@ -102,6 +104,7 @@ export function parseMappedRows({
 	categorizationRules,
 	columnMapping,
 	hasHeaderRow,
+	currencyIndex,
 	dateOrder
 }: MappedParseInput): CsvImportResult {
 	const headerRefusals: CsvRefusal[] = [];
@@ -199,8 +202,14 @@ export function parseMappedRows({
 		dateOrder,
 		headers,
 		columns: verdict.columns,
-		// Every declaring column, the same ones `generic` reads (`currencyColumnsIn`, #600 F3).
-		currencyColumns: currencyColumnsIn(headers),
+		// Every declaring column, the same ones `generic` reads (`currencyColumnsIn`, #600 F3). A
+		// headerless file has no names to declare by, so its declaration is the column the member
+		// designated (#1213), keyed `#n` like every headerless column.
+		currencyColumns: headerRow
+			? currencyColumnsIn(headers)
+			: currencyIndex === undefined
+				? []
+				: [`#${currencyIndex + 1}`],
 		acceptedCurrency: ACCEPTED_CURRENCY,
 		profile: 'mapped',
 		categorizationRules

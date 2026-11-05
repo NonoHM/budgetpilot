@@ -3,7 +3,7 @@
 	import { resolve } from '$app/paths';
 	import * as m from '$lib/paraglide/messages';
 	import { importWriteFailureLabel } from '$lib/i18n/importWriteLabel';
-	import { MAPPING_ROLES } from '$lib/domain/mappingRoles';
+	import { setDesignationFields } from '$lib/import/designationFields';
 	import type { RoleAssignment } from '$lib/domain/columnDesignation';
 	// TYPE ONLY. See `domain/columnDesignation.ts`: erased before the bundler sees it.
 	import type { DateOrder } from '$lib/server/import/dateOrder';
@@ -182,6 +182,7 @@
 		hasHeaderRow: boolean;
 		dateOrder: DateOrder | null;
 		deleteOldImport: boolean;
+		currencyDeclined: boolean;
 	}) {
 		if (!pending || !formEl) return;
 		submitting = true;
@@ -209,12 +210,7 @@
 		// post the four characters `null`, and posting a default would record the application's
 		// guess as the user's decision. See #639.
 		if (result.dateOrder) data.set('dateOrder', result.dateOrder);
-		for (const role of MAPPING_ROLES) {
-			const index = result.assignment[role];
-			// Indices, never names. The server resolves them against ITS own header list, so a name
-			// posted from here would be a string it has to re-derive anyway.
-			if (index !== null) data.set(`${role}Index`, String(index));
-		}
+		setDesignationFields(data, result);
 		// The batch this correction replaces, posted only when the user consented on the screen that
 		// is submitting. `result.deleteOldImport` and NOT a field of `pending`: Planche 5c moved the
 		// question into the designation footer, so the answer is the one just given rather than an

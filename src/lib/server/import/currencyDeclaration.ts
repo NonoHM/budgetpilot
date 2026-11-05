@@ -136,3 +136,17 @@ export function currencyOfCell(cell: string): string | null {
 	if (!text) return null;
 	return WORDS_FOR_THE_EURO.has(text.toLowerCase()) ? 'EUR' : text.toUpperCase();
 }
+
+/**
+ * Whether a cell, as written, is a currency: an ISO 4217 code IN CAPITALS that this runtime knows,
+ * or one of the file's words for the euro (#1213).
+ *
+ * Capitals, unlike `currencyOfCell`, which upper-cases because it reads a column already declared a
+ * currency. Detection reads a column nobody declared, and a column of ordinary words that happen to
+ * spell codes (`all`, `top`, `try`) is not a currency column (#1213 note pass, P4a).
+ */
+export function isCurrencyCodeCell(cell: string): boolean {
+	const text = sanitizeImportedText(cell).replace(INVISIBLE_AROUND_A_CODE, '').trim();
+	if (WORDS_FOR_THE_EURO.has(text.toLowerCase())) return true;
+	return /^[A-Z]{3}$/.test(text) && isKnownCurrencyCode(text);
+}

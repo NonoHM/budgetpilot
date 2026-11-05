@@ -79,8 +79,14 @@ const FILE = {
 	detectedHeaderRow: true
 };
 
-const PARTIAL: RoleAssignment = { date: 0, label: null, amount: null, category: null };
-const COMPLETE: RoleAssignment = { date: 0, label: 2, amount: 5, category: 7 };
+const PARTIAL: RoleAssignment = {
+	date: 0,
+	label: null,
+	amount: null,
+	category: null,
+	currency: null
+};
+const COMPLETE: RoleAssignment = { date: 0, label: 2, amount: 5, category: 7, currency: null };
 
 async function mount(props: Record<string, unknown> = {}) {
 	const { container } = await render(ColumnDesignationScreen, {

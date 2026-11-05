@@ -36,3 +36,15 @@ export const REQUIRED_MAPPING_ROLES = [
 	'label',
 	'amount'
 ] as const satisfies readonly MappingRole[];
+
+/**
+ * The roles the designation SCREEN offers: the stored four, plus `currency` (#1213).
+ *
+ * `currency` is not a `MappingRole` because it is never stored: a headerless mapping is never
+ * remembered (`/import/columns` saves only `hasHeaderRow && remember`), and a file with a header row
+ * declares its currency by name (`currencyColumnsIn`). So the role lives on the post alone, offered
+ * only while line 1 is data, and needs no column, no migration and no backup field.
+ */
+export const DESIGNATION_ROLES = [...MAPPING_ROLES, 'currency'] as const;
+
+export type DesignationRole = (typeof DESIGNATION_ROLES)[number];

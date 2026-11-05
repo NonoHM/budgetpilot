@@ -42,7 +42,7 @@
 		takePendingCollision,
 		type PendingCollision
 	} from '$lib/import/pendingCollision.svelte';
-	import { MAPPING_ROLES } from '$lib/domain/mappingRoles';
+	import { setDesignationFields } from '$lib/import/designationFields';
 	import type { ImportSummaryResult } from '$lib/domain/importSummary';
 	import { groupInvalidRows } from '$lib/domain/groupInvalidRows';
 	import {
@@ -758,7 +758,8 @@
 		date: readingOffer?.dateColumn ?? null,
 		label: null,
 		amount: null,
-		category: null
+		category: null,
+		currency: null
 	});
 
 	/** `ColumnPicker`'s `file` prop, resolved from the wire payload exactly as the designation screen resolves its own. */
@@ -1346,11 +1347,7 @@
 			// file nobody was asked about. Posting a default here would record a decision as the
 			// user's.
 			if (carried.repost.dateOrder) body.set('dateOrder', carried.repost.dateOrder);
-			for (const role of MAPPING_ROLES) {
-				const index = carried.repost.assignment[role];
-				// Indices, never names. The server resolves them against ITS own header list.
-				if (index !== null) body.set(`${role}Index`, String(index));
-			}
+			setDesignationFields(body, carried.repost);
 			// Posted only when the choice is still ticked. The correction travels whole through the
 			// dialog; this is where it becomes a request again.
 			if (carried.repost.correction?.deleteOldImport) {

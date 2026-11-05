@@ -52,6 +52,7 @@ const ANSWER = {
 	// The USER's answer, and it disagrees.
 	hasHeaderRow: false,
 	deleteOldImport: true,
+	currencyDeclined: false,
 	accountId: 'account-chosen',
 	// Unanswered on the way in, so each test states the reading it is about rather than inheriting
 	// one. The default is the value that makes a dropped field invisible, so it is never the fixture.

@@ -70,7 +70,7 @@ async function mountColumns() {
 		open: true,
 		role: 'date',
 		file: FILE,
-		assignment: { date: 0, label: null, amount: null, category: null },
+		assignment: { date: 0, label: null, amount: null, category: null, currency: null },
 		candidates: [2],
 		onChoose: () => {},
 		onClose: () => {}
@@ -157,7 +157,7 @@ describe('6. pressing the primary with no account moves focus to the row that is
 		expect.assertions(4);
 		await render(ColumnDesignationScreen, {
 			file: SCREEN_FILE,
-			initialAssignment: { date: 0, label: 1, amount: 2, category: null },
+			initialAssignment: { date: 0, label: 1, amount: 2, category: null, currency: null },
 			accounts: [],
 			initialAccountId: null,
 			announceDelayMs: 0
@@ -188,7 +188,7 @@ describe('6. pressing the primary with no account moves focus to the row that is
 		expect.assertions(1);
 		const { container } = await render(ColumnDesignationScreen, {
 			file: SCREEN_FILE,
-			initialAssignment: { date: 0, label: 1, amount: 2, category: null },
+			initialAssignment: { date: 0, label: 1, amount: 2, category: null, currency: null },
 			accounts: [],
 			initialAccountId: null,
 			announceDelayMs: 0
