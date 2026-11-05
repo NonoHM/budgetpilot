@@ -154,8 +154,8 @@
 		/**
 		 * #1207: the correspondance this screen reopens, where it reopens one (the correction and the
 		 * recap): each role's column under this file and the layer stored with it, read on the server
-		 * through `storedLayers`. A row still holding that column says « Remembered » and what it was
-		 * kept from. Null on a fresh file, where detection's own proposals label the rows.
+		 * through `storedLayers`. A row still holding that column, stored as the member's own, says
+		 * « Your choice » (#1278). Null on a fresh file.
 		 */
 		remembered?: {
 			assignment: RoleAssignment;

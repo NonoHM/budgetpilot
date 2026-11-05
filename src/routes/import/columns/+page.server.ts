@@ -490,7 +490,7 @@ export const actions: Actions = {
 					headers,
 					resolved.mapping,
 					remembered,
-					// #1207 (owner ruling: carry): the screen drew this row as « Remembered » when the
+					// #1207 (owner ruling: carry): the screen prefilled this row from memory when the
 					// correction names it. The posted id is COMPARED with the row read under the
 					// member, never used to read one, so a forged value can only lose a label.
 					remembered !== null && asString(formData.get('rememberedMappingId')) === remembered.id

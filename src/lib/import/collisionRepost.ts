@@ -43,7 +43,7 @@ export function buildCollisionRepost(
 		// the flag alone reopened the screen describing line 1 as headers under « données » (#735).
 		view: declareHeaderRow(pending.view, result.hasHeaderRow),
 		assignment: result.assignment,
-		// #1207: drawn only, so declining reopens the « Remembered » lines (pass B F1).
+		// #1207: drawn only, so declining reopens the rows prefilled from memory (pass B F1).
 		remembered: pending.remembered ?? null,
 		// The user's own choice, carried on BOTH legs: confirming re-posts it, declining reopens the
 		// screen already showing it. Re-deriving it from `resolution` on the way back would replace

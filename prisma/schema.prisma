@@ -868,8 +868,8 @@ model ColumnMapping {
   /// Which onion layer produced each stored role (#1207), NULL on every mapping written before 1.4
   /// (read « unknown », never promoted). Written only by `saveColumnMapping` from `layerAtSave` and
   /// by the backup restore; read through `storedLayers` (mapping/layers.ts). The layer of the COLUMN:
-  /// a detected date column is `rule` (its header), although the screen's line under it names the
-  /// file's proof of its READING (`rowProvenance`). Both read « kept from the file » on reopen.
+  /// a detected date column is `rule` (its header), even when the file also proves its reading
+  /// order. The screen shows only `member` (« Your choice », #1278).
   dateLayer      DesignationLayer?
   labelLayer     DesignationLayer?
   amountLayer    DesignationLayer?

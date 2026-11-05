@@ -75,7 +75,7 @@ export interface PendingCollision {
 		currencyDeclined: boolean;
 		/**
 		 * #1207: a correction's remembered assignment and layers, DRAWN only, carried so declining
-		 * reopens rows that still say « Remembered ». Never re-posted: the save re-reads the row.
+		 * reopens rows still prefilled from memory. Never re-posted: the save re-reads the row.
 		 */
 		remembered: PendingDesignation['remembered'] | null;
 		/**
