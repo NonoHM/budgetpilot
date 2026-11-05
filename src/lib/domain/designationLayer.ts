@@ -1,6 +1,3 @@
-import type { ColumnDateState } from '$lib/server/import/columnDateState';
-import type { DesignationRole } from './mappingRoles';
-
 /**
  * The import onion's layers (#1203), in its order: the member's past answer, the file proving it,
  * a rule or deterministic hint, the local model (B4, #1016), the member. The Prisma enum
@@ -10,64 +7,24 @@ import type { DesignationRole } from './mappingRoles';
 export const DESIGNATION_LAYERS = ['remembered', 'file', 'rule', 'model', 'member'] as const;
 export type DesignationLayer = (typeof DESIGNATION_LAYERS)[number];
 
-/** A reason is a file fact named by a code, rendered by Paraglide; never free text from a model. */
-export type ProvenanceReason =
-	| { code: 'header'; header: string }
-	| { code: 'currency-codes' }
-	| { code: 'date-order'; order: 'day-first' | 'month-first' }
-	/** `proven-shape`: every date reads the same either way (ISO, or a day equal to its month). */
-	| { code: 'date-single-reading' }
-	| { code: 'kept'; from: 'file' | 'member' | 'unknown' };
-
-export interface Provenance {
-	layer: 'remembered' | 'file' | 'rule';
-	reason: ProvenanceReason;
-}
-
 /** What a remembered mapping holds for one role: its column under this file, and its stored layer. */
 export interface RememberedRole {
 	index: number | null;
 	layer: DesignationLayer | null;
 }
 
-const DATE_REASON: Partial<Record<ColumnDateState, ProvenanceReason>> = {
-	'proven-day': { code: 'date-order', order: 'day-first' },
-	'proven-month': { code: 'date-order', order: 'month-first' },
-	'proven-shape': { code: 'date-single-reading' }
-};
-
 /**
- * The line under one row, or null when the row shows the member's own value.
- *
- * A detected value's layer follows from `columnProposals`' rule: under a header row it designates by
- * header name only (a rule), and without one it designates only the currency, by its values (the
- * file). `designationLayer.premise.spec.ts` reds if the producer stops holding to that.
- *
- * The line exists only while the row still holds the column that was detected or remembered: the
- * member's change makes the value theirs (IBM Carbon AI label, the account row's `accountHintShown`).
+ * Whether a row shows « Your choice »: it still holds the remembered column, and that column was
+ * stored as the member's own pick. The only provenance a row states (#1278): a header match or a
+ * date the file proves is already visible as the column name and its reading, as in Actual and
+ * Firefly III, which show the mapped column and a parsed sample and no source label.
  */
-export function rowProvenance(input: {
-	role: DesignationRole;
+export function isMemberChoice(input: {
 	current: number | null;
-	detected: number | null;
 	remembered: RememberedRole | null;
-	hasHeaderRow: boolean;
-	header?: string;
-	dateState?: ColumnDateState;
-}): Provenance | null {
-	const { role, current, detected, remembered, hasHeaderRow } = input;
-	if (current === null) return null;
-	if (remembered !== null && remembered.index === current) {
-		const from =
-			remembered.layer === null ? 'unknown' : remembered.layer === 'member' ? 'member' : 'file';
-		return { layer: 'remembered', reason: { code: 'kept', from } };
-	}
-	if (current !== detected) return null;
-	const dateReason = role === 'date' && input.dateState ? DATE_REASON[input.dateState] : undefined;
-	if (dateReason) return { layer: 'file', reason: dateReason };
-	if (hasHeaderRow)
-		return { layer: 'rule', reason: { code: 'header', header: input.header ?? '' } };
-	return { layer: 'file', reason: { code: 'currency-codes' } };
+}): boolean {
+	const { current, remembered } = input;
+	return current !== null && remembered?.index === current && remembered.layer === 'member';
 }
 
 /**

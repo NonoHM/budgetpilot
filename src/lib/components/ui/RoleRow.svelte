@@ -3,8 +3,6 @@
 	import type { DesignationRole } from '$lib/domain/mappingRoles';
 	import { roleLabel, spokenExample } from '$lib/domain/columnMappingLabels';
 	import Badge from './Badge.svelte';
-	import type { Provenance } from '$lib/domain/designationLayer';
-	import { provenanceText } from '$lib/i18n/provenanceText';
 
 	/**
 	 * One of the four roles, and the answer it currently holds.
@@ -86,7 +84,7 @@
 		interpretation,
 		interpretationConfirmed = false,
 		busy = false,
-		provenance = null,
+		memberChoice = false,
 		onOpen
 	}: {
 		role: DesignationRole;
@@ -169,19 +167,15 @@
 		 */
 		busy?: boolean;
 		/**
-		 * #1207: which onion layer produced the value this row holds, or null when the value is the
-		 * member's own. One line, `Label · reason`, under the others. Its PRESENCE adds 18 px (16
-		 * compact), so the row grows when a line exists and shrinks when the member's change removes
-		 * it: that one shift is the cost of a label that disappears on override (IBM Carbon AI label).
+		 * #1278: the row holds a remembered column the member picked themselves, shown as one line,
+		 * « Your choice ». No other origin is shown: the column name and its sample are the evidence
+		 * (#1278 replaced #1207's `Label · reason`). Its PRESENCE adds 18 px (16 compact), so the row
+		 * shrinks when the member's change removes it.
 		 */
-		provenance?: Provenance | null;
+		memberChoice?: boolean;
 		onOpen?: () => void;
 	} = $props();
 
-	// The row's own grammar (« Colonne 1 · valeur »), spaces kept: a mustache, so the formatter cannot
-	// trim them between inline spans.
-	const SEPARATOR = ' · ';
-	const provenanceWords = $derived(provenance ? provenanceText(provenance) : null);
 	const provenanceId = $props.id();
 
 	const name = $derived(roleLabel(role));
@@ -259,17 +253,17 @@
 	const heightClass = $derived(
 		compact
 			? isInterpretingRow
-				? provenanceWords
+				? memberChoice
 					? 'h-[90px]'
 					: 'h-[74px]'
-				: provenanceWords
+				: memberChoice
 					? 'h-[72px]'
 					: 'h-14'
 			: isInterpretingRow
-				? provenanceWords
+				? memberChoice
 					? 'h-[104px]'
 					: 'h-[86px]'
-				: provenanceWords
+				: memberChoice
 					? 'h-[86px]'
 					: 'h-[68px]'
 	);
@@ -297,17 +291,13 @@
 {/snippet}
 
 {#snippet provenanceLine()}
-	<!-- One line that truncates: the reason's variable part is a header from the file. The eye reads
-	     `Label · reason`; a screen reader gets the whole of it, untruncated and without the dot, from
-	     the hidden twin `aria-describedby` names. -->
+	<!-- Fixed words, no file text: it fits one line in both languages, and `aria-describedby` names it. -->
 	<span
+		id={provenanceId}
 		data-provenance
-		aria-hidden="true"
 		class="block h-4 min-w-0 truncate text-[12px] leading-4 text-zinc-500"
-		><span class="font-medium text-zinc-700">{provenanceWords?.label}</span
-		>{SEPARATOR}{provenanceWords?.reason}</span
+		>{m.import_columns_member_choice()}</span
 	>
-	<span id={provenanceId} class="sr-only">{provenanceWords?.label}, {provenanceWords?.reason}</span>
 {/snippet}
 
 {#snippet answer()}
@@ -443,9 +433,9 @@
 		gives every role an empty sample, and « Lu par cet import : » with nothing after it is a label
 		doing a fact's job.
 	-->
-	<!-- #1207: 64, or 83 with the provenance line (one 16 px line and its 3 px gap). Like the column
+	<!-- #1207: 64, or 83 with the « Your choice » line (one 16 px line and its 3 px gap). Like the column
 	     fact above it, the line describes the correspondance as it is NOW (#379). -->
-	<div class="flex {provenanceWords ? 'h-[83px]' : 'h-16'} flex-col justify-center gap-[3px]">
+	<div class="flex {memberChoice ? 'h-[83px]' : 'h-16'} flex-col justify-center gap-[3px]">
 		<span class="h-[18px] truncate text-[13px] leading-[18px] font-semibold text-zinc-900">
 			{name}
 		</span>
@@ -472,7 +462,7 @@
 				</span>
 			{/if}
 		{/if}
-		{#if provenanceWords}
+		{#if memberChoice}
 			{@render provenanceLine()}
 		{/if}
 	</div>
@@ -482,7 +472,7 @@
 		aria-haspopup="listbox"
 		aria-expanded={expanded}
 		aria-label={accessibleName}
-		aria-describedby={provenanceWords ? provenanceId : undefined}
+		aria-describedby={memberChoice ? provenanceId : undefined}
 		aria-disabled={busy ? 'true' : undefined}
 		class="flex w-full {heightClass} items-center gap-2.5 text-left focus-visible:ring-4 focus-visible:ring-zinc-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white focus-visible:outline-none {expanded
 			? 'bg-zinc-100 transition-none'
@@ -519,7 +509,7 @@
 				-->
 				<span class="block h-[18px] min-w-0 leading-[18px]">{@render interpretationLine()}</span>
 			{/if}
-			{#if provenanceWords}
+			{#if memberChoice}
 				{@render provenanceLine()}
 			{/if}
 		</span>

@@ -35,7 +35,7 @@
 	// note at the call site.
 	import Button from '$lib/components/Button.svelte';
 	import ColumnPicker from './ColumnPicker.svelte';
-	import { rowProvenance, type DesignationLayer } from '$lib/domain/designationLayer';
+	import { isMemberChoice, type DesignationLayer } from '$lib/domain/designationLayer';
 	import AccountRow from './AccountRow.svelte';
 	import AccountPicker, { type AccountPickerOption } from './AccountPicker.svelte';
 	import CreateAccountSheet from './CreateAccountSheet.svelte';
@@ -894,25 +894,15 @@
 	}
 
 	/**
-	 * #1207: the line under one row, computed from facts the server already sent (its proposals under
-	 * the current header answer, its whole-column date states, the remembered layers). The member's
-	 * change removes it, because `rowProvenance` compares the row with what was detected or kept.
+	 * #1278: whether a row says « Your choice », from the remembered layers the server sent. The
+	 * member's change removes it, because `isMemberChoice` compares the row with what was kept.
 	 */
-	function provenanceOf(role: DesignationRole) {
-		const index = assignment[role];
+	function memberChoiceOf(role: DesignationRole) {
 		const kept =
 			remembered && role !== 'currency'
 				? { index: remembered.assignment[role], layer: remembered.layers[role] ?? null }
 				: null;
-		return rowProvenance({
-			role,
-			current: index,
-			detected: effectiveFile.proposals?.designated[role] ?? null,
-			remembered: kept,
-			hasHeaderRow,
-			header: headerOf(role) ?? undefined,
-			dateState: index === null ? undefined : (effectiveFile.dateStates?.[index] ?? undefined)
-		});
+		return isMemberChoice({ current: assignment[role], remembered: kept });
 	}
 
 	function sampleOf(role: DesignationRole): string {
@@ -1320,7 +1310,7 @@
 						candidateCount={candidateCounts[role]}
 						vacatedBy={vacated[role]}
 						lostHeader={role === 'currency' ? undefined : lostHeaders[role]}
-						provenance={provenanceOf(role)}
+						memberChoice={memberChoiceOf(role)}
 						{...role === 'date'
 							? {
 									interpretation: dateInterpretation,
