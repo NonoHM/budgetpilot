@@ -46,6 +46,8 @@ export interface PendingDesignation {
 	 * on a fresh file.
 	 */
 	remembered?: {
+		/** The correspondance reopened, re-posted so the save carries its layers (#1207). */
+		mappingId: string;
 		assignment: RoleAssignment;
 		layers: Partial<Record<MappingRole, DesignationLayer | null>>;
 	} | null;

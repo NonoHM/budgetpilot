@@ -356,6 +356,8 @@ export const actions: Actions = {
 				// #1207: what each remembered role was kept from, through the one reader, so a layer
 				// left behind by a writer older than 1.4 reads unknown rather than as a fact.
 				correctingLayers: layersByRole(storedLayers(correcting)),
+				// Resolved under the member above; posted back so the save can tell the screen drew it.
+				correctingMappingId: correcting.id,
 				// Carried into the designation screen, which is the request that will delete. Until
 				// this field existed nothing survived the navigation to say the run was a correction
 				// at all, which is why the collision guard fired against the very batch the user came

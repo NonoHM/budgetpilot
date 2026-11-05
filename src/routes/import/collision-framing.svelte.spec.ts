@@ -96,7 +96,11 @@ function carry(correction: { batchId: string; deleteOldImport: boolean } | null)
 			hasHeaderRow: true,
 			currencyDeclined: false,
 			// #1207: a correction's remembered layers, which declining must hand back.
-			remembered: { assignment: ASSIGNMENT, layers: { date: 'rule', label: 'member' } },
+			remembered: {
+				mappingId: 'mapping-1',
+				assignment: ASSIGNMENT,
+				layers: { date: 'rule', label: 'member' }
+			},
 			correction: correction
 				? {
 						mappingId: 'mapping-1',
@@ -215,6 +219,7 @@ describe('declining keeps the designation work', () => {
 		expect(kept?.initialAssignment).toEqual(ASSIGNMENT);
 		// #1207 pass B F1: the « Remembered » lines come back with the answers.
 		expect(kept?.remembered).toEqual({
+			mappingId: 'mapping-1',
 			assignment: ASSIGNMENT,
 			layers: { date: 'rule', label: 'member' }
 		});
@@ -256,5 +261,27 @@ describe('declining keeps the designation work', () => {
 
 		expect(takePendingDesignation()).toBeNull();
 		expect(navigation.goto).not.toHaveBeenCalled();
+	});
+});
+
+describe('confirming keeps the remembered correspondance (#1207)', () => {
+	// Separates « the repost names the correspondance its rows were drawn from » from « dropped on
+	// the confirm leg », after which the save stores every kept column as the member's own (G3).
+	// A correction's dialog names its confirm differently; this run is one.
+	it('posts the reopened correspondance id on confirm', async () => {
+		const fetchSpy = vi.fn(
+			async () => new Response(JSON.stringify({ type: 'failure', status: 400, data: '[{}]' }))
+		);
+		vi.stubGlobal('fetch', fetchSpy);
+		await page.viewport(390, 844);
+		carry({ batchId: 'batch-old', deleteOldImport: false });
+		await render(Page, { data: DATA, form: null });
+
+		await page.getByRole('button', { name: m.import_collision_correction_confirm() }).last().click();
+
+		await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
+		const body = (fetchSpy.mock.calls[0] as unknown as [string, { body: FormData }])[1].body;
+		expect(body.get('rememberedMappingId')).toBe('mapping-1');
+		vi.unstubAllGlobals();
 	});
 });

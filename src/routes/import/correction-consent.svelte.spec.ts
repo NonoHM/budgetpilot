@@ -246,7 +246,7 @@ describe('the remembered layers travel to the designation screen (#1207)', () =>
 		const layers = { date: 'rule', label: 'member', amount: null, category: null };
 		const rendered = await render(Page, {
 			data: DATA,
-			form: { ...FORM, correctingLayers: layers } as never
+			form: { ...FORM, correctingLayers: layers, correctingMappingId: 'mapping-1' } as never
 		});
 		const section = rendered.container.querySelectorAll('main > section')[0] as HTMLElement;
 		await chooseFile(section);
@@ -254,6 +254,10 @@ describe('the remembered layers travel to the designation screen (#1207)', () =>
 			page.getByRole('button', { name: m.import_columns_offer() }).first().element() as HTMLElement
 		);
 
-		expect(takePendingDesignation()?.remembered).toEqual({ assignment: ASSIGNMENT, layers });
+		expect(takePendingDesignation()?.remembered).toEqual({
+			mappingId: 'mapping-1',
+			assignment: ASSIGNMENT,
+			layers
+		});
 	});
 });

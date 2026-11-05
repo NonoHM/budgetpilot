@@ -321,10 +321,7 @@ export const actions: Actions = {
 							id: true,
 							createdAt: true,
 							periodStart: true,
-							periodEnd: true,
-							// #1207: which correspondance the corrected import was read through, so the
-							// save carries a remembered layer only for a correction of that very row.
-							columnMappingId: true
+							periodEnd: true
 						}
 					})
 				: null;
@@ -493,7 +490,10 @@ export const actions: Actions = {
 					headers,
 					resolved.mapping,
 					remembered,
-					replacing !== null && remembered !== null && replacing.columnMappingId === remembered.id
+					// #1207 (owner ruling: carry): the screen drew this row as « Remembered » when the
+					// correction names it. The posted id is COMPARED with the row read under the
+					// member, never used to read one, so a forged value can only lose a label.
+					remembered !== null && asString(formData.get('rememberedMappingId')) === remembered.id
 				)
 			);
 			// A refusal to REMEMBER never refuses the IMPORT: the user asked to import a file, and

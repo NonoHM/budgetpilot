@@ -167,6 +167,7 @@ describe('buildCollisionRepost', () => {
 	// lose their « Remembered » line while the save still stores the layer they were kept from.
 	it('carries the remembered assignment and layers, and their absence', () => {
 		const remembered = {
+			mappingId: 'mapping-1',
 			assignment: ASSIGNMENT,
 			layers: { date: 'rule', label: 'member' }
 		} as const;

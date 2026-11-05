@@ -1038,6 +1038,12 @@
 			? (form.correctingAssignment as RoleAssignment | undefined)
 			: undefined
 	);
+	/** #1207: the correspondance being corrected, as the server resolved it. */
+	const correctingMappingId = $derived(
+		form && 'correctingMappingId' in form
+			? (form.correctingMappingId as string | undefined)
+			: undefined
+	);
 	/** #1207: the layers stored with the correspondance being corrected, beside its assignment. */
 	const correctingLayers = $derived(
 		form && 'correctingLayers' in form
@@ -1103,9 +1109,14 @@
 			initialAssignment:
 				correctingAssignment ?? designation.proposals?.designated ?? EMPTY_ASSIGNMENT,
 			// #1207: drawn as « Remembered » on each row still holding its remembered column.
-			remembered: correctingAssignment
-				? { assignment: correctingAssignment, layers: correctingLayers ?? {} }
-				: null,
+			remembered:
+				correctingAssignment && correctingMappingId
+					? {
+							mappingId: correctingMappingId,
+							assignment: correctingAssignment,
+							layers: correctingLayers ?? {}
+						}
+					: null,
 			// NOBODY HAS BEEN ASKED YET, and null says exactly that rather than `day-first`. The two
 			// are different facts: the screen's row carries « Confirmer » for the first and states a
 			// confirmed reading for the second, and the server records a decision for the second and
@@ -1371,6 +1382,9 @@
 			if (carried.repost.correction?.deleteOldImport) {
 				body.set('replaceBatchId', carried.repost.correction.batchId);
 			}
+			// #1207: whatever the consent, the rows were drawn as « Remembered ».
+			if (carried.repost.remembered)
+				body.set('rememberedMappingId', carried.repost.remembered.mappingId);
 		} else {
 			/**
 			 * THE ANSWERS THIS RUN WAS ACCEPTED WITH, WITHOUT WHICH CONFIRMING IS A LOOP.

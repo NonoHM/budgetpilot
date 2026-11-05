@@ -419,10 +419,11 @@ describe('a corrected import replaces the batch it was launched from', () => {
 	});
 
 	/**
-	 * #1207: a CORRECTION draws its rows as « Remembered », so a kept column carries the layer it
-	 * was stored with. The server learns it is a correction of THIS row from the batch it resolves
-	 * under the user, never from a posted flag. Separates « correction of the row read » (carried)
-	 * from « any remembered row » (not carried, the test above in the memorise block).
+	 * #1207 (owner ruling 2026-11-05: carry): a CORRECTION draws its rows as « Remembered », so a
+	 * kept column carries the layer it was stored with, whether or not the old import is deleted
+	 * (no `replaceBatchId` here, the case the second narrow pass found). The posted id is COMPARED
+	 * with the row the server read under the member, never used to read one. Separates « correction
+	 * of the row read » (carried) from « any remembered row » (the memorise block above).
 	 */
 	it('carries a remembered layer on a correction of the row it read', async () => {
 		expect.assertions(1);
@@ -448,23 +449,16 @@ describe('a corrected import replaces the batch it was launched from', () => {
 			categoryLayer: null,
 			layersKey: layersKeyOf(columns)
 		});
-		db.prisma.importBatch.findFirst.mockResolvedValueOnce({
-			id: 'batch-old',
-			createdAt: new Date('2026-06-30T10:00:00.000Z'),
-			periodStart: new Date('2026-06-01T00:00:00.000Z'),
-			periodEnd: new Date('2026-06-07T00:00:00.000Z'),
-			columnMappingId: 'mapping-kept'
-		} as never);
 
-		await submit(WITH_HEADER, true, { replaceBatchId: 'batch-old' });
+		await submit(WITH_HEADER, true, { rememberedMappingId: 'mapping-kept' });
 
 		expect(store.saveColumnMapping.mock.calls[0]?.slice(3)).toEqual([
 			{ dateLayer: null, labelLayer: 'member', amountLayer: 'rule', categoryLayer: null }
 		]);
 	});
 
-	// Separates « the batch was read through THIS row » from « any correction » (break F2).
-	it('carries nothing on a correction of a batch read through another row', async () => {
+	// Separates « the screen drew THIS row » from « any posted id » (break F2).
+	it('carries nothing when the posted correspondance is not the row read', async () => {
 		expect.assertions(1);
 		const columns = {
 			matchBy: 'name',
@@ -488,15 +482,8 @@ describe('a corrected import replaces the batch it was launched from', () => {
 			categoryLayer: null,
 			layersKey: layersKeyOf(columns)
 		});
-		db.prisma.importBatch.findFirst.mockResolvedValueOnce({
-			id: 'batch-old',
-			createdAt: new Date('2026-06-30T10:00:00.000Z'),
-			periodStart: new Date('2026-06-01T00:00:00.000Z'),
-			periodEnd: new Date('2026-06-07T00:00:00.000Z'),
-			columnMappingId: 'mapping-other'
-		} as never);
 
-		await submit(WITH_HEADER, true, { replaceBatchId: 'batch-old' });
+		await submit(WITH_HEADER, true, { rememberedMappingId: 'mapping-other' });
 
 		expect(store.saveColumnMapping.mock.calls[0]?.slice(3)).toEqual([
 			{ dateLayer: 'member', labelLayer: 'member', amountLayer: 'member', categoryLayer: null }

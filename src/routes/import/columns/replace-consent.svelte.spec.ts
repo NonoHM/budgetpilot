@@ -2,7 +2,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import { page } from 'vitest/browser';
 import '../../layout.css';
-import { setPendingDesignation } from '$lib/import/pendingDesignation.svelte';
+import {
+	setPendingDesignation,
+	type PendingDesignation
+} from '$lib/import/pendingDesignation.svelte';
 import { clearPendingCollision } from '$lib/import/pendingCollision.svelte';
 import type { DesignationFile, RoleAssignment } from '$lib/domain/columnDesignation';
 
@@ -58,8 +61,9 @@ const COMPLETE = { date: 0, label: 1, amount: 2, category: null } as unknown as 
 
 let posted: FormData | null = null;
 
-function seed() {
+function seed(remembered: PendingDesignation['remembered'] = null) {
 	setPendingDesignation({
+		remembered,
 		file: new File(['Jour;Intitule;Somme\n'], 'releve.csv'),
 		view: VIEW,
 		initialAssignment: COMPLETE,
@@ -166,6 +170,27 @@ describe('what the correction posts, and what decides it', () => {
 		expect(document.querySelector('[role="dialog"]')).toBeNull();
 		expect(posted).not.toBeNull();
 		expect(posted!.get('replaceBatchId')).toBeNull();
+	});
+
+	/**
+	 * #1207 (owner ruling 2026-11-05: carry): a correction's rows were drawn as « Remembered », so
+	 * the press names the correspondance it reopened, consent or no consent, and the save carries
+	 * each kept column's stored layer. Separates « drawn as remembered » from « unticked box ».
+	 */
+	it('posts the reopened correspondance id with the consent unticked', async () => {
+		await page.viewport(390, 844);
+		seed({ mappingId: 'mapping-1', assignment: COMPLETE, layers: { label: 'member' } });
+		await render(Page, { form: null as never });
+		const box = document.querySelector(
+			'[data-testid="designation-replace-consent"] input[type="checkbox"]'
+		) as HTMLInputElement;
+		box.click();
+		await new Promise((r) => setTimeout(r, 0));
+
+		(document.querySelector('[data-testid="designation-primary"]') as HTMLElement).click();
+		await new Promise((r) => setTimeout(r, 0));
+
+		expect(posted!.get('rememberedMappingId')).toBe('mapping-1');
 	});
 });
 

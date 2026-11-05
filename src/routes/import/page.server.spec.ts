@@ -2141,7 +2141,7 @@ describe('/import actions', () => {
 		 * from one that does not (all unknown, never the stale value).
 		 */
 		it('carries the remembered layers, unknown when their key does not match', async () => {
-			expect.assertions(2);
+			expect.assertions(3);
 			const { layersKeyOf } = await import('$lib/server/import/mapping/layers');
 			const headers = ['Date', 'Libelle', 'Montant', 'Detail'];
 			const columns = {
@@ -2185,6 +2185,9 @@ describe('/import actions', () => {
 				data: { correctingLayers?: unknown };
 			};
 
+			expect((fresh.data as { correctingMappingId?: string }).correctingMappingId).toBe(
+				'mapping-1207'
+			);
 			expect(fresh.data.correctingLayers).toEqual({
 				date: 'rule',
 				label: 'member',
