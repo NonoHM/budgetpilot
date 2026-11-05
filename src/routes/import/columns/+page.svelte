@@ -4,6 +4,7 @@
 	import * as m from '$lib/paraglide/messages';
 	import { importWriteFailureLabel } from '$lib/i18n/importWriteLabel';
 	import { setDesignationFields } from '$lib/import/designationFields';
+	import { declareHeaderRow } from '$lib/domain/headerRowReading';
 	import type { RoleAssignment } from '$lib/domain/columnDesignation';
 	// TYPE ONLY. See `domain/columnDesignation.ts`: erased before the bundler sees it.
 	import type { DateOrder } from '$lib/server/import/dateOrder';
@@ -357,6 +358,10 @@
 					// reopens.
 					setPendingDesignation({
 						...pending,
+						// The view MOVES WITH the answer about line 1, as the duplicate dialog's leg does
+						// (`buildCollisionRepost`): reusing detection's view reopened « line 1 is data » as
+						// headers, and the next import read that transaction as a header.
+						view: declareHeaderRow(pending.view, result.hasHeaderRow),
 						initialAssignment: result.assignment,
 						dateOrder: result.dateOrder,
 						currencyDeclined: result.currencyDeclined
