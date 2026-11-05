@@ -2135,6 +2135,70 @@ describe('/import actions', () => {
 		 * a per-role fallback there would fill a role whose remembered column is gone. The candidates
 		 * are the positive in the same payload: detection ran and named all three columns.
 		 */
+		/**
+		 * #1207 C2b: the correction hands the screen the layers stored with the correspondance it
+		 * reopens, read through `storedLayers`. Separates a key that matches (the layers come back)
+		 * from one that does not (all unknown, never the stale value).
+		 */
+		it('carries the remembered layers, unknown when their key does not match', async () => {
+			expect.assertions(2);
+			const { layersKeyOf } = await import('$lib/server/import/mapping/layers');
+			const headers = ['Date', 'Libelle', 'Montant', 'Detail'];
+			const columns = {
+				matchBy: 'name' as const,
+				dateColumn: 'date',
+				labelColumn: 'detail',
+				amountColumn: 'montant',
+				categoryColumn: null,
+				dateIndex: null,
+				labelIndex: null,
+				amountIndex: null,
+				categoryIndex: null
+			};
+			const seed = (id: string, layersKey: string | null) =>
+				db.state.columnMappings.push({
+					id,
+					userId: testUser.id,
+					fingerprint: fingerprintFor(headers, 'name'),
+					...columns,
+					columnCount: 4,
+					useCount: 0,
+					lastUsedAt: null as Date | null,
+					dateLayer: 'rule',
+					labelLayer: 'member',
+					amountLayer: 'rule',
+					categoryLayer: null,
+					layersKey
+				} as (typeof db.state.columnMappings)[number]);
+			seed('mapping-1207', layersKeyOf(columns));
+			seed('mapping-1207-stale', 'not-the-key');
+			const file = `${headers.join(';')}\n24/06/2026;CARREFOUR MARKET;-24,90;PAIEMENT CB 22/06`;
+
+			const fresh = (await runImportWithFileAndFields(file, {
+				correctMappingId: 'mapping-1207'
+			})) as unknown as {
+				data: { correctingLayers?: unknown };
+			};
+			const stale = (await runImportWithFileAndFields(file, {
+				correctMappingId: 'mapping-1207-stale'
+			})) as unknown as {
+				data: { correctingLayers?: unknown };
+			};
+
+			expect(fresh.data.correctingLayers).toEqual({
+				date: 'rule',
+				label: 'member',
+				amount: 'rule',
+				category: null
+			});
+			expect(stale.data.correctingLayers).toEqual({
+				date: null,
+				label: null,
+				amount: null,
+				category: null
+			});
+		});
+
 		it('carries no detected designation, only candidates', async () => {
 			expect.assertions(2);
 			const headers = ['Date', 'Libelle', 'Montant', 'Detail'];

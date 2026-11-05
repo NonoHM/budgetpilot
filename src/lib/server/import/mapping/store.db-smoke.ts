@@ -4,6 +4,7 @@ import { prisma } from '$lib/server/db';
 import { computeNameKey } from '$lib/server/naming/nameKey';
 import { fingerprintFor } from './fingerprint';
 import type { ColumnMappingInput } from './model';
+import { UNKNOWN_LAYERS } from './layers';
 import {
 	COLUMN_MAPPINGS_PER_USER_ENV,
 	countColumnMappings,
@@ -15,6 +16,10 @@ import {
 } from './store';
 
 const HEADERS = ['date operation', 'libelle complet', 'montant', 'categorie banque'];
+
+/** These cases are about the store's own guarantees, not the layers (#1207, `layers.db-smoke.ts`). */
+const saveUnlabelled = (userId: string, fingerprint: string, input: ColumnMappingInput) =>
+	saveColumnMapping(userId, fingerprint, input, UNKNOWN_LAYERS);
 
 const MAPPING: ColumnMappingInput = {
 	matchBy: 'name',
@@ -55,7 +60,7 @@ describe('a mapping is per user, and the fingerprint is shared by construction',
 		// The fingerprint is derived from a bank's PUBLIC column names, so two users of the same
 		// bank share one BY DESIGN. This is not a collision test.
 		const fingerprint = fingerprintFor(HEADERS, 'name');
-		const saved = await saveColumnMapping(alice, fingerprint, MAPPING);
+		const saved = await saveUnlabelled(alice, fingerprint, MAPPING);
 		expect(saved.ok).toBe(true);
 
 		expect(await readColumnMapping(bob, HEADERS)).toBeNull();
@@ -65,7 +70,7 @@ describe('a mapping is per user, and the fingerprint is shared by construction',
 
 	it('lets both users hold their own mapping for the same shape', async () => {
 		const fingerprint = fingerprintFor(HEADERS, 'name');
-		expect((await saveColumnMapping(bob, fingerprint, MAPPING)).ok).toBe(true);
+		expect((await saveUnlabelled(bob, fingerprint, MAPPING)).ok).toBe(true);
 
 		const forAlice = await readColumnMapping(alice, HEADERS);
 		const forBob = await readColumnMapping(bob, HEADERS);
@@ -91,7 +96,7 @@ describe('the lookup finds either canonical form', () => {
 			categoryIndex: null,
 			columnCount: 4
 		};
-		expect((await saveColumnMapping(alice, fingerprint, positional)).ok).toBe(true);
+		expect((await saveUnlabelled(alice, fingerprint, positional)).ok).toBe(true);
 
 		const found = await readColumnMapping(alice, headers);
 		expect(found?.matchBy).toBe('position');
@@ -105,7 +110,7 @@ describe('the lookup finds either canonical form', () => {
 
 describe('the validator runs on the write path, not only in the UI', () => {
 	it('refuses a mapping whose category repeats a required role', async () => {
-		const result = await saveColumnMapping(alice, fingerprintFor(['x', 'y'], 'name'), {
+		const result = await saveUnlabelled(alice, fingerprintFor(['x', 'y'], 'name'), {
 			...MAPPING,
 			categoryColumn: MAPPING.labelColumn
 		});
@@ -118,9 +123,9 @@ describe('the validator runs on the write path, not only in the UI', () => {
 	it('bounds a column name the file made arbitrarily long', async () => {
 		const long = 'x'.repeat(500);
 		const fingerprint = fingerprintFor(['long'], 'name');
-		expect(
-			(await saveColumnMapping(alice, fingerprint, { ...MAPPING, labelColumn: long })).ok
-		).toBe(true);
+		expect((await saveUnlabelled(alice, fingerprint, { ...MAPPING, labelColumn: long })).ok).toBe(
+			true
+		);
 
 		const stored = await prisma.columnMapping.findUnique({
 			where: { userId_fingerprint: { userId: alice, fingerprint } },
@@ -134,10 +139,10 @@ describe('the validator runs on the write path, not only in the UI', () => {
 describe('the cap', () => {
 	it('refuses a new mapping past it, and does not evict anything', async () => {
 		const first = fingerprintFor(['cap-first'], 'name');
-		expect((await saveColumnMapping(bob, first, MAPPING)).ok).toBe(true);
+		expect((await saveUnlabelled(bob, first, MAPPING)).ok).toBe(true);
 
 		process.env[COLUMN_MAPPINGS_PER_USER_ENV] = String(await countColumnMappings(bob));
-		const refused = await saveColumnMapping(bob, fingerprintFor(['cap-second'], 'name'), MAPPING);
+		const refused = await saveUnlabelled(bob, fingerprintFor(['cap-second'], 'name'), MAPPING);
 
 		expect(refused.ok).toBe(false);
 		expect(refused).toMatchObject({ reason: { code: 'cap-reached' } });
@@ -151,7 +156,7 @@ describe('the cap', () => {
 		const fingerprint = fingerprintFor(['cap-first'], 'name');
 		process.env[COLUMN_MAPPINGS_PER_USER_ENV] = String(await countColumnMappings(bob));
 
-		const corrected = await saveColumnMapping(bob, fingerprint, {
+		const corrected = await saveUnlabelled(bob, fingerprint, {
 			...MAPPING,
 			categoryColumn: null
 		});
@@ -165,7 +170,7 @@ describe('the cap', () => {
 describe('use counting, which is what the recap sentence reports', () => {
 	it('increments and stamps, scoped to the owner', async () => {
 		const fingerprint = fingerprintFor(['counted'], 'name');
-		const saved = await saveColumnMapping(alice, fingerprint, MAPPING);
+		const saved = await saveUnlabelled(alice, fingerprint, MAPPING);
 		expect(saved.ok).toBe(true);
 		const id = saved.ok ? saved.id : '';
 
@@ -190,9 +195,9 @@ describe('the cascade, which is where engines have diverged before', () => {
 		const doomed = await prisma.user.create({
 			data: { email: `mapping-doomed-${stamp}@example.test`, passwordHash: 'x', role: 'USER' }
 		});
-		expect(
-			(await saveColumnMapping(doomed.id, fingerprintFor(['doomed'], 'name'), MAPPING)).ok
-		).toBe(true);
+		expect((await saveUnlabelled(doomed.id, fingerprintFor(['doomed'], 'name'), MAPPING)).ok).toBe(
+			true
+		);
 		expect(await countColumnMappings(doomed.id)).toBe(1);
 
 		await prisma.user.delete({ where: { id: doomed.id } });
@@ -214,7 +219,7 @@ describe('the cascade, which is where engines have diverged before', () => {
 describe('forgetting a correspondance', () => {
 	it('removes the answer and leaves every transaction it ever produced in place', async () => {
 		const stamp = `${Date.now()}-forget`;
-		const saved = await saveColumnMapping(alice, fingerprintFor([stamp], 'name'), MAPPING);
+		const saved = await saveUnlabelled(alice, fingerprintFor([stamp], 'name'), MAPPING);
 		expect(saved.ok).toBe(true);
 		const mappingId = saved.ok ? saved.id : '';
 
@@ -275,7 +280,7 @@ describe('forgetting a correspondance', () => {
 	 */
 	it("refuses to delete another user's correspondance, and says only not-found", async () => {
 		const stamp = `${Date.now()}-scope`;
-		const saved = await saveColumnMapping(alice, fingerprintFor([stamp], 'name'), MAPPING);
+		const saved = await saveUnlabelled(alice, fingerprintFor([stamp], 'name'), MAPPING);
 		expect(saved.ok).toBe(true);
 		const mappingId = saved.ok ? saved.id : '';
 
@@ -294,7 +299,7 @@ describe('forgetting a correspondance', () => {
 
 	it('lists a user their own correspondances and nobody else s, with the batch count', async () => {
 		const stamp = `${Date.now()}-list`;
-		const saved = await saveColumnMapping(alice, fingerprintFor([stamp], 'name'), MAPPING);
+		const saved = await saveUnlabelled(alice, fingerprintFor([stamp], 'name'), MAPPING);
 		expect(saved.ok).toBe(true);
 		const mappingId = saved.ok ? saved.id : '';
 		await prisma.importBatch.create({
@@ -339,8 +344,8 @@ describe('two correspondances that differ only by an accent', () => {
 		// Distinct in the application, by construction: `foldExactHeader` keeps the accent.
 		expect(fingerprintFor(accented, 'name')).not.toBe(fingerprintFor(plain, 'name'));
 
-		const a = await saveColumnMapping(alice, fingerprintFor(accented, 'name'), MAPPING);
-		const b = await saveColumnMapping(alice, fingerprintFor(plain, 'name'), MAPPING);
+		const a = await saveUnlabelled(alice, fingerprintFor(accented, 'name'), MAPPING);
+		const b = await saveUnlabelled(alice, fingerprintFor(plain, 'name'), MAPPING);
 		expect(a.ok).toBe(true);
 		expect(b.ok).toBe(true);
 		// Two rows, not one. `@@unique([userId, fingerprint])` under an accent-insensitive

@@ -24,6 +24,7 @@ import { CSV_MAX_ROWS } from '$lib/server/import/csv';
 
 const store = vi.hoisted(() => ({
 	saveColumnMapping: vi.fn(async () => ({ ok: true as const, id: 'mapping-1' })),
+	readColumnMapping: vi.fn(async (): Promise<Record<string, unknown> | null> => null),
 	recordColumnMappingUse: vi.fn(async () => {})
 }));
 
@@ -275,6 +276,62 @@ describe('the designation action and a file with no header row', () => {
 
 		expect(store.saveColumnMapping).toHaveBeenCalledTimes(1);
 		expect(store.recordColumnMappingUse).toHaveBeenCalledTimes(1);
+	});
+
+	/**
+	 * #1207 C2b, ASVS v5.0.0-8.3.1: the layer stored with each kept role is the server's own
+	 * computation. Separates « detected, kept » (`rule`) from « the member chose another column »
+	 * (`member`), and a layer the FORM posts from the one stored: `dateLayer=model` is ignored.
+	 */
+	it('stores the layer the server computed for each role, never one the form posts', async () => {
+		expect.assertions(1);
+		store.readColumnMapping.mockResolvedValueOnce(null);
+		const csv = `date,label,amount,note\n${HEADERLESS.split('\n')
+			.map((line) => `${line},x`)
+			.join('\n')}`;
+
+		await submit(csv, true, { labelIndex: '3', dateLayer: 'model', labelLayer: 'rule' });
+
+		expect(store.saveColumnMapping.mock.calls[0]?.slice(3)).toEqual([
+			{ dateLayer: 'rule', labelLayer: 'member', amountLayer: 'rule', categoryLayer: null }
+		]);
+	});
+
+	/**
+	 * Separates « kept the remembered column » (its stored layer carried forward, `member` here
+	 * although detection also designates it) from « detected » (`rule`).
+	 */
+	it('carries a remembered role layer forward when the member keeps that column', async () => {
+		expect.assertions(1);
+		const columns = {
+			matchBy: 'name',
+			dateColumn: 'date',
+			labelColumn: 'label',
+			amountColumn: 'amount',
+			categoryColumn: null,
+			dateIndex: null,
+			labelIndex: null,
+			amountIndex: null,
+			categoryIndex: null,
+			columnCount: 3
+		};
+		// The key the store writes, through the production function: without it the layers read
+		// unknown (#1207 F4), which the case below this one would then not separate.
+		const { layersKeyOf } = await import('$lib/server/import/mapping/layers');
+		store.readColumnMapping.mockResolvedValueOnce({
+			...columns,
+			dateLayer: null,
+			labelLayer: 'member',
+			amountLayer: 'rule',
+			categoryLayer: null,
+			layersKey: layersKeyOf(columns)
+		});
+
+		await submit(WITH_HEADER, true);
+
+		expect(store.saveColumnMapping.mock.calls[0]?.slice(3)).toEqual([
+			{ dateLayer: null, labelLayer: 'member', amountLayer: 'rule', categoryLayer: null }
+		]);
 	});
 });
 

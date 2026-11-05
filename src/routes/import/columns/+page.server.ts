@@ -19,7 +19,12 @@ import { readAccountColumnAnswers } from '$lib/domain/accountColumnAnswer';
 import { CSV_MAX_COLUMNS_CEILING } from '$lib/server/import/columnBounds';
 import { readDateOrderAnswer } from '$lib/server/import/dateOrder';
 import { fingerprintFor } from '$lib/server/import/mapping/fingerprint';
-import { recordColumnMappingUse, saveColumnMapping } from '$lib/server/import/mapping/store';
+import {
+	readColumnMapping,
+	recordColumnMappingUse,
+	saveColumnMapping
+} from '$lib/server/import/mapping/store';
+import { columnMappingLayers } from '$lib/server/import/mapping/layers';
 import { MAPPING_ROLES } from '$lib/server/import/mapping/model';
 import { refusalLabel } from '$lib/i18n/refusalLabel';
 import { refusalCellValue } from '$lib/server/import/utils/safety';
@@ -473,10 +478,14 @@ export const actions: Actions = {
 		let capReached = false;
 		let columnMappingId: string | null = null;
 		if (hasHeaderRow && formData.get('remember') !== 'false') {
+			// #1207: the layer of each kept role, from the server's own proposals and the row this save
+			// replaces, never from the form (ASVS v5.0.0-8.3.1).
+			const remembered = await readColumnMapping(user.id, headers);
 			const saved = await saveColumnMapping(
 				user.id,
 				fingerprintFor(headers, resolved.mapping.matchBy),
-				resolved.mapping
+				resolved.mapping,
+				columnMappingLayers(importData.rows, headers, resolved.mapping, remembered)
 			);
 			// A refusal to REMEMBER never refuses the IMPORT: the user asked to import a file, and
 			// the memorisation is a convenience attached to it. The cap is reported and the rows land.

@@ -152,6 +152,7 @@ const NOT_CARRIED: Record<string, string> = {
 	'ImportBatch.dateOrder': 'not carried yet, see #1177',
 	'ImportBatch.createdAt': 'restore time, see #1178',
 	'ColumnMapping.id': 'not carried yet, so a batch cannot be linked back, see #1177',
+	'ColumnMapping.layersKey': 'recomputed by the restore from the columns it writes (#1207)',
 	'ColumnMapping.lastUsedAt': 'not portable state worth carrying, see the comment in export.ts',
 	'ColumnMapping.createdAt': 'restore time, see #1178',
 	'CategorizationRule.createdAt': 'restore time, see #1178',

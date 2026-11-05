@@ -9,6 +9,7 @@ import {
 	type ColumnMappingRefusal
 } from './model';
 import { OperatorFacingError } from '$lib/server/operatorFacingError';
+import { layersKeyOf, type ColumnMappingLayers } from './layers';
 
 /**
  * The most column mappings one user may hold.
@@ -114,7 +115,9 @@ export async function countColumnMappings(userId: string): Promise<number> {
 export async function saveColumnMapping(
 	userId: string,
 	fingerprint: string,
-	input: ColumnMappingInput
+	input: ColumnMappingInput,
+	/** Required, so the compiler names every writer: `columnMappingLayers`, or `UNKNOWN_LAYERS`. */
+	layers: ColumnMappingLayers
 ): Promise<SaveColumnMappingResult> {
 	const bounded: ColumnMappingInput = {
 		...input,
@@ -143,8 +146,8 @@ export async function saveColumnMapping(
 
 	const saved = await prisma.columnMapping.upsert({
 		where: { userId_fingerprint: { userId, fingerprint } },
-		update: { ...bounded },
-		create: { userId, fingerprint, ...bounded },
+		update: { ...bounded, ...layers, layersKey: layersKeyOf(bounded) },
+		create: { userId, fingerprint, ...bounded, ...layers, layersKey: layersKeyOf(bounded) },
 		select: { id: true }
 	});
 	return { ok: true, id: saved.id };
