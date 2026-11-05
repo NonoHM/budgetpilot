@@ -186,12 +186,18 @@ keeps and want the room for a new bank.
 
 ### A statement with no header row
 
-Some exports start straight into transactions, with no titles at the top. On
-the designation screen, turn on **The first row contains data**.
+Some exports start straight into transactions, with no titles at the top.
+BudgetPilot recognises them: when the first line has a date where the other
+lines have dates, it reads that line as a transaction, and the designation
+screen says **no header row** next to the row count.
 
-Turn it on and BudgetPilot reads every line as a transaction. Leave it off and
-it treats your first transaction as a title row and skips it, which is one
-transaction missing from every import of that file.
+Check that line before you import. If the screen says **headers detected** and
+your first line is a transaction, open any column and turn on **The first row
+contains data**. The row count goes up by one. Without it, your first
+transaction is read as a title and skipped.
+
+If the first line has a date in one date column but not in another, the import
+stops and names the line. Fix that line, then choose the file again.
 
 A file like this is designated **every time**. There are no column names to
 remember it by, and its first line changes with every statement, so there is
