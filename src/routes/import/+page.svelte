@@ -1108,7 +1108,7 @@
 			// The member's remembered answer first, then what the file proves (#352, B3), then nothing.
 			initialAssignment:
 				correctingAssignment ?? designation.proposals?.designated ?? EMPTY_ASSIGNMENT,
-			// #1207: drawn as « Remembered » on each row still holding its remembered column.
+			// #1207: the remembered correspondance and its stored layers (« Your choice », #1278).
 			remembered:
 				correctingAssignment && correctingMappingId
 					? {
@@ -1309,7 +1309,7 @@
 			// #1213, the same leg: a decline that did not come back was prefilled over on reopen.
 			currencyDeclined: carried.repost.currencyDeclined,
 			// #1207 pass B F1: the correction's remembered layers, or the reopened rows lose their
-			// « Remembered » line while the save still stores the layer they were kept from.
+			// « Your choice » line while the save still stores the layer they were kept from.
 			remembered: carried.repost.remembered,
 			// Carried back WITH the user's choice, so declining reopens the screen the way they left
 			// it rather than the way resolution guessed it.
@@ -1382,7 +1382,7 @@
 			if (carried.repost.correction?.deleteOldImport) {
 				body.set('replaceBatchId', carried.repost.correction.batchId);
 			}
-			// #1207: whatever the consent, the rows were drawn as « Remembered ».
+			// #1207: whatever the consent, the rows were prefilled from the remembered correspondance.
 			if (carried.repost.remembered)
 				body.set('rememberedMappingId', carried.repost.remembered.mappingId);
 		} else {

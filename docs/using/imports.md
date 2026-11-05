@@ -74,10 +74,9 @@ The **Account** row is at the top and is usually already filled in. See [which
 account is this statement from?](#which-account-is-this-statement-from) below.
 The rest of this section is about the four column rows.
 
-When the screen fills in a column for you, a grey line under the row says why.
-_Matched_ means the column's name says what it holds, _From the file_ means the
-values prove it, and _Remembered_ means it was used for files like this before. Pick
-another column and the line goes away, because the answer is now yours.
+The screen fills in the columns it recognises. Each filled row shows the file's
+own column name and its first value, and those two are what to check. _Your
+choice_ under a row means you selected that column yourself on an earlier import.
 
 ![The designation screen on a phone: an Account row at the top reading CSV import, then four rows for Date, Label, Amount and Category, each showing the file's own column name and its first value, with the banner reading all three columns are designated, 3 of 3, and the primary reading Import 3 rows](../screenshots/imports/columns-designation-mobile.png)
 

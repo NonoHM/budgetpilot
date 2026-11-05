@@ -6,7 +6,7 @@ import { isDateCellUnderEitherReading, parseRows } from './utils/csv';
 import { parseAmountCents } from './utils/money';
 
 /**
- * Two premises `rowProvenance` (`$lib/domain/designationLayer`) rests on, asserted against the
+ * Two premises `layerAtSave` (`$lib/domain/designationLayer`) rests on, asserted against the
  * PRODUCTION producers rather than restated (#1207 C2b).
  *
  * 1. A detected designation's layer follows from `hasHeaderRow` alone: under a header row every

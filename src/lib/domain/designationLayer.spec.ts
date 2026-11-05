@@ -1,75 +1,33 @@
 import { describe, expect, it } from 'vitest';
-import { DESIGNATION_LAYERS, layerAtSave, rowProvenance } from './designationLayer';
+import { DESIGNATION_LAYERS, isMemberChoice, layerAtSave } from './designationLayer';
 
 /**
- * #1207 C2b, the import onion's label (#1203): which layer produced the value a row shows, and which
- * layer the server stores when the member keeps it. Each assertion compares the whole value, because
- * a provenance present with the wrong layer satisfies any check written about its presence.
+ * #1278: a prefilled row says nothing about where its value came from, because the column name and
+ * the sample beside it are the member's evidence (#1278's comparables reading, 2026-11-05). The one
+ * fact a row still states is that a remembered column is the member's own earlier choice.
  */
-describe('rowProvenance, the line under a prefilled row', () => {
-	const detected = { remembered: null, hasHeaderRow: true, header: 'Montant' } as const;
+describe('isMemberChoice, the one provenance a row still shows', () => {
+	const remembered = (layer: (typeof DESIGNATION_LAYERS)[number] | null) => ({ index: 1, layer });
 
-	// Separates « detection designated this column » from « the member chose another one ».
-	it('labels a value detection designated by its header, and drops it once the member changes it', () => {
-		expect.assertions(2);
-		expect(rowProvenance({ ...detected, role: 'amount', current: 2, detected: 2 })).toEqual({
-			layer: 'rule',
-			reason: { code: 'header', header: 'Montant' }
-		});
-		expect(rowProvenance({ ...detected, role: 'amount', current: 3, detected: 2 })).toBeNull();
-	});
-
-	// Separates a header match (rule) from a file proof: the date row names the proof of its order.
-	it('labels a designated date by the order the file proves, not by its header', () => {
-		expect.assertions(2);
-		const date = { ...detected, role: 'date', current: 0, detected: 0, header: 'Date' } as const;
-		expect(rowProvenance({ ...date, dateState: 'proven-day' })).toEqual({
-			layer: 'file',
-			reason: { code: 'date-order', order: 'day-first' }
-		});
-		// `proven-shape` is « nothing to decide » (ISO, or a day equal to its month): no order to name.
-		expect(rowProvenance({ ...date, dateState: 'proven-shape' })).toEqual({
-			layer: 'file',
-			reason: { code: 'date-single-reading' }
-		});
-	});
-
-	// Separates the headerless currency (a value shape, the file) from a header row's match.
-	it('labels a headerless currency column as read from the file', () => {
-		expect.assertions(1);
-		expect(
-			rowProvenance({
-				role: 'currency',
-				current: 3,
-				detected: 3,
-				remembered: null,
-				hasHeaderRow: false
-			})
-		).toEqual({ layer: 'file', reason: { code: 'currency-codes' } });
-	});
-
-	// Separates a remembered column kept from the file, kept as the member's own, and one of unknown
-	// origin (written before 1.4), and a remembered column the member then changed.
-	it('labels a remembered column by what it was kept from, and drops it once changed', () => {
+	// Separates « kept as the member's own » from every other stored origin.
+	it('is true only for a remembered column stored as the member’s own', () => {
 		expect.assertions(4);
-		const base = { role: 'label', detected: null, hasHeaderRow: true } as const;
-		const kept = (layer: (typeof DESIGNATION_LAYERS)[number] | null, current = 1) =>
-			rowProvenance({ ...base, current, remembered: { index: 1, layer } });
-		expect(kept('rule')).toEqual({ layer: 'remembered', reason: { code: 'kept', from: 'file' } });
-		expect(kept('member')).toEqual({
-			layer: 'remembered',
-			reason: { code: 'kept', from: 'member' }
-		});
-		expect(kept(null)).toEqual({ layer: 'remembered', reason: { code: 'kept', from: 'unknown' } });
-		expect(kept('rule', 4)).toBeNull();
+		expect(isMemberChoice({ current: 1, remembered: remembered('member') })).toBe(true);
+		expect(isMemberChoice({ current: 1, remembered: remembered('rule') })).toBe(false);
+		expect(isMemberChoice({ current: 1, remembered: remembered('file') })).toBe(false);
+		expect(isMemberChoice({ current: 1, remembered: remembered(null) })).toBe(false);
 	});
 
-	// Separates a row holding no column from one holding the detected column.
-	it('says nothing about a row that holds no column', () => {
-		expect.assertions(1);
-		expect(
-			rowProvenance({ ...detected, role: 'category', current: null, detected: null })
-		).toBeNull();
+	// Separates « the row still holds the remembered column » from « the member changed it now ».
+	it('is false once the row holds another column, or none', () => {
+		expect.assertions(4);
+		expect(isMemberChoice({ current: 4, remembered: remembered('member') })).toBe(false);
+		expect(isMemberChoice({ current: null, remembered: remembered('member') })).toBe(false);
+		// The one value where only the null guard decides: an empty row whose remembered role is empty.
+		expect(isMemberChoice({ current: null, remembered: { index: null, layer: 'member' } })).toBe(
+			false
+		);
+		expect(isMemberChoice({ current: 1, remembered: null })).toBe(false);
 	});
 });
 

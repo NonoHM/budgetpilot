@@ -165,22 +165,14 @@ describe('the memorised-columns page, opened from an import', () => {
 	});
 });
 
-describe('the recap says what each remembered role was kept from (#1207)', () => {
-	// Separates « the stored layer reaches the recap rows » from « dropped at the page », and a
-	// known layer from an unknown one, each through the one place a layer becomes text.
-	it('labels each row by its stored layer', async () => {
-		const { provenanceText } = await import('$lib/i18n/provenanceText');
-		const words = (from: 'file' | 'member' | 'unknown') => {
-			const { label, reason } = provenanceText({
-				layer: 'remembered',
-				reason: { code: 'kept', from }
-			});
-			return `${label} · ${reason}`;
-		};
+describe('the recap marks only the member’s own columns (#1278)', () => {
+	// Separates « the stored layer reaches the recap rows » from « dropped at the page », and the
+	// member's layer from a rule and an unknown one, which the title already covers.
+	it('marks the one row stored as the member’s choice', async () => {
 		const { container } = await render(Page, { data: DATA });
 		const lines = [...container.querySelectorAll('[data-provenance]')].map(
 			(node) => node.textContent
 		);
-		expect(lines).toEqual([words('file'), words('member'), words('unknown')]);
+		expect(lines).toEqual([m.import_columns_member_choice()]);
 	});
 });

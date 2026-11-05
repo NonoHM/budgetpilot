@@ -4,24 +4,33 @@ import { render } from 'vitest-browser-svelte';
 import '../../../routes/layout.css';
 import ColumnDesignationScreen from './ColumnDesignationScreen.svelte';
 import { EMPTY_ASSIGNMENT, type RoleAssignment } from '$lib/domain/columnDesignation';
-import { provenanceText } from '$lib/i18n/provenanceText';
+import * as m from '$lib/paraglide/messages';
+import type { ColumnDateState } from '$lib/server/import/columnDateState';
 
 /**
- * #1207 C2b on the screen: each row holding a value that detection or memory produced says so, and
- * the line leaves the row the moment the member's choice replaces that value. Expected words come
- * from `provenanceText`, the one place a layer becomes text, never retyped.
+ * #1278 on the screen: a row filled by detection or memory carries no line about where its value
+ * came from, because the column name and its sample are what the member checks. The one line left
+ * is « Your choice » on a remembered column the member picked themselves, and it leaves the row
+ * the moment the member picks another column.
  */
 const HEADERS = ['Date operation', 'Date valeur', 'Libelle', 'Montant', 'Categorie'];
-const DETECTED: RoleAssignment = { ...EMPTY_ASSIGNMENT, amount: 3 };
+const DETECTED: RoleAssignment = { ...EMPTY_ASSIGNMENT, date: 0, amount: 3 };
 const FILE = {
 	name: 'releve.csv',
 	headers: HEADERS,
-	samples: HEADERS.map((_, index) => [`v${index}a`, `v${index}b`, `v${index}c`]),
+	samples: [
+		['24/06/2026', '03/06/2026', '05/06/2026'],
+		['24/06/2026', '03/06/2026', '05/06/2026'],
+		['CB A', 'CB B', 'CB C'],
+		['-14,17', '-3,20', '-9,99'],
+		['', '', '']
+	],
 	rowCount: 12,
 	detectedHeaderRow: true,
+	dateStates: ['proven-day', 'proven-day', 'no-dates', 'no-dates', 'empty'] as ColumnDateState[],
 	proposals: {
 		designated: DETECTED,
-		candidates: { date: [], label: [], amount: [3], category: [], currency: [] }
+		candidates: { date: [0, 1], label: [], amount: [3], category: [], currency: [] }
 	}
 };
 
@@ -38,62 +47,64 @@ async function mount(props: Record<string, unknown> = {}) {
 	});
 }
 
-const said = (p: Parameters<typeof provenanceText>[0]) => {
-	const { label, reason } = provenanceText(p);
-	return `${label}, ${reason}`;
-};
-
 beforeEach(async () => {
 	await page.viewport(390, 844);
 });
 
-describe('the provenance line on the designation screen (#1207)', () => {
-	// Separates « detection designated this column by its header » from « no line on the row ».
-	it('describes a detected row by the header that matched', async () => {
-		await mount();
-		await expect
-			.element(page.getByRole('button', { name: /^Montant,/ }))
-			.toHaveAccessibleDescription(
-				said({ layer: 'rule', reason: { code: 'header', header: 'Montant' } })
-			);
-	});
-
-	// Separates « the value is still detection's » from « the member replaced it ».
-	it('drops the line once the member chooses another column', async () => {
-		await mount();
-		await page.getByRole('button', { name: /^Montant,/ }).click();
-		await page.getByRole('option', { name: /^Categorie\./ }).click();
+describe('what a prefilled row says about its origin (#1278)', () => {
+	// Separates « the header match is stated » (#1277) from « the column name is the evidence ».
+	it('says nothing under a column detection matched by its header, nor under a proven date', async () => {
+		const { container } = await mount();
 		await expect
 			.element(page.getByRole('button', { name: /^Montant,/ }))
 			.toHaveAccessibleDescription('');
+		await expect
+			.element(page.getByRole('button', { name: /^Date,/ }))
+			.toHaveAccessibleDescription('');
+		// The two rows above are found, so this zero is about rendered rows, not an empty screen.
+		expect(container.querySelectorAll('[data-provenance]').length).toBe(0);
 	});
 
-	// Separates a remembered column kept as the member's own from one detection designated.
-	it('describes a remembered row by what it was kept from', async () => {
-		const remembered: RoleAssignment = {
-			date: 0,
-			label: 2,
-			amount: 3,
-			category: null,
-			currency: null
-		};
-		await mount({
+	const REMEMBERED: RoleAssignment = {
+		date: 0,
+		label: 2,
+		amount: 3,
+		category: null,
+		currency: null
+	};
+	const mountRemembered = () =>
+		mount({
 			file: { ...FILE, proposals: { ...FILE.proposals, designated: EMPTY_ASSIGNMENT } },
-			initialAssignment: remembered,
+			initialAssignment: REMEMBERED,
 			remembered: {
-				assignment: remembered,
+				assignment: REMEMBERED,
 				layers: { date: 'rule', label: 'member', amount: null, category: null }
 			}
 		});
+
+	// Separates the member's own remembered column from one kept from the file or of unknown origin.
+	it('marks only the remembered column the member chose themselves', async () => {
+		const { container } = await mountRemembered();
 		await expect
 			.element(page.getByRole('button', { name: /^Libellé,/ }))
-			.toHaveAccessibleDescription(
-				said({ layer: 'remembered', reason: { code: 'kept', from: 'member' } })
-			);
+			.toHaveAccessibleDescription(m.import_columns_member_choice());
 		await expect
 			.element(page.getByRole('button', { name: /^Montant,/ }))
-			.toHaveAccessibleDescription(
-				said({ layer: 'remembered', reason: { code: 'kept', from: 'unknown' } })
-			);
+			.toHaveAccessibleDescription('');
+		await expect
+			.element(page.getByRole('button', { name: /^Date,/ }))
+			.toHaveAccessibleDescription('');
+		const lines = [...container.querySelectorAll('[data-provenance]')].map((n) => n.textContent);
+		expect(lines).toEqual([m.import_columns_member_choice()]);
+	});
+
+	// Separates « still the member's earlier choice » from « replaced by a new one just now ».
+	it('drops the mark once the member picks another column', async () => {
+		await mountRemembered();
+		await page.getByRole('button', { name: /^Libellé,/ }).click();
+		await page.getByRole('option', { name: /^Categorie\./ }).click();
+		await expect
+			.element(page.getByRole('button', { name: /^Libellé,/ }))
+			.toHaveAccessibleDescription('');
 	});
 });

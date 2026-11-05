@@ -41,7 +41,7 @@ export interface PendingDesignation {
 	initialAssignment: RoleAssignment;
 	/**
 	 * #1207: the correspondance a correction reopens and the layer stored with each role, for the
-	 * rows' « Remembered » line. DRAWN only, like `view`: the save path re-reads the stored row and
+	 * rows' « Your choice » line (#1278). DRAWN only, like `view`: the save path re-reads the stored row and
 	 * computes the layer it writes, so a tampered value changes a label and nothing stored. Absent
 	 * on a fresh file.
 	 */

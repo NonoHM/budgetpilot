@@ -226,7 +226,7 @@
 		if (pending.correction && result.deleteOldImport) {
 			data.set('replaceBatchId', pending.correction.batchId);
 		}
-		// #1207 (owner ruling: carry): the rows were drawn as « Remembered », consent or none, so the
+		// #1207 (owner ruling: carry): the rows were prefilled from memory, consent or none, so the
 		// save carries each kept column's stored layer. Compared on the server, never trusted.
 		if (pending.remembered) data.set('rememberedMappingId', pending.remembered.mappingId);
 

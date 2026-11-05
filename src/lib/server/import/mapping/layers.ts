@@ -137,7 +137,7 @@ export function columnMappingLayers(
 	mapping: ColumnMappingInput,
 	remembered: Parameters<typeof storedLayers>[0] | null,
 	/**
-	 * The screen drew this row's columns as « Remembered »: a correction of THIS correspondance,
+	 * The screen prefilled this row's columns from memory: a correction of THIS correspondance,
 	 * which the caller establishes from the batch it resolves under the user, never from the form.
 	 * A recognised file whose correspondance is partial or lost opens on blank rows instead, so a
 	 * column picked there is the member's even when the old row named it (narrow pass).
