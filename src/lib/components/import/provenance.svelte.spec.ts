@@ -5,6 +5,7 @@ import '../../../routes/layout.css';
 import ColumnDesignationScreen from './ColumnDesignationScreen.svelte';
 import { EMPTY_ASSIGNMENT, type RoleAssignment } from '$lib/domain/columnDesignation';
 import * as m from '$lib/paraglide/messages';
+import type { ColumnDateState } from '$lib/server/import/columnDateState';
 
 /**
  * #1278 on the screen: a row filled by detection or memory carries no line about where its value
@@ -26,7 +27,7 @@ const FILE = {
 	],
 	rowCount: 12,
 	detectedHeaderRow: true,
-	dateStates: ['proven-day', 'proven-day', 'no-dates', 'no-dates', 'empty'],
+	dateStates: ['proven-day', 'proven-day', 'no-dates', 'no-dates', 'empty'] as ColumnDateState[],
 	proposals: {
 		designated: DETECTED,
 		candidates: { date: [0, 1], label: [], amount: [3], category: [], currency: [] }
