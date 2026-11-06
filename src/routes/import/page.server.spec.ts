@@ -2172,7 +2172,10 @@ describe('/import actions', () => {
 					categoryLayer: null,
 					layersKey
 				} as (typeof db.state.columnMappings)[number]);
-			seed('mapping-1207', layersKeyOf({ ...columns, amountSign: null, amountSignAccountId: null }));
+			seed(
+				'mapping-1207',
+				layersKeyOf({ ...columns, amountSign: null, amountSignAccountId: null })
+			);
 			seed('mapping-1207-stale', 'not-the-key');
 			const file = `${headers.join(';')}\n24/06/2026;CARREFOUR MARKET;-24,90;PAIEMENT CB 22/06`;
 
@@ -2417,7 +2420,8 @@ describe('/import actions', () => {
 				labelLayer: null,
 				categoryLayer: null,
 				// No kept sign answer (#1294): this case is the one the member is still asked.
-				amountSign: null, amountSignAccountId: null
+				amountSign: null,
+				amountSignAccountId: null
 			};
 			// The integrity key the store writes, through its own function: an unkeyed row reads unknown.
 			db.state.columnMappings.push({

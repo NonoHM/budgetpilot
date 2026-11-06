@@ -92,17 +92,17 @@ export function readStoredLayer(value: unknown): DesignationLayer | null {
  */
 type LayersKeyFields = StoredAmountSignFields &
 	Pick<
-	UntrustedColumnMapping,
-	| 'matchBy'
-	| 'dateColumn'
-	| 'labelColumn'
-	| 'amountColumn'
-	| 'categoryColumn'
-	| 'dateIndex'
-	| 'labelIndex'
-	| 'amountIndex'
-	| 'categoryIndex'
->;
+		UntrustedColumnMapping,
+		| 'matchBy'
+		| 'dateColumn'
+		| 'labelColumn'
+		| 'amountColumn'
+		| 'categoryColumn'
+		| 'dateIndex'
+		| 'labelIndex'
+		| 'amountIndex'
+		| 'categoryIndex'
+	>;
 
 export function layersKeyOf(mapping: LayersKeyFields): string {
 	const fields = [

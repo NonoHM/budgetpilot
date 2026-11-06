@@ -394,6 +394,38 @@ describe(`#1294, the kept answer's log line, on ${process.env.DATABASE_PROVIDER 
 	});
 });
 
+describe(`#1294, the kept answer's log line when cleared or moved, on ${process.env.DATABASE_PROVIDER ?? 'the configured engine'}`, () => {
+	const updates = () =>
+		logged.filter((line) => (line as { event: string }).event === 'sensitive_update');
+
+	/** Fixes pass F2. Separates « a kept answer cleared by a signed save is logged » from silence. */
+	it('writes one line when a signed statement clears the kept answer', async () => {
+		expect.assertions(1);
+		const who = await seedUser('log-cleared');
+		await designate(who, JUNE, { amountSign: 'out' });
+		logged.length = 0;
+		await designate(who, AUGUST_SIGNED, { amountSign: 'out' });
+		expect(updates()).toHaveLength(1);
+	});
+
+	/** Fixes pass F2. Separates « the answer moved to another account is logged » from silence. */
+	it('writes one line when the same answer is kept for another account', async () => {
+		expect.assertions(1);
+		const who = await seedUser('log-moved');
+		await designate(who, JUNE, { amountSign: 'out' });
+		const savings = await createStatementAccount({ userId: who.userId, name: 'Livret' });
+		logged.length = 0;
+		await designate(
+			{ userId: who.userId, accountId: savings.id },
+			statement(['21/09/2026;CB FNAC;45,00'], 'sept.csv'),
+			{
+				amountSign: 'out'
+			}
+		);
+		expect(updates()).toHaveLength(1);
+	});
+});
+
 describe(`#1294, the answer outside the import doors, on ${process.env.DATABASE_PROVIDER ?? 'the configured engine'}`, () => {
 	/**
 	 * THE BACKUP. Separates « a restore brings the answer back » from « it drops it », measured by the

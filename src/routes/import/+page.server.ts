@@ -1,8 +1,4 @@
-import {
-	layersByRole,
-	storedAmountSign,
-	storedLayers
-} from '$lib/server/import/mapping/layers';
+import { layersByRole, storedAmountSign, storedLayers } from '$lib/server/import/mapping/layers';
 import type { AmountSign } from '$lib/domain/amountSign';
 import { fail, type Actions } from '@sveltejs/kit';
 import { EVENT } from '$lib/server/logging/names';

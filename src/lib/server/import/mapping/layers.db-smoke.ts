@@ -76,7 +76,13 @@ describe('the layers a save writes', () => {
 	// Separates « the save wrote the layers it was given, with their key » from « nothing written ».
 	it('stores each layer and reads it back through the one reader', async () => {
 		const userId = await member();
-		const saved = await saveColumnMapping(userId, fingerprintFor(HEADERS, 'name'), MAPPING, LAYERS, null);
+		const saved = await saveColumnMapping(
+			userId,
+			fingerprintFor(HEADERS, 'name'),
+			MAPPING,
+			LAYERS,
+			null
+		);
 		expect(saved.ok).toBe(true);
 		expect(storedLayers(await onlyMapping(userId))).toEqual(LAYERS);
 	});
