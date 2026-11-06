@@ -846,6 +846,8 @@
 
 	function chooseSign(sign: AmountSign) {
 		if (amountColumn === null) return;
+		// Answered: the step is not owed again after the account (passes A F1, B N1).
+		signAfterAccount = false;
 		chosenSign = sign;
 		signAnsweredFor = amountColumn;
 		openRole = null;
@@ -1396,6 +1398,8 @@
 				// return from a cancelled creation, and leaving it set would land the next ordinary
 				// opening on the action instead of on the options.
 				accountPanelFocus = 'list';
+				// Closing with the row declines, as Escape does: no step follows a later choice.
+				if (accountPanelOpen) signAfterAccount = false;
 				accountPanelOpen = !accountPanelOpen;
 			}}
 		/>

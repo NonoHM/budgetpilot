@@ -530,8 +530,8 @@ describe('arriving to change the answer', () => {
 	it('opens on the step with the kept answer pressed', async () => {
 		await mount({ remembered: REMEMBERED, openOn: 'sign' });
 		await expect.element(heading()).toBeVisible();
-		await expect.element(card(/^Argent sorti/)).toHaveAttribute('aria-pressed', 'true');
-		await expect.element(card(/^Argent entré/)).toHaveAttribute('aria-pressed', 'false');
+		await expect.element(card(/^Argent sorti/)).toHaveAttribute('aria-current', 'true');
+		expect(card(/^Argent entré/).element().hasAttribute('aria-current')).toBe(false);
 	});
 
 	/**
@@ -543,7 +543,7 @@ describe('arriving to change the answer', () => {
 		expect(heading().elements().length).toBe(0);
 		await page.getByRole('option', { name: /Compte courant/ }).click();
 		await expect.element(heading()).toBeVisible();
-		await expect.element(card(/^Argent sorti/)).toHaveAttribute('aria-pressed', 'true');
+		await expect.element(card(/^Argent sorti/)).toHaveAttribute('aria-current', 'true');
 	});
 
 	/** Separates « pressed only for its own account » from « pressed for any account chosen ». */
@@ -551,7 +551,43 @@ describe('arriving to change the answer', () => {
 		await mount({ remembered: REMEMBERED, openOn: 'sign', accounts: TWO, initialAccountId: null });
 		await page.getByRole('option', { name: /Livret/ }).click();
 		await expect.element(heading()).toBeVisible();
-		expect(card(/^Argent sorti/).element().hasAttribute('aria-pressed')).toBe(false);
+		expect(card(/^Argent sorti/).element().hasAttribute('aria-current')).toBe(false);
+	});
+
+	/**
+	 * PASSES A F1 / B N1. Separates « the step follows the account question it was armed for » from
+	 * « it follows any later account choice »: closing the panel with its own row is declining, as
+	 * Escape is, and a later choice must not replace the screen with the question.
+	 */
+	it('does not open the step on a later choice once the panel was closed with its row', async () => {
+		await mount({ remembered: REMEMBERED, openOn: 'sign', accounts: TWO, initialAccountId: null });
+		const row = page.getByTestId('designation-account').getByRole('button').first();
+		await row.click();
+		await row.click();
+		await page.getByRole('option', { name: /Compte courant/ }).click();
+		expect(heading().elements().length).toBe(0);
+	});
+
+	/**
+	 * PASS A F1, path B. Separates « asked once » from « asked again after the account »: a member who
+	 * answers through the Amount row first is then asked the account, and choosing it must not reopen
+	 * the question they just answered.
+	 */
+	it('does not ask the question again after the member answered it first', async () => {
+		const { container } = await mount({
+			remembered: REMEMBERED,
+			openOn: 'sign',
+			accounts: TWO,
+			initialAccountId: null
+		});
+		// The panel is left open (it is not modal). A DOM click: whether a finger reaches the row beside
+		// the open panel depends on the width, which the walk measures.
+		await amountRow(container).click();
+		await expect.element(heading()).toBeVisible();
+		await card(/^Argent entré/).click();
+		await page.getByRole('option', { name: /Compte courant/ }).click();
+		expect(heading().elements().length).toBe(0);
+		expect(await sentenceOf('amount-sign-line')).toBe('12,90 → +12,90 · argent entré');
 	});
 
 	/** Separates « the change is posted » from « the kept answer wins over the member's ». */

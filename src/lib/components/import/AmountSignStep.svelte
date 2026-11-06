@@ -13,7 +13,9 @@
 	 * the fold at 1280. One column, no sticky, no inner scroll: everything fits the first viewport for
 	 * the three rows it shows.
 	 *
-	 * No default: nothing is pressed or focused on arrival but the heading. Back returns to the columns
+	 * No default: nothing is marked or focused on arrival but the heading, except the answer in force
+	 * when the member came to change it (#1305), marked `aria-current` (WAI-ARIA « the current item
+	 * within a set »): the cards stay buttons that answer. Back returns to the columns
 	 * WITHOUT answering; « Some out, some in » explains and answers nothing.
 	 */
 	let {
@@ -28,7 +30,7 @@
 			outFirst: string;
 			inFirst: string;
 		};
-		/** #1305: the answer in force, pressed on arrival (GOV.UK: a previous answer is pre-populated). */
+		/** #1305: the answer in force, marked on arrival (GOV.UK: a previous answer is pre-populated). */
 		current?: AmountSign | null;
 		onChoose: (sign: AmountSign) => void;
 		onBack: () => void;
@@ -94,7 +96,7 @@
 				'out'
 					? 'bg-zinc-100 ring-2 ring-zinc-900'
 					: 'bg-white'}"
-				aria-pressed={current === null ? undefined : current === 'out'}
+				aria-current={current === 'out' ? 'true' : undefined}
 				onclick={() => onChoose('out')}
 			>
 				<span class="text-[17px] font-semibold text-zinc-900"
@@ -110,7 +112,7 @@
 				'in'
 					? 'bg-zinc-100 ring-2 ring-zinc-900'
 					: 'bg-white'}"
-				aria-pressed={current === null ? undefined : current === 'in'}
+				aria-current={current === 'in' ? 'true' : undefined}
 				onclick={() => onChoose('in')}
 			>
 				<span class="text-[17px] font-semibold text-zinc-900"
