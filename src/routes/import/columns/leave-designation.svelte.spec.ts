@@ -57,7 +57,10 @@ const ASSIGNMENT = { date: 0, label: 1, amount: 2, category: null } as unknown a
 const MAPPING = 'mapping-being-corrected';
 const BATCH = 'batch-being-replaced';
 
-function seed(correction: { mappingId: string; batchId: string } | null, openOn: 'sign' | null = null) {
+function seed(
+	correction: { mappingId: string; batchId: string } | null,
+	openOn: 'sign' | null = null
+) {
 	// The naming fields are fixture noise here and are filled once: this file is about the WAY OUT,
 	// which reads only the two ids. Planche 5c added the other three so the footer can name what it
 	// would delete, and a test about navigation has nothing to say about them.

@@ -531,10 +531,17 @@ describe('arriving to change the answer', () => {
 		await mount({ remembered: REMEMBERED, openOn: 'sign' });
 		await expect.element(heading()).toBeVisible();
 		await expect.element(card(/^Argent sorti/)).toHaveAttribute('aria-current', 'true');
-		expect(card(/^Argent entré/).element().hasAttribute('aria-current')).toBe(false);
+		expect(
+			card(/^Argent entré/)
+				.element()
+				.hasAttribute('aria-current')
+		).toBe(false);
 		// Critique A2: said in words on the marked card only, not by its ring alone.
-		await expect.element(card(/^Argent sorti/)).toHaveTextContent('Argent sorti -12,90 Votre réponse actuelle');
-		const sentence = (name: RegExp) => card(name).element().textContent?.replace(/\s+/g, ' ').trim();
+		await expect
+			.element(card(/^Argent sorti/))
+			.toHaveTextContent('Argent sorti -12,90 Votre réponse actuelle');
+		const sentence = (name: RegExp) =>
+			card(name).element().textContent?.replace(/\s+/g, ' ').trim();
 		expect(sentence(/^Argent entré/)).toBe('Argent entré +12,90');
 	});
 
@@ -555,7 +562,11 @@ describe('arriving to change the answer', () => {
 		await mount({ remembered: REMEMBERED, openOn: 'sign', accounts: TWO, initialAccountId: null });
 		await page.getByRole('option', { name: /Livret/ }).click();
 		await expect.element(heading()).toBeVisible();
-		expect(card(/^Argent sorti/).element().hasAttribute('aria-current')).toBe(false);
+		expect(
+			card(/^Argent sorti/)
+				.element()
+				.hasAttribute('aria-current')
+		).toBe(false);
 	});
 
 	/**
@@ -607,9 +618,9 @@ describe('arriving to change the answer', () => {
 			initialAccountId: null
 		});
 		// The pass's path: another role takes the Amount column, so Amount empties and lists columns.
-		const labelRow = [...container.querySelectorAll('[data-testid="designation-card"] button')].find(
-			(b) => (b.getAttribute('aria-label') ?? '').startsWith('Libellé')
-		) as HTMLElement;
+		const labelRow = [
+			...container.querySelectorAll('[data-testid="designation-card"] button')
+		].find((b) => (b.getAttribute('aria-label') ?? '').startsWith('Libellé')) as HTMLElement;
 		labelRow.click();
 		await page.getByRole('option', { name: /Montant/ }).click();
 		amountRow(container).click();
