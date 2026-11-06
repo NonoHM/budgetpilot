@@ -160,10 +160,16 @@
 		// be pre-filled here and refused on the first press (second contradiction pass).
 		const refusedCurrency = form !== null && form !== undefined && 'declaredCurrency' in form;
 		const remembered = carried.resolution.rank === 3 && carried.resolution.kind === 'remembered';
+		// #1305: a reopened correspondance is a format already seen, so « First statement in this
+		// format » is false there; the row asks with no provenance instead.
+		const seenFormat =
+			pending?.remembered != null &&
+			carried.resolution.rank === 3 &&
+			carried.resolution.kind === 'unknown';
 		return {
 			options: carried.options,
 			chosenId: carried.chosenId ?? answer.accountId,
-			hint: refusedCurrency && remembered ? undefined : answer.hint,
+			hint: (refusedCurrency && remembered) || seenFormat ? undefined : answer.hint,
 			hintAboutFile: answer.aboutTheFile
 		};
 	});
