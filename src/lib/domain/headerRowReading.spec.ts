@@ -20,13 +20,13 @@ const AS_DATA: DesignationRowFacts = {
 		['Zone A', '03/03/2019', '04/03/2019'],
 		['Zone B', 'BOULANGERIE', 'LIBRAIRIE'],
 		['Zone C', 'W001', 'W002'],
-		['Zone D', '-8,20', '-15,50']
+		['-0,50', '8,20', '15,50']
 	],
-	firstRow: ['Zone A', 'Zone B', 'Zone C', 'Zone D'],
+	firstRow: ['Zone A', 'Zone B', 'Zone C', '-0,50'],
 	previewRows: [
-		['Zone A', 'Zone B', 'Zone C', 'Zone D'],
-		['03/03/2019', 'BOULANGERIE', 'W001', '-8,20'],
-		['04/03/2019', 'LIBRAIRIE', 'W002', '-15,50']
+		['Zone A', 'Zone B', 'Zone C', '-0,50'],
+		['03/03/2019', 'BOULANGERIE', 'W001', '8,20'],
+		['04/03/2019', 'LIBRAIRIE', 'W002', '15,50']
 	],
 	coverage: [3, 3, 3, 3],
 	dateStates: ['no-dates', 'no-dates', 'no-dates', 'no-dates'],
@@ -36,21 +36,25 @@ const AS_DATA: DesignationRowFacts = {
 		{ dayFirst: [null], monthFirst: [null] },
 		{ dayFirst: [null], monthFirst: [null] }
 	],
-	// Line 1's « Zone » cells parse as neither a date nor an amount, so nothing is proposed.
+	// Line 1's « Zone » cells parse as no date, so the date is not proposed; its last cell is an
+	// amount, so the amount column still is.
 	proposals: {
 		designated: { date: null, label: null, amount: null, category: null, currency: null },
-		candidates: { date: [], label: [], amount: [], category: [], currency: [] }
-	}
+		candidates: { date: [], label: [], amount: [3], category: [], currency: [] }
+	},
+	// Line 1's last cell is the file's only negative amount, so read as data the column is signed;
+	// with line 1 as headers its amounts are all positive and the sign is asked (#1207).
+	amountSignStates: ['none', 'none', 'none', 'signed']
 };
 
 const FILE: DesignationFile = {
 	name: 'walk.csv',
-	headers: ['Zone A', 'Zone B', 'Zone C', 'Zone D'],
-	samples: [['03/03/2019'], ['BOULANGERIE'], ['W001'], ['-8,20']],
-	firstRow: ['03/03/2019', 'BOULANGERIE', 'W001', '-8,20'],
+	headers: ['Zone A', 'Zone B', 'Zone C', '-0,50'],
+	samples: [['03/03/2019'], ['BOULANGERIE'], ['W001'], ['8,20']],
+	firstRow: ['03/03/2019', 'BOULANGERIE', 'W001', '8,20'],
 	previewRows: [
-		['03/03/2019', 'BOULANGERIE', 'W001', '-8,20'],
-		['04/03/2019', 'LIBRAIRIE', 'W002', '-15,50']
+		['03/03/2019', 'BOULANGERIE', 'W001', '8,20'],
+		['04/03/2019', 'LIBRAIRIE', 'W002', '15,50']
 	],
 	coverage: [2, 2, 2, 2],
 	dateStates: ['ambiguous', 'no-dates', 'no-dates', 'no-dates'],
@@ -65,6 +69,7 @@ const FILE: DesignationFile = {
 		designated: { date: null, label: null, amount: null, category: null, currency: null },
 		candidates: { date: [0], label: [], amount: [3], category: [], currency: [] }
 	},
+	amountSignStates: ['none', 'none', 'none', 'unsigned'],
 	rowCount: 2,
 	detectedHeaderRow: true,
 	otherHeaderRowFacts: AS_DATA

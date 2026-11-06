@@ -1,3 +1,4 @@
+import type { AmountSign } from './amountSign';
 import type { CsvRefusalFact, CsvRefusalScope } from '$lib/server/import/refusals';
 import type { DateOrder } from '$lib/domain/dateReading';
 
@@ -71,6 +72,14 @@ export interface ImportSummaryResult {
 	 * `importedRows`: those rows WERE imported, and this says what happened to them next.
 	 */
 	autoCategorizedRows: number;
+	/**
+	 * Rows not imported because the same row is already stored with the other direction (#1207
+	 * C2c-S1): a statement imported before the sign question, now answered. Also counted in
+	 * `duplicateRows`. `mirrorStoredAs` is how they are stored, present only when the count is not
+	 * zero; one import's answer is file-wide, so every mirror shares it.
+	 */
+	mirrorRows: number;
+	mirrorStoredAs?: AmountSign;
 	totalDebitCents: number;
 	totalCreditCents: number;
 	period: { from: string | null; to: string | null };

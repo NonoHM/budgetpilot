@@ -53,6 +53,7 @@ const PAYLOAD: Required<DesignationFile> = {
 		designated: { date: 0, label: null, amount: 2, category: null, currency: null },
 		candidates: { date: [0], label: [], amount: [2], category: [], currency: [] }
 	},
+	amountSignStates: ['none', 'none', 'signed'],
 	rowCount: 66,
 	detectedHeaderRow: true,
 	// The same file read with line 1 as data (#735): the header cells become the first transaction.
@@ -80,7 +81,8 @@ const PAYLOAD: Required<DesignationFile> = {
 		proposals: {
 			designated: { date: null, label: null, amount: null, category: null, currency: null },
 			candidates: { date: [0], label: [], amount: [2], category: [], currency: [] }
-		}
+		},
+		amountSignStates: ['none', 'none', 'signed']
 	}
 };
 

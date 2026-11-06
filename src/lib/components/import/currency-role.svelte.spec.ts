@@ -39,7 +39,8 @@ const FILE: DesignationFile = {
 		proposals: {
 			designated: { ...EMPTY_ASSIGNMENT, currency: 3 },
 			candidates: { date: [], label: [], amount: [], category: [], currency: [3] }
-		}
+		},
+		amountSignStates: undefined
 	}
 };
 

@@ -53,6 +53,9 @@ export type ResolvedDesignationFile = Omit<
  * names the rest, and the type check under it fails the build when a field of `DesignationFile`
  * is in neither list, so a new fact cannot be added that ignores the switch (#735).
  */
+/** What a column's amounts say about their direction (#1207 C2c-S1). */
+export type AmountSignState = 'signed' | 'unsigned' | 'none';
+
 export const DESIGNATION_ROW_FACTS = [
 	'samples',
 	'firstRow',
@@ -60,7 +63,8 @@ export const DESIGNATION_ROW_FACTS = [
 	'coverage',
 	'dateStates',
 	'dateReadings',
-	'proposals'
+	'proposals',
+	'amountSignStates'
 ] as const;
 export type DesignationRowFact = (typeof DESIGNATION_ROW_FACTS)[number];
 
@@ -176,6 +180,15 @@ export interface DesignationFile {
 	 * to saying nothing about the reading rather than to claiming a state.
 	 */
 	dateStates?: readonly ColumnDateState[];
+	/**
+	 * Per column, whether its amounts carry a sign (#1207 C2c-S1): `signed` when one cell parses
+	 * below zero, `unsigned` when every parsed cell is zero or above and one is above, `none` when
+	 * no cell parses. The screen opens the sign step on `unsigned`; the parser's own verdict reads
+	 * only rows carrying a dated amount, so the one disagreement possible is the parser asking where
+	 * this said `signed`, and the screen opens the step from that refusal. Optional for the same
+	 * reason as `dateStates`.
+	 */
+	amountSignStates?: readonly AmountSignState[];
 	/**
 	 * Per column, each cell read under BOTH orders, as ISO or null when it is not a date that way.
 	 *
@@ -310,6 +323,7 @@ export function designationView(payload: DesignationFile): DesignationFile {
 		dateStates: payload.dateStates,
 		dateReadings: payload.dateReadings,
 		proposals: payload.proposals,
+		amountSignStates: payload.amountSignStates,
 		rowCount: payload.rowCount,
 		detectedHeaderRow: payload.detectedHeaderRow,
 		otherHeaderRowFacts: payload.otherHeaderRowFacts

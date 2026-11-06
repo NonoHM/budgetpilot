@@ -49,6 +49,10 @@ export type CsvRefusalFact =
 	// `refusalCellValue` exactly as `mixed-date-order`'s pair. Emitted on every door, `mapped`
 	// included: no caller can claim the screen already asked (#1200). See `dateOrder.ts` and #433.
 	| { code: 'ambiguous-date-order'; column: number; sample: string }
+	// No amount carries a sign, so the file does not say which rows are money out (#1207 C2c-S1,
+	// decision record #1206 kind 2). Same shape and same every-door rule as `ambiguous-date-order`:
+	// `column` the amount column's index, `sample` one amount cell through `refusalCellValue`.
+	| { code: 'ambiguous-amount-sign'; column: number; sample: string }
 	// The discriminant column PROVES two accounts: a verified IBAN pair (mod-97) that differs per
 	// row, or a column the user has just confirmed names accounts after `ambiguous-account-column`
 	// asked. Refused outright, before any row is written: see `discriminant.ts`'s `kind: 'contradictory'`
@@ -171,6 +175,7 @@ export const CSV_REFUSAL_CODES = [
 	'header-not-recognized',
 	'mixed-date-order',
 	'ambiguous-date-order',
+	'ambiguous-amount-sign',
 	'multi-account-file',
 	'ambiguous-account-column',
 	'unknown-column',
@@ -256,6 +261,8 @@ export const DESIGNATION_REACH = {
 	'mixed-date-order': 'repairable',
 	// Plate 7l: recognition covers mapping, not reading. The reading offer answers it.
 	'ambiguous-date-order': 'unrepairable',
+	// Answered on the designation screen's Amount row, the one question UI for it (#1207 C2c-S1).
+	'ambiguous-amount-sign': 'repairable',
 	'multi-account-file': 'unrepairable',
 	// Its own question on `/import`; naming columns does not answer it.
 	'ambiguous-account-column': 'unrepairable',

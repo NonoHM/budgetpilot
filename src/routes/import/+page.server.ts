@@ -922,6 +922,8 @@ export const actions: Actions = {
 				fileLevelRefusals: result.summary.fileLevelRefusals,
 				duplicateRows: persisted.duplicateRows,
 				autoCategorizedRows: persisted.autoCategorizedRows,
+				// The auto path never posts a sign answer, so no row of it is answered: always 0 here.
+				mirrorRows: persisted.mirrorRows,
 				totalDebitCents: persisted.importedDebitCents,
 				totalCreditCents: persisted.importedCreditCents,
 				period: result.summary.period,
@@ -966,6 +968,7 @@ function buildImportResult(
 		// Nothing was written, so no rule ran. Stated rather than left undefined: this object and the
 		// one the success path builds are read by the same panel.
 		autoCategorizedRows: 0,
+		mirrorRows: 0,
 		totalDebitCents,
 		totalCreditCents,
 		invalidRowDetails,

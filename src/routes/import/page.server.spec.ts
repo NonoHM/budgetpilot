@@ -1557,7 +1557,7 @@ describe('/import actions', () => {
 		const generic = new FormData();
 		generic.set(
 			'csvFile',
-			new File(['date;label;amount;category\n2026-06-01;Salaire;2500,50;Revenus'], 'generic.csv', {
+			new File(['date;label;amount;category\n2026-06-01;Loyer;-850,00;Logement'], 'generic.csv', {
 				type: 'text/csv'
 			})
 		);
@@ -1606,7 +1606,7 @@ describe('/import actions', () => {
 		const generic = new FormData();
 		generic.set(
 			'csvFile',
-			new File(['date;label;amount;category\n2026-06-01;Salaire;2500,50;Revenus'], 'generic.csv', {
+			new File(['date;label;amount;category\n2026-06-01;Loyer;-850,00;Logement'], 'generic.csv', {
 				type: 'text/csv'
 			})
 		);
@@ -2026,7 +2026,9 @@ describe('/import actions', () => {
 				proposals: {
 					designated: { date: null, label: null, amount: null, category: null, currency: null },
 					candidates: { date: [0], label: [], amount: [2], category: [], currency: [] }
-				}
+				},
+				// Every amount carries a minus sign, so the Amount column needs no sign step (#1207).
+				amountSignStates: ['none', 'none', 'signed']
 			};
 
 			async function declaredData() {
@@ -2358,6 +2360,26 @@ describe('/import actions', () => {
 
 			expect(result.data.error).toBe(m.import_error_no_valid_transactions());
 			expect(result.data.designation).toBeUndefined();
+		});
+	});
+
+	describe('an unsigned amount column on the auto path (#1207 C2c-S1)', () => {
+		/** A recognised generic header, dates proven day-first, no amount with a minus sign. */
+		const UNSIGNED_GENERIC =
+			'Date,Description,Amount\n24/06/2026,COFFEE,4.50\n22/06/2026,BAKERY,2.10';
+
+		/**
+		 * THE REACH. Separates « the auto path sends the file to the one screen that asks the sign »
+		 * from « it refuses with nowhere to answer » (`unrepairable`) and from « it imports as income »
+		 * (no question at all). The designation offer is the only door with a sign step.
+		 */
+		it('offers the designation screen and writes nothing', async () => {
+			const result = (await runImportWithFile(UNSIGNED_GENERIC)) as unknown as {
+				data: { designation?: unknown };
+			};
+
+			expect(result.data.designation).toBeDefined();
+			expect(db.state.transactions).toHaveLength(0);
 		});
 	});
 
