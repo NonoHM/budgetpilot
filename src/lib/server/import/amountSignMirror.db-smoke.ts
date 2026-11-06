@@ -131,6 +131,27 @@ describe('a correction that replaces the batch it mirrors (final-code pass F1)',
 		expect(second.imported).toBe(3);
 		expect(second.mirrored).toBe(0);
 	});
+
+	/**
+	 * THE NULL LEG of the exclusion (narrow pass on 72a9562c). A stored mirror with NO batch is not
+	 * part of the batch being replaced, so it still skips. Separates « `importBatchId <> x` OR null »
+	 * from a bare `<> x`, which SQL evaluates to NULL on a null column and so drops the row: the
+	 * mirror would go unseen and the statement be stored twice.
+	 */
+	it('still skips a mirror stored with no batch while another batch is replaced', async () => {
+		expect.assertions(2);
+		const who = await freshUser('nullbatch');
+
+		const first = await importOnce(who, UNSIGNED, 'in');
+		await prisma.transaction.updateMany({
+			where: { userId: who.userId, importBatchId: first.batchId },
+			data: { importBatchId: null }
+		});
+		const second = await importOnce(who, UNSIGNED, 'out', first.batchId);
+
+		expect(second.imported).toBe(0);
+		expect(second.mirrored).toBe(3);
+	});
 });
 
 describe('what the mirror check does not touch', () => {

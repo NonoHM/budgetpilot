@@ -2391,7 +2391,8 @@ describe('/import actions', () => {
 		 */
 		it('offers the remembered columns, designated, and names the sign question', async () => {
 			const headers = ['Jour', 'Detail', 'Somme'];
-			db.state.columnMappings.push({
+			const { layersKeyOf } = await import('$lib/server/import/mapping/layers');
+			const row = {
 				id: 'mapping-sign',
 				userId: testUser.id,
 				fingerprint: fingerprintFor(headers, 'name'),
@@ -2406,22 +2407,41 @@ describe('/import actions', () => {
 				categoryIndex: null,
 				columnCount: 3,
 				useCount: 1,
-				lastUsedAt: null as Date | null
-			} as (typeof db.state.columnMappings)[number]);
+				lastUsedAt: null as Date | null,
+				// One stored layer, the others written before 1.4: the save must keep both as they are.
+				amountLayer: 'rule',
+				dateLayer: null,
+				labelLayer: null,
+				categoryLayer: null
+			};
+			// The integrity key the store writes, through its own function: an unkeyed row reads unknown.
+			db.state.columnMappings.push({
+				...row,
+				layersKey: layersKeyOf(row)
+			} as unknown as (typeof db.state.columnMappings)[number]);
 
 			const result = (await runImportWithFile(
 				`${headers.join(';')}\n24/06/2026;CB CARREFOUR;24,90\n22/06/2026;CB ORANGE;39,99`
 			)) as unknown as {
 				data: {
 					error: string;
-					designation?: { proposals?: { designated: Record<string, number | null> } };
+					designation?: unknown;
+					correctingAssignment?: Record<string, number | null>;
+					correctingMappingId?: string;
+					correctingLayers?: Record<string, string | null>;
 				};
 			};
 
-			expect(result.data.designation?.proposals?.designated).toMatchObject({
-				date: 0,
-				label: 1,
-				amount: 2
+			// As the correction branch sends them, so the page builds `pending.remembered` and the save
+			// keeps each role's STORED layer (narrow pass on 72a9562c: carried as detection, every role
+			// was saved as « member »).
+			expect(result.data.correctingAssignment).toMatchObject({ date: 0, label: 1, amount: 2 });
+			expect(result.data.correctingMappingId).toBe('mapping-sign');
+			expect(result.data.correctingLayers).toEqual({
+				date: null,
+				label: null,
+				amount: 'rule',
+				category: null
 			});
 			expect(result.data.error).toBe(m.import_refusal_ambiguous_amount_sign({ sample: '24,90' }));
 			expect(db.state.transactions).toHaveLength(0);

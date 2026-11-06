@@ -648,24 +648,27 @@ export const actions: Actions = {
 							detectedRowFacts()
 						);
 			/**
-			 * #1207 C2c-S1: a remembered mapping refused ONLY for want of a sign answer fit this file, so
-			 * the member is not made to designate every column again for one question (walk finding:
-			 * 0 of 3 designated on the second statement in a format). Any other refusal under a
-			 * remembered mapping keeps the empty offer: #352, no seeding over a mapping that failed.
+			 * #1207 C2c-S1: a remembered mapping refused only for the sign question fit this file's
+			 * columns, so the member is not made to designate every column again for one question (walk
+			 * finding: 0 of 3 designated on the second statement in a format). Per-row refusals the
+			 * parse also met are not lost: they surface in the summary once the sign is answered.
+			 * Sent as the correction branch sends a remembered mapping (`correcting*`), so the page
+			 * builds `pending.remembered` and the save keeps each role's STORED layer; carried as
+			 * detection instead, every role was saved as « member » (narrow pass on 72a9562c). These
+			 * fields do not make the run a correction: that is `correction`, from the load.
+			 * Any other refusal under a remembered mapping keeps the empty offer (#352).
 			 */
 			const signOnly =
 				result.invalidRows.length === 1 &&
 				result.invalidRows[0].fact.code === 'ambiguous-amount-sign';
-			const offeredFacts =
-				designationFacts && remembered && signOnly && designationFacts.proposals
+			const rememberedForSign =
+				designationFacts && remembered && signOnly
 					? {
-							...designationFacts,
-							proposals: {
-								...designationFacts.proposals,
-								designated: designationAssignment(remembered, headerCells)
-							}
+							correctingAssignment: designationAssignment(remembered, headerCells),
+							correctingLayers: layersByRole(storedLayers(remembered)),
+							correctingMappingId: remembered.id
 						}
-					: designationFacts;
+					: {};
 			const splitRefusal: ImportInvalidRowDetail[] = splitFact
 				? [
 						{
@@ -701,14 +704,14 @@ export const actions: Actions = {
 				// redesignate), `multiAccount`/`accountColumn` one level over (naming columns cannot
 				// answer "does this file cover more than one account" either) — and `resolveImportOffer`'s
 				// order is what guarantees at most one of them is ever true.
-				designation: offeredFacts
+				designation: designationFacts
 					? {
 							account: await accountOfferPayload(
 								user.id,
 								importData.rows,
 								// The answer the facts below are read under, so the prefill reads the lines the
 								// screen shows (#1248).
-								offeredFacts.detectedHeaderRow,
+								designationFacts.detectedHeaderRow,
 								// The profile IS known on this branch, unlike the correction branch above, which
 								// decides before anything is parsed. It is what lets the create sheet open on
 								// « Banque Populaire ···4417 » rather than on the fragment alone.
@@ -716,9 +719,10 @@ export const actions: Actions = {
 							),
 							name: importFile.name,
 							headers: headerCells,
-							...offeredFacts
+							...designationFacts
 						}
 					: undefined,
+				...rememberedForSign,
 				// Plate 7l: opens `ColumnPicker` at `step: 'reading'` alone, no column list, no back
 				// to it. `dateColumn` is the profile's OWN declared index, never a user's guess:
 				// recognition already covers mapping, so this offer answers the one thing it does
