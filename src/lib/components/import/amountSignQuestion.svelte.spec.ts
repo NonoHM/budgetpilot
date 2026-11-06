@@ -503,3 +503,166 @@ describe('a remembered answer', () => {
 		await expect.element(heading()).toBeVisible();
 	});
 });
+
+/**
+ * #1305, « Change how amounts are read »: the screen opens ON the question the member came to change,
+ * with the answer in force pressed (GOV.UK Check answers: a previous answer is pre-populated). A kept
+ * answer holds for one account (#1294) and a correction's file proves none (#1302), so with no
+ * account chosen the account is asked first, then the step.
+ */
+describe('arriving to change the answer', () => {
+	const REMEMBERED = {
+		mappingId: 'mapping-1',
+		assignment: DESIGNATED,
+		layers: { date: 'member', label: 'member', amount: 'member' },
+		amountSign: { sign: 'out', accountId: 'account-1' }
+	};
+	const TWO = [
+		...ACCOUNTS,
+		{ id: 'account-2', name: 'BP · Livret', discriminant: '0185', transactionCount: 3 }
+	];
+	const card = (name: RegExp) => page.getByRole('button', { name });
+
+	/**
+	 * Separates « opens on the step with the kept answer pressed » from « arrives on the columns,
+	 * answered », where the member who tapped the link must find the question themselves.
+	 */
+	it('opens on the step with the kept answer pressed', async () => {
+		await mount({ remembered: REMEMBERED, openOn: 'sign' });
+		await expect.element(heading()).toBeVisible();
+		await expect.element(card(/^Argent sorti/)).toHaveAttribute('aria-current', 'true');
+		expect(
+			card(/^Argent entré/)
+				.element()
+				.hasAttribute('aria-current')
+		).toBe(false);
+		// Critique A2: said in words on the marked card only, not by its ring alone.
+		await expect
+			.element(card(/^Argent sorti/))
+			.toHaveTextContent('Argent sorti -12,90 Votre réponse actuelle');
+		const sentence = (name: RegExp) =>
+			card(name).element().textContent?.replace(/\s+/g, ' ').trim();
+		expect(sentence(/^Argent entré/)).toBe('Argent entré +12,90');
+	});
+
+	/**
+	 * Separates « the account is asked before the step » from « the step opens unanswered over no
+	 * account », which is #1302: the kept answer could not show because no account was chosen.
+	 */
+	it('asks the account first, then shows the kept answer pressed for that account', async () => {
+		await mount({ remembered: REMEMBERED, openOn: 'sign', accounts: TWO, initialAccountId: null });
+		expect(heading().elements().length).toBe(0);
+		await page.getByRole('option', { name: /Compte courant/ }).click();
+		await expect.element(heading()).toBeVisible();
+		await expect.element(card(/^Argent sorti/)).toHaveAttribute('aria-current', 'true');
+	});
+
+	/** Separates « pressed only for its own account » from « pressed for any account chosen ». */
+	it('presses nothing when the account chosen is not the one the answer was kept for', async () => {
+		await mount({ remembered: REMEMBERED, openOn: 'sign', accounts: TWO, initialAccountId: null });
+		await page.getByRole('option', { name: /Livret/ }).click();
+		await expect.element(heading()).toBeVisible();
+		expect(
+			card(/^Argent sorti/)
+				.element()
+				.hasAttribute('aria-current')
+		).toBe(false);
+	});
+
+	/**
+	 * PASSES A F1 / B N1. Separates « the step follows the account question it was armed for » from
+	 * « it follows any later account choice »: closing the panel with its own row is declining, as
+	 * Escape is, and a later choice must not replace the screen with the question.
+	 */
+	it('does not open the step on a later choice once the panel was closed with its row', async () => {
+		await mount({ remembered: REMEMBERED, openOn: 'sign', accounts: TWO, initialAccountId: null });
+		const row = page.getByTestId('designation-account').getByRole('button').first();
+		await row.click();
+		await row.click();
+		await page.getByRole('option', { name: /Compte courant/ }).click();
+		expect(heading().elements().length).toBe(0);
+	});
+
+	/**
+	 * PASS A F1, path B. Separates « asked once » from « asked again after the account »: a member who
+	 * answers through the Amount row first is then asked the account, and choosing it must not reopen
+	 * the question they just answered.
+	 */
+	it('does not ask the question again after the member answered it first', async () => {
+		const { container } = await mount({
+			remembered: REMEMBERED,
+			openOn: 'sign',
+			accounts: TWO,
+			initialAccountId: null
+		});
+		// The panel is left open (it is not modal). A DOM click: whether a finger reaches the row beside
+		// the open panel depends on the width, which the walk measures.
+		await amountRow(container).click();
+		await expect.element(heading()).toBeVisible();
+		await card(/^Argent entré/).click();
+		await page.getByRole('option', { name: /Compte courant/ }).click();
+		expect(heading().elements().length).toBe(0);
+		expect(await sentenceOf('amount-sign-line')).toBe('12,90 → +12,90 · argent entré');
+	});
+
+	/**
+	 * NARROW PASS F1. Separates « the step follows the account only while the sign is still asked »
+	 * from « it follows anyway », which showed a question the file does not raise once Amount moved
+	 * to a column that carries its own signs.
+	 */
+	it('does not open the step once Amount moved to a signed column', async () => {
+		const { container } = await mount({
+			remembered: REMEMBERED,
+			openOn: 'sign',
+			accounts: TWO,
+			initialAccountId: null
+		});
+		// The pass's path: another role takes the Amount column, so Amount empties and lists columns.
+		const labelRow = [
+			...container.querySelectorAll('[data-testid="designation-card"] button')
+		].find((b) => (b.getAttribute('aria-label') ?? '').startsWith('Libellé')) as HTMLElement;
+		labelRow.click();
+		await page.getByRole('option', { name: /Montant/ }).click();
+		amountRow(container).click();
+		await page.getByRole('option', { name: /Debit/ }).click();
+		expect(heading().elements().length).toBe(0);
+		await page.getByRole('option', { name: /Compte courant/ }).click();
+		expect(heading().elements().length).toBe(0);
+	});
+
+	/**
+	 * NARROW PASS N3, decided: Back is a way out of the question, as Escape and the row toggle are.
+	 * Separates « Back declines the follow-up » from « the question comes back on the next account ».
+	 */
+	it('does not reopen the step after Back, on the next account choice', async () => {
+		const { container } = await mount({
+			remembered: REMEMBERED,
+			openOn: 'sign',
+			accounts: TWO,
+			initialAccountId: null
+		});
+		// No account yet, so the sign is unanswered and the Amount row opens the step itself.
+		amountRow(container).click();
+		await expect.element(heading()).toBeVisible();
+		await page.getByRole('button', { name: BACK }).click();
+		// The panel the arrival opened is still open: chosen from there, so the row toggle (which
+		// clears the follow-up on its own) is not what this measures.
+		await page.getByRole('option', { name: /Compte courant/ }).click();
+		expect(heading().elements().length).toBe(0);
+	});
+
+	/** Separates « the change is posted » from « the kept answer wins over the member's ». */
+	it('posts the answer the member changes to', async () => {
+		const onSubmit = vi.fn();
+		await mount({ remembered: REMEMBERED, openOn: 'sign', onSubmit });
+		await card(/^Argent entré/).click();
+		expect(await submitted(onSubmit)).toMatchObject({ amountSign: 'in' });
+	});
+
+	/** Separates « only the link opens the step on an answered column » from « every arrival does ». */
+	it('arrives on the columns, answered, without the link', async () => {
+		await mount({ remembered: REMEMBERED });
+		expect(await sentenceOf('amount-sign-line')).toBe('12,90 → -12,90 · argent sorti');
+		expect(heading().elements().length).toBe(0);
+	});
+});

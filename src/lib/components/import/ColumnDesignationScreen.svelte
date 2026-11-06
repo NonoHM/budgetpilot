@@ -147,6 +147,7 @@
 		accountPrefill = '',
 		declaredCurrency = null,
 		remembered = null,
+		openOn = null,
 		askAmountSign = null,
 		onCreateAccount,
 		onCancel,
@@ -321,6 +322,11 @@
 		 * time the parent re-derived its resolution.
 		 */
 		initialAccountId?: string | null;
+		/**
+		 * #1305: open on the sign step on arrival, answered or not, because the member came to change
+		 * that answer. Only where this screen asks the sign; read once, like the other initials.
+		 */
+		openOn?: 'sign' | null;
 		/**
 		 * The provenance line, already composed by the caller: which rank answered and from what.
 		 * A sentence rather than a state, because the screen renders it and does not reason about it.
@@ -682,6 +688,8 @@
 		// The live region says NOTHING. Only the focus return speaks, announcing the unchanged row.
 		// Announcing a count after a no-op close would imply a change that did not happen.
 		openRole = null;
+		// #1305 narrow pass N3: leaving the question by Back declines the follow-up, as Escape does.
+		if (pickerStep === 'sign') signAfterAccount = false;
 		// 7d: a session run twice must not remember the first run's body. A sheet reopened on step 2
 		// because the previous session ended there would put the question in front of a user who
 		// came back to change the column.
@@ -840,6 +848,8 @@
 
 	function chooseSign(sign: AmountSign) {
 		if (amountColumn === null) return;
+		// Answered: the step is not owed again after the account (passes A F1, B N1).
+		signAfterAccount = false;
 		chosenSign = sign;
 		signAnsweredFor = amountColumn;
 		openRole = null;
@@ -1081,7 +1091,35 @@
 	// refuse (#1207 walk). The initial value only, like `assignment`: from here the member owns it.
 	// Below the account state since #1294: whether the question is answered reads the kept answer,
 	// which holds only for the chosen account.
-	askSign();
+	/**
+	 * #1305: « Change how amounts are read » opens the sign step, answered or not. A kept answer
+	 * holds for one account (#1294), and a correction's file is matched by its headers alone, so it
+	 * proves no account: with none chosen, the account is asked FIRST, never guessed, and the step
+	 * follows with the kept answer pressed when it belongs to that account.
+	 */
+	let signAfterAccount = false;
+	function openSignStep() {
+		openRole = 'amount';
+		pickerStep = 'sign';
+	}
+	// svelte-ignore state_referenced_locally
+	if (openOn === 'sign' && signAsked && !recap) {
+		if (keptSign && chosenAccountId === null) {
+			signAfterAccount = true;
+			accountPanelFocus = 'list';
+			accountPanelOpen = true;
+		} else openSignStep();
+	} else askSign();
+	/** Whether the step opened: when it did not, the caller still owes the focus a place. */
+	function signFollowsAccount(): boolean {
+		if (!signAfterAccount) return false;
+		signAfterAccount = false;
+		// Narrow pass F1: only while Amount still asks the sign, or the step shows a question the file
+		// does not raise.
+		if (!signAsked) return false;
+		openSignStep();
+		return true;
+	}
 
 	/**
 	 * Accounts created on this screen, in the order they were created.
@@ -1183,6 +1221,7 @@
 		accountPanelOpen = false;
 		// The error cannot outlive the thing it was about.
 		accountErrorShown = false;
+		signFollowsAccount();
 	}
 
 	/** The row, reached through its wrapper. One button lives there, so there is nothing to pick. */
@@ -1210,6 +1249,7 @@
 	 */
 	function closeAccountPanel() {
 		accountPanelOpen = false;
+		signAfterAccount = false;
 		focusAccountRow();
 	}
 
@@ -1261,7 +1301,7 @@
 		createPhase = 'idle';
 		createOpen = false;
 		accountPanelOpen = false;
-		focusAccountRow();
+		if (!signFollowsAccount()) focusAccountRow();
 	}
 
 	/**
@@ -1364,6 +1404,8 @@
 				// return from a cancelled creation, and leaving it set would land the next ordinary
 				// opening on the action instead of on the options.
 				accountPanelFocus = 'list';
+				// Closing with the row declines, as Escape does: no step follows a later choice.
+				if (accountPanelOpen) signAfterAccount = false;
 				accountPanelOpen = !accountPanelOpen;
 			}}
 		/>
@@ -1720,7 +1762,12 @@
 		#1207: the sign question REPLACES the screen at both widths (owner, 2026-11-06): a step of the
 		flow, never a sheet or a panel over it. Back closes it unanswered.
 	-->
-	<AmountSignStep prompt={signPrompt} onChoose={chooseSign} onBack={closeWithoutChoosing} />
+	<AmountSignStep
+		prompt={signPrompt}
+		current={answeredSign}
+		onChoose={chooseSign}
+		onBack={closeWithoutChoosing}
+	/>
 {:else if wide}
 	<!--
 		1280x800. The frame's OWN width is asserted by the spec, absolutely, because the plate records

@@ -57,7 +57,10 @@ const ASSIGNMENT = { date: 0, label: 1, amount: 2, category: null } as unknown a
 const MAPPING = 'mapping-being-corrected';
 const BATCH = 'batch-being-replaced';
 
-function seed(correction: { mappingId: string; batchId: string } | null) {
+function seed(
+	correction: { mappingId: string; batchId: string } | null,
+	openOn: 'sign' | null = null
+) {
 	// The naming fields are fixture noise here and are filled once: this file is about the WAY OUT,
 	// which reads only the two ids. Planche 5c added the other three so the footer can name what it
 	// would delete, and a test about navigation has nothing to say about them.
@@ -68,6 +71,7 @@ function seed(correction: { mappingId: string; batchId: string } | null) {
 		// Unanswered: this file is about the WAY OUT, which reads neither the reading nor the answer.
 		dateOrder: null,
 		currencyDeclined: false,
+		openOn,
 		/**
 		 * A RESOLVED account, because the primary now refuses a submission without one.
 		 *
@@ -115,6 +119,22 @@ describe('leaving the designation screen', () => {
 		// correspondance the screen does not know it is a correction, and without the batch it corrects
 		// without replacing.
 		expect(navigation.goto).toHaveBeenCalledWith(`/import?correct=${MAPPING}&batch=${BATCH}`);
+	});
+
+	/**
+	 * #1305 (passes A F2, B N6). Separates « Cancel returns to « Change how amounts are read » » from
+	 * « to the generic correction notice », which no longer says why the member is there.
+	 */
+	it('returns to the sign correction it came from', async () => {
+		await page.viewport(390, 844);
+		seed({ mappingId: MAPPING, batchId: BATCH }, 'sign');
+		await render(Page, { form: null } as never);
+		await userEvent.click(
+			page.getByRole('button', { name: m.import_columns_cancel() }).element() as HTMLElement
+		);
+		expect(navigation.goto).toHaveBeenCalledWith(
+			`/import?correct=${MAPPING}&batch=${BATCH}&step=sign`
+		);
 	});
 
 	it('returns to the plain upload when the run is not a correction', async () => {

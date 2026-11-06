@@ -127,6 +127,13 @@ export interface PendingDesignation {
 		chosenId: string | null;
 	} | null;
 	/**
+	 * #1305: the step the screen opens on. `'sign'` only on the way in from « Change how amounts are
+	 * read », so the member lands on the question they came to change; null on every reopen (a
+	 * refusal, the duplicate dialog), which must not send them back to it. Required so every writer
+	 * is named.
+	 */
+	openOn: 'sign' | null;
+	/**
 	 * The correction this designation belongs to, when it is one.
 	 *
 	 * Carried because the designation request is the one that DELETES, and until this field existed

@@ -70,6 +70,7 @@ function seed(remembered: PendingDesignation['remembered'] = null) {
 		// Unanswered: this file is about the replace consent, which reads neither the reading nor it.
 		dateOrder: null,
 		currencyDeclined: false,
+		openOn: null,
 		/**
 		 * A RESOLVED account, because the primary now refuses a submission without one.
 		 *
