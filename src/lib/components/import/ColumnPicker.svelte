@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { tick } from 'svelte';
 	import * as m from '$lib/paraglide/messages';
 	import type { DesignationRole } from '$lib/domain/mappingRoles';
 	import {
@@ -489,9 +490,18 @@
 		// keypress away. Opened directly on it, the heading takes focus over the panel too.
 		if (isOpen && !previousOpen && currentStep === 'sign') headingEl?.focus();
 		// At 1280 the panel opens under the Amount row and its answers fall below the fold (#1207
-		// walk). Instant, with no `behavior`, so reduced motion has nothing to honour.
-		if (isOpen && currentStep === 'sign' && previousStep !== 'sign' && variant === 'anchored')
-			panelEl?.scrollIntoView({ block: 'nearest' });
+		// walk). Uncapped, scrolled into view, then capped from where it NOW sits: a cap measured
+		// before the scroll cut the step in half and hid « Both ». Instant, with no `behavior`, so
+		// reduced motion has nothing to honour.
+		if (isOpen && currentStep === 'sign' && previousStep !== 'sign' && variant === 'anchored') {
+			panelMaxHeight = null;
+			void tick().then(() => {
+				if (!panelEl) return;
+				panelEl.scrollIntoView({ block: 'nearest' });
+				const top = panelEl.getBoundingClientRect().top;
+				panelMaxHeight = Math.max(240, Math.round(window.innerHeight - top - 16));
+			});
+		}
 		previousStep = isOpen ? currentStep : null;
 		previousOpen = isOpen;
 	});
@@ -779,7 +789,12 @@
 				</li>
 			{/each}
 		</ul>
-		<div class="grid grid-cols-2 gap-2">
+		<!--
+			Sticky to the bottom of whichever surface scrolls (the 1280 panel, the 390 sheet): the rows
+			come first in reading order, and the choice stays in view when they scroll (#1207 walk: at
+			1280 the panel's height cap cut the answers in half).
+		-->
+		<div class="sticky bottom-0 grid grid-cols-2 gap-2 bg-white py-1">
 			<button
 				type="button"
 				class="flex min-h-11 flex-col items-start justify-center rounded-[14px] border border-zinc-200 bg-white px-3.5 py-2.5 text-left"
