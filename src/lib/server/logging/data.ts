@@ -89,7 +89,9 @@ const CREATE_SCOPE: { [O in SensitiveCreateOperation]: DataScope } = {
 	create_statement_account: 'statement_account'
 };
 const UPDATE_SCOPE: { [O in SensitiveUpdateOperation]: DataScope } = {
-	renew_bank_connection: 'bank_connection'
+	renew_bank_connection: 'bank_connection',
+	// #1294: the kept sign answer of a column correspondance, replaced or cleared by the member.
+	change_kept_amount_sign: 'column_mapping'
 };
 
 const EXPORT_SCOPE: { [X in DataExport]: DataScope } = {

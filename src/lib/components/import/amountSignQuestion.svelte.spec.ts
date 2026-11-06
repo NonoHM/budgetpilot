@@ -405,3 +405,101 @@ describe('focus after the step closes', () => {
 			.toBe(true);
 	});
 });
+
+/**
+ * #1294 (C2c-S2): THE ANSWER KEPT WITH THE CORRESPONDANCE. A remembered mapping arrives with the
+ * answer the member gave for its format, shown as given and changeable, never asked again.
+ */
+describe('a remembered answer', () => {
+	const REMEMBERED = {
+		mappingId: 'mapping-1',
+		assignment: DESIGNATED,
+		layers: { date: 'member', label: 'member', amount: 'member' },
+		amountSign: { sign: 'out', accountId: 'account-1' }
+	};
+
+	/**
+	 * Separates « the remembered answer is shown answered and posted as it was » from « the question
+	 * opens again on arrival », which is what a member who answered last month met on `main`.
+	 */
+	it('arrives answered, does not ask again, and posts the remembered answer', async () => {
+		const onSubmit = vi.fn();
+		await mount({ remembered: REMEMBERED, onSubmit });
+
+		expect(await sentenceOf('amount-sign-line')).toBe('12,90 → -12,90 · argent sorti');
+		expect(heading().elements().length).toBe(0);
+		expect(await submitted(onSubmit)).toMatchObject({ amountSign: 'out' });
+	});
+
+	/**
+	 * Separates « the member can change a remembered answer » from « it is fixed once kept », which
+	 * would leave a wrong answer applied to every later statement with no way back.
+	 */
+	it('asks again when the member re-chooses the Amount column, and posts the new answer', async () => {
+		const onSubmit = vi.fn();
+		const { container } = await mount({ remembered: REMEMBERED, onSubmit });
+
+		await amountRow(container).click();
+		await page.getByRole('option', { name: /Montant/ }).click();
+		await expect.element(heading()).toBeVisible();
+		await page.getByRole('button', { name: /^Argent entré/ }).click();
+
+		expect(await submitted(onSubmit)).toMatchObject({ amountSign: 'in' });
+	});
+
+	/**
+	 * Separates « an answer belongs to the column it was given about » from « it follows the role »:
+	 * a remembered mapping whose Amount column is not the one on screen asks.
+	 */
+	/**
+	 * Separates « a kept answer holds for the account it was given for » from « it follows the
+	 * correspondance into any account » (owner ruling 1 on #1294): kept for another account, it asks.
+	 */
+	it('asks when the answer was kept for another account', async () => {
+		await mount({
+			remembered: { ...REMEMBERED, amountSign: { sign: 'out', accountId: 'account-2' } }
+		});
+		await expect.element(heading()).toBeVisible();
+	});
+
+	/**
+	 * Separates « the kept answer is dropped when the member moves to another account » from « it
+	 * stays answered », where it would be posted for an account it was never given for.
+	 */
+	it('drops the kept answer when the member chooses another account', async () => {
+		const onSubmit = vi.fn();
+		await mount({
+			remembered: REMEMBERED,
+			accounts: [
+				...ACCOUNTS,
+				{ id: 'account-2', name: 'BP · Livret', discriminant: '0185', transactionCount: 3 }
+			],
+			onSubmit
+		});
+		expect(await sentenceOf('amount-sign-line')).toBe('12,90 → -12,90 · argent sorti');
+		await page.getByTestId('designation-account').getByRole('button').first().click();
+		await page.getByRole('option', { name: /Livret/ }).click();
+		expect(await sentenceOf('amount-sign-line')).toBe('Sens à choisir');
+	});
+
+	/**
+	 * NOTE PASS N5. Separates « a kept answer is posted only where this screen shows the question »
+	 * from « posted from a screen whose column reads as signed », where the member never saw it.
+	 */
+	it('posts no kept answer where the screen does not ask the sign', async () => {
+		const onSubmit = vi.fn();
+		await mount({
+			file: { ...FILE, amountSignStates: ['none', 'none', 'signed', 'signed'] as const },
+			remembered: REMEMBERED,
+			onSubmit
+		});
+		expect((await submitted(onSubmit)).amountSign).toBeNull();
+	});
+
+	it('asks when the remembered Amount column is not the one designated', async () => {
+		await mount({
+			remembered: { ...REMEMBERED, assignment: { ...DESIGNATED, amount: 3 } }
+		});
+		await expect.element(heading()).toBeVisible();
+	});
+});

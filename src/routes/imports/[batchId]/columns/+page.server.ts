@@ -53,7 +53,10 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 					labelLayer: true,
 					amountLayer: true,
 					categoryLayer: true,
-					layersKey: true
+					layersKey: true,
+					// #1294: the key covers the kept sign answer, so the layers read through it need both.
+					amountSign: true,
+					amountSignAccountId: true
 				}
 			}
 		}

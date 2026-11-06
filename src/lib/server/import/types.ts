@@ -210,6 +210,12 @@ export interface CsvImportSummary {
 	 */
 	amountSignQuestion?: { column: number; sample: string };
 	/**
+	 * The answer that DECIDED every row's direction (#1294): set only where the column carried no
+	 * sign and an answer was applied, so a file whose signs overrule a posted answer reports nothing.
+	 * The kept answer is stored from this field and the summary discloses it from this field.
+	 */
+	amountSignApplied?: AmountSign;
+	/**
 	 * The currencies this FILE declares, read off every row whether or not the row became a
 	 * transaction (`currencyDeclaration.ts`), as ISO codes. Empty or absent when it declares none,
 	 * which takes the destination account's currency by design (#600's ruling).

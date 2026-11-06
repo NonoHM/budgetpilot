@@ -8,6 +8,30 @@ import { columnProposals } from '../columnProposals';
 import type { ParsedCsvRow } from '../types';
 import type { ColumnMappingInput, MappingRole, UntrustedColumnMapping } from './model';
 import { designationAssignment } from './recap';
+import { readAmountSignAnswer, type AmountSign } from '../amountSign';
+
+/**
+ * The kept sign answer (#1294): the answer the parse applied, and the account it was applied for.
+ * Stored only together; `storedAmountSign` reads both or neither.
+ */
+export interface KeptAmountSign {
+	sign: AmountSign;
+	accountId: string;
+}
+
+/** The two stored fields, REQUIRED wherever the key is computed so the compiler names every site. */
+export interface StoredAmountSignFields {
+	amountSign: string | null;
+	amountSignAccountId: string | null;
+}
+
+/** A kept answer as the two columns a writer stores. */
+export function amountSignFields(kept: KeptAmountSign | null): {
+	amountSign: AmountSign | null;
+	amountSignAccountId: string | null;
+} {
+	return { amountSign: kept?.sign ?? null, amountSignAccountId: kept?.accountId ?? null };
+}
 
 /** The four stored layers, one per role a mapping keeps (#1207). */
 export interface ColumnMappingLayers {
@@ -59,19 +83,26 @@ export function readStoredLayer(value: unknown): DesignationLayer | null {
  * column the member re-designated in between. `storedLayers` counts the layers only while this key
  * still matches, and reads unknown otherwise, which is the safe direction.
  */
-/** Exactly the fields the key covers: the role columns, and how they are matched. */
-type LayersKeyFields = Pick<
-	UntrustedColumnMapping,
-	| 'matchBy'
-	| 'dateColumn'
-	| 'labelColumn'
-	| 'amountColumn'
-	| 'categoryColumn'
-	| 'dateIndex'
-	| 'labelIndex'
-	| 'amountIndex'
-	| 'categoryIndex'
->;
+/**
+ * Exactly the fields the key covers: the role columns, how they are matched, and since #1294 the kept
+ * sign answer with its account. The two sign fields are hashed only when the answer is set, so every
+ * key stored before #1294 (all of them answerless) keeps its digest; a writer that knows nothing of
+ * the answer (a 1.4 build before #1294) writes a key without it, and the answer, and the layers, then
+ * read unknown rather than describing columns or an account they were not written for.
+ */
+type LayersKeyFields = StoredAmountSignFields &
+	Pick<
+		UntrustedColumnMapping,
+		| 'matchBy'
+		| 'dateColumn'
+		| 'labelColumn'
+		| 'amountColumn'
+		| 'categoryColumn'
+		| 'dateIndex'
+		| 'labelIndex'
+		| 'amountIndex'
+		| 'categoryIndex'
+	>;
 
 export function layersKeyOf(mapping: LayersKeyFields): string {
 	const fields = [
@@ -83,7 +114,9 @@ export function layersKeyOf(mapping: LayersKeyFields): string {
 		mapping.dateIndex,
 		mapping.labelIndex,
 		mapping.amountIndex,
-		mapping.categoryIndex
+		mapping.categoryIndex,
+		// `== null`: a row built without the fields hashes as an answerless one, never as a third state.
+		...(mapping.amountSign == null ? [] : [mapping.amountSign, mapping.amountSignAccountId])
 	];
 	return createHash('sha256').update(JSON.stringify(fields)).digest('hex');
 }
@@ -91,6 +124,7 @@ export function layersKeyOf(mapping: LayersKeyFields): string {
 /** The one reader of stored layers: each read positively, and all unknown unless the key matches. */
 export function storedLayers(
 	row: UntrustedColumnMapping &
+		StoredAmountSignFields &
 		Partial<Record<keyof ColumnMappingLayers, unknown>> & { layersKey?: string | null }
 ): ColumnMappingLayers {
 	if (row.layersKey !== layersKeyOf(row)) return { ...UNKNOWN_LAYERS };
@@ -100,6 +134,21 @@ export function storedLayers(
 		amountLayer: readStoredLayer(row.amountLayer),
 		categoryLayer: readStoredLayer(row.categoryLayer)
 	};
+}
+
+/**
+ * The one reader of the kept sign answer (#1294): the answer and its account, or null. Null unless the
+ * sign is in the closed pair (ASVS v5.0.0-2.2.1), the account id is a non-empty string, and the key
+ * still matches, so an answer a writer left behind beside moved columns is never applied.
+ */
+export function storedAmountSign(
+	row: UntrustedColumnMapping & StoredAmountSignFields & { layersKey?: string | null }
+): KeptAmountSign | null {
+	const sign = readAmountSignAnswer(row.amountSign);
+	if (!sign || typeof row.amountSignAccountId !== 'string' || row.amountSignAccountId === '')
+		return null;
+	if (row.layersKey !== layersKeyOf(row)) return null;
+	return { sign, accountId: row.amountSignAccountId };
 }
 
 /**

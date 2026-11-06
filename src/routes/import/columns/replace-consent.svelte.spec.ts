@@ -179,7 +179,12 @@ describe('what the correction posts, and what decides it', () => {
 	 */
 	it('posts the reopened correspondance id with the consent unticked', async () => {
 		await page.viewport(390, 844);
-		seed({ mappingId: 'mapping-1', assignment: COMPLETE, layers: { label: 'member' } });
+		seed({
+			mappingId: 'mapping-1',
+			assignment: COMPLETE,
+			layers: { label: 'member' },
+			amountSign: null
+		});
 		await render(Page, { form: null as never });
 		const box = document.querySelector(
 			'[data-testid="designation-replace-consent"] input[type="checkbox"]'

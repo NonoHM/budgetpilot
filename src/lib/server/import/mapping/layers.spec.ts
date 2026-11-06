@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { layersKeyOf, producibleLayers, storedLayers, UNKNOWN_LAYERS } from './layers';
+import {
+	layersKeyOf,
+	producibleLayers,
+	storedAmountSign,
+	storedLayers,
+	UNKNOWN_LAYERS
+} from './layers';
 import type { ColumnMappingInput } from './model';
 
 const MAPPING: ColumnMappingInput = {
@@ -14,6 +20,8 @@ const MAPPING: ColumnMappingInput = {
 	categoryIndex: null,
 	columnCount: 3
 };
+/** The two kept-answer fields (#1294), answerless: the key and the reader both read them. */
+const KEYED = { ...MAPPING, amountSign: null, amountSignAccountId: null };
 const LAYERS = {
 	dateLayer: 'rule',
 	labelLayer: 'member',
@@ -26,7 +34,7 @@ describe('storedLayers, the one reader of a mapping layers (#1207)', () => {
 	// them (1.3, after a rollback) moved a column », which must read unknown, never the old layer.
 	it('reads the layers only while the role columns are the ones they were written for', () => {
 		expect.assertions(3);
-		const row = { ...MAPPING, ...LAYERS, layersKey: layersKeyOf(MAPPING) };
+		const row = { ...KEYED, ...LAYERS, layersKey: layersKeyOf(KEYED) };
 		expect(storedLayers(row)).toEqual(LAYERS);
 		expect(storedLayers({ ...row, labelColumn: 'detail' })).toEqual(UNKNOWN_LAYERS);
 		expect(storedLayers({ ...row, layersKey: null })).toEqual(UNKNOWN_LAYERS);
@@ -77,5 +85,37 @@ describe('producibleLayers, what a restore may write (#1207)', () => {
 				{ ...LAYERS, categoryLayer: 'rule' }
 			)
 		).toEqual({ ...LAYERS, categoryLayer: null });
+	});
+});
+
+describe('storedAmountSign, the one reader of the kept sign answer (#1294)', () => {
+	const kept = (fields: { amountSign: string | null; amountSignAccountId: string | null }) => ({
+		...MAPPING,
+		...fields,
+		layersKey: layersKeyOf({ ...MAPPING, ...fields })
+	});
+
+	// Positive control: an answer written under its key reads back with its account.
+	it('reads an answer written under its key', () => {
+		expect.assertions(1);
+		expect(storedAmountSign(kept({ amountSign: 'out', amountSignAccountId: 'acc-1' }))).toEqual({
+			sign: 'out',
+			accountId: 'acc-1'
+		});
+	});
+
+	// Separates « the closed pair is the allow list » from « any stored string is an answer »: a
+	// value no writer produces (a tampered row) reads as no answer, never as one (ASVS 2.2.1).
+	it('reads a value outside the closed pair as no answer, even under a matching key', () => {
+		expect.assertions(1);
+		expect(
+			storedAmountSign(kept({ amountSign: 'expense', amountSignAccountId: 'acc-1' }))
+		).toBeNull();
+	});
+
+	// Separates « an answer bound to no account is not applied » from « applied to every account ».
+	it('reads an answer with no account as no answer', () => {
+		expect.assertions(1);
+		expect(storedAmountSign(kept({ amountSign: 'out', amountSignAccountId: '' }))).toBeNull();
 	});
 });

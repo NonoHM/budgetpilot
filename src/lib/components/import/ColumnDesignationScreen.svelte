@@ -163,6 +163,8 @@
 		remembered?: {
 			assignment: RoleAssignment;
 			layers: Partial<Record<MappingRole, DesignationLayer | null>>;
+			/** #1294: the kept sign answer and its account; absent or null when none is kept. */
+			amountSign?: { sign: AmountSign; accountId: string } | null;
 		} | null;
 		/**
 		 * What detection already worked out. The screen OWNS the assignment from here on, because
@@ -774,8 +776,28 @@
 		);
 	}
 	const signAsked = $derived(amountColumn !== null && defersToSign('amount', amountColumn));
-	const signAnswered = $derived(signAnsweredFor === amountColumn && chosenSign !== null);
-	const answeredSign = $derived<AmountSign | null>(signAnswered ? chosenSign : null);
+	/**
+	 * #1294, THE KEPT ANSWER, seeded once on arrival from the correspondance being corrected: only for
+	 * the Amount column it was given about, and only where this screen itself asks the sign, so it is
+	 * never posted from a screen that does not show it (note pass N5). It holds while that column and
+	 * the account it was kept for are the ones chosen; moving either away drops it, as moving Amount
+	 * drops an answer given here. The member's own answer always comes first.
+	 */
+	// svelte-ignore state_referenced_locally
+	const keptSign =
+		remembered?.amountSign &&
+		remembered.assignment.amount !== null &&
+		remembered.assignment.amount === initialAssignment.amount &&
+		defersToSign('amount', remembered.assignment.amount)
+			? { ...remembered.amountSign, column: remembered.assignment.amount }
+			: null;
+	const answeredSign = $derived.by<AmountSign | null>(() => {
+		if (signAnsweredFor === amountColumn && chosenSign !== null) return chosenSign;
+		if (keptSign && amountColumn === keptSign.column && chosenAccountId === keptSign.accountId)
+			return keptSign.sign;
+		return null;
+	});
+	const signAnswered = $derived(answeredSign !== null);
 
 	/** The first row's amount with the sign an answer gives it, in the file's own notation. */
 	function signedText(raw: string, sign: AmountSign): string {
@@ -804,14 +826,14 @@
 	});
 	const signLine = $derived.by(() => {
 		if (recap || !signAsked) return undefined;
-		if (!signAnswered || chosenSign === null)
+		if (answeredSign === null)
 			return { text: m.import_designate_amount_sign_unanswered(), open: true };
 		const reading =
-			chosenSign === 'out'
+			answeredSign === 'out'
 				? m.import_designate_amount_sign_reading_out
 				: m.import_designate_amount_sign_reading_in;
 		return {
-			text: reading({ raw: firstAmount.trim(), signed: signedText(firstAmount, chosenSign) }),
+			text: reading({ raw: firstAmount.trim(), signed: signedText(firstAmount, answeredSign) }),
 			open: false
 		};
 	});
@@ -847,10 +869,6 @@
 		pickerStep = 'sign';
 		return true;
 	}
-
-	// ON ARRIVAL, once: an unsigned column asks before the footer offers an Import the server would
-	// refuse (#1207 walk). The initial value only, like `assignment`: from here the member owns it.
-	askSign();
 
 	/** The order VALUE to the payload's key. One translation, used by both readers below. */
 	function readingKey(order: DateOrder): 'dayFirst' | 'monthFirst' {
@@ -1058,6 +1076,12 @@
 	let accountPanelFocus = $state<'list' | 'footer'>('list');
 	let accountErrorShown = $state(false);
 	let accountRowWrapper = $state<HTMLElement | null>(null);
+
+	// ON ARRIVAL, once: an unsigned column asks before the footer offers an Import the server would
+	// refuse (#1207 walk). The initial value only, like `assignment`: from here the member owns it.
+	// Below the account state since #1294: whether the question is answered reads the kept answer,
+	// which holds only for the chosen account.
+	askSign();
 
 	/**
 	 * Accounts created on this screen, in the order they were created.

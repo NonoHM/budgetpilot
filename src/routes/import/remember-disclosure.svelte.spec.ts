@@ -49,7 +49,8 @@ const BASE: ImportSummaryResult = {
 	hiddenInvalidRowsCount: 0,
 	accountName: null,
 	rememberedMapping: true,
-	dateOrderDisclosure: null
+	dateOrderDisclosure: null,
+	keptAmountSign: null
 };
 
 const DATA: PageData = { user: null, correction: null };

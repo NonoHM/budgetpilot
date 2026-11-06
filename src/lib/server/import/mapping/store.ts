@@ -9,7 +9,12 @@ import {
 	type ColumnMappingRefusal
 } from './model';
 import { OperatorFacingError } from '$lib/server/operatorFacingError';
-import { layersKeyOf, type ColumnMappingLayers } from './layers';
+import {
+	amountSignFields,
+	layersKeyOf,
+	type ColumnMappingLayers,
+	type KeptAmountSign
+} from './layers';
 
 /**
  * The most column mappings one user may hold.
@@ -117,7 +122,13 @@ export async function saveColumnMapping(
 	fingerprint: string,
 	input: ColumnMappingInput,
 	/** Required, so the compiler names every writer: `columnMappingLayers`, or `UNKNOWN_LAYERS`. */
-	layers: ColumnMappingLayers
+	layers: ColumnMappingLayers,
+	/**
+	 * The sign answer the parse APPLIED for this save and the account it landed in (#1294), or null.
+	 * Required for the same reason as `layers`. Null whenever the parse applied none, so an answer is
+	 * never kept from a file whose own signs decided it.
+	 */
+	keptSign: KeptAmountSign | null
 ): Promise<SaveColumnMappingResult> {
 	const bounded: ColumnMappingInput = {
 		...input,
@@ -144,10 +155,13 @@ export async function saveColumnMapping(
 		}
 	}
 
+	// The key over exactly what is written, the kept answer included (#1294).
+	const sign = amountSignFields(keptSign);
+	const layersKey = layersKeyOf({ ...bounded, ...sign });
 	const saved = await prisma.columnMapping.upsert({
 		where: { userId_fingerprint: { userId, fingerprint } },
-		update: { ...bounded, ...layers, layersKey: layersKeyOf(bounded) },
-		create: { userId, fingerprint, ...bounded, ...layers, layersKey: layersKeyOf(bounded) },
+		update: { ...bounded, ...layers, ...sign, layersKey },
+		create: { userId, fingerprint, ...bounded, ...layers, ...sign, layersKey },
 		select: { id: true }
 	});
 	return { ok: true, id: saved.id };

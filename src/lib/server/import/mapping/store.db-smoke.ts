@@ -19,7 +19,7 @@ const HEADERS = ['date operation', 'libelle complet', 'montant', 'categorie banq
 
 /** These cases are about the store's own guarantees, not the layers (#1207, `layers.db-smoke.ts`). */
 const saveUnlabelled = (userId: string, fingerprint: string, input: ColumnMappingInput) =>
-	saveColumnMapping(userId, fingerprint, input, UNKNOWN_LAYERS);
+	saveColumnMapping(userId, fingerprint, input, UNKNOWN_LAYERS, null);
 
 const MAPPING: ColumnMappingInput = {
 	matchBy: 'name',
