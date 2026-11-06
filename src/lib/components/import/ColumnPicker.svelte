@@ -121,8 +121,10 @@
 		searchThreshold = 20,
 		step = 'columns',
 		dateReading,
+		amountSign,
 		onChoose,
 		onChooseReading,
+		onChooseSign,
 		onChangeColumn,
 		onChangeOrder,
 		onDecline,
@@ -158,7 +160,7 @@
 		 * closing after that choice is the caller's decision via `onChoose`/`onChooseReading` having
 		 * fired, same as step 1 never closes itself on `onChoose`.
 		 */
-		step?: 'columns' | 'reading';
+		step?: 'columns' | 'reading' | 'sign';
 		/**
 		 * The designated column's date evidence, read both ways. Absent (or paired with no designated
 		 * column) makes `step: 'reading'` render step 1 instead — see `effectiveStep`.
@@ -170,7 +172,20 @@
 			/** The reading already assumed (app locale) or confirmed (a prior choice this session). */
 			retained: 'day-first' | 'month-first';
 		};
+		/**
+		 * #1207 C2c-S1: the Amount column's no-default sign question (ADR #1206), the third body. Absent
+		 * makes `step: 'sign'` render step 1, like `dateReading`. `rows` are the file's first data rows
+		 * as the file writes them; `outFirst`/`inFirst` are the first row's amount under each answer.
+		 */
+		amountSign?: {
+			fact: string;
+			rows: readonly { label: string; date: string; amount: string }[];
+			outFirst: string;
+			inFirst: string;
+		};
 		onChoose?: (columnIndex: number) => void;
+		/** The sign answer. Like `onChooseReading`, the caller closes. */
+		onChooseSign?: (sign: 'out' | 'in') => void;
 		/** Fired when a reading is chosen, by click or by the keyboard (arrow move IS the choice). */
 		onChooseReading?: (order: 'day-first' | 'month-first') => void;
 		/** The step 2 foot TapLink: a re-ask for step 1, never a close. See the class docstring. */
@@ -241,11 +256,23 @@
 	 * per the class docstring.
 	 */
 	const effectiveStep = $derived(
-		step === 'reading' && dateReading && designatedIndex !== null ? 'reading' : 'columns'
+		step === 'reading' && dateReading && designatedIndex !== null
+			? 'reading'
+			: step === 'sign' && amountSign && designatedIndex !== null
+				? 'sign'
+				: 'columns'
 	);
+	/** « Both » reveals why this file cannot be imported as it is. It answers nothing. */
+	let bothShown = $state(false);
 
 	/** One title (and `aria-label`) for the whole surface, step-aware. See the `step` docstring. */
-	const title = $derived(effectiveStep === 'reading' ? m.import_datesheet_title() : TITLES[role]());
+	const title = $derived(
+		effectiveStep === 'reading'
+			? m.import_datesheet_title()
+			: effectiveStep === 'sign'
+				? m.import_designate_amount_sign_title()
+				: TITLES[role]()
+	);
 	const columnCount = $derived(file.headers.length);
 	const searchable = $derived(columnCount > searchThreshold);
 
@@ -305,7 +332,9 @@
 	const subline = $derived(
 		effectiveStep === 'reading'
 			? dateReadingSubline
-			: m.import_columns_picker_subtitle({ columns: columnCount })
+			: effectiveStep === 'sign'
+				? (amountSign?.fact ?? '')
+				: m.import_columns_picker_subtitle({ columns: columnCount })
 	);
 
 	/**
@@ -342,7 +371,10 @@
 	let committed = $state(false);
 	let wasOpen = false;
 	$effect(() => {
-		if (open && !wasOpen) committed = false;
+		if (open && !wasOpen) {
+			committed = false;
+			bothShown = false;
+		}
 		wasOpen = open;
 	});
 
@@ -445,7 +477,7 @@
 	 * rule `ColumnDesignationScreen` already applies to its own row-designation announcement.
 	 */
 	let headingEl = $state<HTMLElement | null>(null);
-	let previousStep: 'columns' | 'reading' | null = null;
+	let previousStep: 'columns' | 'reading' | 'sign' | null = null;
 	let previousOpen = false;
 	$effect(() => {
 		const currentStep = effectiveStep;
@@ -453,6 +485,9 @@
 		if (isOpen && previousOpen && previousStep !== null && previousStep !== currentStep) {
 			headingEl?.focus();
 		}
+		// The sign step arrives with NOTHING focused but its question (ADR #1206): no option is a
+		// keypress away. Opened directly on it, the heading takes focus over the panel too.
+		if (isOpen && !previousOpen && currentStep === 'sign') headingEl?.focus();
 		previousStep = isOpen ? currentStep : null;
 		previousOpen = isOpen;
 	});
@@ -723,6 +758,64 @@
 	{/if}
 {/snippet}
 
+{#snippet signBody()}
+	<!--
+		#1207 C2c-S1, ADR #1206: the deciding cells first, then two answers with nothing pre-selected.
+		Each row wraps rather than truncates (AISVS C9.2.2): a cut amount is the one fact being asked about.
+	-->
+	<div class="flex flex-col gap-3 px-5">
+		<ul class="flex flex-col divide-y divide-zinc-100 rounded-[14px] border border-zinc-200">
+			{#each amountSign?.rows ?? [] as row, index (index)}
+				<li
+					class="flex items-start justify-between gap-3 px-3.5 py-2.5 text-[13px] leading-[18px]"
+					data-testid="amount-sign-row"
+				>
+					<span class="min-w-0 break-words text-zinc-700">{row.label} · {row.date}</span>
+					<span class="shrink-0 font-semibold text-zinc-900 tabular-nums">{row.amount}</span>
+				</li>
+			{/each}
+		</ul>
+		<div class="grid grid-cols-2 gap-2">
+			<button
+				type="button"
+				class="flex min-h-11 flex-col items-start justify-center rounded-[14px] border border-zinc-200 bg-white px-3.5 py-2.5 text-left"
+				onclick={() => onChooseSign?.('out')}
+			>
+				<span class="text-[15px] font-semibold text-zinc-900"
+					>{m.import_designate_amount_sign_out()}</span
+				>
+				<span class="text-[13px] font-semibold break-all text-rose-600 tabular-nums"
+					>{amountSign?.outFirst}</span
+				>
+			</button>
+			<button
+				type="button"
+				class="flex min-h-11 flex-col items-start justify-center rounded-[14px] border border-zinc-200 bg-white px-3.5 py-2.5 text-left"
+				onclick={() => onChooseSign?.('in')}
+			>
+				<span class="text-[15px] font-semibold text-zinc-900"
+					>{m.import_designate_amount_sign_in()}</span
+				>
+				<span class="text-[13px] font-semibold break-all text-emerald-700 tabular-nums"
+					>{amountSign?.inFirst}</span
+				>
+			</button>
+		</div>
+		<div class="flex min-h-12 items-center">
+			<TapLink onclick={() => (bothShown = true)}>{m.import_designate_amount_sign_both()}</TapLink>
+		</div>
+		<!-- Always present, so the reason is announced when it appears (WCAG 2.2 4.1.3). -->
+		<div aria-live="polite">
+			{#if bothShown}
+				<p class="text-[13px] leading-[18px] text-zinc-600" data-testid="amount-sign-both">
+					{m.import_designate_amount_sign_both_reason()}
+				</p>
+			{/if}
+		</div>
+	</div>
+	<div class="h-14 shrink-0" aria-hidden="true"></div>
+{/snippet}
+
 {#if variant === 'anchored'}
 	<!--
 		1280. The SAME listbox, anchored under the row that opened it, following `PeriodFilter` and
@@ -769,6 +862,8 @@
 			</div>
 			{#if effectiveStep === 'reading'}
 				{@render readingBody()}
+			{:else if effectiveStep === 'sign'}
+				{@render signBody()}
 			{:else}
 				{@render pickerBody()}
 			{/if}
@@ -805,6 +900,8 @@
 
 		{#if effectiveStep === 'reading'}
 			{@render readingBody()}
+		{:else if effectiveStep === 'sign'}
+			{@render signBody()}
 		{:else}
 			{@render pickerBody()}
 		{/if}

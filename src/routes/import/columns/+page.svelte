@@ -8,6 +8,7 @@
 	import type { RoleAssignment } from '$lib/domain/columnDesignation';
 	// TYPE ONLY. See `domain/columnDesignation.ts`: erased before the bundler sees it.
 	import type { DateOrder } from '$lib/server/import/dateOrder';
+	import type { AmountSign } from '$lib/domain/amountSign';
 	import ColumnDesignationScreen from '$lib/components/import/ColumnDesignationScreen.svelte';
 	import AlertBanner from '$lib/components/AlertBanner.svelte';
 	import {
@@ -182,6 +183,7 @@
 		remember: boolean;
 		hasHeaderRow: boolean;
 		dateOrder: DateOrder | null;
+		amountSign: AmountSign | null;
 		deleteOldImport: boolean;
 		currencyDeclined: boolean;
 	}) {
@@ -211,6 +213,8 @@
 		// post the four characters `null`, and posting a default would record the application's
 		// guess as the user's decision. See #639.
 		if (result.dateOrder) data.set('dateOrder', result.dateOrder);
+		// #1207 C2c-S1: the sign ANSWER, absent when nobody answered, for the same reason.
+		if (result.amountSign) data.set('amountSign', result.amountSign);
 		setDesignationFields(data, result);
 		// The batch this correction replaces, posted only when the user consented on the screen that
 		// is submitting. `result.deleteOldImport` and NOT a field of `pending`: Planche 5c moved the
@@ -446,6 +450,9 @@
 				accountHint={accountOffer.hint}
 				accountHintAboutFile={accountOffer.hintAboutFile}
 				accountPrefill={pending.account?.prefillName ?? ''}
+				askAmountSign={form && 'askAmountSign' in form && typeof form.askAmountSign === 'number'
+					? form.askAmountSign
+					: null}
 				declaredCurrency={form && 'declaredCurrency' in form
 					? ((form.declaredCurrency as string | undefined) ?? null)
 					: null}

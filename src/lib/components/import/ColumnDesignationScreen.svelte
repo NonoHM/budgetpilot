@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { Snippet } from 'svelte';
+	import { untrack, type Snippet } from 'svelte';
 	import * as m from '$lib/paraglide/messages';
 	import {
 		DESIGNATION_ROLES,
@@ -21,6 +21,7 @@
 	// copy of them. `dateReadingAgreement.spec.ts` compares that ladder against the parser's over
 	// every state and every answer; a copy here would be outside what that gate inspects.
 	import { readingForState, type DateOrder } from '$lib/domain/dateReading';
+	import type { AmountSign } from '$lib/domain/amountSign';
 	import { bannerFor, fileMetaLine, submitLabel } from '$lib/domain/columnDesignationBanner';
 	import { roleLabel } from '$lib/domain/columnMappingLabels';
 	import { readWithHeaderRow } from '$lib/domain/headerRowReading';
@@ -145,6 +146,7 @@
 		accountPrefill = '',
 		declaredCurrency = null,
 		remembered = null,
+		askAmountSign = null,
 		onCreateAccount,
 		onCancel,
 		onModify,
@@ -182,6 +184,13 @@
 		 * Captured once, like `initialAssignment`: this screen owns the answer from arrival.
 		 */
 		initialDateOrder?: DateOrder | null;
+		/**
+		 * #1207 C2c-S1: the amount column the last submit was refused for, for want of a sign answer
+		 * (`askAmountSign` on the action's failure). Opens the sign step on that column even where its
+		 * state read `signed`: the parser's verdict reads fewer rows than the screen's (see
+		 * `DesignationFile.amountSignStates`).
+		 */
+		askAmountSign?: number | null;
 		/** #1213: the member's earlier « Aucune colonne devise », on a reopened screen. Captured once. */
 		initialCurrencyDeclined?: boolean;
 		/** State 3b: per role, the remembered header that is gone from this file. */
@@ -362,6 +371,8 @@
 			 * recording a decision nobody took. Null and `day-first` are different payloads.
 			 */
 			dateOrder: DateOrder | null;
+			/** #1207 C2c-S1: the sign ANSWER about the current amount column, or null. Never a default. */
+			amountSign: AmountSign | null;
 			/**
 			 * Whether the run replaces the import it was launched from.
 			 *
@@ -567,12 +578,17 @@
 				pickerStep = 'reading';
 				return;
 			}
+			if (defersToSign(role, columnIndex)) {
+				pickerStep = 'sign';
+				return;
+			}
 			openRole = null;
 			pickerStep = 'columns';
 			return;
 		}
 
 		const deferred = defersToReading(role, columnIndex);
+		const deferredSign = defersToSign(role, columnIndex);
 		const moved = designate(assignment, role, columnIndex);
 		assignment = moved.assignment;
 		if (role === 'currency') currencyDeclined = false;
@@ -583,6 +599,8 @@
 		// surface asks how the column reads instead of closing. Every other choose still closes.
 		if (deferred) {
 			pickerStep = 'reading';
+		} else if (deferredSign) {
+			pickerStep = 'sign';
 		} else {
 			openRole = null;
 			pickerStep = 'columns';
@@ -684,7 +702,9 @@
 		pickerStep =
 			role === 'date' && dateState === 'ambiguous' && !dateAnswered && dateReadingPairs
 				? 'reading'
-				: 'columns';
+				: role === 'amount' && signAsked && !signAnswered
+					? 'sign'
+					: 'columns';
 		openRole = role;
 	}
 
@@ -719,7 +739,84 @@
 	 * screen already owns: designating a column, and answering about it. `ColumnPicker` never
 	 * advances it on its own, exactly as it never closes itself on a choose.
 	 */
-	let pickerStep = $state<'columns' | 'reading'>('columns');
+	let pickerStep = $state<'columns' | 'reading' | 'sign'>('columns');
+
+	/**
+	 * #1207 C2c-S1, THE SIGN ANSWER, the date reading's mechanism over the Amount column: an answer
+	 * belongs to the column it was given about, so moving Amount drops it, and only the ANSWER leaves
+	 * the screen. No default (ADR #1206): nothing is assumed while it is null.
+	 */
+	let chosenSign = $state<AmountSign | null>(null);
+	let signAnsweredFor = $state<number | null>(null);
+	const amountColumn = $derived(assignment.amount);
+	/** Unsigned per the file, or refused for want of an answer about this very column. */
+	function defersToSign(role: DesignationRole, columnIndex: number): boolean {
+		return (
+			role === 'amount' &&
+			(effectiveFile.amountSignStates?.[columnIndex] === 'unsigned' ||
+				askAmountSign === columnIndex)
+		);
+	}
+	const signAsked = $derived(amountColumn !== null && defersToSign('amount', amountColumn));
+	const signAnswered = $derived(signAnsweredFor === amountColumn && chosenSign !== null);
+	const answeredSign = $derived<AmountSign | null>(signAnswered ? chosenSign : null);
+
+	/** The first row's amount with the sign an answer gives it, in the file's own notation. */
+	function signedText(raw: string, sign: AmountSign): string {
+		return (sign === 'out' ? '-' : '+') + raw.trim().replace(/^\+/, '');
+	}
+	const firstAmount = $derived(
+		amountColumn === null ? '' : (effectiveFile.firstRow?.[amountColumn] ?? '')
+	);
+	const signPrompt = $derived.by(() => {
+		if (amountColumn === null) return undefined;
+		const header = hasHeaderRow ? (file.headers[amountColumn] ?? '').trim() : '';
+		const cell = (row: readonly string[], index: number | null) =>
+			index === null ? '' : (row[index] ?? '');
+		return {
+			fact: m.import_designate_amount_sign_fact({
+				column: header || m.import_columns_positional_name({ index: amountColumn + 1 })
+			}),
+			rows: (effectiveFile.previewRows ?? []).slice(0, 3).map((row) => ({
+				label: cell(row, assignment.label),
+				date: cell(row, assignment.date),
+				amount: cell(row, amountColumn)
+			})),
+			outFirst: signedText(firstAmount, 'out'),
+			inFirst: signedText(firstAmount, 'in')
+		};
+	});
+	const signLine = $derived.by(() => {
+		if (recap || !signAsked) return undefined;
+		if (!signAnswered || chosenSign === null)
+			return { text: m.import_designate_amount_sign_unanswered(), open: true };
+		const reading =
+			chosenSign === 'out'
+				? m.import_designate_amount_sign_reading_out
+				: m.import_designate_amount_sign_reading_in;
+		return {
+			text: reading({ raw: firstAmount.trim(), signed: signedText(firstAmount, chosenSign) }),
+			open: false
+		};
+	});
+
+	function chooseSign(sign: AmountSign) {
+		if (amountColumn === null) return;
+		chosenSign = sign;
+		signAnsweredFor = amountColumn;
+		openRole = null;
+		pickerStep = 'columns';
+	}
+
+	// The refusal reopens the question on the column it was about, once per refusal received.
+	$effect(() => {
+		const asked = askAmountSign;
+		untrack(() => {
+			if (asked === null || asked !== assignment.amount || signAnswered || recap) return;
+			openRole = 'amount';
+			pickerStep = 'sign';
+		});
+	});
 
 	/** The order VALUE to the payload's key. One translation, used by both readers below. */
 	function readingKey(order: DateOrder): 'dayFirst' | 'monthFirst' {
@@ -1138,6 +1235,7 @@
 			remember,
 			hasHeaderRow,
 			dateOrder: answeredReading,
+			amountSign: answeredSign,
 			deleteOldImport: false,
 			currencyDeclined: !hasHeaderRow && currencyDeclined
 		});
@@ -1154,6 +1252,7 @@
 			remember,
 			hasHeaderRow,
 			dateOrder: answeredReading,
+			amountSign: answeredSign,
 			deleteOldImport: true,
 			currencyDeclined: !hasHeaderRow && currencyDeclined
 		});
@@ -1316,7 +1415,9 @@
 									interpretation: dateInterpretation,
 									interpretationConfirmed: dateInterpretationConfirmed
 								}
-							: {}}
+							: role === 'amount'
+								? { signLine }
+								: {}}
 						busy={submitting}
 						onOpen={() => openPicker(role)}
 					/>
@@ -1328,10 +1429,12 @@
 							file={effectiveFile}
 							{assignment}
 							candidates={candidates[role] ?? []}
-							step={role === 'date' ? pickerStep : 'columns'}
+							step={role === 'date' || role === 'amount' ? pickerStep : 'columns'}
 							dateReading={role === 'date' ? (dateReadingPairs ?? undefined) : undefined}
+							amountSign={role === 'amount' ? signPrompt : undefined}
 							onChoose={choose}
 							onChooseReading={chooseReading}
+							onChooseSign={chooseSign}
 							onChangeColumn={() => (pickerStep = 'columns')}
 							onChangeOrder={role === 'date' && canChangeOrder
 								? () => (pickerStep = 'reading')
@@ -1829,10 +1932,12 @@
 		file={effectiveFile}
 		{assignment}
 		candidates={candidates[openRole as DesignationRole] ?? []}
-		step={openRole === 'date' ? pickerStep : 'columns'}
+		step={openRole === 'date' || openRole === 'amount' ? pickerStep : 'columns'}
 		dateReading={openRole === 'date' ? (dateReadingPairs ?? undefined) : undefined}
+		amountSign={openRole === 'amount' ? signPrompt : undefined}
 		onChoose={choose}
 		onChooseReading={chooseReading}
+		onChooseSign={chooseSign}
 		onChangeColumn={() => (pickerStep = 'columns')}
 		onChangeOrder={openRole === 'date' && canChangeOrder
 			? () => (pickerStep = 'reading')
