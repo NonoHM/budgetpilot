@@ -123,6 +123,7 @@ describe('the page the link lands on', () => {
 				replacedAt: '2026-06-24T08:00:00.000Z',
 				replacedRows: 2,
 				hasUserWork: false,
+				fileName: 'juillet.csv',
 				step
 			}
 		}) as unknown as PageData;
@@ -137,8 +138,9 @@ describe('the page the link lands on', () => {
 		await page.viewport(390, 844);
 		await render(Page, { data: correction('sign'), form: null });
 		await expect.poll(() => shown(LINK)).toBe(1);
+		// Critique A3: the file to choose is named, so « this one » no longer points at nothing.
 		expect(
-			shown('Les relevés ne sont pas conservés après l’import : choisissez de nouveau celui-ci.')
+			shown('Les relevés ne sont pas conservés après l’import. Choisissez de nouveau juillet.csv.')
 		).toBe(1);
 	});
 

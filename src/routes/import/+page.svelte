@@ -1726,7 +1726,11 @@
 			{#if data.correction.step === 'sign'}
 				<!-- #1305: the link's own words, so the member sees the link worked. -->
 				<p class="text-sm font-semibold text-zinc-900">{m.import_summary_kept_sign_change()}</p>
-				<p class="mt-1 text-xs text-zinc-600">{m.import_columns_correct_sign_explanation()}</p>
+				<p class="mt-1 text-xs text-zinc-600">
+					{data.correction.fileName
+						? m.import_columns_correct_sign_file({ file: data.correction.fileName })
+						: m.import_columns_correct_sign_explanation()}
+				</p>
 			{:else}
 				<p class="text-sm font-semibold text-zinc-900">{m.import_columns_correct_heading()}</p>
 				<p class="mt-1 text-xs text-zinc-600">{m.import_columns_correct_explanation()}</p>

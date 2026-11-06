@@ -105,6 +105,12 @@
 				<span class="text-[15px] font-semibold break-all text-rose-600 tabular-nums"
 					>{prompt.outFirst}</span
 				>
+				{#if current === 'out'}
+					<!-- Critique A2: the ring alone reads as « selected »; this says it is the answer in force. -->
+					<span class="text-[12.5px] font-medium text-zinc-600"
+						>{m.import_designate_amount_sign_current()}</span
+					>
+				{/if}
 			</button>
 			<button
 				type="button"
@@ -121,6 +127,12 @@
 				<span class="text-[15px] font-semibold break-all text-emerald-700 tabular-nums"
 					>{prompt.inFirst}</span
 				>
+				{#if current === 'in'}
+					<!-- Critique A2: the ring alone reads as « selected »; this says it is the answer in force. -->
+					<span class="text-[12.5px] font-medium text-zinc-600"
+						>{m.import_designate_amount_sign_current()}</span
+					>
+				{/if}
 			</button>
 		</div>
 

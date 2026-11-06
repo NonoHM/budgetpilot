@@ -812,6 +812,7 @@ describe('/import load', () => {
 				// schema. Left absent, every test in this block failed on `undefined.toISOString()`,
 				// which is the mock's shape drifting from the route rather than a defect in either.
 				createdAt: SEEDED_AT,
+				fileName: 'releve-juin.csv',
 				columnMappingId: 'mapping-1'
 			} as (typeof db.state.batches)[number]);
 			for (const n of [1, 2, 3]) {
@@ -846,6 +847,7 @@ describe('/import load', () => {
 			expect(result.correction).toEqual({
 				mappingId: 'mapping-1',
 				step: null,
+				fileName: 'releve-juin.csv',
 				batchId: 'batch-1',
 				replacedAt: SEEDED_AT.toISOString(),
 				// 3, the rows the seed FILES under the batch, while its stored counter says 0: separates
@@ -866,6 +868,8 @@ describe('/import load', () => {
 			const sign = await loadWith('?correct=mapping-1&batch=batch-1&step=sign');
 			const other = await loadWith('?correct=mapping-1&batch=batch-1&step=columns');
 			expect((sign.correction as { step?: unknown }).step).toBe('sign');
+			// The corrected import's file, read from the batch resolved under this member.
+			expect((sign.correction as { fileName?: unknown }).fileName).toBe('releve-juin.csv');
 			expect((other.correction as { step?: unknown }).step).toBeNull();
 		});
 
@@ -881,6 +885,7 @@ describe('/import load', () => {
 			expect(result.correction).toEqual({
 				mappingId: 'mapping-1',
 				step: null,
+				fileName: null,
 				batchId: null,
 				replacedAt: null,
 				replacedRows: 0,
@@ -900,6 +905,7 @@ describe('/import load', () => {
 			expect(result.correction).toEqual({
 				mappingId: 'mapping-1',
 				step: null,
+				fileName: null,
 				batchId: null,
 				replacedAt: null,
 				replacedRows: 0,
@@ -919,6 +925,7 @@ describe('/import load', () => {
 			expect(result.correction).toEqual({
 				mappingId: 'mapping-1',
 				step: null,
+				fileName: null,
 				batchId: null,
 				replacedAt: null,
 				replacedRows: 0,
@@ -935,6 +942,7 @@ describe('/import load', () => {
 			expect(result.correction).toEqual({
 				mappingId: 'mapping-1',
 				step: null,
+				fileName: null,
 				batchId: null,
 				replacedAt: null,
 				replacedRows: 0,

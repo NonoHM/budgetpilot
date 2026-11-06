@@ -113,7 +113,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 					// The rows FILED under the batch, not the stored counter (D3, `importedCount.ts`): this
 					// number is what the delete destroys, and a counter at 0 over filed rows would make a
 					// destructive confirmation understate its own cost.
-					select: { id: true, createdAt: true, ...IMPORTED_COUNT_SELECT }
+					select: { id: true, createdAt: true, fileName: true, ...IMPORTED_COUNT_SELECT }
 				})
 			: null;
 	// Both fall through rather than refuse, so the line is the only trace of an id that did not
@@ -148,6 +148,8 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 					// Formatted on the page, where the negotiated locale is known. Null exactly when
 					// `batchId` is, so the label and the control appear and disappear together.
 					replacedAt: correctingBatch?.createdAt.toISOString() ?? null,
+					// #1305: the file to choose again, named on the notice (null on a legacy batch).
+					fileName: correctingBatch?.fileName ?? null,
 					replacedRows: correctingBatch ? importedCountOf(correctingBatch) : 0,
 					hasUserWork: userWorkCount > 0
 				}
