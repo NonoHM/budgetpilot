@@ -60,4 +60,25 @@ describe('parseAmountCents (import)', () => {
 	it('preserves the pre-existing negative-zero quirk on "-0" (matches the old formula bit-for-bit, not a consolidation regression)', () => {
 		expect(Object.is(parseAmountCents('-0'), -0)).toBe(true);
 	});
+
+	it('accepts a Unicode minus (U+2212) as a leading sign (#1285)', () => {
+		expect(parseAmountCents('\u221212,00')).toBe(-1_200);
+	});
+
+	it('accepts accounting parentheses as a negative amount (#1285)', () => {
+		expect(parseAmountCents('(12,00)')).toBe(-1_200);
+		expect(parseAmountCents('(12.50)')).toBe(-1_250);
+	});
+
+	it('accepts a trailing minus as a negative amount (#1285)', () => {
+		expect(parseAmountCents('12,00-')).toBe(-1_200);
+		expect(parseAmountCents('12.50-')).toBe(-1_250);
+	});
+
+	it('still refuses contradictory sign shapes (#1285)', () => {
+		expect(parseAmountCents('(-12,00)')).toBeNull();
+		expect(parseAmountCents('-12,00-')).toBeNull();
+		expect(parseAmountCents('+12,00-')).toBeNull();
+		expect(parseAmountCents('()')).toBeNull();
+	});
 });
