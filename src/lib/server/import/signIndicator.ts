@@ -38,13 +38,13 @@ const DIRECTION_TOKENS = new Set(['d', 'c', 'db', 'cr', 'dr', 'debit', 'credit',
  *
  * ## What it cannot see, stated rather than left to be discovered
  *
- * A file with all-positive amounts and NO indicator column is a statement of pure income as far
- * as anything here can tell, and it imports as one. So does a file whose indicator column uses a
- * vocabulary this set does not carry. Both are still wrong for the user, and neither is
- * detectable: there is nothing in the bytes to separate them from a real salary-only statement.
- * Widening the vocabulary to chase them is how this starts refusing files that would have
- * imported correctly, which is the worse direction. The column mapping path closes this properly
- * by letting the user say what the column means.
+ * A file with all-positive amounts and NO indicator column, or one whose indicator column uses a
+ * vocabulary this set does not carry, is not refused HERE: nothing in the bytes separates it from a
+ * real salary-only statement, and widening the vocabulary to chase it is how this starts refusing
+ * files that would have imported correctly. Since #1207 (C2c-S1) such a file is no longer imported
+ * as income in silence either: `amountSign.ts` finds no negative amount and the member is asked,
+ * once, whether its rows are money out or money in. A file mixing both directions with an
+ * unrecognised vocabulary still cannot be expressed by that file-wide answer (#1284).
  *
  * Returns the offending header so the refusal can name it.
  */

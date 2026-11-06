@@ -151,6 +151,10 @@ export function refusalLabel(fact: CsvRefusalFact, context: RefusalRenderContext
 			// client that dropped the `reading` payload): the sentence names the problem in words
 			// rather than leaving a bare `error` field with nothing behind it.
 			return m.import_refusal_ambiguous_date_order();
+		case 'ambiguous-amount-sign':
+			// The designation screen asks this on the Amount row; this sentence covers a caller that
+			// did not, and names one cell so the reader can find the column.
+			return m.import_refusal_ambiguous_amount_sign({ sample: fact.sample });
 		case 'multi-account-file':
 			// #485. `column` is not rendered here, same convention as `ambiguous-date-order`'s
 			// unrendered `column`/`sample`: the route reads it to name the header when it builds the

@@ -275,9 +275,11 @@ describe('the rows a parser CLASSIFIED always partition', () => {
 	 * to what this describe block is about: an explicit answer keeps every fixture out of the auto
 	 * path's ambiguous-date-order ask, which would otherwise turn every fixture with at least one
 	 * otherwise-valid row into a file-level refusal and collapse the very partition being tested.
+	 * The sign answer for the same reason (#1207): two fixtures' only valid row is a positive salary,
+	 * which proves no sign, and « in » reads it exactly as before.
 	 */
 	function parseCorpus(content: string) {
-		return parseCsvTransactions(content, { dateOrder: 'day-first' });
+		return parseCsvTransactions(content, { dateOrder: 'day-first', amountSign: 'in' });
 	}
 
 	it.each(CORPUS)(

@@ -94,6 +94,24 @@ declares one and the account holds another, the import is refused, naming both.
 > forgot it, and the write denominated every row by the account. A file saying EUR, filed into a
 > bank-synced USD account, stored every amount as dollars with a summary reporting success (#600).
 
+## Sign answer, and the row's type
+
+Two ways an imported row can be said to go one way or the other.
+
+- **The sign answer** (`out` or `in`) is what the MEMBER says about a whole FILE whose amounts
+  carry no minus sign. It is asked only when no amount in the column is negative, and it is one
+  answer for every row.
+- **The type** (`expense` or `income`) is what each stored ROW is. The parser decides it from the
+  amount's sign, or from the sign answer when the file proves nothing.
+
+A file that signs its amounts ignores any sign answer: the file wins, as for the date order.
+
+> **What confusing this cost.** Before the question existed, a file with no sign stored every row
+> as income with nothing said (#1207, the gap #320 left to the mapping path). Once it existed, a
+> member re-importing such a statement and answering « money out » produced rows that matched none
+> of the stored ones, because the type is part of the duplicate key, so every row was stored twice.
+> The answer now skips a row whose opposite is already stored, and says how many.
+
 ## Profile
 
 The parser that read a statement: `generic`, `banque-populaire`, `revolut`, `maison`, `mapped`.

@@ -3,6 +3,7 @@ import type { CategorizationRuleInput } from '$lib/server/categorization/rules';
 import type { CsvRefusal } from './refusals';
 import type { UntrustedColumnMapping } from './mapping/model';
 import type { DateOrder } from './dateOrder';
+import type { AmountSign } from '$lib/domain/amountSign';
 import type { DateOrderDisclosure } from '$lib/domain/importSummary';
 import type { AccountColumnAnswerFor } from '$lib/domain/accountColumnAnswer';
 
@@ -71,6 +72,13 @@ export interface CsvImportOptions {
 	 * stored day-first in silence).
 	 */
 	dateOrder?: DateOrder;
+	/**
+	 * The member's answer when no amount in the file carries a sign (#1207 C2c-S1). Absent on a
+	 * column whose verdict is `ambiguous` means nobody answered, and `csv.ts` refuses with
+	 * `ambiguous-amount-sign` whichever door called it, exactly as the date (#1200). Ignored on a
+	 * file that signs its amounts: the file wins.
+	 */
+	amountSign?: AmountSign;
 	/**
 	 * The user's answers to previous `ambiguous-account-column` refusals, each about the column the
 	 * question named (#1255): one file can carry two unproven columns, and an answer about one says
@@ -142,6 +150,13 @@ export interface ImportedTransaction extends Transaction {
 	 */
 	splitParts?: ImportedSplitPart[];
 	/**
+	 * Present only when the row's direction came from the member's sign answer (#1207 C2c-S1), not
+	 * from the file. Persist reads it to skip a row mirroring one already stored with the other
+	 * direction (owner ruling 2026-11-06); a signed row is never checked, because a same-day refund
+	 * of the same amount is real.
+	 */
+	directionAnswered?: true;
+	/**
 	 * The currency THIS ROW's file declared for it, as an ISO 4217 code, or absent when it declared
 	 * none (no currency column, or a blank cell). #600.
 	 *
@@ -188,6 +203,12 @@ export interface CsvImportSummary {
 	 * usually null.
 	 */
 	dateOrderDisclosure?: DateOrderDisclosure;
+	/**
+	 * The amount column carries no sign and nobody answered which way the money goes (#1207
+	 * C2c-S1). Set by the shared row loop, consumed by the door in `csv.ts`, which refuses the file
+	 * as `ambiguous-amount-sign` on every path. `column` is the amount column's index.
+	 */
+	amountSignQuestion?: { column: number; sample: string };
 	/**
 	 * The currencies this FILE declares, read off every row whether or not the row became a
 	 * transaction (`currencyDeclaration.ts`), as ISO codes. Empty or absent when it declares none,
@@ -298,4 +319,6 @@ export interface CsvProfileParseInput {
 	 *  receives it because every profile funnels into `normalizeDate`, and one that quietly
 	 *  dropped it would be the only path where the user's answer does not apply. */
 	dateOrder?: DateOrder;
+	/** The sign answer, read only by `generic` and `mapped` (`parseResolvedRows`). */
+	amountSign?: AmountSign;
 }

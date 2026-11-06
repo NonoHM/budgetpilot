@@ -219,7 +219,7 @@ describe('the file declares a currency on every row it wrote one, surviving or n
 	it('keeps the declaration of a row refused for its date', () => {
 		expect.assertions(2);
 		const result = parseCsvTransactions(
-			['date,label,amount,currency', 'not-a-date,A,-4.20,EUR', '2026-06-14,B,1850.00,'].join('\n')
+			['date,label,amount,currency', 'not-a-date,A,-4.20,EUR', '2026-06-14,B,-1850.00,'].join('\n')
 		);
 		// The calibration of the fixture: the declaring row really is the one refused.
 		expect(result.transactions.map((transaction) => transaction.declaredCurrency)).toEqual([

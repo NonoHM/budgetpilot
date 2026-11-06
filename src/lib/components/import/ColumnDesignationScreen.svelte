@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { Snippet } from 'svelte';
+	import { tick, untrack, type Snippet } from 'svelte';
 	import * as m from '$lib/paraglide/messages';
 	import {
 		DESIGNATION_ROLES,
@@ -21,6 +21,7 @@
 	// copy of them. `dateReadingAgreement.spec.ts` compares that ladder against the parser's over
 	// every state and every answer; a copy here would be outside what that gate inspects.
 	import { readingForState, type DateOrder } from '$lib/domain/dateReading';
+	import type { AmountSign } from '$lib/domain/amountSign';
 	import { bannerFor, fileMetaLine, submitLabel } from '$lib/domain/columnDesignationBanner';
 	import { roleLabel } from '$lib/domain/columnMappingLabels';
 	import { readWithHeaderRow } from '$lib/domain/headerRowReading';
@@ -35,6 +36,7 @@
 	// note at the call site.
 	import Button from '$lib/components/Button.svelte';
 	import ColumnPicker from './ColumnPicker.svelte';
+	import AmountSignStep from './AmountSignStep.svelte';
 	import { isMemberChoice, type DesignationLayer } from '$lib/domain/designationLayer';
 	import AccountRow from './AccountRow.svelte';
 	import AccountPicker, { type AccountPickerOption } from './AccountPicker.svelte';
@@ -145,6 +147,7 @@
 		accountPrefill = '',
 		declaredCurrency = null,
 		remembered = null,
+		askAmountSign = null,
 		onCreateAccount,
 		onCancel,
 		onModify,
@@ -182,6 +185,13 @@
 		 * Captured once, like `initialAssignment`: this screen owns the answer from arrival.
 		 */
 		initialDateOrder?: DateOrder | null;
+		/**
+		 * #1207 C2c-S1: the amount column the last submit was refused for, for want of a sign answer
+		 * (`askAmountSign` on the action's failure). Opens the sign step on that column even where its
+		 * state read `signed`: the parser's verdict reads fewer rows than the screen's (see
+		 * `DesignationFile.amountSignStates`).
+		 */
+		askAmountSign?: number | null;
 		/** #1213: the member's earlier « Aucune colonne devise », on a reopened screen. Captured once. */
 		initialCurrencyDeclined?: boolean;
 		/** State 3b: per role, the remembered header that is gone from this file. */
@@ -362,6 +372,8 @@
 			 * recording a decision nobody took. Null and `day-first` are different payloads.
 			 */
 			dateOrder: DateOrder | null;
+			/** #1207 C2c-S1: the sign ANSWER about the current amount column, or null. Never a default. */
+			amountSign: AmountSign | null;
 			/**
 			 * Whether the run replaces the import it was launched from.
 			 *
@@ -567,12 +579,17 @@
 				pickerStep = 'reading';
 				return;
 			}
+			if (defersToSign(role, columnIndex)) {
+				pickerStep = 'sign';
+				return;
+			}
 			openRole = null;
 			pickerStep = 'columns';
 			return;
 		}
 
 		const deferred = defersToReading(role, columnIndex);
+		const deferredSign = defersToSign(role, columnIndex);
 		const moved = designate(assignment, role, columnIndex);
 		assignment = moved.assignment;
 		if (role === 'currency') currencyDeclined = false;
@@ -583,6 +600,8 @@
 		// surface asks how the column reads instead of closing. Every other choose still closes.
 		if (deferred) {
 			pickerStep = 'reading';
+		} else if (deferredSign) {
+			pickerStep = 'sign';
 		} else {
 			openRole = null;
 			pickerStep = 'columns';
@@ -684,7 +703,9 @@
 		pickerStep =
 			role === 'date' && dateState === 'ambiguous' && !dateAnswered && dateReadingPairs
 				? 'reading'
-				: 'columns';
+				: role === 'amount' && signAsked && !signAnswered
+					? 'sign'
+					: 'columns';
 		openRole = role;
 	}
 
@@ -719,7 +740,117 @@
 	 * screen already owns: designating a column, and answering about it. `ColumnPicker` never
 	 * advances it on its own, exactly as it never closes itself on a choose.
 	 */
-	let pickerStep = $state<'columns' | 'reading'>('columns');
+	let pickerStep = $state<'columns' | 'reading' | 'sign'>('columns');
+
+	/**
+	 * #1207 C2c-S1, THE SIGN ANSWER, the date reading's mechanism over the Amount column: an answer
+	 * belongs to the column it was given about, so moving Amount drops it, and only the ANSWER leaves
+	 * the screen. No default (ADR #1206): nothing is assumed while it is null.
+	 */
+	let chosenSign = $state<AmountSign | null>(null);
+	/** The sign question is showing: it replaces the screen's content, see `AmountSignStep`. */
+	const signStepOpen = $derived(openRole === 'amount' && pickerStep === 'sign');
+	// The full-screen step replaces the screen, so closing it remounts the rows: focus goes back to
+	// the Amount row, as the sheet it replaced did (WCAG 2.2, 2.4.3), unless the account question
+	// opened next and holds it.
+	let signStepWasOpen = false;
+	$effect(() => {
+		const open = signStepOpen;
+		if (signStepWasOpen && !open && !accountPanelOpen) {
+			void tick().then(() =>
+				(document.querySelector('[data-role="amount"] button') as HTMLElement | null)?.focus()
+			);
+		}
+		signStepWasOpen = open;
+	});
+	let signAnsweredFor = $state<number | null>(null);
+	const amountColumn = $derived(assignment.amount);
+	/** Unsigned per the file, or refused for want of an answer about this very column. */
+	function defersToSign(role: DesignationRole, columnIndex: number): boolean {
+		return (
+			role === 'amount' &&
+			(effectiveFile.amountSignStates?.[columnIndex] === 'unsigned' ||
+				askAmountSign === columnIndex)
+		);
+	}
+	const signAsked = $derived(amountColumn !== null && defersToSign('amount', amountColumn));
+	const signAnswered = $derived(signAnsweredFor === amountColumn && chosenSign !== null);
+	const answeredSign = $derived<AmountSign | null>(signAnswered ? chosenSign : null);
+
+	/** The first row's amount with the sign an answer gives it, in the file's own notation. */
+	function signedText(raw: string, sign: AmountSign): string {
+		return (sign === 'out' ? '-' : '+') + raw.trim().replace(/^\+/, '');
+	}
+	const firstAmount = $derived(
+		amountColumn === null ? '' : (effectiveFile.firstRow?.[amountColumn] ?? '')
+	);
+	const signPrompt = $derived.by(() => {
+		if (amountColumn === null) return undefined;
+		const header = hasHeaderRow ? (file.headers[amountColumn] ?? '').trim() : '';
+		const cell = (row: readonly string[], index: number | null) =>
+			index === null ? '' : (row[index] ?? '');
+		return {
+			fact: m.import_designate_amount_sign_fact({
+				column: header || m.import_columns_positional_name({ index: amountColumn + 1 })
+			}),
+			rows: (effectiveFile.previewRows ?? []).slice(0, 3).map((row) => ({
+				label: cell(row, assignment.label),
+				date: cell(row, assignment.date),
+				amount: cell(row, amountColumn)
+			})),
+			outFirst: signedText(firstAmount, 'out'),
+			inFirst: signedText(firstAmount, 'in')
+		};
+	});
+	const signLine = $derived.by(() => {
+		if (recap || !signAsked) return undefined;
+		if (!signAnswered || chosenSign === null)
+			return { text: m.import_designate_amount_sign_unanswered(), open: true };
+		const reading =
+			chosenSign === 'out'
+				? m.import_designate_amount_sign_reading_out
+				: m.import_designate_amount_sign_reading_in;
+		return {
+			text: reading({ raw: firstAmount.trim(), signed: signedText(firstAmount, chosenSign) }),
+			open: false
+		};
+	});
+
+	function chooseSign(sign: AmountSign) {
+		if (amountColumn === null) return;
+		chosenSign = sign;
+		signAnsweredFor = amountColumn;
+		openRole = null;
+		pickerStep = 'columns';
+		// One question, then the next (owner, progressive disclosure): an account still to choose is
+		// asked now, rather than left for an Import the screen would refuse.
+		if (!chosenAccountId && !recap) {
+			accountPanelFocus = 'list';
+			accountPanelOpen = true;
+		}
+	}
+
+	// The refusal reopens the question on the column it was about, once per refusal received.
+	$effect(() => {
+		const asked = askAmountSign;
+		untrack(() => {
+			if (asked === null || asked !== assignment.amount || signAnswered || recap) return;
+			openRole = 'amount';
+			pickerStep = 'sign';
+		});
+	});
+
+	/** Opens the sign step on the amount column, where the question is open and unanswered. */
+	function askSign(): boolean {
+		if (recap || !signAsked || signAnswered) return false;
+		openRole = 'amount';
+		pickerStep = 'sign';
+		return true;
+	}
+
+	// ON ARRIVAL, once: an unsigned column asks before the footer offers an Import the server would
+	// refuse (#1207 walk). The initial value only, like `assignment`: from here the member owns it.
+	askSign();
 
 	/** The order VALUE to the payload's key. One translation, used by both readers below. */
 	function readingKey(order: DateOrder): 'dayFirst' | 'monthFirst' {
@@ -1128,6 +1259,8 @@
 			revealAccountError();
 			return;
 		}
+		// An open sign question is asked again rather than posted for the server to refuse.
+		if (askSign()) return;
 		if (replaces && deleteOldImport) {
 			confirmingReplace = true;
 			return;
@@ -1138,6 +1271,7 @@
 			remember,
 			hasHeaderRow,
 			dateOrder: answeredReading,
+			amountSign: answeredSign,
 			deleteOldImport: false,
 			currencyDeclined: !hasHeaderRow && currencyDeclined
 		});
@@ -1154,6 +1288,7 @@
 			remember,
 			hasHeaderRow,
 			dateOrder: answeredReading,
+			amountSign: answeredSign,
 			deleteOldImport: true,
 			currencyDeclined: !hasHeaderRow && currencyDeclined
 		});
@@ -1297,7 +1432,7 @@
 					`relative`, so the 1280 picker can anchor UNDER THE ROW THAT OPENED IT. At 390 the
 					wrapper costs nothing and the sheet is rendered at screen level instead.
 				-->
-				<div class="relative">
+				<div class="relative" data-role={role}>
 					<RoleRow
 						{role}
 						state={stateOf(role)}
@@ -1316,7 +1451,9 @@
 									interpretation: dateInterpretation,
 									interpretationConfirmed: dateInterpretationConfirmed
 								}
-							: {}}
+							: role === 'amount'
+								? { signLine }
+								: {}}
 						busy={submitting}
 						onOpen={() => openPicker(role)}
 					/>
@@ -1328,7 +1465,7 @@
 							file={effectiveFile}
 							{assignment}
 							candidates={candidates[role] ?? []}
-							step={role === 'date' ? pickerStep : 'columns'}
+							step={role === 'date' && pickerStep === 'reading' ? 'reading' : 'columns'}
 							dateReading={role === 'date' ? (dateReadingPairs ?? undefined) : undefined}
 							onChoose={choose}
 							onChooseReading={chooseReading}
@@ -1554,7 +1691,13 @@
 	{/if}
 {/snippet}
 
-{#if wide}
+{#if signStepOpen && signPrompt}
+	<!--
+		#1207: the sign question REPLACES the screen at both widths (owner, 2026-11-06): a step of the
+		flow, never a sheet or a panel over it. Back closes it unanswered.
+	-->
+	<AmountSignStep prompt={signPrompt} onChoose={chooseSign} onBack={closeWithoutChoosing} />
+{:else if wide}
 	<!--
 		1280x800. The frame's OWN width is asserted by the spec, absolutely, because the plate records
 		a desktop frame capped to its window rendering 802 px while the document claimed six visible
@@ -1821,7 +1964,7 @@
 	</ConfirmDialog>
 {/if}
 
-{#if openRole && !wide}
+{#if openRole && !wide && !signStepOpen}
 	<!-- 390 only: at 1280 the picker is anchored to its row, inside the card, a few lines up. -->
 	<ColumnPicker
 		open
@@ -1829,7 +1972,7 @@
 		file={effectiveFile}
 		{assignment}
 		candidates={candidates[openRole as DesignationRole] ?? []}
-		step={openRole === 'date' ? pickerStep : 'columns'}
+		step={openRole === 'date' && pickerStep === 'reading' ? 'reading' : 'columns'}
 		dateReading={openRole === 'date' ? (dateReadingPairs ?? undefined) : undefined}
 		onChoose={choose}
 		onChooseReading={chooseReading}

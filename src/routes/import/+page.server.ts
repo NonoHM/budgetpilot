@@ -647,6 +647,28 @@ export const actions: Actions = {
 							lineOne,
 							detectedRowFacts()
 						);
+			/**
+			 * #1207 C2c-S1: a remembered mapping refused only for the sign question fit this file's
+			 * columns, so the member is not made to designate every column again for one question (walk
+			 * finding: 0 of 3 designated on the second statement in a format). Per-row refusals the
+			 * parse also met are not lost: they surface in the summary once the sign is answered.
+			 * Sent as the correction branch sends a remembered mapping (`correcting*`), so the page
+			 * builds `pending.remembered` and the save keeps each role's STORED layer; carried as
+			 * detection instead, every role was saved as « member » (narrow pass on 72a9562c). These
+			 * fields do not make the run a correction: that is `correction`, from the load.
+			 * Any other refusal under a remembered mapping keeps the empty offer (#352).
+			 */
+			const signOnly =
+				result.invalidRows.length === 1 &&
+				result.invalidRows[0].fact.code === 'ambiguous-amount-sign';
+			const rememberedForSign =
+				designationFacts && remembered && signOnly
+					? {
+							correctingAssignment: designationAssignment(remembered, headerCells),
+							correctingLayers: layersByRole(storedLayers(remembered)),
+							correctingMappingId: remembered.id
+						}
+					: {};
 			const splitRefusal: ImportInvalidRowDetail[] = splitFact
 				? [
 						{
@@ -671,7 +693,9 @@ export const actions: Actions = {
 							? m.import_error_ambiguous_account_column()
 							: offer.rung === 'dateOrder'
 								? m.import_error_ambiguous_date_order()
-								: m.import_error_no_valid_transactions(),
+								: signOnly
+									? refusalLabel(result.invalidRows[0].fact)
+									: m.import_error_no_valid_transactions(),
 				// The file nothing recognised, offered to the designation screen rather than left as
 				// a refusal, when `designationCanHelp` says naming columns can change the outcome
 				// (the same function the correction door reads). Only on the `generic` rung. Every
@@ -698,6 +722,10 @@ export const actions: Actions = {
 							...designationFacts
 						}
 					: undefined,
+				...rememberedForSign,
+				// #1207 C2c-S1, blind test: the sign is the one open question, so the page goes straight
+				// to the screen that asks it instead of stopping on a refusal that says it three times.
+				...(designationFacts && signOnly ? { askSign: true as const } : {}),
 				// Plate 7l: opens `ColumnPicker` at `step: 'reading'` alone, no column list, no back
 				// to it. `dateColumn` is the profile's OWN declared index, never a user's guess:
 				// recognition already covers mapping, so this offer answers the one thing it does
@@ -922,6 +950,8 @@ export const actions: Actions = {
 				fileLevelRefusals: result.summary.fileLevelRefusals,
 				duplicateRows: persisted.duplicateRows,
 				autoCategorizedRows: persisted.autoCategorizedRows,
+				// The auto path never posts a sign answer, so no row of it is answered: always 0 here.
+				mirrorRows: persisted.mirrorRows,
 				totalDebitCents: persisted.importedDebitCents,
 				totalCreditCents: persisted.importedCreditCents,
 				period: result.summary.period,
@@ -966,6 +996,7 @@ function buildImportResult(
 		// Nothing was written, so no rule ran. Stated rather than left undefined: this object and the
 		// one the success path builds are read by the same panel.
 		autoCategorizedRows: 0,
+		mirrorRows: 0,
 		totalDebitCents,
 		totalCreditCents,
 		invalidRowDetails,

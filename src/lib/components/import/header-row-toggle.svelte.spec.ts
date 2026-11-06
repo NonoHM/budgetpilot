@@ -284,7 +284,8 @@ describe('the Date row once line 1 is declared data (#735)', () => {
 				NONE,
 				NONE
 			],
-			proposals: undefined
+			proposals: undefined,
+			amountSignStates: undefined
 		}
 	};
 

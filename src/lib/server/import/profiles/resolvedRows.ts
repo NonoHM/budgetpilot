@@ -14,6 +14,7 @@ import type { CsvRefusal } from '../refusals';
 import type { DateOrder } from '../dateOrder';
 import { addRefusal, buildSummary, firstDataRowIndex, readRowDate, toRecord } from '../utils/csv';
 import { parseAmountCents } from '../utils/money';
+import { amountSignVerdict, type AmountSign } from '../amountSign';
 import {
 	buildCsvFields,
 	buildPreviewRowId,
@@ -56,6 +57,8 @@ export interface ResolvedRowsInput {
 	acceptedCurrency: string;
 	profile: ResolvedCsvImportProfile;
 	categorizationRules: CategorizationRuleInput[];
+	/** The member's sign answer (#1207 C2c-S1). Applied only when the column proves no sign. */
+	amountSign?: AmountSign;
 }
 
 /**
@@ -84,7 +87,8 @@ export function parseResolvedRows({
 	currencyColumns,
 	acceptedCurrency,
 	profile,
-	categorizationRules
+	categorizationRules,
+	amountSign
 }: ResolvedRowsInput): CsvImportResult {
 	const resolvedFields = [columns.date, columns.label, columns.amount, columns.category].filter(
 		(field): field is string => Boolean(field)
@@ -121,6 +125,31 @@ export function parseResolvedRows({
 		],
 		acceptedCurrency
 	);
+
+	// THE SIGN, read before any row is judged (#1207 C2c-S1), off the rows that carry a DATED AMOUNT:
+	// the right width and a date that reads. A footer or balance line with no readable date and a
+	// negative total would otherwise make an unsigned file look signed, and every row would import
+	// as income in silence (note pass 2, 1a). The cost runs the safe way: a signed file whose only
+	// negative row has an impossible date is asked, never defaulted. A date refused only for its
+	// YEAR (#758) still reads as a calendar date, so its row counts. Applied HERE, before the type
+	// decides categorisation and totals (pass F2).
+	const amountIndex = headers.indexOf(columns.amount);
+	const carriesDatedAmount = (cells: string[]) => {
+		const reading = readRowDate(
+			[{ column: columns.date, value: toRecord(headers, cells)[columns.date] }],
+			dateOrder
+		);
+		return reading.kind !== 'refused' || reading.fact.code === 'date-out-of-range';
+	};
+	const sign = amountSignVerdict(
+		dataRows
+			.filter(
+				(parsedRow) =>
+					parsedRow.cells.length === headers.length && carriesDatedAmount(parsedRow.cells)
+			)
+			.map((parsedRow) => parsedRow.cells[amountIndex] ?? '')
+	);
+	const answeredSign = sign.kind === 'ambiguous' ? amountSign : undefined;
 
 	dataRows.forEach((parsedRow) => {
 		const row = parsedRow.cells;
@@ -231,7 +260,8 @@ export function parseResolvedRows({
 			return;
 		}
 
-		const type: ImportedTransactionType = amountCents >= 0 ? 'income' : 'expense';
+		const signedCents = answeredSign === 'out' ? -amountCents : amountCents;
+		const type: ImportedTransactionType = signedCents >= 0 ? 'income' : 'expense';
 		// The ordinal is what makes two identical rows two transactions rather than one. Before
 		// it, this loop collapsed them here and counted the second as a duplicate, so a file
 		// carrying the same coffee twice imported one of them and reported the other as already
@@ -241,10 +271,11 @@ export function parseResolvedRows({
 		const categorization = applyCategorizationRules({ label, category, type }, categorizationRules);
 
 		const transaction: ImportedTransaction = {
-			id: buildPreviewRowId('csv', line, date, label, amountCents),
+			id: buildPreviewRowId('csv', line, date, label, signedCents),
 			date,
 			label,
-			amountCents,
+			amountCents: signedCents,
+			...(answeredSign ? { directionAnswered: true as const } : {}),
 			category: categorization.category,
 			source: 'csv',
 			// Spread so an undeclared row carries no key at all, the same absence as a file with no
@@ -299,7 +330,10 @@ export function parseResolvedRows({
 				totalCreditCents,
 				dates: validDates
 			}),
-			declaredCurrencies
+			declaredCurrencies,
+			...(sign.kind === 'ambiguous' && !answeredSign
+				? { amountSignQuestion: { column: amountIndex, sample: sign.sample } }
+				: {})
 		}
 	};
 }

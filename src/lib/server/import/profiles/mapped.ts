@@ -105,7 +105,8 @@ export function parseMappedRows({
 	columnMapping,
 	hasHeaderRow,
 	currencyIndex,
-	dateOrder
+	dateOrder,
+	amountSign
 }: MappedParseInput): CsvImportResult {
 	const headerRefusals: CsvRefusal[] = [];
 	// The user's answer, not a guess. A header row of plausible values is indistinguishable from a
@@ -200,6 +201,7 @@ export function parseMappedRows({
 		rows,
 		hasHeaderRow,
 		dateOrder,
+		amountSign,
 		headers,
 		columns: verdict.columns,
 		// Every declaring column, the same ones `generic` reads (`currencyColumnsIn`, #600 F3). A

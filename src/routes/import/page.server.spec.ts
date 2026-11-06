@@ -1557,7 +1557,7 @@ describe('/import actions', () => {
 		const generic = new FormData();
 		generic.set(
 			'csvFile',
-			new File(['date;label;amount;category\n2026-06-01;Salaire;2500,50;Revenus'], 'generic.csv', {
+			new File(['date;label;amount;category\n2026-06-01;Loyer;-850,00;Logement'], 'generic.csv', {
 				type: 'text/csv'
 			})
 		);
@@ -1606,7 +1606,7 @@ describe('/import actions', () => {
 		const generic = new FormData();
 		generic.set(
 			'csvFile',
-			new File(['date;label;amount;category\n2026-06-01;Salaire;2500,50;Revenus'], 'generic.csv', {
+			new File(['date;label;amount;category\n2026-06-01;Loyer;-850,00;Logement'], 'generic.csv', {
 				type: 'text/csv'
 			})
 		);
@@ -2026,7 +2026,9 @@ describe('/import actions', () => {
 				proposals: {
 					designated: { date: null, label: null, amount: null, category: null, currency: null },
 					candidates: { date: [0], label: [], amount: [2], category: [], currency: [] }
-				}
+				},
+				// Every amount carries a minus sign, so the Amount column needs no sign step (#1207).
+				amountSignStates: ['none', 'none', 'signed']
 			};
 
 			async function declaredData() {
@@ -2361,6 +2363,94 @@ describe('/import actions', () => {
 		});
 	});
 
+	describe('an unsigned amount column on the auto path (#1207 C2c-S1)', () => {
+		/** A recognised generic header, dates proven day-first, no amount with a minus sign. */
+		const UNSIGNED_GENERIC =
+			'Date,Description,Amount\n24/06/2026,COFFEE,4.50\n22/06/2026,BAKERY,2.10';
+
+		/**
+		 * THE REACH. Separates « the auto path sends the file to the one screen that asks the sign »
+		 * from « it refuses with nowhere to answer » (`unrepairable`) and from « it imports as income »
+		 * (no question at all). The designation offer is the only door with a sign step.
+		 */
+		it('offers the designation screen and writes nothing', async () => {
+			const result = (await runImportWithFile(UNSIGNED_GENERIC)) as unknown as {
+				data: { designation?: unknown; askSign?: boolean };
+			};
+
+			expect(result.data.designation).toBeDefined();
+			// Blind test, 2026-11-06: the page stops on three blocks saying one thing; `askSign` is
+			// what lets it go straight to the screen that asks the one question.
+			expect(result.data.askSign).toBe(true);
+			expect(db.state.transactions).toHaveLength(0);
+		});
+
+		/**
+		 * THE SECOND STATEMENT IN A REMEMBERED FORMAT (walk finding, 2026-11-06). The mapping fit the
+		 * file and only the sign is open, so the offer arrives with the remembered columns
+		 * designated. Separates that from « every column to designate again », which the walk met on
+		 * the build: 0 of 3 designated on the member's second visit. And the sentence names the
+		 * question rather than « no valid transactions » (final-code pass, below the bar).
+		 */
+		it('offers the remembered columns, designated, and names the sign question', async () => {
+			const headers = ['Jour', 'Detail', 'Somme'];
+			const { layersKeyOf } = await import('$lib/server/import/mapping/layers');
+			const row = {
+				id: 'mapping-sign',
+				userId: testUser.id,
+				fingerprint: fingerprintFor(headers, 'name'),
+				matchBy: 'name' as const,
+				dateColumn: 'jour',
+				labelColumn: 'detail',
+				amountColumn: 'somme',
+				categoryColumn: null,
+				dateIndex: null,
+				labelIndex: null,
+				amountIndex: null,
+				categoryIndex: null,
+				columnCount: 3,
+				useCount: 1,
+				lastUsedAt: null as Date | null,
+				// One stored layer, the others written before 1.4: the save must keep both as they are.
+				amountLayer: 'rule',
+				dateLayer: null,
+				labelLayer: null,
+				categoryLayer: null
+			};
+			// The integrity key the store writes, through its own function: an unkeyed row reads unknown.
+			db.state.columnMappings.push({
+				...row,
+				layersKey: layersKeyOf(row)
+			} as unknown as (typeof db.state.columnMappings)[number]);
+
+			const result = (await runImportWithFile(
+				`${headers.join(';')}\n24/06/2026;CB CARREFOUR;24,90\n22/06/2026;CB ORANGE;39,99`
+			)) as unknown as {
+				data: {
+					error: string;
+					designation?: unknown;
+					correctingAssignment?: Record<string, number | null>;
+					correctingMappingId?: string;
+					correctingLayers?: Record<string, string | null>;
+				};
+			};
+
+			// As the correction branch sends them, so the page builds `pending.remembered` and the save
+			// keeps each role's STORED layer (narrow pass on 72a9562c: carried as detection, every role
+			// was saved as « member »).
+			expect(result.data.correctingAssignment).toMatchObject({ date: 0, label: 1, amount: 2 });
+			expect(result.data.correctingMappingId).toBe('mapping-sign');
+			expect(result.data.correctingLayers).toEqual({
+				date: null,
+				label: null,
+				amount: 'rule',
+				category: null
+			});
+			expect(result.data.error).toBe(m.import_refusal_ambiguous_amount_sign({ sample: '24,90' }));
+			expect(db.state.transactions).toHaveLength(0);
+		});
+	});
+
 	describe('the reading offer, #433s auto-path remainder (plate 7l)', () => {
 		/** `06/01/2026` is ambiguous by construction: day and month both <= 12. */
 		const AMBIGUOUS_GENERIC = 'Date,Description,Amount\n06/01/2026,COFFEE,-4.50';
@@ -2625,12 +2715,16 @@ describe('/import actions', () => {
 		 * proposals altogether.
 		 */
 		it('seeds no detected column over a remembered mapping that read nothing', async () => {
-			expect.assertions(3);
+			expect.assertions(5);
 			const headers = 'Jour;Libelle;Montant';
 			const content = `${headers}\npas une date;CARREFOUR MARKET;-24,90`;
-			type Offer = { data?: { designation?: DesignationFile } };
+			type Offer = {
+				data?: { designation?: DesignationFile; correctingAssignment?: unknown; askSign?: boolean };
+			};
+			let lastData: Offer['data'];
 			const offerOf = async () => {
-				const offer = ((await runImportWithFile(content)) as Offer).data?.designation;
+				lastData = ((await runImportWithFile(content)) as Offer).data;
+				const offer = lastData?.designation;
 				if (!offer) throw new Error('no designation offer: the fixture no longer reaches it');
 				return offer.proposals;
 			};
@@ -2660,6 +2754,12 @@ describe('/import actions', () => {
 				currency: null
 			});
 			expect(remembered?.candidates).toEqual(detected?.candidates);
+			// Nor seeded from MEMORY: #1207 C2c-S1 sends the remembered columns only when the sign is
+			// the one open question. Separates that gate from « any refusal under a mapping », which
+			// would reopen this screen prefilled with the columns that just read nothing.
+			expect(lastData).not.toHaveProperty('correctingAssignment');
+			// Nor sent straight to the screen: a file whose columns failed is shown why first.
+			expect(lastData).not.toHaveProperty('askSign');
 		});
 
 		it('imports through the mapping and counts the use', async () => {

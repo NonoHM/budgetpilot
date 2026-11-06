@@ -65,6 +65,7 @@ function summary(invalidRowDetails: ImportInvalidRowDetail[]): ImportSummaryResu
 		fileLevelRefusals: 0,
 		duplicateRows: 0,
 		autoCategorizedRows: 0,
+		mirrorRows: 0,
 		totalDebitCents: 4200,
 		totalCreditCents: 0,
 		period: { from: '2026-07-01', to: '2026-07-31' },

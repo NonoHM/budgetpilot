@@ -213,6 +213,27 @@
 	});
 
 	/**
+	 * « 3 rows were already saved as money in, so they were not imported again », or nothing (#1207
+	 * C2c-S1). Rows the member answered whose mirror was already stored, from an import made before
+	 * the sign question existed. Never inserted twice, and said, because a silent skip reads as a
+	 * file that lost rows.
+	 */
+	const mirrorLine = $derived.by(() => {
+		const count = importResult?.mirrorRows ?? 0;
+		// Only the success summary carries it; the refusal summary this page also draws has no rows.
+		const storedAs =
+			importResult && 'mirrorStoredAs' in importResult ? importResult.mirrorStoredAs : undefined;
+		if (count === 0 || !storedAs) return null;
+		if (storedAs === 'in')
+			return count === 1
+				? m.import_summary_mirror_in_one({ count })
+				: m.import_summary_mirror_in_many({ count });
+		return count === 1
+			? m.import_summary_mirror_out_one({ count })
+			: m.import_summary_mirror_out_many({ count });
+	});
+
+	/**
 	 * Plate 7l's disclosure. Null unless `importResult.dateOrderDisclosure` is set, which
 	 * `CsvImportSummary.dateOrderDisclosure`'s docstring restricts to a CHOSEN reading — never a
 	 * proven or defaulted one, so this line is never shown for the ordinary import.
@@ -1163,6 +1184,19 @@
 	}
 
 	/**
+	 * #1207 C2c-S1, from the blind test: when the sign is the file's one open question, go straight to
+	 * the screen that asks it. Stopping here showed the refusal sentence, an offer to designate
+	 * columns (not the question) and a « could not be read » summary (it was read): one thing three
+	 * times. Once per answer from the server, so a member who comes back is not sent away again.
+	 */
+	let askedSignFor: unknown = null;
+	$effect(() => {
+		if (!form || !('askSign' in form) || form.askSign !== true || form === askedSignFor) return;
+		askedSignFor = form;
+		void designateColumns();
+	});
+
+	/**
 	 * The memorisation the designation screen promised, and the server then refused.
 	 *
 	 * `/import/columns` displays « Cette correspondance sera réutilisée pour les prochains fichiers
@@ -2049,6 +2083,9 @@
 				{#if autoCategorizedLine}
 					<p class="mt-3 text-sm text-zinc-600">{autoCategorizedLine}</p>
 				{/if}
+				{#if mirrorLine}
+					<p class="mt-3 text-sm text-zinc-600">{mirrorLine}</p>
+				{/if}
 
 				{#if importResult.period}
 					<p class="mt-4 text-sm text-zinc-600">
@@ -2442,6 +2479,9 @@
 
 				{#if autoCategorizedLine}
 					<p class="mt-3 text-xs text-zinc-600">{autoCategorizedLine}</p>
+				{/if}
+				{#if mirrorLine}
+					<p class="mt-3 text-xs text-zinc-600">{mirrorLine}</p>
 				{/if}
 
 				{#if importResult.period}

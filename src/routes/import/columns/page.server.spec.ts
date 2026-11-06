@@ -201,7 +201,12 @@ async function submit(csv: string, hasHeaderRow: boolean, extra: Record<string, 
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	} as any)) as unknown as {
 		status?: number;
-		data?: { error?: string; keepDesignation?: boolean; writeFailure?: unknown };
+		data?: {
+			error?: string;
+			keepDesignation?: boolean;
+			writeFailure?: unknown;
+			askAmountSign?: number;
+		};
 		replaced?: {
 			kind: 'none' | 'deleted' | 'withheld' | 'withheldOtherPeriod';
 			replacedAt?: string;
@@ -512,6 +517,20 @@ describe('a corrected import replaces the batch it was launched from', () => {
 
 		// The ordering IS the control, so it is asserted rather than assumed from reading the code.
 		expect(order).toEqual(['write', 'delete']);
+	});
+
+	/**
+	 * #1207 C2c-S1, final-code pass F1. The write is told which batch the consented replace will
+	 * delete, so persist does not skip a new row as the mirror of a row about to be deleted.
+	 * Separates « handed to the write » from « resolved and dropped », under which a correction of
+	 * an unsigned statement lands nothing and then deletes the old rows: stored zero times.
+	 */
+	it('tells the write which batch the replace will delete', async () => {
+		expect.assertions(1);
+		await submit(WITH_HEADER, true, { replaceBatchId: 'batch-old' });
+		expect(persist.persistImportedTransactions).toHaveBeenCalledWith(
+			expect.objectContaining({ replacesBatchId: 'batch-old' })
+		);
 	});
 
 	/**
@@ -978,6 +997,20 @@ const ISO_ONLY = [
 	'2026-02-03,Primeur Sainte Anne,-17.45'
 ].join('\n');
 
+/** Two card payments written as magnitudes, dates proven day-first: only the sign is open. */
+const UNSIGNED_OPAQUE = [
+	'zone_1,zone_2,zone_3',
+	'24/06/2026,Primeur Sainte Anne,17.45',
+	'22/06/2026,Abonnement Fibre Doriane,39.90'
+].join('\n');
+
+function typesWritten(): string[] {
+	const [input] = persist.persistImportedTransactions.mock.calls[0] as unknown as [
+		{ transactions: Array<{ metadata: { type: string } }> }
+	];
+	return input.transactions.map((transaction) => transaction.metadata.type);
+}
+
 function datesWritten(): string[] {
 	const [input] = persist.persistImportedTransactions.mock.calls[0] as unknown as [
 		{ transactions: Array<{ date: string }> }
@@ -1074,6 +1107,39 @@ describe('the reading the user answered decides how the file is read', () => {
 		const result = await submit(AMBIGUOUS_OPAQUE, true, { dateOrder: '' });
 		expect(result.status).toBe(400);
 		expect(result.data?.error).toBe(m.import_error_ambiguous_date_order());
+		expect(persist.persistImportedTransactions).not.toHaveBeenCalled();
+	});
+
+	/**
+	 * #1207 C2c-S1, THE RULING: an amount column with no minus sign is asked about, never stored as
+	 * income. Separates « refused, the designation kept, the Amount column named for the step » from
+	 * « stored under the old default ». `askAmountSign` is what opens the step on the screen.
+	 */
+	it('refuses an unanswered unsigned amount column and names it for the sign step', async () => {
+		expect.assertions(4);
+		const result = await submit(UNSIGNED_OPAQUE, true);
+		expect(result.status).toBe(400);
+		expect(result.data?.askAmountSign).toBe(2);
+		expect(result.data?.keepDesignation).toBe(true);
+		expect(persist.persistImportedTransactions).not.toHaveBeenCalled();
+	});
+
+	/** Separates « the answer reached the parse » from « it was read and discarded ». */
+	it('writes every row as money out when that is what the member answered', async () => {
+		expect.assertions(1);
+		await submit(UNSIGNED_OPAQUE, true, { amountSign: 'out' });
+		expect(typesWritten()).toEqual(['expense', 'expense']);
+	});
+
+	/**
+	 * A CLOSED PAIR, POSITIVELY VALIDATED (ASVS 5.0 v5.0.0-2.2.1): a value outside `out` and `in` is
+	 * no answer. Separates « validated against the pair » from « passed through », where any truthy
+	 * string would reach the parser as an answer and import.
+	 */
+	it('refuses a sign value that is not one of the two answers', async () => {
+		expect.assertions(2);
+		const result = await submit(UNSIGNED_OPAQUE, true, { amountSign: 'expense' });
+		expect(result.data?.askAmountSign).toBe(2);
 		expect(persist.persistImportedTransactions).not.toHaveBeenCalled();
 	});
 
