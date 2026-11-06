@@ -1,5 +1,49 @@
 # Changelog
 
+## [1.4.0](https://github.com/NonoHM/budgetpilot/compare/budgetpilot-v1.3.0...budgetpilot-v1.4.0) (2026-11-06)
+
+
+### Features
+
+* **brand:** the folded-ribbon mark, every icon from one source ([#1224](https://github.com/NonoHM/budgetpilot/issues/1224)) ([5311805](https://github.com/NonoHM/budgetpilot/commit/53118058398969155cdc6373e912363d62b76954))
+* **import:** « Change how amounts are read » lands on the sign question with the answer in force ([#1305](https://github.com/NonoHM/budgetpilot/issues/1305), [#1302](https://github.com/NonoHM/budgetpilot/issues/1302)) ([#1314](https://github.com/NonoHM/budgetpilot/issues/1314)) ([1924ae9](https://github.com/NonoHM/budgetpilot/commit/1924ae9c1311a92389771c8a47235344e40dee3a))
+* **import:** ask which way unsigned amounts go, on a full-screen step ([#1207](https://github.com/NonoHM/budgetpilot/issues/1207)) ([#1298](https://github.com/NonoHM/budgetpilot/issues/1298)) ([9b4daf1](https://github.com/NonoHM/budgetpilot/commit/9b4daf1a8303e927314f25e35e9709457b69acef))
+* **import:** propose the columns a file proves on the designation screen ([#1201](https://github.com/NonoHM/budgetpilot/issues/1201)) ([ff0f525](https://github.com/NonoHM/budgetpilot/commit/ff0f525fde17a16e86bfc2b13d958c07547c701f))
+* **import:** remember the sign answer with the column mapping and its account ([#1307](https://github.com/NonoHM/budgetpilot/issues/1307)) ([ddff9a3](https://github.com/NonoHM/budgetpilot/commit/ddff9a36b80bb4e003960a76629fb760d014204d))
+* **import:** say which layer produced each prefilled column, and store it ([#1207](https://github.com/NonoHM/budgetpilot/issues/1207)) ([#1277](https://github.com/NonoHM/budgetpilot/issues/1277)) ([25cadfe](https://github.com/NonoHM/budgetpilot/commit/25cadfe13a690578e2dfde56e0319a5adc2d1f3e))
+* **transactions:** accept every proposal the page shows, with an exact undo ([#1230](https://github.com/NonoHM/budgetpilot/issues/1230)) ([#1243](https://github.com/NonoHM/budgetpilot/issues/1243)) ([ebc9a0c](https://github.com/NonoHM/budgetpilot/commit/ebc9a0c673149547a8803015250966ceb322094b))
+* **transactions:** propose a category from the member's own history ([#1014](https://github.com/NonoHM/budgetpilot/issues/1014)) ([#1236](https://github.com/NonoHM/budgetpilot/issues/1236)) ([3abb6e0](https://github.com/NonoHM/budgetpilot/commit/3abb6e0211b7647bdf903e7ca01f2ee897d92b89))
+* **transactions:** propose and store transfer pairs between a member's own accounts ([#1222](https://github.com/NonoHM/budgetpilot/issues/1222)) ([410bfb2](https://github.com/NonoHM/budgetpilot/commit/410bfb2be0de2bd49f67960f09f6e40f0c26462b))
+* **transactions:** record who set a transaction's category ([#1229](https://github.com/NonoHM/budgetpilot/issues/1229)) ([db6eb46](https://github.com/NonoHM/budgetpilot/commit/db6eb46ac95a197c0bc02ab635f9fe13e4ad3acc)), closes [#1013](https://github.com/NonoHM/budgetpilot/issues/1013)
+
+
+### Bug Fixes
+
+* **backup:** restore an archived account archived, and keep a renamed bank account's name ([#1187](https://github.com/NonoHM/budgetpilot/issues/1187)) ([c07ef52](https://github.com/NonoHM/budgetpilot/commit/c07ef52208607c1f23e7fe9c293c7e5d648d04f3))
+* **deps:** bump bits-ui from 2.20.1 to 2.20.2 in the npm-runtime group ([#1214](https://github.com/NonoHM/budgetpilot/issues/1214)) ([546b8d8](https://github.com/NonoHM/budgetpilot/commit/546b8d89e1b8aa81c8fbc8fa79e876b5fda76fab))
+* **import:** bind an account-column answer to the column it answers ([#1255](https://github.com/NonoHM/budgetpilot/issues/1255)) ([#1261](https://github.com/NonoHM/budgetpilot/issues/1261)) ([91bd72e](https://github.com/NonoHM/budgetpilot/commit/91bd72efbcd6cc3677133a53991e06c7b9c6a359))
+* **import:** keep each sign-step sample amount on one line beside a long label ([#1312](https://github.com/NonoHM/budgetpilot/issues/1312)) ([bca2d00](https://github.com/NonoHM/budgetpilot/commit/bca2d000171f01b29c188ce4ee5ee8c4692a5724))
+* **import:** key a headerless file's columns by position, not by line 1 text ([#1218](https://github.com/NonoHM/budgetpilot/issues/1218)) ([a30a7b4](https://github.com/NonoHM/budgetpilot/commit/a30a7b482c258da8490e03796cf7a6fe337ba922))
+* **import:** let a headerless file declare its currency through a column ([#1213](https://github.com/NonoHM/budgetpilot/issues/1213)) ([#1266](https://github.com/NonoHM/budgetpilot/issues/1266)) ([6f054e5](https://github.com/NonoHM/budgetpilot/commit/6f054e59f0eb588e68ddd2fec8a216ae6061038c))
+* **import:** read a blank account cell as a row without a value ([#1252](https://github.com/NonoHM/budgetpilot/issues/1252)) ([#1257](https://github.com/NonoHM/budgetpilot/issues/1257)) ([2493848](https://github.com/NonoHM/budgetpilot/commit/2493848703a52ec1f80aefd3cde68eed178f419d))
+* **import:** read line 1 as the file shows it, and the account prefill under the same answer ([#1217](https://github.com/NonoHM/budgetpilot/issues/1217)) ([#1274](https://github.com/NonoHM/budgetpilot/issues/1274)) ([0d5420b](https://github.com/NonoHM/budgetpilot/commit/0d5420b85979df842834831afad9a7978c82f69f))
+* **import:** read line 1 of a headerless file as evidence about its account ([#1253](https://github.com/NonoHM/budgetpilot/issues/1253)) ([5ea050c](https://github.com/NonoHM/budgetpilot/commit/5ea050c0b71cf167f07a1266209f5e0bcdeff7e0))
+* **import:** refuse an unanswered ambiguous date column on the designation door ([#1210](https://github.com/NonoHM/budgetpilot/issues/1210)) ([2b3fa67](https://github.com/NonoHM/budgetpilot/commit/2b3fa67428e6abccf89ed2715772166ef2aa884e))
+* **import:** say only what the member can check under a prefilled column ([#1278](https://github.com/NonoHM/budgetpilot/issues/1278)) ([#1282](https://github.com/NonoHM/budgetpilot/issues/1282)) ([75c24ac](https://github.com/NonoHM/budgetpilot/commit/75c24ac5262b61ed864b75be9727b663afa830de))
+* **reports:** leave confirmed transfer pairs out of income and expenses ([#1227](https://github.com/NonoHM/budgetpilot/issues/1227)) ([70deefe](https://github.com/NonoHM/budgetpilot/commit/70deefe090a54ef792627e652fd609e39d457ed3))
+* **transactions:** refuse a single accept on a row changed since the page loaded ([#1247](https://github.com/NonoHM/budgetpilot/issues/1247)) ([68be57e](https://github.com/NonoHM/budgetpilot/commit/68be57e04f0b18a43cebf3cf878b7a97746ffd8f))
+
+
+### Behaviour and internals
+
+* **db:** ignore the two retired AI columns in the client and keep them for rollback ([#1196](https://github.com/NonoHM/budgetpilot/issues/1196)) ([d08b007](https://github.com/NonoHM/budgetpilot/commit/d08b007475ad2492bf9555c7b6963d2280087930))
+
+
+### Documentation
+
+* record the product and the incumbent design system in PRODUCT.md and DESIGN.md ([#1198](https://github.com/NonoHM/budgetpilot/issues/1198)) ([0b32285](https://github.com/NonoHM/budgetpilot/commit/0b3228593acab9ee2bc52f17cdaab6f0bf2b96bc))
+* **rules:** one design skill per job, and a critique before every screen PR ([#1278](https://github.com/NonoHM/budgetpilot/issues/1278)) ([#1279](https://github.com/NonoHM/budgetpilot/issues/1279)) ([dfd4ba7](https://github.com/NonoHM/budgetpilot/commit/dfd4ba734adc4817e4d7d8efcfce08c5cd8bb021))
+
 ## [1.3.0](https://github.com/NonoHM/budgetpilot/compare/budgetpilot-v1.2.0...budgetpilot-v1.3.0) (2026-10-30)
 
 
