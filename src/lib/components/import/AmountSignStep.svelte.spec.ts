@@ -26,7 +26,7 @@ describe('the sign step sample rows', () => {
 			const amounts = ['18,77', '61,00', '9,30', '1 234 567,89 EUR'];
 			render(AmountSignStep, {
 				prompt: {
-					fact: 'Aucun montant ne porte de signe.',
+					fact: 'No amount carries a minus sign.',
 					rows: amounts.map((amount) => ({ label, date: '03/04/2026', amount })),
 					outFirst: '-18,77',
 					inFirst: '+18,77'
