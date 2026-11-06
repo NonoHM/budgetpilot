@@ -75,7 +75,9 @@
 					data-testid="amount-sign-row"
 				>
 					<span class="min-w-0 break-words text-zinc-700">{row.label} · {row.date}</span>
-					<span class="max-w-[50%] text-right font-semibold break-all text-zinc-900 tabular-nums"
+					<!-- shrink-0: as a flex item it would shrink to one character, and break-all cuts the number (#1306). -->
+					<span
+						class="max-w-[50%] shrink-0 text-right font-semibold break-all text-zinc-900 tabular-nums"
 						>{row.amount}</span
 					>
 				</li>
