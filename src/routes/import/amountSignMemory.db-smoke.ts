@@ -397,6 +397,17 @@ describe(`#1294, the kept answer's log line, on ${process.env.DATABASE_PROVIDER 
 describe(`#1294, the kept answer's log line when cleared or moved, on ${process.env.DATABASE_PROVIDER ?? 'the configured engine'}`, () => {
 	const updates = () =>
 		logged.filter((line) => (line as { event: string }).event === 'sensitive_update');
+	// The whole line, not a count: another sensitive_update in the same request must not stand in for it.
+	const keptAnswerChanged = [
+		{
+			event: 'sensitive_update',
+			attributes: {
+				'budgetpilot.user.pseudonym': expect.any(String),
+				'budgetpilot.data.operation': 'change_kept_amount_sign',
+				'budgetpilot.data.scope': 'column_mapping'
+			}
+		}
+	];
 
 	/** Fixes pass F2. Separates « a kept answer cleared by a signed save is logged » from silence. */
 	it('writes one line when a signed statement clears the kept answer', async () => {
@@ -405,7 +416,7 @@ describe(`#1294, the kept answer's log line when cleared or moved, on ${process.
 		await designate(who, JUNE, { amountSign: 'out' });
 		logged.length = 0;
 		await designate(who, AUGUST_SIGNED, { amountSign: 'out' });
-		expect(updates()).toHaveLength(1);
+		expect(updates()).toEqual(keptAnswerChanged);
 	});
 
 	/** Fixes pass F2. Separates « the answer moved to another account is logged » from silence. */
@@ -422,7 +433,7 @@ describe(`#1294, the kept answer's log line when cleared or moved, on ${process.
 				amountSign: 'out'
 			}
 		);
-		expect(updates()).toHaveLength(1);
+		expect(updates()).toEqual(keptAnswerChanged);
 	});
 });
 
