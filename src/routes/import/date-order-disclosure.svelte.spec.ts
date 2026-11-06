@@ -32,6 +32,7 @@ const BASE: ImportSummaryResult = {
 	fileLevelRefusals: 0,
 	duplicateRows: 0,
 	autoCategorizedRows: 0,
+	mirrorRows: 0,
 	totalDebitCents: 4200,
 	totalCreditCents: 0,
 	period: { from: '2026-04-01', to: '2026-04-30' },

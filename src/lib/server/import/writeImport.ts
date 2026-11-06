@@ -75,6 +75,8 @@ export async function writeImport(input: {
 	batch: CreateImportBatchInput;
 	transactions: ImportedTransaction[];
 	parseDuplicateRows: number;
+	/** The batch a consented correction replaces; see `PersistImportedTransactionsInput`. */
+	replacesBatchId?: string;
 }): Promise<ImportWriteOutcome> {
 	let batchId: string;
 	let batchCreatedAt: Date;
@@ -96,7 +98,8 @@ export async function writeImport(input: {
 			importBatchId: batchId,
 			source: input.batch.source,
 			transactions: input.transactions,
-			parseDuplicateRows: input.parseDuplicateRows
+			parseDuplicateRows: input.parseDuplicateRows,
+			...(input.replacesBatchId ? { replacesBatchId: input.replacesBatchId } : {})
 		});
 	} catch (caught) {
 		const failure = classifyWriteFailure(caught, batchCreatedAt);

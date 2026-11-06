@@ -178,6 +178,15 @@ const FIELD_DISPLAY: {
 			values: ['06/01/2026', '07/02/2026']
 		}
 	},
+	// #1207 C2c-S1. The designation screen asks this on the Amount row, which names the column; the
+	// sentence carries one cell so a caller that drew no step still points at the amounts.
+	'ambiguous-amount-sign': {
+		column: {
+			shown: { by: 'the sign step on the Amount row of the designation screen' },
+			values: [2, 4]
+		},
+		sample: { shown: 'sentence', values: ['24,90', '1 850,00'] }
+	},
 	'multi-account-file': {
 		column: {
 			shown: {
@@ -237,16 +246,16 @@ describe('refusalLabel', () => {
 		expect(refusalLabel({ code: 'file-empty' })).toBe('CSV vide ou sans données');
 	});
 
-	it('renders every code in the union, and there are 46 of them', () => {
+	it('renders every code in the union, and there are 47 of them', () => {
 		const rendered = CSV_REFUSAL_CODES.map((code) => refusalLabel(FACTS[code]));
 
 		// The absolute figure beside the emptiness assertion: a run that rendered nothing at all
 		// would satisfy "none is empty" perfectly. 44 since #485 added 'multi-account-file' and
 		// 'ambiguous-account-column'; 45 since #600 added 'declared-currency-mismatch'; 46 since #758 added
-		// 'date-out-of-range'.
-		expect(rendered).toHaveLength(46);
-		expect(CSV_REFUSAL_CODES).toHaveLength(46);
-		expect(rendered.filter((label) => label.trim().length > 0)).toHaveLength(46);
+		// 'date-out-of-range'; 47 since #1207 added 'ambiguous-amount-sign'.
+		expect(rendered).toHaveLength(47);
+		expect(CSV_REFUSAL_CODES).toHaveLength(47);
+		expect(rendered.filter((label) => label.trim().length > 0)).toHaveLength(47);
 		// A key leaking through would render as the key itself.
 		expect(rendered.filter((label) => label.startsWith('import_refusal_'))).toEqual([]);
 	});
@@ -256,7 +265,7 @@ describe('refusalLabel', () => {
 
 		// Two guards in sequence are indistinguishable to a user when they render the same
 		// sentence, which is the whole reason the contract names them separately.
-		expect(new Set(rendered).size).toBe(46);
+		expect(new Set(rendered).size).toBe(47);
 	});
 
 	it('renders the payload of the five facts whose sentence names a value', () => {
@@ -452,8 +461,10 @@ describe('what a refusal carries, and where the reader sees it (#692)', () => {
 
 	/**
 	 * The absolute figure beside the empty list above: a swap loop that read no field would agree
-	 * with every classification. 35 fields over 46 codes, per catalogue (33 over 45 before #758 added
-	 * `date-out-of-range`, whose value the sentence quotes and whose column the field cell shows).
+	 * with every classification. 37 fields over 47 codes, per catalogue (33 over 45 before #758 added
+	 * `date-out-of-range`, whose value the sentence quotes and whose column the field cell shows; 35
+	 * over 46 before #1207 added `ambiguous-amount-sign`, whose sample the sentence quotes and whose
+	 * column the sign step names).
 	 */
 	it('read every carried field, in both catalogues', () => {
 		const kinds = swaps.map(({ shown }) =>
@@ -464,7 +475,7 @@ describe('what a refusal carries, and where the reader sees it (#692)', () => {
 			sentence: kinds.filter((kind) => kind === 'sentence').length,
 			by: kinds.filter((kind) => kind === 'by').length,
 			withheld: kinds.filter((kind) => kind === 'withheld').length
-		}).toEqual({ sentence: 46, by: 20, withheld: 4 });
+		}).toEqual({ sentence: 48, by: 22, withheld: 4 });
 	});
 
 	it('names the currency and no bank, since three producers share the sentence', () => {

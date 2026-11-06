@@ -703,12 +703,25 @@ export interface PersistImportedTransactionsInput {
 	transactions: ImportedTransaction[];
 	/** Duplicates already detected upstream (e.g. at CSV parse time) — folded into the batch's final duplicateRows. */
 	parseDuplicateRows?: number;
+	/**
+	 * The batch this import replaces under the member's consent (a correction, « Revoir les
+	 * colonnes »). Its rows are not mirrors (#1207 C2c-S1, final-code pass F1): the replace deletes
+	 * them after this write, so a row skipped against one of them would end up stored zero times.
+	 * The collision guard excludes the same batch for the same reason (`excludeBatchId`).
+	 */
+	replacesBatchId?: string;
 }
 
 export interface PersistImportedTransactionsResult {
 	importedRows: number;
-	/** parseDuplicateRows + rows skipped here because their dedupeKey already exists. */
+	/** parseDuplicateRows + rows skipped here because their dedupeKey already exists, mirrors included. */
 	duplicateRows: number;
+	/**
+	 * Rows skipped because a row with the other direction is already stored for them (#1207
+	 * C2c-S1): a statement imported before the sign question, now answered. Never inserted, never
+	 * rewriting the stored row; the member changes the stored one on Transactions if it is wrong.
+	 */
+	mirrorRows: number;
 	importedDebitCents: number;
 	importedCreditCents: number;
 	importedTransactionIds: string[];
@@ -756,9 +769,10 @@ export async function persistImportedTransactions(
 		}
 		throw new ImportWriteError({ kind: 'failed', landedRows: 0 }, { cause: caught });
 	}
-	const { dedupeKeys, denomination } = prepared;
+	const { dedupeKeys, mirrorKeys, denomination } = prepared;
 
 	let duplicateRows = input.parseDuplicateRows ?? 0;
+	let mirrorRows = 0;
 	let importedDebitCents = 0;
 	let importedCreditCents = 0;
 	const importedTransactionIds: string[] = [];
@@ -769,6 +783,14 @@ export async function persistImportedTransactions(
 	let interrupted: { cause: unknown } | null = null;
 	try {
 		for (const [index, transaction] of input.transactions.entries()) {
+			const mirrorKey = transaction.directionAnswered ? mirrorKeys?.[index] : null;
+			if (mirrorKey && (await storedKeyExists(input.userId, mirrorKey, input.replacesBatchId))) {
+				// Counted with the duplicates too, so `/imports` keeps one consistent figure for rows
+				// already present; `mirrorRows` is what the summary sentence names.
+				mirrorRows += 1;
+				duplicateRows += 1;
+				continue;
+			}
 			const importedTransactionId = await persistTransaction(
 				input.userId,
 				transaction,
@@ -827,6 +849,7 @@ export async function persistImportedTransactions(
 	return {
 		importedRows,
 		duplicateRows,
+		mirrorRows,
 		importedDebitCents,
 		importedCreditCents,
 		importedTransactionIds,
@@ -887,13 +910,34 @@ async function prepareWrite(input: PersistImportedTransactionsInput) {
 	// time because the bucket's source comes from the detected profile, and the ordinal has to be
 	// handed out over the rows being WRITTEN or a row refused after its fingerprint was built
 	// leaves a gap that a later recompute closes by re-keying a stored row.
-	const dedupeKeys = assignDedupeKeysForBatch(input.transactions, {
+	const keyContext = {
 		accountId: input.accountId,
 		source: input.source,
 		currency: bucket.currency,
 		exponent: bucket.exponent,
 		providerAccountId: bucket.providerAccountId
-	});
+	};
+	const dedupeKeys = assignDedupeKeysForBatch(input.transactions, keyContext);
+
+	// THE MIRROR KEYS (#1207 C2c-S1, owner ruling 2026-11-06). Before the sign question existed, an
+	// unsigned statement imported every row as income; re-imported and answered « Money out », each
+	// row keys differently (the direction is in the key) and was stored a second time. So a row
+	// whose direction came from the member's answer is also keyed as its mirror (amount negated,
+	// type flipped), over the same batch so the ordinals agree, and a stored mirror skips it. Only
+	// answered rows: a signed file's same-day refund of the same amount is a second real row.
+	const mirrorKeys = input.transactions.some((transaction) => transaction.directionAnswered)
+		? assignDedupeKeysForBatch(
+				input.transactions.map((transaction) => ({
+					...transaction,
+					amountCents: -transaction.amountCents,
+					metadata: {
+						...transaction.metadata,
+						type: transaction.metadata.type === 'expense' ? 'income' : 'expense'
+					}
+				})),
+				keyContext
+			)
+		: null;
 
 	// Narrowed EXPLICITLY, and not merely for tidiness. `persistTransaction` spreads this object
 	// into `prisma.transaction.create`, so every field on it becomes a column name. Passing the
@@ -903,7 +947,7 @@ async function prepareWrite(input: PersistImportedTransactionsInput) {
 	// mock has no column list to disagree with. An e2e import found it.
 	const denomination = { currency: bucket.currency, exponent: bucket.exponent };
 
-	return { dedupeKeys, denomination };
+	return { dedupeKeys, mirrorKeys, denomination };
 }
 
 /**
@@ -928,6 +972,28 @@ async function recordBatchCounts(
 		data: { importedRows, duplicateRows }
 	});
 	return importedRows;
+}
+
+/**
+ * Whether the user already holds a row under this key, outside the batch being replaced. Matched on
+ * the hash, as `persistTransaction`. The exclusion keeps rows with no batch: SQL's `<>` drops NULL.
+ */
+async function storedKeyExists(
+	userId: string,
+	dedupeKey: string,
+	excludeBatchId?: string
+): Promise<boolean> {
+	const existing = await prisma.transaction.findFirst({
+		where: {
+			userId,
+			dedupeKeyHash: computeDedupeKeyHash(dedupeKey),
+			...(excludeBatchId
+				? { OR: [{ importBatchId: null }, { importBatchId: { not: excludeBatchId } }] }
+				: {})
+		},
+		select: { id: true }
+	});
+	return existing !== null;
 }
 
 /**

@@ -37,7 +37,9 @@ describe('refusal catalogue coverage', () => {
 		// the account it is filed into, refused before anything is written.
 		// 46 since `date-out-of-range` (#758): a calendar date whose year no engine stores faithfully,
 		// refused on its row.
-		expect(CSV_REFUSAL_CODES).toHaveLength(46);
+		// 47 since `ambiguous-amount-sign` (#1207): an amount column with no minus sign, asked about
+		// rather than read as income.
+		expect(CSV_REFUSAL_CODES).toHaveLength(47);
 
 		const missingFr = CSV_REFUSAL_CODES.filter((c) => !(KEY(c) in fr));
 		const missingEn = CSV_REFUSAL_CODES.filter((c) => !(KEY(c) in en));

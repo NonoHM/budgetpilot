@@ -18,6 +18,7 @@ import { mappingFromPostedIndices } from '$lib/server/import/mapping/designation
 import { readAccountColumnAnswers } from '$lib/domain/accountColumnAnswer';
 import { CSV_MAX_COLUMNS_CEILING } from '$lib/server/import/columnBounds';
 import { readDateOrderAnswer } from '$lib/server/import/dateOrder';
+import { readAmountSignAnswer } from '$lib/server/import/amountSign';
 import { fingerprintFor } from '$lib/server/import/mapping/fingerprint';
 import {
 	readColumnMapping,
@@ -139,6 +140,10 @@ export const actions: Actions = {
 		 * proves its own order ignores this, and a file that proves both is refused whatever it says.
 		 */
 		const dateOrder = readDateOrderAnswer(formData.get('dateOrder'));
+		// The sign answer (#1207 C2c-S1), read the same way: the closed pair or nothing, so a hostile or
+		// absent value is no answer and the parser refuses an unsigned column. Not logged, the same
+		// named exemption as `dateOrder` above: a read of a form field, not a write.
+		const amountSign = readAmountSignAnswer(formData.get('amountSign'));
 
 		const resolved = mappingFromPostedIndices({
 			headers,
@@ -206,6 +211,7 @@ export const actions: Actions = {
 			// No « the screen already asked » flag (#1200): an ambiguous column that arrives without
 			// an answer is refused by the parser, like on every other door.
 			dateOrder,
+			amountSign,
 			sourceName: importFile.name || importData.kind,
 			categorizationRules: categorizationRules.map((rule) => ({
 				...rule,
@@ -248,6 +254,16 @@ export const actions: Actions = {
 			// Same sentence `/import` gives the same fact, and the designation is kept.
 			if (dateOrderRefusal)
 				return fail(400, { error: m.import_error_ambiguous_date_order(), keepDesignation: true });
+			// #1207 C2c-S1. The sign is the other question this door CAN answer: the Amount row opens its
+			// step on `askAmountSign` (the amount column's index), and the sentence covers a client that
+			// drew no step. The parser's verdict reads only rows carrying a dated amount, so this can
+			// fire where the screen's per-column state said `signed`: this field is how it still asks.
+			if (fileScopedRefusal?.code === 'ambiguous-amount-sign')
+				return fail(400, {
+					error: refusalLabel(fileScopedRefusal),
+					keepDesignation: true,
+					askAmountSign: fileScopedRefusal.column
+				});
 			// THE ONE ORDER, same function `/import` reads: no `split`, `account` or `dateOrder` on this
 			// door (see `offerPrecedence.ts`'s own docstring for why), so those are simply never passed.
 			// `produced: false` because this branch is the empty parse. `header` is `offerPrecedence.ts`'s
@@ -520,7 +536,9 @@ export const actions: Actions = {
 				dateOrder: result.summary.dateOrder ?? null
 			},
 			transactions: result.transactions,
-			parseDuplicateRows: result.summary.duplicateRows
+			parseDuplicateRows: result.summary.duplicateRows,
+			// Posted only under the member's consent to replace; see `replacesBatchId` on persist.
+			...(replacing ? { replacesBatchId: replacing.id } : {})
 		});
 		// #662, as on `/import`: a failed write is a sentence that says what landed. RETURNED BEFORE
 		// the replace below, so a correction whose write failed never deletes the import it was meant
@@ -657,6 +675,10 @@ export const actions: Actions = {
 				fileLevelRefusals: result.summary.fileLevelRefusals,
 				duplicateRows: persisted.duplicateRows,
 				autoCategorizedRows: persisted.autoCategorizedRows,
+				mirrorRows: persisted.mirrorRows,
+				...(persisted.mirrorRows > 0 && amountSign
+					? { mirrorStoredAs: amountSign === 'out' ? ('in' as const) : ('out' as const) }
+					: {}),
 				totalDebitCents: persisted.importedDebitCents,
 				totalCreditCents: persisted.importedCreditCents,
 				period: result.summary.period,

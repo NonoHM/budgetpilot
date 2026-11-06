@@ -147,7 +147,7 @@ function inspect(content: string, parse = parseCsvTransactions): Outcome {
 /** A parse result carrying a label a correct sanitiser could never produce. Used to point the
  *  checker at the violation it exists to report. */
 function leakingResult(label: string): ReturnType<typeof parseCsvTransactions> {
-	const empty = parseCsvTransactions('date;label;amount\n2026-01-02;Carrefour;12,34');
+	const empty = parseCsvTransactions('date;label;amount\n2026-01-02;Carrefour;-12,34');
 	return {
 		...empty,
 		transactions: [{ ...empty.transactions[0], label }]
@@ -597,7 +597,7 @@ describe('the checker can see what it is looking for', () => {
 
 		expect(outcome.violations).toStrictEqual(['formula character survives in label']);
 		// And the real parser refuses to produce it, through the sanitiser rather than by luck.
-		const parsed = parseCsvTransactions('date;label;amount\n2026-01-02;=cmd|calc;12,34');
+		const parsed = parseCsvTransactions('date;label;amount\n2026-01-02;=cmd|calc;-12,34');
 		expect(parsed.transactions[0]?.label.startsWith("'")).toBe(true);
 	});
 

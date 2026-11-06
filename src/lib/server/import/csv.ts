@@ -371,13 +371,15 @@ export function parseImportRows(
 				columnMapping: options.columnMapping,
 				hasHeaderRow: options.hasHeaderRow,
 				currencyIndex: options.currencyIndex,
-				dateOrder: decision.order
+				dateOrder: decision.order,
+				amountSign: options.amountSign
 			})
 		: parser.parse({
 				rows: normalizedRows,
 				sourceName: options.sourceName,
 				categorizationRules: options.categorizationRules ?? [],
-				dateOrder: decision.order
+				dateOrder: decision.order,
+				amountSign: options.amountSign
 			});
 
 	/**
@@ -494,6 +496,31 @@ export function parseImportRows(
 						code: 'ambiguous-date-order',
 						column: questionColumn,
 						sample: refusalCellValue(verdict.sample)
+					}
+				],
+				parser ? parser.profile : 'mapped',
+				dataRowCount
+			),
+			parsed
+		);
+	}
+
+	/**
+	 * THE SIGN, at the same door and under the same rule as the date above (#1207 C2c-S1, decision
+	 * record #1206 kind 2): EVERY DOOR, no exemption a caller can claim. `parseResolvedRows` reports
+	 * the question when no amount in the column carries a sign and nobody answered; before this, every
+	 * such row imported as income with nothing said. Asked after the date, so a file with both
+	 * questions is asked one at a time and neither answer is lost.
+	 */
+	const signQuestion = parsed.summary.amountSignQuestion;
+	if (signQuestion && parsed.transactions.length > 0 && parsed.summary.fileLevelRefusals === 0) {
+		return carryDeclaration(
+			emptyResult(
+				[
+					{
+						code: 'ambiguous-amount-sign',
+						column: signQuestion.column,
+						sample: refusalCellValue(signQuestion.sample)
 					}
 				],
 				parser ? parser.profile : 'mapped',

@@ -5,7 +5,13 @@ import {
 	importSampleCoverage,
 	importSampleValues
 } from './csv';
-import { importColumnDateReadings, importColumnDateStates } from './columnDateState';
+import {
+	importColumnCells,
+	importColumnDateReadings,
+	importColumnDateStates
+} from './columnDateState';
+import { amountSignVerdict } from './amountSign';
+import type { AmountSignState } from '$lib/domain/columnDesignation';
 import { columnProposals } from './columnProposals';
 import type { HeaderRowVerdict } from './headerRowVerdict';
 import type { ParsedCsvRow } from './types';
@@ -51,7 +57,8 @@ export function designationRowFacts(
 		dateStates: importColumnDateStates(rows, hasHeaderRow),
 		// Both readings of the SAME cells the row and the cards show.
 		dateReadings: importColumnDateReadings(dateCellsPerColumn(firstRow, samples)),
-		proposals: columnProposals(rows, hasHeaderRow)
+		proposals: columnProposals(rows, hasHeaderRow),
+		amountSignStates: importColumnCells(rows, hasHeaderRow).map(amountSignState)
 	};
 }
 
@@ -134,4 +141,14 @@ export function withoutDesignations<T extends ReturnType<typeof designationFacts
  */
 function dateCellsPerColumn(firstRow: string[], samples: string[][]): string[][] {
 	return samples.map((values, column) => [firstRow[column] ?? '', ...values]);
+}
+
+/** One column's sign state for the screen, through the parser's own verdict function. */
+function amountSignState(cells: string[]): AmountSignState {
+	const verdict = amountSignVerdict(cells);
+	return verdict.kind === 'resolved'
+		? 'signed'
+		: verdict.kind === 'ambiguous'
+			? 'unsigned'
+			: 'none';
 }

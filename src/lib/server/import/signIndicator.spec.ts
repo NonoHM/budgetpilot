@@ -43,8 +43,14 @@ describe('a statement carrying its direction in a separate column', () => {
  * half that can, and they are the direction the change is not moving in.
  */
 describe('files that must still import', () => {
-	function importedTypes(file: string): string[] {
-		const result = parseCsvTransactions(file, { profile: 'auto' });
+	// `amountSign` is the member's answer for a file whose amounts carry no sign (#1207 C2c-S1):
+	// since then such a file is asked about rather than imported as income, so the « still imports »
+	// cases below pass the answer the member would give and assert the rows follow it.
+	function importedTypes(file: string, amountSign?: 'out' | 'in'): string[] {
+		const result = parseCsvTransactions(file, {
+			profile: 'auto',
+			...(amountSign ? { amountSign } : {})
+		});
 		expect(result.invalidRows).toEqual([]);
 		// The presence half beside the emptiness assertion above: a parse that produced no
 		// transaction at all satisfies "no refusals" perfectly.
@@ -64,44 +70,48 @@ describe('files that must still import', () => {
 		).toEqual(['expense', 'income']);
 	});
 
-	it('is all positive with no indicator column, which is an ordinary income-only statement', () => {
+	it('is all positive with no indicator column, which imports as income once answered « in »', () => {
 		expect(
 			importedTypes(
 				[
 					'date;libelle;montant',
 					'24/06/2026;SALAIRE JUIN;1850,00',
 					'24/05/2026;SALAIRE MAI;1850,00'
-				].join('\n')
+				].join('\n'),
+				'in'
 			)
 		).toEqual(['income', 'income']);
 	});
 
 	it('carries free text in a column named like an indicator, which is not the vocabulary', () => {
-		expect(
-			importedTypes(
-				[
-					'date;libelle;montant;sens',
-					'24/06/2026;CARREFOUR MARKET;24,90;sortie de caisse',
-					'21/06/2026;VIR RECU SALAIRE;1850,00;entree'
-				].join('\n')
-			)
-		).toEqual(['income', 'income']);
+		// Not refused by THIS detector, and no longer imported as income either: no amount is
+		// negative, so the member is asked. These rows mix both directions, which no file-wide answer
+		// expresses; designating the column itself is #1284.
+		const result = parseCsvTransactions(
+			[
+				'date;libelle;montant;sens',
+				'24/06/2026;CARREFOUR MARKET;24,90;sortie de caisse',
+				'21/06/2026;VIR RECU SALAIRE;1850,00;entree'
+			].join('\n'),
+			{ profile: 'auto' }
+		);
+		expect(result.invalidRows.map((row) => row.fact.code)).toEqual(['ambiguous-amount-sign']);
 	});
 
 	it('carries a constant indicator, which is a marker rather than a direction', () => {
-		// Honest rather than desirable: these two rows are spending and they import as income,
-		// because a column reading "D" on every line carries no direction to read. Widening the
-		// vocabulary or dropping the two-token condition to catch this is what makes the detector
-		// start refusing files that would have imported correctly. The column mapping path closes
-		// it properly, by asking the user.
+		// A column reading "D" on every line carries no direction for this detector to read, and
+		// widening it to catch the case is what makes it refuse files that import correctly. Until
+		// #1207 (C2c-S1) these two rows of spending imported as income; now no amount is negative, so
+		// the member is asked, and answering « out » reads them as what they are.
 		expect(
 			importedTypes(
 				[
 					'date;libelle;montant;sens',
 					'24/06/2026;CARREFOUR MARKET;24,90;D',
 					'22/06/2026;ORANGE SA;39,99;D'
-				].join('\n')
+				].join('\n'),
+				'out'
 			)
-		).toEqual(['income', 'income']);
+		).toEqual(['expense', 'expense']);
 	});
 });

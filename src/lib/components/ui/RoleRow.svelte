@@ -83,6 +83,7 @@
 		lostHeader,
 		interpretation,
 		interpretationConfirmed = false,
+		signLine,
 		busy = false,
 		memberChoice = false,
 		onOpen
@@ -158,6 +159,11 @@
 		 * carries the warning triangle, which stays reserved for `ambiguous`/`missingColumn`.
 		 */
 		interpretationConfirmed?: boolean;
+		/**
+		 * #1207 C2c-S1: the Amount row's line 3 while its column carries no minus sign, already composed
+		 * (« Sens à choisir », or the answer). Absent on a signed column, which keeps its 68 px row.
+		 */
+		signLine?: { text: string; open: boolean };
 		/**
 		 * The screen's import is out: plate 1q B « Envoi », « Les rangées aussi : focusables, non
 		 * activables ». `aria-disabled`, never the native attribute, so the row keeps its tab stop and
@@ -249,7 +255,12 @@
 	});
 
 	// Presence, not value: see the `interpretation` prop's own docstring for why `null` counts.
-	const isInterpretingRow = $derived(interpretation !== undefined);
+	const isInterpretingRow = $derived(interpretation !== undefined || signLine !== undefined);
+	const signLineId = `${provenanceId}-sign`;
+	const describedBy = $derived(
+		[memberChoice ? provenanceId : null, signLine ? signLineId : null].filter(Boolean).join(' ') ||
+			undefined
+	);
 	const heightClass = $derived(
 		compact
 			? isInterpretingRow
@@ -361,7 +372,15 @@
 	two keys but is handled rather than assumed.
 -->
 {#snippet interpretationLine()}
-	{#if interpretation && typeof interpretation === 'object'}
+	{#if signLine}
+		<span
+			id={signLineId}
+			class="{interpretationLineClass} whitespace-nowrap {signLine.open
+				? 'font-semibold text-zinc-700'
+				: 'text-zinc-500'}"
+			data-testid="amount-sign-line">{signLine.text}</span
+		>
+	{:else if interpretation && typeof interpretation === 'object'}
 		{@const text = interpretationConfirmed
 			? m.import_designate_date_reading({ raw: interpretation.raw, pretty: interpretation.pretty })
 			: m.import_designate_date_reading_unconfirmed({
@@ -472,7 +491,7 @@
 		aria-haspopup="listbox"
 		aria-expanded={expanded}
 		aria-label={accessibleName}
-		aria-describedby={memberChoice ? provenanceId : undefined}
+		aria-describedby={describedBy}
 		aria-disabled={busy ? 'true' : undefined}
 		class="flex w-full {heightClass} items-center gap-2.5 text-left focus-visible:ring-4 focus-visible:ring-zinc-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white focus-visible:outline-none {expanded
 			? 'bg-zinc-100 transition-none'

@@ -88,6 +88,7 @@ function unknownRowFacts(file: DesignationFile): DesignationRowFacts {
 		coverage: undefined,
 		dateStates: undefined,
 		dateReadings: undefined,
-		proposals: undefined
+		proposals: undefined,
+		amountSignStates: undefined
 	};
 }
