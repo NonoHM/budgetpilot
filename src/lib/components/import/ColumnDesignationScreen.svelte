@@ -688,6 +688,8 @@
 		// The live region says NOTHING. Only the focus return speaks, announcing the unchanged row.
 		// Announcing a count after a no-op close would imply a change that did not happen.
 		openRole = null;
+		// #1305 narrow pass N3: leaving the question by Back declines the follow-up, as Escape does.
+		if (pickerStep === 'sign') signAfterAccount = false;
 		// 7d: a session run twice must not remember the first run's body. A sheet reopened on step 2
 		// because the previous session ended there would put the question in front of a user who
 		// came back to change the column.
@@ -1108,10 +1110,15 @@
 			accountPanelOpen = true;
 		} else openSignStep();
 	} else askSign();
-	function signFollowsAccount() {
-		if (!signAfterAccount) return;
+	/** Whether the step opened: when it did not, the caller still owes the focus a place. */
+	function signFollowsAccount(): boolean {
+		if (!signAfterAccount) return false;
 		signAfterAccount = false;
+		// Narrow pass F1: only while Amount still asks the sign, or the step shows a question the file
+		// does not raise.
+		if (!signAsked) return false;
 		openSignStep();
+		return true;
 	}
 
 	/**
@@ -1294,8 +1301,7 @@
 		createPhase = 'idle';
 		createOpen = false;
 		accountPanelOpen = false;
-		if (signAfterAccount) signFollowsAccount();
-		else focusAccountRow();
+		if (!signFollowsAccount()) focusAccountRow();
 	}
 
 	/**

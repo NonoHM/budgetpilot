@@ -144,6 +144,29 @@ describe('the page the link lands on', () => {
 		).toBe(1);
 	});
 
+	/**
+	 * NARROW PASS F2. Separates « a long file name wraps inside the notice » from « it overflows the
+	 * card at 390 ». A name with no space cannot wrap at a word.
+	 */
+	it('keeps a long file name inside the notice at 390', async () => {
+		await page.viewport(390, 844);
+		const long = `Releve_compte_courant_${'2026-06-01_'.repeat(6)}export.csv`;
+		const data = correction('sign');
+		(data.correction as unknown as { fileName: string }).fileName = long;
+		await render(Page, { data, form: null });
+		const sentence = `Les relevés ne sont pas conservés après l’import. Choisissez de nouveau ${long}.`;
+		await expect.poll(() => shown(sentence)).toBe(1);
+		const element = page
+			.getByText(sentence, { exact: true })
+			.elements()
+			.find((candidate) => candidate.checkVisibility())!;
+		// Measured against the VIEWPORT: an unwrapped paragraph and its card both grow to the text, so
+		// neither box overflows itself (calibrated by a break that stops the wrap).
+		expect(element.getBoundingClientRect().right).toBeLessThanOrEqual(
+			document.documentElement.clientWidth
+		);
+	});
+
 	it('keeps the column correction notice for the recap link', async () => {
 		await page.viewport(390, 844);
 		await render(Page, { data: correction(null), form: null });

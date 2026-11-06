@@ -594,6 +594,52 @@ describe('arriving to change the answer', () => {
 		expect(await sentenceOf('amount-sign-line')).toBe('12,90 → +12,90 · argent entré');
 	});
 
+	/**
+	 * NARROW PASS F1. Separates « the step follows the account only while the sign is still asked »
+	 * from « it follows anyway », which showed a question the file does not raise once Amount moved
+	 * to a column that carries its own signs.
+	 */
+	it('does not open the step once Amount moved to a signed column', async () => {
+		const { container } = await mount({
+			remembered: REMEMBERED,
+			openOn: 'sign',
+			accounts: TWO,
+			initialAccountId: null
+		});
+		// The pass's path: another role takes the Amount column, so Amount empties and lists columns.
+		const labelRow = [...container.querySelectorAll('[data-testid="designation-card"] button')].find(
+			(b) => (b.getAttribute('aria-label') ?? '').startsWith('Libellé')
+		) as HTMLElement;
+		labelRow.click();
+		await page.getByRole('option', { name: /Montant/ }).click();
+		amountRow(container).click();
+		await page.getByRole('option', { name: /Debit/ }).click();
+		expect(heading().elements().length).toBe(0);
+		await page.getByRole('option', { name: /Compte courant/ }).click();
+		expect(heading().elements().length).toBe(0);
+	});
+
+	/**
+	 * NARROW PASS N3, decided: Back is a way out of the question, as Escape and the row toggle are.
+	 * Separates « Back declines the follow-up » from « the question comes back on the next account ».
+	 */
+	it('does not reopen the step after Back, on the next account choice', async () => {
+		const { container } = await mount({
+			remembered: REMEMBERED,
+			openOn: 'sign',
+			accounts: TWO,
+			initialAccountId: null
+		});
+		// No account yet, so the sign is unanswered and the Amount row opens the step itself.
+		amountRow(container).click();
+		await expect.element(heading()).toBeVisible();
+		await page.getByRole('button', { name: BACK }).click();
+		// The panel the arrival opened is still open: chosen from there, so the row toggle (which
+		// clears the follow-up on its own) is not what this measures.
+		await page.getByRole('option', { name: /Compte courant/ }).click();
+		expect(heading().elements().length).toBe(0);
+	});
+
 	/** Separates « the change is posted » from « the kept answer wins over the member's ». */
 	it('posts the answer the member changes to', async () => {
 		const onSubmit = vi.fn();
