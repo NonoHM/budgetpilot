@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { env } from '$env/dynamic/private';
 import { prisma } from '$lib/server/db';
 import * as m from '$lib/paraglide/messages';
@@ -26,6 +26,14 @@ import { actions as columnsActions } from './columns/+page.server';
  * What is asserted is the stored ROWS (their type), because a stored answer that imports every row
  * the wrong way is the defect this column can create.
  */
+
+const logged = vi.hoisted(() => [] as unknown[]);
+vi.mock('$lib/server/logging', async (importOriginal) => ({
+	...(await importOriginal<typeof import('$lib/server/logging')>()),
+	log: (event: unknown) => {
+		logged.push(event);
+	}
+}));
 
 if (!process.env.DATABASE_URL) {
 	throw new Error(
@@ -168,11 +176,16 @@ describe(`#1294 on ${process.env.DATABASE_PROVIDER ?? 'the configured engine'}`,
 	});
 
 	/**
-	 * OWNERSHIP. Separates « one member's answer is read only for that member » from « the format's
-	 * answer is global ». The fingerprint is derived from public column names, so every member using
-	 * this format shares it (AGENTS.md « Security boundaries »).
+	 * ANOTHER MEMBER, through the ACCOUNT. Separates « an answer bound to one member's account is never
+	 * applied to another member's statement » from « the format's answer is global ». The fingerprint
+	 * comes from public column names, so every member of a bank shares it.
+	 *
+	 * What this does NOT separate (final-code pass A, F1): the `userId` in `readColumnMapping`'s where
+	 * clause. With it removed, the owner's answer still names the owner's account, which no other
+	 * member's destination can equal, so this stays green. The scope itself is guarded by
+	 * `mapping/store.db-smoke.ts` (break K27 reddens it there).
 	 */
-	it('still asks another member who keeps the same format with no answer', async () => {
+	it('never applies one member answer to another member statement of the same format', async () => {
 		expect.assertions(3);
 		const owner = await seedUser('owner');
 		await designate(owner, JUNE, { amountSign: 'out' });
@@ -246,6 +259,32 @@ describe(`#1294, which account and which summary, on ${process.env.DATABASE_PROV
 	});
 
 	/**
+	 * THE ORDINARY MEMBER (contradiction pass B, finding 1). Separates « a member holding one account,
+	 * who posts no account, gets the kept answer » from « only a posted account reaches it »: with no
+	 * account posted the destination is decided by source (`by-source`), which no other test here
+	 * takes, so a break there left every test green while the feature did nothing.
+	 */
+	it('imports with no question for a member holding one account who posts none', async () => {
+		expect.assertions(2);
+		const who = await seedUser('one-account');
+		await designate(who, JUNE, { amountSign: 'out' });
+		const body = new FormData();
+		body.set('csvFile', JULY);
+		body.set('answersFor', await answerKeyFor(JULY));
+		const second = (await importActions.default!({
+			locals: { user: { id: who.userId } },
+			request: new Request('http://localhost/import', { method: 'POST', body }),
+			getClientAddress: () => `client-${who.userId}`
+		} as never)) as Outcome;
+		expect(second.status).toBeUndefined();
+		expect(
+			await prisma.transaction.count({
+				where: { userId: who.userId, accountId: who.accountId, type: 'expense' }
+			})
+		).toBe(4);
+	});
+
+	/**
 	 * THE DISCLOSURE (owner ruling 2). Separates « the summary says the kept answer decided the rows,
 	 * and names the correspondance to reopen » from « it imports in silence ».
 	 */
@@ -285,6 +324,27 @@ describe(`#1294, which account and which summary, on ${process.env.DATABASE_PROV
 		expect(summary?.mirrorStoredAs).toBe('in');
 	});
 
+	/**
+	 * PASS A R1. Separates « the line says amounts were saved only when rows were » from « it says so
+	 * over a re-import where every row was a duplicate and nothing was saved », which is false.
+	 */
+	it('says nothing when every row of the statement was already stored', async () => {
+		expect.assertions(3);
+		const who = await seedUser('all-duplicates');
+		await designate(who, JUNE, { amountSign: 'out' });
+		const once = await upload(who, JULY);
+		const again = await upload(
+			who,
+			statement(['24/07/2026;CB MONOPRIX;18,40', '21/07/2026;CB SNCF;61,00'], 'juillet-bis.csv')
+		);
+		// Positive control: the first upload of July said it.
+		expect(keptOf(once)).not.toBeNull();
+		expect(
+			(again as unknown as { importResult?: { importedRows: number } }).importResult?.importedRows
+		).toBe(0);
+		expect(keptOf(again)).toBeNull();
+	});
+
 	/** Separates « a file whose own signs decided says nothing » from « the line shows anyway ». */
 	it('says nothing on the summary of a statement that carries its own signs', async () => {
 		expect.assertions(2);
@@ -293,6 +353,44 @@ describe(`#1294, which account and which summary, on ${process.env.DATABASE_PROV
 		const signed = await upload(who, AUGUST_SIGNED);
 		expect(signed.status).toBeUndefined();
 		expect(keptOf(signed)).toBeNull();
+	});
+});
+
+/**
+ * EVERY WRITE DECIDES ITS LOG LINE (security review, low): replacing a kept answer changes how every
+ * later unsigned statement of that account is read, so it writes `sensitive_update`
+ * change_kept_amount_sign, scope column_mapping, as `overrule_remembered_account` does for the
+ * account memory. A first answer is no change (the import's own `import_file` line records it), and
+ * the same answer given again is none either. Wire names as literals.
+ */
+describe(`#1294, the kept answer's log line, on ${process.env.DATABASE_PROVIDER ?? 'the configured engine'}`, () => {
+	const updates = () =>
+		logged.filter((line) => (line as { event: string }).event === 'sensitive_update');
+
+	it('writes one line when the member changes the kept answer, and none otherwise', async () => {
+		expect.assertions(3);
+		const who = await seedUser('logged');
+		logged.length = 0;
+		await designate(who, JUNE, { amountSign: 'out' });
+		expect(updates()).toEqual([]);
+		await designate(who, statement(['21/09/2026;VIREMENT;100,00'], 'sept.csv'), {
+			amountSign: 'in'
+		});
+		expect(updates()).toEqual([
+			{
+				event: 'sensitive_update',
+				attributes: {
+					'budgetpilot.user.pseudonym': expect.any(String),
+					'budgetpilot.data.operation': 'change_kept_amount_sign',
+					'budgetpilot.data.scope': 'column_mapping'
+				}
+			}
+		]);
+		logged.length = 0;
+		await designate(who, statement(['22/09/2026;VIREMENT;80,00'], 'sept-bis.csv'), {
+			amountSign: 'in'
+		});
+		expect(updates()).toEqual([]);
 	});
 });
 

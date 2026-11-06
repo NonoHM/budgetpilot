@@ -1018,9 +1018,10 @@ export const actions: Actions = {
 				dateOrderDisclosure: result.summary.dateOrderDisclosure ?? null,
 				// #1294: only when THIS parse applied the kept answer. The auto path posts no answer of
 				// its own, so an applied answer here is the kept one, and `remembered` is the mapping
-				// that holds it (the correction link reopens it).
+				// that holds it (the correction link reopens it). Only when rows were saved: « Amounts
+				// saved as … » over a re-import whose every row was a duplicate is false (pass A R1).
 				keptAmountSign:
-					result.summary.amountSignApplied && useMapping
+					result.summary.amountSignApplied && useMapping && persisted.importedRows > 0
 						? { sign: result.summary.amountSignApplied, mappingId: remembered!.id }
 						: null
 			} satisfies ImportSummaryResult
