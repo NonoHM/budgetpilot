@@ -40,7 +40,7 @@
 	});
 </script>
 
-<div class="w-full bg-white text-zinc-900" data-testid="amount-sign-step">
+<div class="w-full text-zinc-900" data-testid="amount-sign-step">
 	<div class="mx-auto flex w-full max-w-[40rem] flex-col px-5 pt-2 pb-8">
 		<div class="flex">
 			<button
@@ -66,7 +66,9 @@
 			{m.import_designate_amount_sign_rows_label()}
 		</p>
 		<!-- Wrapped, never truncated (AISVS C9.2.2): a cut amount is the one fact being asked about. -->
-		<ul class="mt-1.5 flex flex-col divide-y divide-zinc-100 rounded-[14px] border border-zinc-200">
+		<ul
+			class="mt-1.5 flex flex-col divide-y divide-zinc-100 rounded-[14px] border border-zinc-200 bg-white"
+		>
 			{#each prompt.rows as row, index (index)}
 				<li
 					class="flex items-start justify-between gap-3 px-3.5 py-2.5 text-[14px] leading-5"
