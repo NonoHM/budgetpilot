@@ -225,3 +225,32 @@ describe('what does not move', () => {
 		expect(result.summary.totalCreditCents).toBe(5000);
 	});
 });
+
+/**
+ * #1294 (C2c-S2): WHETHER AN ANSWER DECIDED THE ROWS, said by the parse itself. The kept answer is
+ * stored from this field and the summary discloses it from this field, so it must be set exactly
+ * when the answer was applied, never from the fact that one was posted.
+ */
+describe('the parse reports the answer it applied', () => {
+	/** Separates « applied, and said so » from « applied in silence ». */
+	it('reports the answer on an unsigned file', () => {
+		expect.assertions(1);
+		expect(parseCsvTransactions(UNSIGNED, { amountSign: 'out' }).summary.amountSignApplied).toBe(
+			'out'
+		);
+	});
+
+	/** Separates « the file won, nothing to report » from « the posted answer is reported anyway ». */
+	it('reports nothing on a signed file whose signs overrule the answer', () => {
+		expect.assertions(1);
+		expect(
+			parseCsvTransactions(SIGNED, { amountSign: 'out' }).summary.amountSignApplied
+		).toBeUndefined();
+	});
+
+	/** Separates « no answer, nothing applied » from a default leaking into the field. */
+	it('reports nothing when no answer was given', () => {
+		expect.assertions(1);
+		expect(parseCsvTransactions(SIGNED).summary.amountSignApplied).toBeUndefined();
+	});
+});

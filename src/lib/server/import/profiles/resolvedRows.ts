@@ -333,7 +333,8 @@ export function parseResolvedRows({
 			declaredCurrencies,
 			...(sign.kind === 'ambiguous' && !answeredSign
 				? { amountSignQuestion: { column: amountIndex, sample: sign.sample } }
-				: {})
+				: {}),
+			...(answeredSign ? { amountSignApplied: answeredSign } : {})
 		}
 	};
 }

@@ -333,7 +333,7 @@ describe('the designation action and a file with no header row', () => {
 			labelLayer: 'member',
 			amountLayer: 'rule',
 			categoryLayer: null,
-			layersKey: layersKeyOf(columns)
+			layersKey: layersKeyOf({ ...columns, amountSign: null, amountSignAccountId: null })
 		});
 		const csv = `date,label,amount,note\n${HEADERLESS.split('\n')
 			.map((line) => `${line},x`)
@@ -375,7 +375,7 @@ describe('the designation action and a file with no header row', () => {
 			labelLayer: 'member',
 			amountLayer: 'rule',
 			categoryLayer: null,
-			layersKey: layersKeyOf(columns)
+			layersKey: layersKeyOf({ ...columns, amountSign: null, amountSignAccountId: null })
 		});
 
 		await submit(WITH_HEADER, true);
@@ -452,7 +452,7 @@ describe('a corrected import replaces the batch it was launched from', () => {
 			labelLayer: 'member',
 			amountLayer: 'rule',
 			categoryLayer: null,
-			layersKey: layersKeyOf(columns)
+			layersKey: layersKeyOf({ ...columns, amountSign: null, amountSignAccountId: null })
 		});
 
 		await submit(WITH_HEADER, true, { rememberedMappingId: 'mapping-kept' });
@@ -485,7 +485,7 @@ describe('a corrected import replaces the batch it was launched from', () => {
 			labelLayer: 'member',
 			amountLayer: 'rule',
 			categoryLayer: null,
-			layersKey: layersKeyOf(columns)
+			layersKey: layersKeyOf({ ...columns, amountSign: null, amountSignAccountId: null })
 		});
 
 		await submit(WITH_HEADER, true, { rememberedMappingId: 'mapping-other' });

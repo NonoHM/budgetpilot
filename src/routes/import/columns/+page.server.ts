@@ -510,7 +510,13 @@ export const actions: Actions = {
 					// correction names it. The posted id is COMPARED with the row read under the
 					// member, never used to read one, so a forged value can only lose a label.
 					remembered !== null && asString(formData.get('rememberedMappingId')) === remembered.id
-				)
+				),
+				// #1294: the answer the PARSE applied (never the posted field: a file whose own signs
+				// decided it applied none), kept for the account the rows land in, resolved above under
+				// the member. Null otherwise, so the next unsigned statement of the format asks again.
+				result.summary.amountSignApplied
+					? { sign: result.summary.amountSignApplied, accountId: bucket.accountId }
+					: null
 			);
 			// A refusal to REMEMBER never refuses the IMPORT: the user asked to import a file, and
 			// the memorisation is a convenience attached to it. The cap is reported and the rows land.
@@ -699,7 +705,9 @@ export const actions: Actions = {
 				// summary is drawn from this and from nothing else, so a user who opted out is not
 				// told their columns will be reused.
 				rememberedMapping: columnMappingId !== null,
-				dateOrderDisclosure: result.summary.dateOrderDisclosure ?? null
+				dateOrderDisclosure: result.summary.dateOrderDisclosure ?? null,
+				// #1294: this door applies the answer the member gave ON this screen, never a kept one.
+				keptAmountSign: null
 			} satisfies ImportSummaryResult,
 			capReached,
 			replaced

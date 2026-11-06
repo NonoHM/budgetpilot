@@ -169,7 +169,8 @@ describe('buildCollisionRepost', () => {
 		const remembered = {
 			mappingId: 'mapping-1',
 			assignment: ASSIGNMENT,
-			layers: { date: 'rule', label: 'member' }
+			layers: { date: 'rule', label: 'member' },
+			amountSign: null
 		} as const;
 		expect(buildCollisionRepost({ ...PENDING, remembered }, ANSWER).remembered).toEqual(remembered);
 		expect(buildCollisionRepost(PENDING, ANSWER).remembered).toBeNull();

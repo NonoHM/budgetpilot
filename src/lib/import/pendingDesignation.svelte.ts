@@ -1,3 +1,4 @@
+import type { AmountSign } from '$lib/domain/amountSign';
 import type { DesignationFile, RoleAssignment } from '$lib/domain/columnDesignation';
 // TYPE ONLY. See `domain/columnDesignation.ts`: a type import from `$lib/server` is erased before
 // the bundler sees it, and this module is imported by the browser.
@@ -50,6 +51,12 @@ export interface PendingDesignation {
 		mappingId: string;
 		assignment: RoleAssignment;
 		layers: Partial<Record<MappingRole, DesignationLayer | null>>;
+		/**
+		 * #1294: the kept sign answer and the account it was given for, through `storedAmountSign`.
+		 * Required so every writer of this payload is named. DRAWN only: the screen shows it answered,
+		 * and what is posted is the member's answer on that screen, which the server re-parses.
+		 */
+		amountSign: { sign: AmountSign; accountId: string } | null;
 	} | null;
 	/**
 	 * A READING ALREADY ANSWERED, or null when the question has not been put to anybody.

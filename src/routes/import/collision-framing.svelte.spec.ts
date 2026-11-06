@@ -99,7 +99,8 @@ function carry(correction: { batchId: string; deleteOldImport: boolean } | null)
 			remembered: {
 				mappingId: 'mapping-1',
 				assignment: ASSIGNMENT,
-				layers: { date: 'rule', label: 'member' }
+				layers: { date: 'rule', label: 'member' },
+				amountSign: null
 			},
 			correction: correction
 				? {

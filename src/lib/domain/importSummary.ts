@@ -142,4 +142,11 @@ export interface ImportSummaryResult {
 	 * one left implicitly undefined.
 	 */
 	dateOrderDisclosure: DateOrderDisclosure | null;
+	/**
+	 * #1294: the member's kept sign answer DECIDED every row of this import, and the correspondance
+	 * that holds it, for the link that reopens it. Null unless the parse applied the kept answer: the
+	 * designation door always sets null (the member answered on screen, or the file's signs decided).
+	 * Required rather than optional, so a summary builder cannot forget it.
+	 */
+	keptAmountSign: { sign: AmountSign; mappingId: string } | null;
 }

@@ -1,4 +1,5 @@
 import { DESIGNATION_LAYERS } from '$lib/domain/designationLayer';
+import { AMOUNT_SIGNS } from '$lib/domain/amountSign';
 import { isValidCurrencyCode } from '$lib/domain/money';
 import { z } from 'zod';
 import { isStorableYear, TRANSACTION_NATURES } from '$lib/domain/transaction';
@@ -422,9 +423,21 @@ const backupColumnMappingSchema = z
 		dateLayer: z.enum(DESIGNATION_LAYERS).nullable().optional(),
 		labelLayer: z.enum(DESIGNATION_LAYERS).nullable().optional(),
 		amountLayer: z.enum(DESIGNATION_LAYERS).nullable().optional(),
-		categoryLayer: z.enum(DESIGNATION_LAYERS).nullable().optional()
+		categoryLayer: z.enum(DESIGNATION_LAYERS).nullable().optional(),
+		// #1294, the kept sign answer and the account it was given for (this file's own account id,
+		// remapped by the restore). Optional, so a backup written before it still restores; the closed
+		// pair is the allow list (ASVS v5.0.0-2.2.1), and the two come together or not at all.
+		amountSign: z.enum(AMOUNT_SIGNS).nullable().optional(),
+		amountSignAccountId: z.string().min(1).max(200).nullable().optional()
 	})
-	.strict();
+	.strict()
+	.refine(
+		(mapping) =>
+			((mapping.amountSign ?? null) === null) === ((mapping.amountSignAccountId ?? null) === null),
+		{
+			message: 'amountSign and amountSignAccountId come together'
+		}
+	);
 
 /**
  * The RETIRED import memory: "a file with THIS header shape belongs in THAT account".

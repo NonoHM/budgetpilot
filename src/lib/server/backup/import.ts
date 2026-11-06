@@ -1,4 +1,4 @@
-import { layersKeyOf, producibleLayers } from '$lib/server/import/mapping/layers';
+import { amountSignFields, layersKeyOf, producibleLayers } from '$lib/server/import/mapping/layers';
 import { DEFAULT_CURRENCY, DEFAULT_EXPONENT } from '$lib/domain/money';
 import * as m from '$lib/paraglide/messages';
 import { prisma } from '$lib/server/db';
@@ -367,6 +367,19 @@ export async function restoreBackup(
 		}
 
 		for (const mapping of payload.columnMappings) {
+			// #1294: the kept sign answer names an account of the BACKUP; it is kept only when this
+			// restore created that account (the map holds nothing else), under its new id. A reference
+			// that maps to nothing drops the answer, never the mapping: it is a convenience, and an
+			// unknown one is never trusted. The key is computed over exactly what is written (pass F1).
+			const keptAccountId =
+				mapping.amountSign && mapping.amountSignAccountId
+					? accountIdMap.get(mapping.amountSignAccountId)
+					: undefined;
+			const sign = amountSignFields(
+				mapping.amountSign && keptAccountId
+					? { sign: mapping.amountSign, accountId: keptAccountId }
+					: null
+			);
 			await tx.columnMapping.create({
 				data: {
 					userId,
@@ -385,7 +398,8 @@ export async function restoreBackup(
 					// A backup is an uploaded file: its layers are a claim (#1207). Only one the save
 					// path could produce is kept, and the key is this server's own.
 					...producibleLayers(mapping, mapping),
-					layersKey: layersKeyOf(mapping)
+					...sign,
+					layersKey: layersKeyOf({ ...mapping, ...sign })
 				}
 			});
 		}

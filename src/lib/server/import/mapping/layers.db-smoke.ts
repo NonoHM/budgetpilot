@@ -76,7 +76,7 @@ describe('the layers a save writes', () => {
 	// Separates « the save wrote the layers it was given, with their key » from « nothing written ».
 	it('stores each layer and reads it back through the one reader', async () => {
 		const userId = await member();
-		const saved = await saveColumnMapping(userId, fingerprintFor(HEADERS, 'name'), MAPPING, LAYERS);
+		const saved = await saveColumnMapping(userId, fingerprintFor(HEADERS, 'name'), MAPPING, LAYERS, null);
 		expect(saved.ok).toBe(true);
 		expect(storedLayers(await onlyMapping(userId))).toEqual(LAYERS);
 	});
@@ -84,7 +84,7 @@ describe('the layers a save writes', () => {
 	// Separates a layer still describing its column from one a pre-1.4 writer left behind (F4).
 	it('reads every layer unknown once a writer that ignores them moves a role column', async () => {
 		const userId = await member();
-		await saveColumnMapping(userId, fingerprintFor(HEADERS, 'name'), MAPPING, LAYERS);
+		await saveColumnMapping(userId, fingerprintFor(HEADERS, 'name'), MAPPING, LAYERS, null);
 		const row = await onlyMapping(userId);
 		await prisma.columnMapping.update({
 			where: { id: row.id },
@@ -98,7 +98,7 @@ describe('the layers a backup carries', () => {
 	// Separates a faithful round trip from one that drops the layers.
 	it('brings each layer back after an export and a restore', async () => {
 		const userId = await member();
-		await saveColumnMapping(userId, fingerprintFor(HEADERS, 'name'), MAPPING, LAYERS);
+		await saveColumnMapping(userId, fingerprintFor(HEADERS, 'name'), MAPPING, LAYERS, null);
 		const file = JSON.parse(JSON.stringify(await buildBackupExport(userId)));
 		await restoreBackup(userId, backupExportSchema.parse(file));
 		expect(storedLayers(await onlyMapping(userId))).toEqual(LAYERS);
@@ -108,7 +108,7 @@ describe('the layers a backup carries', () => {
 	// a layer a pre-1.4 writer left behind goes out unknown, never as a fact (break D2).
 	it('exports a layer whose key no longer matches as unknown', async () => {
 		const userId = await member();
-		await saveColumnMapping(userId, fingerprintFor(HEADERS, 'name'), MAPPING, LAYERS);
+		await saveColumnMapping(userId, fingerprintFor(HEADERS, 'name'), MAPPING, LAYERS, null);
 		const row = await onlyMapping(userId);
 		await prisma.columnMapping.update({
 			where: { id: row.id },
@@ -123,7 +123,7 @@ describe('the layers a backup carries', () => {
 	// `file` and `model` on a saved role, and `rule` on the category, cannot come from a save.
 	it('restores a layer no save could have produced as unknown', async () => {
 		const userId = await member();
-		await saveColumnMapping(userId, fingerprintFor(HEADERS, 'name'), MAPPING, LAYERS);
+		await saveColumnMapping(userId, fingerprintFor(HEADERS, 'name'), MAPPING, LAYERS, null);
 		const file = JSON.parse(JSON.stringify(await buildBackupExport(userId)));
 		Object.assign(file.columnMappings[0], {
 			dateLayer: 'file',
@@ -146,7 +146,7 @@ describe('the recap reads the layers of the correspondance its batch was read th
 		const { load } = await import('../../../../routes/imports/[batchId]/columns/+page.server');
 		const userId = await member();
 		const other = await member();
-		await saveColumnMapping(userId, fingerprintFor(HEADERS, 'name'), MAPPING, LAYERS);
+		await saveColumnMapping(userId, fingerprintFor(HEADERS, 'name'), MAPPING, LAYERS, null);
 		const mapping = await onlyMapping(userId);
 		const batch = await prisma.importBatch.create({
 			data: { userId, rowCount: 0, fileName: 'releve.csv', columnMappingId: mapping.id },

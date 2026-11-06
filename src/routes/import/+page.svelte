@@ -52,6 +52,7 @@
 		type RoleAssignment
 	} from '$lib/domain/columnDesignation';
 	import type { DesignationLayer } from '$lib/domain/designationLayer';
+	import type { AmountSign } from '$lib/domain/amountSign';
 	import type { MappingRole } from '$lib/domain/mappingRoles';
 	import {
 		clearPendingDesignation,
@@ -242,6 +243,23 @@
 	 * per chrome, and a notice added to one and not the other is invisible to any test that does not
 	 * choose between them (`cap-reached.svelte.spec.ts`'s own docstring names this).
 	 */
+	/**
+	 * #1294: the kept sign answer decided every row of THIS import, said beside the line that names
+	 * where the rows went, its peer, in that line's own size in each chrome. Drawn only from
+	 * `keptAmountSign`, which the server sets only when the parse applied the kept answer. The link
+	 * reopens the correspondance through the correction route the recap uses, where the member can
+	 * answer again and replace this import.
+	 */
+	const keptSignLine = $derived.by(() => {
+		const kept = importResult?.keptAmountSign;
+		if (!kept) return null;
+		return {
+			text:
+				kept.sign === 'out' ? m.import_summary_kept_sign_out() : m.import_summary_kept_sign_in(),
+			href: `/import?correct=${encodeURIComponent(kept.mappingId)}&batch=${encodeURIComponent(importResult!.batchId)}`
+		};
+	});
+
 	const dateOrderDisclosureLine = $derived.by(() => {
 		const disclosure = importResult?.dateOrderDisclosure;
 		if (!disclosure) return null;
@@ -1065,6 +1083,13 @@
 			? (form.correctingMappingId as string | undefined)
 			: undefined
 	);
+	/** #1294: the kept sign answer of the correspondance being corrected, through its one reader. */
+	const correctingAmountSign = $derived(
+		form && 'correctingAmountSign' in form
+			? (form.correctingAmountSign as { sign: AmountSign; accountId: string } | null | undefined)
+			: undefined
+	);
+
 	/** #1207: the layers stored with the correspondance being corrected, beside its assignment. */
 	const correctingLayers = $derived(
 		form && 'correctingLayers' in form
@@ -1135,7 +1160,8 @@
 					? {
 							mappingId: correctingMappingId,
 							assignment: correctingAssignment,
-							layers: correctingLayers ?? {}
+							layers: correctingLayers ?? {},
+							amountSign: correctingAmountSign ?? null
 						}
 					: null,
 			// NOBODY HAS BEEN ASKED YET, and null says exactly that rather than `day-first`. The two
@@ -1501,6 +1527,13 @@
 		}
 	}
 </script>
+
+{#snippet keptSign(lineClass: string)}
+	{#if keptSignLine}
+		<p class={lineClass} data-testid="kept-sign-line">{keptSignLine.text}</p>
+		<TapLink href={keptSignLine.href}>{m.import_summary_kept_sign_change()}</TapLink>
+	{/if}
+{/snippet}
 
 <svelte:head>
 	<title>{m.import_page_title()}</title>
@@ -1947,6 +1980,7 @@
 								})}
 							</p>
 						{/if}
+						{@render keptSign('mt-1 text-sm text-zinc-500')}
 						<!--
 							WHAT THE IMPORT MEMORISED, said on the surface that reports what the import did.
 
@@ -2410,6 +2444,7 @@
 								})}
 							</p>
 						{/if}
+						{@render keptSign('mt-1 text-xs text-zinc-500')}
 						<!-- The mobile chrome's copy. See the desktop block above for why it is drawn twice. -->
 						{#if importResult.rememberedMapping}
 							<p class="mt-1 text-sm text-zinc-500">{m.import_columns_remember_sentence()}</p>
