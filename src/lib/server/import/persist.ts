@@ -703,6 +703,13 @@ export interface PersistImportedTransactionsInput {
 	transactions: ImportedTransaction[];
 	/** Duplicates already detected upstream (e.g. at CSV parse time) — folded into the batch's final duplicateRows. */
 	parseDuplicateRows?: number;
+	/**
+	 * The batch this import replaces under the member's consent (a correction, « Revoir les
+	 * colonnes »). Its rows are not mirrors (#1207 C2c-S1, final-code pass F1): the replace deletes
+	 * them after this write, so a row skipped against one of them would end up stored zero times.
+	 * The collision guard excludes the same batch for the same reason (`excludeBatchId`).
+	 */
+	replacesBatchId?: string;
 }
 
 export interface PersistImportedTransactionsResult {
@@ -777,7 +784,7 @@ export async function persistImportedTransactions(
 	try {
 		for (const [index, transaction] of input.transactions.entries()) {
 			const mirrorKey = transaction.directionAnswered ? mirrorKeys?.[index] : null;
-			if (mirrorKey && (await storedKeyExists(input.userId, mirrorKey))) {
+			if (mirrorKey && (await storedKeyExists(input.userId, mirrorKey, input.replacesBatchId))) {
 				// Counted with the duplicates too, so `/imports` keeps one consistent figure for rows
 				// already present; `mirrorRows` is what the summary sentence names.
 				mirrorRows += 1;
@@ -967,10 +974,23 @@ async function recordBatchCounts(
 	return importedRows;
 }
 
-/** Whether the user already holds a row under this key. Matched on the hash, as `persistTransaction`. */
-async function storedKeyExists(userId: string, dedupeKey: string): Promise<boolean> {
+/**
+ * Whether the user already holds a row under this key, outside the batch being replaced. Matched on
+ * the hash, as `persistTransaction`. The exclusion keeps rows with no batch: SQL's `<>` drops NULL.
+ */
+async function storedKeyExists(
+	userId: string,
+	dedupeKey: string,
+	excludeBatchId?: string
+): Promise<boolean> {
 	const existing = await prisma.transaction.findFirst({
-		where: { userId, dedupeKeyHash: computeDedupeKeyHash(dedupeKey) },
+		where: {
+			userId,
+			dedupeKeyHash: computeDedupeKeyHash(dedupeKey),
+			...(excludeBatchId
+				? { OR: [{ importBatchId: null }, { importBatchId: { not: excludeBatchId } }] }
+				: {})
+		},
 		select: { id: true }
 	});
 	return existing !== null;

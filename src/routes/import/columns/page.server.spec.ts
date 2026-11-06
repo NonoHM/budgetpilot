@@ -520,6 +520,20 @@ describe('a corrected import replaces the batch it was launched from', () => {
 	});
 
 	/**
+	 * #1207 C2c-S1, final-code pass F1. The write is told which batch the consented replace will
+	 * delete, so persist does not skip a new row as the mirror of a row about to be deleted.
+	 * Separates « handed to the write » from « resolved and dropped », under which a correction of
+	 * an unsigned statement lands nothing and then deletes the old rows: stored zero times.
+	 */
+	it('tells the write which batch the replace will delete', async () => {
+		expect.assertions(1);
+		await submit(WITH_HEADER, true, { replaceBatchId: 'batch-old' });
+		expect(persist.persistImportedTransactions).toHaveBeenCalledWith(
+			expect.objectContaining({ replacesBatchId: 'batch-old' })
+		);
+	});
+
+	/**
 	 * D3 (#662): the write itself failed, after two rows landed. Before, the throw left this action
 	 * uncaught, so the delete below it never ran either, but the user met a bare 500 and the error
 	 * page replaced the screen holding their designations. Now it is a sentence, and the ordering

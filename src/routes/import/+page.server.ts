@@ -647,6 +647,25 @@ export const actions: Actions = {
 							lineOne,
 							detectedRowFacts()
 						);
+			/**
+			 * #1207 C2c-S1: a remembered mapping refused ONLY for want of a sign answer fit this file, so
+			 * the member is not made to designate every column again for one question (walk finding:
+			 * 0 of 3 designated on the second statement in a format). Any other refusal under a
+			 * remembered mapping keeps the empty offer: #352, no seeding over a mapping that failed.
+			 */
+			const signOnly =
+				result.invalidRows.length === 1 &&
+				result.invalidRows[0].fact.code === 'ambiguous-amount-sign';
+			const offeredFacts =
+				designationFacts && remembered && signOnly && designationFacts.proposals
+					? {
+							...designationFacts,
+							proposals: {
+								...designationFacts.proposals,
+								designated: designationAssignment(remembered, headerCells)
+							}
+						}
+					: designationFacts;
 			const splitRefusal: ImportInvalidRowDetail[] = splitFact
 				? [
 						{
@@ -671,7 +690,9 @@ export const actions: Actions = {
 							? m.import_error_ambiguous_account_column()
 							: offer.rung === 'dateOrder'
 								? m.import_error_ambiguous_date_order()
-								: m.import_error_no_valid_transactions(),
+								: signOnly
+									? refusalLabel(result.invalidRows[0].fact)
+									: m.import_error_no_valid_transactions(),
 				// The file nothing recognised, offered to the designation screen rather than left as
 				// a refusal, when `designationCanHelp` says naming columns can change the outcome
 				// (the same function the correction door reads). Only on the `generic` rung. Every
@@ -680,14 +701,14 @@ export const actions: Actions = {
 				// redesignate), `multiAccount`/`accountColumn` one level over (naming columns cannot
 				// answer "does this file cover more than one account" either) — and `resolveImportOffer`'s
 				// order is what guarantees at most one of them is ever true.
-				designation: designationFacts
+				designation: offeredFacts
 					? {
 							account: await accountOfferPayload(
 								user.id,
 								importData.rows,
 								// The answer the facts below are read under, so the prefill reads the lines the
 								// screen shows (#1248).
-								designationFacts.detectedHeaderRow,
+								offeredFacts.detectedHeaderRow,
 								// The profile IS known on this branch, unlike the correction branch above, which
 								// decides before anything is parsed. It is what lets the create sheet open on
 								// « Banque Populaire ···4417 » rather than on the fragment alone.
@@ -695,7 +716,7 @@ export const actions: Actions = {
 							),
 							name: importFile.name,
 							headers: headerCells,
-							...designationFacts
+							...offeredFacts
 						}
 					: undefined,
 				// Plate 7l: opens `ColumnPicker` at `step: 'reading'` alone, no column list, no back

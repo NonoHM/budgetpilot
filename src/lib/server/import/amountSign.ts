@@ -16,9 +16,11 @@ export type { AmountSign } from '$lib/domain/amountSign';
  *
  * No `contradictory`: a column cannot prove both directions at once.
  *
- * RANGES OVER EVERY DATA CELL OF THE COLUMN, refused rows included (contradiction pass F3). A
- * verdict over accepted rows asked about a signed file whose only negative row was refused for its
- * date, while the screen, reading the column, opened no question. One function, both callers.
+ * RANGES OVER WHAT THE CALLER HANDS IT, and the two callers hand different sets on purpose. The
+ * parser (`resolvedRows.ts`) passes the rows that carry a dated amount, so a negative footer cannot
+ * make an unsigned file look signed; the screen (`designationFacts.ts`) passes the whole column. The
+ * parser's set is a subset, so the only disagreement is the parser asking where the screen read
+ * `signed`, and `/import/columns` reopens the step from that refusal (`askAmountSign`).
  */
 export type AmountSignVerdict = FileVerdict<object, never, { sample: string }>;
 

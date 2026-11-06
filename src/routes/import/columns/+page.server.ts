@@ -536,7 +536,9 @@ export const actions: Actions = {
 				dateOrder: result.summary.dateOrder ?? null
 			},
 			transactions: result.transactions,
-			parseDuplicateRows: result.summary.duplicateRows
+			parseDuplicateRows: result.summary.duplicateRows,
+			// Posted only under the member's consent to replace; see `replacesBatchId` on persist.
+			...(replacing ? { replacesBatchId: replacing.id } : {})
 		});
 		// #662, as on `/import`: a failed write is a sentence that says what landed. RETURNED BEFORE
 		// the replace below, so a correction whose write failed never deletes the import it was meant

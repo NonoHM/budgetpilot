@@ -59,7 +59,8 @@ async function freshUser(tag: string) {
 async function importOnce(
 	who: { userId: string; accountId: string },
 	text: string,
-	amountSign?: 'out' | 'in'
+	amountSign?: 'out' | 'in',
+	replacesBatchId?: string
 ) {
 	const result = parseCsvTransactionRows(await rowsOf(text), {
 		maxBytes: 256_000,
@@ -83,9 +84,11 @@ async function importOnce(
 		importBatchId: batchId,
 		source: 'csv',
 		transactions: result.transactions,
-		parseDuplicateRows: result.summary.duplicateRows
+		parseDuplicateRows: result.summary.duplicateRows,
+		...(replacesBatchId ? { replacesBatchId } : {})
 	});
 	return {
+		batchId,
 		parsed: result.transactions.length,
 		imported: written.importedRows,
 		mirrored: written.mirrorRows
@@ -109,6 +112,24 @@ describe('a re-imported unsigned statement answered « Money out »', () => {
 		expect(second.imported).toBe(0);
 		expect(second.mirrored).toBe(3);
 		expect(await storedOf(who.userId)).toEqual({ rows: 3, income: 3 });
+	});
+});
+
+describe('a correction that replaces the batch it mirrors (final-code pass F1)', () => {
+	/**
+	 * Separates « the batch being replaced is not a mirror » from « its rows skip the new ones »,
+	 * after which the consented delete of the old batch leaves those rows stored ZERO times. The
+	 * collision guard excludes that batch for the same reason (`excludeBatchId`).
+	 */
+	it('writes the answered rows when the stored mirrors belong to the batch being replaced', async () => {
+		expect.assertions(2);
+		const who = await freshUser('correction');
+
+		const first = await importOnce(who, UNSIGNED, 'in');
+		const second = await importOnce(who, UNSIGNED, 'out', first.batchId);
+
+		expect(second.imported).toBe(3);
+		expect(second.mirrored).toBe(0);
 	});
 });
 

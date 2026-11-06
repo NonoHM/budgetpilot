@@ -2381,6 +2381,51 @@ describe('/import actions', () => {
 			expect(result.data.designation).toBeDefined();
 			expect(db.state.transactions).toHaveLength(0);
 		});
+
+		/**
+		 * THE SECOND STATEMENT IN A REMEMBERED FORMAT (walk finding, 2026-11-06). The mapping fit the
+		 * file and only the sign is open, so the offer arrives with the remembered columns
+		 * designated. Separates that from « every column to designate again », which the walk met on
+		 * the build: 0 of 3 designated on the member's second visit. And the sentence names the
+		 * question rather than « no valid transactions » (final-code pass, below the bar).
+		 */
+		it('offers the remembered columns, designated, and names the sign question', async () => {
+			const headers = ['Jour', 'Detail', 'Somme'];
+			db.state.columnMappings.push({
+				id: 'mapping-sign',
+				userId: testUser.id,
+				fingerprint: fingerprintFor(headers, 'name'),
+				matchBy: 'name' as const,
+				dateColumn: 'jour',
+				labelColumn: 'detail',
+				amountColumn: 'somme',
+				categoryColumn: null,
+				dateIndex: null,
+				labelIndex: null,
+				amountIndex: null,
+				categoryIndex: null,
+				columnCount: 3,
+				useCount: 1,
+				lastUsedAt: null as Date | null
+			} as (typeof db.state.columnMappings)[number]);
+
+			const result = (await runImportWithFile(
+				`${headers.join(';')}\n24/06/2026;CB CARREFOUR;24,90\n22/06/2026;CB ORANGE;39,99`
+			)) as unknown as {
+				data: {
+					error: string;
+					designation?: { proposals?: { designated: Record<string, number | null> } };
+				};
+			};
+
+			expect(result.data.designation?.proposals?.designated).toMatchObject({
+				date: 0,
+				label: 1,
+				amount: 2
+			});
+			expect(result.data.error).toBe(m.import_refusal_ambiguous_amount_sign({ sample: '24,90' }));
+			expect(db.state.transactions).toHaveLength(0);
+		});
 	});
 
 	describe('the reading offer, #433s auto-path remainder (plate 7l)', () => {
