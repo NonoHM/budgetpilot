@@ -422,8 +422,11 @@
 		}
 		submittedFile = csvFiles?.[0];
 		uploading = true;
-		return async ({ update }) => {
+		return async ({ update, result }) => {
 			try {
+				// `update()` resets the submitted form on success, which empties its file input and fires
+				// no `change`: without this the bound list kept naming a file no input held (#1294 walk).
+				if (result.type === 'success') csvFiles = new DataTransfer().files;
 				await update();
 			} finally {
 				uploading = false;
