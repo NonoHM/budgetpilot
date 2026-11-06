@@ -41,7 +41,7 @@ const BASE: ImportSummaryResult = {
 const DATA: PageData = { user: null, correction: null };
 const OUT = 'Montants enregistrés comme argent sorti, votre réponse précédente pour ce compte.';
 const IN = 'Montants enregistrés comme argent entré, votre réponse précédente pour ce compte.';
-const LINK = 'Changer la réponse';
+const LINK = 'Changer la lecture des montants';
 
 beforeEach(() => {
 	takeCompletedImport();
@@ -72,7 +72,7 @@ describe('a kept sign answer is disclosed on the summary', () => {
 		await expect.element(lines().first()).toHaveTextContent(OUT);
 		await expect.element(links().first()).toBeVisible();
 		expect(links().first().element().getAttribute('href')).toBe(
-			'/import?correct=mapping-3&batch=batch-7'
+			'/import?correct=mapping-3&batch=batch-7&step=sign'
 		);
 	});
 
@@ -105,5 +105,49 @@ describe('a kept sign answer is disclosed on the summary', () => {
 		await expect.element(page.getByText('Fichier importé : releve.csv').first()).toBeVisible();
 		expect(lines().elements()).toHaveLength(0);
 		expect(links().elements()).toHaveLength(0);
+	});
+});
+
+/**
+ * #1305: the page the link lands on says what the member came for, in the link's own words, and why
+ * the file is asked again. Separates « the purpose is named on arrival » from the generic correction
+ * notice, which a member read as the link having failed.
+ */
+describe('the page the link lands on', () => {
+	const correction = (step: 'sign' | null) =>
+		({
+			user: null,
+			correction: {
+				mappingId: 'mapping-3',
+				batchId: 'batch-7',
+				replacedAt: '2026-06-24T08:00:00.000Z',
+				replacedRows: 2,
+				hasUserWork: false,
+				step
+			}
+		}) as unknown as PageData;
+	/** Copies a member can see: the page draws each chrome, and one is hidden at each width. */
+	const shown = (text: string) =>
+		page
+			.getByText(text, { exact: true })
+			.elements()
+			.filter((element) => element.checkVisibility()).length;
+
+	it('names the change and why the statement is asked again', async () => {
+		await page.viewport(390, 844);
+		await render(Page, { data: correction('sign'), form: null });
+		await expect.poll(() => shown(LINK)).toBe(1);
+		expect(
+			shown('Les relevés ne sont pas conservés après l’import : choisissez de nouveau celui-ci.')
+		).toBe(1);
+	});
+
+	it('keeps the column correction notice for the recap link', async () => {
+		await page.viewport(390, 844);
+		await render(Page, { data: correction(null), form: null });
+		await expect
+			.poll(() => shown('Les désignations mémorisées s’ouvrent pour être corrigées.'))
+			.toBe(1);
+		expect(page.getByText(LINK, { exact: true }).elements().length).toBe(0);
 	});
 });

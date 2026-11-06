@@ -3,7 +3,10 @@ import { render } from 'vitest-browser-svelte';
 import { page } from 'vitest/browser';
 import '../../layout.css';
 import * as m from '$lib/paraglide/messages';
-import { setPendingDesignation } from '$lib/import/pendingDesignation.svelte';
+import {
+	setPendingDesignation,
+	takePendingDesignation
+} from '$lib/import/pendingDesignation.svelte';
 import { clearPendingCollision } from '$lib/import/pendingCollision.svelte';
 import type { DesignationFile, RoleAssignment } from '$lib/domain/columnDesignation';
 
@@ -99,6 +102,7 @@ beforeEach(async () => {
 		initialAssignment: COMPLETE,
 		dateOrder: null,
 		currencyDeclined: false,
+		openOn: null,
 		account: {
 			options: [
 				{
@@ -194,5 +198,32 @@ describe('how long the designation screen stays occupied', () => {
 		await expect.element(page.getByText(m.import_columns_error_unexpected())).toBeVisible();
 		expect(primary().hasAttribute('aria-busy')).toBe(false);
 		expect(cancel().hasAttribute('aria-disabled')).toBe(false);
+	});
+});
+
+/**
+ * #1305 (note pass P6a): the sign step opens on arrival from « Change how amounts are read » only.
+ * Separates « the revisit after rows were refused reopens the columns » from « it reopens the sign
+ * step again », which `openOn` riding the spread of the pending designation would do.
+ */
+describe('the revisit after refused rows', () => {
+	it('does not reopen the sign step', async () => {
+		const pending = takePendingDesignation()!;
+		setPendingDesignation({ ...pending, openOn: 'sign' });
+		answer = async () =>
+			new Response(
+				JSON.stringify({
+					type: 'success',
+					status: 200,
+					data: {
+						importResult: { invalidRows: 1, totalRows: 2, importedRows: 1 },
+						capReached: false
+					}
+				}),
+				{ status: 200 }
+			);
+		await pressImport();
+		await expect.poll(() => navigation.goto.mock.calls.length).toBe(1);
+		expect(takePendingDesignation()?.openOn).toBeNull();
 	});
 });

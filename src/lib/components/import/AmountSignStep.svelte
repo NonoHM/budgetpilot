@@ -18,6 +18,7 @@
 	 */
 	let {
 		prompt,
+		current = null,
 		onChoose,
 		onBack
 	}: {
@@ -27,6 +28,8 @@
 			outFirst: string;
 			inFirst: string;
 		};
+		/** #1305: the answer in force, pressed on arrival (GOV.UK: a previous answer is pre-populated). */
+		current?: AmountSign | null;
 		onChoose: (sign: AmountSign) => void;
 		onBack: () => void;
 	} = $props();
@@ -87,7 +90,11 @@
 		<div class="mt-5 grid grid-cols-2 gap-3">
 			<button
 				type="button"
-				class="flex min-h-[88px] flex-col items-start justify-center gap-1 rounded-[14px] border-[1.5px] border-zinc-900 bg-white px-4 py-3 text-left"
+				class="flex min-h-[88px] flex-col items-start justify-center gap-1 rounded-[14px] border-[1.5px] border-zinc-900 px-4 py-3 text-left {current ===
+				'out'
+					? 'bg-zinc-100 ring-2 ring-zinc-900'
+					: 'bg-white'}"
+				aria-pressed={current === null ? undefined : current === 'out'}
 				onclick={() => onChoose('out')}
 			>
 				<span class="text-[17px] font-semibold text-zinc-900"
@@ -99,7 +106,11 @@
 			</button>
 			<button
 				type="button"
-				class="flex min-h-[88px] flex-col items-start justify-center gap-1 rounded-[14px] border-[1.5px] border-zinc-900 bg-white px-4 py-3 text-left"
+				class="flex min-h-[88px] flex-col items-start justify-center gap-1 rounded-[14px] border-[1.5px] border-zinc-900 px-4 py-3 text-left {current ===
+				'in'
+					? 'bg-zinc-100 ring-2 ring-zinc-900'
+					: 'bg-white'}"
+				aria-pressed={current === null ? undefined : current === 'in'}
 				onclick={() => onChoose('in')}
 			>
 				<span class="text-[17px] font-semibold text-zinc-900"

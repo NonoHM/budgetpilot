@@ -256,7 +256,8 @@
 		return {
 			text:
 				kept.sign === 'out' ? m.import_summary_kept_sign_out() : m.import_summary_kept_sign_in(),
-			href: `/import?correct=${encodeURIComponent(kept.mappingId)}&batch=${encodeURIComponent(importResult!.batchId)}`
+			// #1305: `step=sign` lands the member on the question itself (GOV.UK Check answers).
+			href: `/import?correct=${encodeURIComponent(kept.mappingId)}&batch=${encodeURIComponent(importResult!.batchId)}&step=sign`
 		};
 	});
 
@@ -1173,6 +1174,8 @@
 			// a default for the first.
 			dateOrder: null,
 			currencyDeclined: false,
+			// #1305: only a correction reply opened from « Change how amounts are read ».
+			openOn: correctingAssignment && data.correction?.step === 'sign' ? 'sign' : null,
 			// What the SERVER worked out about which account this statement belongs to. Null when the
 			// payload carried none, which the screen reads as « ask ».
 			account: designation.account ?? null,
@@ -1222,6 +1225,19 @@
 	$effect(() => {
 		if (!form || !('askSign' in form) || form.askSign !== true || form === askedSignFor) return;
 		askedSignFor = form;
+		void designateColumns();
+	});
+
+	/**
+	 * #1305: « Change how amounts are read » goes straight to the question, never via « Designate the
+	 * columns » (GOV.UK Check answers: the member « should not need to go through the rest of the
+	 * transaction again »). Only on a correction reply, which a wrong file never is; once per reply.
+	 */
+	let correctedSignFor: unknown = null;
+	$effect(() => {
+		if (data.correction?.step !== 'sign' || !correctingAssignment || form === correctedSignFor)
+			return;
+		correctedSignFor = form;
 		void designateColumns();
 	});
 
@@ -1371,6 +1387,7 @@
 			dateOrder: carried.repost.dateOrder,
 			// #1213, the same leg: a decline that did not come back was prefilled over on reopen.
 			currencyDeclined: carried.repost.currencyDeclined,
+			openOn: null,
 			// #1207 pass B F1: the correction's remembered layers, or the reopened rows lose their
 			// « Your choice » line while the save still stores the layer they were kept from.
 			remembered: carried.repost.remembered,
@@ -1706,8 +1723,14 @@
 			<input type="hidden" name="correctBatchId" value={data.correction.batchId} />
 		{/if}
 		<div class="rounded-xl border border-zinc-200 bg-white p-3">
-			<p class="text-sm font-semibold text-zinc-900">{m.import_columns_correct_heading()}</p>
-			<p class="mt-1 text-xs text-zinc-600">{m.import_columns_correct_explanation()}</p>
+			{#if data.correction.step === 'sign'}
+				<!-- #1305: the link's own words, so the member sees the link worked. -->
+				<p class="text-sm font-semibold text-zinc-900">{m.import_summary_kept_sign_change()}</p>
+				<p class="mt-1 text-xs text-zinc-600">{m.import_columns_correct_sign_explanation()}</p>
+			{:else}
+				<p class="text-sm font-semibold text-zinc-900">{m.import_columns_correct_heading()}</p>
+				<p class="mt-1 text-xs text-zinc-600">{m.import_columns_correct_explanation()}</p>
+			{/if}
 			<!--
 				The sentence that used to sit here told the user to go and delete the old import
 				themselves, which is the 13 step journey this wave removes. It is replaced by the

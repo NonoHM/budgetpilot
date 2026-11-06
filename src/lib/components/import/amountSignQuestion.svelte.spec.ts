@@ -503,3 +503,69 @@ describe('a remembered answer', () => {
 		await expect.element(heading()).toBeVisible();
 	});
 });
+
+/**
+ * #1305, « Change how amounts are read »: the screen opens ON the question the member came to change,
+ * with the answer in force pressed (GOV.UK Check answers: a previous answer is pre-populated). A kept
+ * answer holds for one account (#1294) and a correction's file proves none (#1302), so with no
+ * account chosen the account is asked first, then the step.
+ */
+describe('arriving to change the answer', () => {
+	const REMEMBERED = {
+		mappingId: 'mapping-1',
+		assignment: DESIGNATED,
+		layers: { date: 'member', label: 'member', amount: 'member' },
+		amountSign: { sign: 'out', accountId: 'account-1' }
+	};
+	const TWO = [
+		...ACCOUNTS,
+		{ id: 'account-2', name: 'BP · Livret', discriminant: '0185', transactionCount: 3 }
+	];
+	const card = (name: RegExp) => page.getByRole('button', { name });
+
+	/**
+	 * Separates « opens on the step with the kept answer pressed » from « arrives on the columns,
+	 * answered », where the member who tapped the link must find the question themselves.
+	 */
+	it('opens on the step with the kept answer pressed', async () => {
+		await mount({ remembered: REMEMBERED, openOn: 'sign' });
+		await expect.element(heading()).toBeVisible();
+		await expect.element(card(/^Argent sorti/)).toHaveAttribute('aria-pressed', 'true');
+		await expect.element(card(/^Argent entré/)).toHaveAttribute('aria-pressed', 'false');
+	});
+
+	/**
+	 * Separates « the account is asked before the step » from « the step opens unanswered over no
+	 * account », which is #1302: the kept answer could not show because no account was chosen.
+	 */
+	it('asks the account first, then shows the kept answer pressed for that account', async () => {
+		await mount({ remembered: REMEMBERED, openOn: 'sign', accounts: TWO, initialAccountId: null });
+		expect(heading().elements().length).toBe(0);
+		await page.getByRole('option', { name: /Compte courant/ }).click();
+		await expect.element(heading()).toBeVisible();
+		await expect.element(card(/^Argent sorti/)).toHaveAttribute('aria-pressed', 'true');
+	});
+
+	/** Separates « pressed only for its own account » from « pressed for any account chosen ». */
+	it('presses nothing when the account chosen is not the one the answer was kept for', async () => {
+		await mount({ remembered: REMEMBERED, openOn: 'sign', accounts: TWO, initialAccountId: null });
+		await page.getByRole('option', { name: /Livret/ }).click();
+		await expect.element(heading()).toBeVisible();
+		expect(card(/^Argent sorti/).element().hasAttribute('aria-pressed')).toBe(false);
+	});
+
+	/** Separates « the change is posted » from « the kept answer wins over the member's ». */
+	it('posts the answer the member changes to', async () => {
+		const onSubmit = vi.fn();
+		await mount({ remembered: REMEMBERED, openOn: 'sign', onSubmit });
+		await card(/^Argent entré/).click();
+		expect(await submitted(onSubmit)).toMatchObject({ amountSign: 'in' });
+	});
+
+	/** Separates « only the link opens the step on an answered column » from « every arrival does ». */
+	it('arrives on the columns, answered, without the link', async () => {
+		await mount({ remembered: REMEMBERED });
+		expect(await sentenceOf('amount-sign-line')).toBe('12,90 → -12,90 · argent sorti');
+		expect(heading().elements().length).toBe(0);
+	});
+});

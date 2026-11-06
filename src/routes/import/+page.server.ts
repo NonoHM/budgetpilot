@@ -142,6 +142,8 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		correction: correcting
 			? {
 					mappingId: correcting.id,
+					// #1305: a closed set, so the address bar can only name a step that exists.
+					step: url.searchParams.get('step') === 'sign' ? ('sign' as const) : null,
 					batchId: correctingBatch?.id ?? null,
 					// Formatted on the page, where the negotiated locale is known. Null exactly when
 					// `batchId` is, so the label and the control appear and disappear together.

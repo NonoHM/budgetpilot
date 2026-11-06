@@ -845,6 +845,7 @@ describe('/import load', () => {
 
 			expect(result.correction).toEqual({
 				mappingId: 'mapping-1',
+				step: null,
 				batchId: 'batch-1',
 				replacedAt: SEEDED_AT.toISOString(),
 				// 3, the rows the seed FILES under the batch, while its stored counter says 0: separates
@@ -854,6 +855,18 @@ describe('/import load', () => {
 				replacedRows: 3,
 				hasUserWork: false
 			});
+		});
+
+		/**
+		 * #1305: the step the link names, read against a closed set. Separates « only `sign` is
+		 * carried » from « the address bar names any step », which the page would then trust.
+		 */
+		it('carries the sign step from the link, and nothing else the address bar names', async () => {
+			seedCorrection();
+			const sign = await loadWith('?correct=mapping-1&batch=batch-1&step=sign');
+			const other = await loadWith('?correct=mapping-1&batch=batch-1&step=columns');
+			expect((sign.correction as { step?: unknown }).step).toBe('sign');
+			expect((other.correction as { step?: unknown }).step).toBeNull();
 		});
 
 		it('carries no timestamp when no batch resolved, so the control cannot half-render', async () => {
@@ -867,6 +880,7 @@ describe('/import load', () => {
 
 			expect(result.correction).toEqual({
 				mappingId: 'mapping-1',
+				step: null,
 				batchId: null,
 				replacedAt: null,
 				replacedRows: 0,
@@ -885,6 +899,7 @@ describe('/import load', () => {
 			// declared wrong, which is a worse outcome than replacing nothing.
 			expect(result.correction).toEqual({
 				mappingId: 'mapping-1',
+				step: null,
 				batchId: null,
 				replacedAt: null,
 				replacedRows: 0,
@@ -903,6 +918,7 @@ describe('/import load', () => {
 
 			expect(result.correction).toEqual({
 				mappingId: 'mapping-1',
+				step: null,
 				batchId: null,
 				replacedAt: null,
 				replacedRows: 0,
@@ -918,6 +934,7 @@ describe('/import load', () => {
 
 			expect(result.correction).toEqual({
 				mappingId: 'mapping-1',
+				step: null,
 				batchId: null,
 				replacedAt: null,
 				replacedRows: 0,

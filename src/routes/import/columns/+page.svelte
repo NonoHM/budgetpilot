@@ -126,7 +126,7 @@
 		}
 		void goto(
 			resolve(
-				`/import?correct=${encodeURIComponent(correction.mappingId)}&batch=${encodeURIComponent(correction.batchId)}` as `/import?${string}`
+				`/import?correct=${encodeURIComponent(correction.mappingId)}&batch=${encodeURIComponent(correction.batchId)}${pending?.openOn === 'sign' ? '&step=sign' : ''}` as `/import?${string}`
 			)
 		);
 	}
@@ -318,7 +318,8 @@
 						view: declareHeaderRow(pending.view, result.hasHeaderRow),
 						initialAssignment: result.assignment,
 						dateOrder: result.dateOrder,
-						currencyDeclined: result.currencyDeclined
+						currencyDeclined: result.currencyDeclined,
+						openOn: null
 					});
 					setPendingCollision({
 						// Built by `buildCollisionRepost`, which is where the mapping is asserted: this
@@ -378,7 +379,8 @@
 						view: declareHeaderRow(pending.view, result.hasHeaderRow),
 						initialAssignment: result.assignment,
 						dateOrder: result.dateOrder,
-						currencyDeclined: result.currencyDeclined
+						currencyDeclined: result.currencyDeclined,
+						openOn: null
 					});
 				} else {
 					clearPendingDesignation();
@@ -463,6 +465,7 @@
 				onCreateAccount={createAccount}
 				initialAssignment={pending.initialAssignment}
 				remembered={pending.remembered ?? null}
+				openOn={pending.openOn}
 				{submitting}
 				{wide}
 				replaces={pending.correction && pending.correction.namedAt !== ''
