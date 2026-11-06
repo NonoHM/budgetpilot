@@ -1510,7 +1510,7 @@
 	"import_designate_amount_sign_fact": "No amount in « {column} » has a minus sign.",
 	"import_designate_amount_sign_out": "Money out",
 	"import_designate_amount_sign_in": "Money in",
-	"import_designate_amount_sign_both": "Both, depending on the row",
+	"import_designate_amount_sign_both": "Some out, some in",
 	"import_designate_amount_sign_both_reason": "This file does not say which rows are which. Export it again with a minus sign on payments, or with a debit and a credit column.",
 	"import_designate_amount_sign_unanswered": "Direction to choose",
 	"import_designate_amount_sign_reading_out": "{raw} → {signed} · money out",

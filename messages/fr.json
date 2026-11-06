@@ -1510,7 +1510,7 @@
 	"import_designate_amount_sign_fact": "Aucun montant de « {column} » n'a de signe moins.",
 	"import_designate_amount_sign_out": "Argent sorti",
 	"import_designate_amount_sign_in": "Argent entré",
-	"import_designate_amount_sign_both": "Les deux, selon la ligne",
+	"import_designate_amount_sign_both": "Certaines sorties, certaines entrées",
 	"import_designate_amount_sign_both_reason": "Ce fichier n'indique pas quelles lignes sont lesquelles. Exportez-le de nouveau avec un signe moins sur les paiements, ou avec une colonne débit et une colonne crédit.",
 	"import_designate_amount_sign_unanswered": "Sens à choisir",
 	"import_designate_amount_sign_reading_out": "{raw} → {signed} · argent sorti",

@@ -2375,10 +2375,13 @@ describe('/import actions', () => {
 		 */
 		it('offers the designation screen and writes nothing', async () => {
 			const result = (await runImportWithFile(UNSIGNED_GENERIC)) as unknown as {
-				data: { designation?: unknown };
+				data: { designation?: unknown; askSign?: boolean };
 			};
 
 			expect(result.data.designation).toBeDefined();
+			// Blind test, 2026-11-06: the page stops on three blocks saying one thing; `askSign` is
+			// what lets it go straight to the screen that asks the one question.
+			expect(result.data.askSign).toBe(true);
 			expect(db.state.transactions).toHaveLength(0);
 		});
 
@@ -2712,10 +2715,12 @@ describe('/import actions', () => {
 		 * proposals altogether.
 		 */
 		it('seeds no detected column over a remembered mapping that read nothing', async () => {
-			expect.assertions(4);
+			expect.assertions(5);
 			const headers = 'Jour;Libelle;Montant';
 			const content = `${headers}\npas une date;CARREFOUR MARKET;-24,90`;
-			type Offer = { data?: { designation?: DesignationFile; correctingAssignment?: unknown } };
+			type Offer = {
+				data?: { designation?: DesignationFile; correctingAssignment?: unknown; askSign?: boolean };
+			};
 			let lastData: Offer['data'];
 			const offerOf = async () => {
 				lastData = ((await runImportWithFile(content)) as Offer).data;
@@ -2753,6 +2758,8 @@ describe('/import actions', () => {
 			// the one open question. Separates that gate from « any refusal under a mapping », which
 			// would reopen this screen prefilled with the columns that just read nothing.
 			expect(lastData).not.toHaveProperty('correctingAssignment');
+			// Nor sent straight to the screen: a file whose columns failed is shown why first.
+			expect(lastData).not.toHaveProperty('askSign');
 		});
 
 		it('imports through the mapping and counts the use', async () => {

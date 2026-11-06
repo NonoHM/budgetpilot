@@ -723,6 +723,9 @@ export const actions: Actions = {
 						}
 					: undefined,
 				...rememberedForSign,
+				// #1207 C2c-S1, blind test: the sign is the one open question, so the page goes straight
+				// to the screen that asks it instead of stopping on a refusal that says it three times.
+				...(designationFacts && signOnly ? { askSign: true as const } : {}),
 				// Plate 7l: opens `ColumnPicker` at `step: 'reading'` alone, no column list, no back
 				// to it. `dateColumn` is the profile's OWN declared index, never a user's guess:
 				// recognition already covers mapping, so this offer answers the one thing it does

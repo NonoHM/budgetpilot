@@ -130,7 +130,7 @@ describe('the sign step', () => {
 		const { container } = await mount({ onSubmit });
 		await amountRow(container).click();
 
-		await page.getByRole('button', { name: 'Les deux, selon la ligne' }).click();
+		await page.getByRole('button', { name: 'Certaines sorties, certaines entrées' }).click();
 		expect(await sentenceOf('amount-sign-both')).toBe(
 			"Ce fichier n'indique pas quelles lignes sont lesquelles. Exportez-le de nouveau avec un signe moins sur les paiements, ou avec une colonne débit et une colonne crédit."
 		);
@@ -283,5 +283,38 @@ describe('the sign step is asked before the import, not after its refusal', () =
 		} finally {
 			spy.mockRestore();
 		}
+	});
+});
+
+/**
+ * ONE QUESTION, THEN THE NEXT (owner, 2026-11-06: progressive disclosure, step by step). Once the
+ * sign is answered on a screen whose account is not chosen yet, the account question opens next,
+ * instead of leaving the member on a screen whose footer says « 3 sur 3 » above an Import that will
+ * be refused for the missing account (Playwright MCP walk at 390).
+ *
+ * Separates « the account panel opens after the answer » from « the screen closes the sign step and
+ * waits », and the second case from « it opens even when an account is already chosen ».
+ */
+describe('after the sign answer, the next open question', () => {
+	it('opens the account question when no account is chosen yet', async () => {
+		expect.assertions(2);
+		await page.viewport(390, 844);
+		await mount({ initialAccountId: null });
+		await expect.element(heading()).toBeVisible();
+		await page.getByRole('button', { name: /^Argent sorti/ }).click();
+		await expect
+			.element(page.getByRole('button', { name: /^Compte/ }))
+			.toHaveAttribute('aria-expanded', 'true');
+	});
+
+	it('leaves the account closed when one is already chosen', async () => {
+		expect.assertions(2);
+		await page.viewport(390, 844);
+		await mount();
+		await expect.element(heading()).toBeVisible();
+		await page.getByRole('button', { name: /^Argent sorti/ }).click();
+		await expect
+			.element(page.getByRole('button', { name: /^Compte/ }))
+			.toHaveAttribute('aria-expanded', 'false');
 	});
 });

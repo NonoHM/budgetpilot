@@ -806,6 +806,12 @@
 		signAnsweredFor = amountColumn;
 		openRole = null;
 		pickerStep = 'columns';
+		// One question, then the next (owner, progressive disclosure): an account still to choose is
+		// asked now, rather than left for an Import the screen would refuse.
+		if (!chosenAccountId && !recap) {
+			accountPanelFocus = 'list';
+			accountPanelOpen = true;
+		}
 	}
 
 	// The refusal reopens the question on the column it was about, once per refusal received.

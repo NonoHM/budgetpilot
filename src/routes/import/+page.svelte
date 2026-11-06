@@ -1184,6 +1184,19 @@
 	}
 
 	/**
+	 * #1207 C2c-S1, from the blind test: when the sign is the file's one open question, go straight to
+	 * the screen that asks it. Stopping here showed the refusal sentence, an offer to designate
+	 * columns (not the question) and a « could not be read » summary (it was read): one thing three
+	 * times. Once per answer from the server, so a member who comes back is not sent away again.
+	 */
+	let askedSignFor: unknown = null;
+	$effect(() => {
+		if (!form || !('askSign' in form) || form.askSign !== true || form === askedSignFor) return;
+		askedSignFor = form;
+		void designateColumns();
+	});
+
+	/**
 	 * The memorisation the designation screen promised, and the server then refused.
 	 *
 	 * `/import/columns` displays « Cette correspondance sera réutilisée pour les prochains fichiers
