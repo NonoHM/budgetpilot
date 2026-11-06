@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { untrack, type Snippet } from 'svelte';
+	import { tick, untrack, type Snippet } from 'svelte';
 	import * as m from '$lib/paraglide/messages';
 	import {
 		DESIGNATION_ROLES,
@@ -36,6 +36,7 @@
 	// note at the call site.
 	import Button from '$lib/components/Button.svelte';
 	import ColumnPicker from './ColumnPicker.svelte';
+	import AmountSignStep from './AmountSignStep.svelte';
 	import { isMemberChoice, type DesignationLayer } from '$lib/domain/designationLayer';
 	import AccountRow from './AccountRow.svelte';
 	import AccountPicker, { type AccountPickerOption } from './AccountPicker.svelte';
@@ -747,6 +748,21 @@
 	 * the screen. No default (ADR #1206): nothing is assumed while it is null.
 	 */
 	let chosenSign = $state<AmountSign | null>(null);
+	/** The sign question is showing: it replaces the screen's content, see `AmountSignStep`. */
+	const signStepOpen = $derived(openRole === 'amount' && pickerStep === 'sign');
+	// The full-screen step replaces the screen, so closing it remounts the rows: focus goes back to
+	// the Amount row, as the sheet it replaced did (WCAG 2.2, 2.4.3), unless the account question
+	// opened next and holds it.
+	let signStepWasOpen = false;
+	$effect(() => {
+		const open = signStepOpen;
+		if (signStepWasOpen && !open && !accountPanelOpen) {
+			void tick().then(() =>
+				(document.querySelector('[data-role="amount"] button') as HTMLElement | null)?.focus()
+			);
+		}
+		signStepWasOpen = open;
+	});
 	let signAnsweredFor = $state<number | null>(null);
 	const amountColumn = $derived(assignment.amount);
 	/** Unsigned per the file, or refused for want of an answer about this very column. */
@@ -1416,7 +1432,7 @@
 					`relative`, so the 1280 picker can anchor UNDER THE ROW THAT OPENED IT. At 390 the
 					wrapper costs nothing and the sheet is rendered at screen level instead.
 				-->
-				<div class="relative">
+				<div class="relative" data-role={role}>
 					<RoleRow
 						{role}
 						state={stateOf(role)}
@@ -1449,12 +1465,10 @@
 							file={effectiveFile}
 							{assignment}
 							candidates={candidates[role] ?? []}
-							step={role === 'date' || role === 'amount' ? pickerStep : 'columns'}
+							step={role === 'date' && pickerStep === 'reading' ? 'reading' : 'columns'}
 							dateReading={role === 'date' ? (dateReadingPairs ?? undefined) : undefined}
-							amountSign={role === 'amount' ? signPrompt : undefined}
 							onChoose={choose}
 							onChooseReading={chooseReading}
-							onChooseSign={chooseSign}
 							onChangeColumn={() => (pickerStep = 'columns')}
 							onChangeOrder={role === 'date' && canChangeOrder
 								? () => (pickerStep = 'reading')
@@ -1677,7 +1691,13 @@
 	{/if}
 {/snippet}
 
-{#if wide}
+{#if signStepOpen && signPrompt}
+	<!--
+		#1207: the sign question REPLACES the screen at both widths (owner, 2026-11-06): a step of the
+		flow, never a sheet or a panel over it. Back closes it unanswered.
+	-->
+	<AmountSignStep prompt={signPrompt} onChoose={chooseSign} onBack={closeWithoutChoosing} />
+{:else if wide}
 	<!--
 		1280x800. The frame's OWN width is asserted by the spec, absolutely, because the plate records
 		a desktop frame capped to its window rendering 802 px while the document claimed six visible
@@ -1944,7 +1964,7 @@
 	</ConfirmDialog>
 {/if}
 
-{#if openRole && !wide}
+{#if openRole && !wide && !signStepOpen}
 	<!-- 390 only: at 1280 the picker is anchored to its row, inside the card, a few lines up. -->
 	<ColumnPicker
 		open
@@ -1952,12 +1972,10 @@
 		file={effectiveFile}
 		{assignment}
 		candidates={candidates[openRole as DesignationRole] ?? []}
-		step={openRole === 'date' || openRole === 'amount' ? pickerStep : 'columns'}
+		step={openRole === 'date' && pickerStep === 'reading' ? 'reading' : 'columns'}
 		dateReading={openRole === 'date' ? (dateReadingPairs ?? undefined) : undefined}
-		amountSign={openRole === 'amount' ? signPrompt : undefined}
 		onChoose={choose}
 		onChooseReading={chooseReading}
-		onChooseSign={chooseSign}
 		onChangeColumn={() => (pickerStep = 'columns')}
 		onChangeOrder={openRole === 'date' && canChangeOrder
 			? () => (pickerStep = 'reading')

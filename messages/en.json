@@ -1508,6 +1508,8 @@
 	"import_designate_date_reading_inconsistent": "Two date orders in this column",
 	"import_designate_amount_sign_title": "Money out or money in?",
 	"import_designate_amount_sign_fact": "No amount in « {column} » has a minus sign.",
+	"import_designate_amount_sign_back": "Back to the columns",
+	"import_designate_amount_sign_rows_label": "The first lines of the file",
 	"import_designate_amount_sign_out": "Money out",
 	"import_designate_amount_sign_in": "Money in",
 	"import_designate_amount_sign_both": "Some out, some in",

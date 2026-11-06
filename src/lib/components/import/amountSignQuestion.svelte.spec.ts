@@ -74,6 +74,14 @@ async function sentenceOf(testId: string) {
 	return page.getByTestId(testId).element().textContent?.trim();
 }
 
+const BACK = /Retour aux colonnes/;
+
+/** Back to the designation screen, unanswered. */
+async function back() {
+	await page.getByRole('button', { name: BACK }).click();
+	expect(heading().elements().length).toBe(0);
+}
+
 async function submitted(onSubmit: ReturnType<typeof vi.fn>) {
 	await page.getByTestId('designation-primary').click();
 	expect(onSubmit).toHaveBeenCalledTimes(1);
@@ -91,10 +99,9 @@ describe('the sign step', () => {
 	 */
 	it('opens on an unsigned amount column with nothing chosen and the heading focused', async () => {
 		const { container } = await mount();
-		await amountRow(container).click();
 
 		await expect.element(heading()).toBeVisible();
-		expect(document.activeElement?.tagName).toBe('H2');
+		expect(document.activeElement?.tagName).toBe('H1');
 		expect(document.activeElement?.textContent?.trim()).toBe(HEADING);
 		await expect
 			.element(page.getByText("Aucun montant de « Montant » n'a de signe moins.", { exact: true }))
@@ -127,8 +134,7 @@ describe('the sign step', () => {
 	 */
 	it('says why Both cannot be imported, posts nothing, then posts the answer chosen', async () => {
 		const onSubmit = vi.fn();
-		const { container } = await mount({ onSubmit });
-		await amountRow(container).click();
+		await mount({ onSubmit });
 
 		await page.getByRole('button', { name: 'Certaines sorties, certaines entrées' }).click();
 		expect(await sentenceOf('amount-sign-both')).toBe(
@@ -151,7 +157,6 @@ describe('the sign step', () => {
 	it('drops the answer when Amount moves to another column', async () => {
 		const onSubmit = vi.fn();
 		const { container } = await mount({ onSubmit });
-		await amountRow(container).click();
 		await page.getByRole('button', { name: /^Argent entré/ }).click();
 
 		await amountRow(container).click();
@@ -193,6 +198,7 @@ describe('the sign step', () => {
 			}
 		};
 		const { container } = await mount({ file });
+		await back();
 		expect(await sentenceOf('amount-sign-line')).toBe('Sens à choisir');
 
 		const dateRow = [...container.querySelectorAll('[data-testid="designation-card"] button')].find(
@@ -217,8 +223,8 @@ describe('the sign step', () => {
 		expect(document.activeElement?.textContent?.trim()).toBe(HEADING);
 
 		// Closed unanswered, the row still says the question is open: the refusal is a fact about
-		// THIS column, not only a reason to open the sheet once.
-		await page.getByRole('button', { name: 'Fermer' }).first().click();
+		// THIS column, not only a reason to open the step once.
+		await back();
 		expect(await sentenceOf('amount-sign-line')).toBe('Sens à choisir');
 		expect(amountRow(container)).toBeTruthy();
 	});
@@ -256,8 +262,7 @@ describe('the sign step is asked before the import, not after its refusal', () =
 		const onSubmit = vi.fn();
 		await mount({ onSubmit });
 		await expect.element(heading()).toBeVisible();
-		await page.getByRole('button', { name: 'Fermer' }).first().click();
-		expect(heading().elements().length).toBe(0);
+		await back();
 
 		await page.getByTestId('designation-primary').click();
 
@@ -266,24 +271,85 @@ describe('the sign step is asked before the import, not after its refusal', () =
 	});
 
 	/**
-	 * Separates « the anchored panel is brought into view » from « its answers open below the fold at
-	 * 1280 ». No `behavior`: instant, so reduced motion has nothing to honour.
+	 * Separates « the step is a page whose first heading is the question, read from the top » from
+	 * « the question is a panel under a row, below whatever the page was scrolled to ».
 	 */
-	it('scrolls the anchored panel into view when the step opens at 1280', async () => {
+	it('makes the question the first heading of the page, with the window at the top', async () => {
 		await page.viewport(1280, 800);
-		const spy = vi.spyOn(Element.prototype, 'scrollIntoView');
+		// A page already scrolled, as the screen under it can be. `above` stands for what sits above
+		// the step in the app (500 px, so the heading is already IN VIEW at 400 and focusing it moves
+		// nothing); `tall` makes the window scroll. The 400 read back proves the starting point.
+		const above = document.createElement('div');
+		above.style.height = '500px';
+		document.body.prepend(above);
+		const tall = document.createElement('div');
+		tall.style.cssText = 'position:absolute;top:0;left:0;width:1px;height:4000px';
+		document.body.append(tall);
 		try {
+			window.scrollTo(0, 400);
+			expect(window.scrollY).toBe(400);
 			await mount({ wide: true });
 			await expect.element(heading()).toBeVisible();
-			const panel = page.getByTestId('column-picker-panel').element();
-			const calls = spy.mock.contexts
-				.map((context, index) => ({ context, args: spy.mock.calls[index] }))
-				.filter((call) => call.context === panel);
-			expect(calls.map((call) => call.args)).toEqual([[{ block: 'nearest' }]]);
+			const first = document.querySelector('h1, h2, h3');
+			expect(first?.tagName).toBe('H1');
+			expect(first?.textContent?.trim()).toBe(HEADING);
+			expect(window.scrollY).toBe(0);
 		} finally {
-			spy.mockRestore();
+			above.remove();
+			tall.remove();
 		}
 	});
+});
+
+/**
+ * THE STEP REPLACES THE SCREEN (owner, 2026-11-06; NN/g: no bottom sheet for a step of a flow).
+ * Separates « a page of its own, with Back to the columns » from « a sheet or panel over the screen ».
+ */
+describe('the sign question is a full-screen step', () => {
+	it('replaces the designation screen and opens no sheet or panel', async () => {
+		await mount();
+		await expect.element(heading()).toBeVisible();
+		expect(document.querySelector('[data-testid="designation-card"]')).toBeNull();
+		expect(document.querySelector('[data-testid="column-picker-panel"]')).toBeNull();
+		expect(document.querySelectorAll('[role="dialog"]').length).toBe(0);
+		expect(
+			page.getByRole('button', { name: BACK }).element().textContent?.replace(/\s+/g, ' ').trim()
+		).toBe('‹ Retour aux colonnes');
+	});
+
+	/** Separates « Back leaves the question open » from « Back answers it with a default ». */
+	it('goes back without answering and posts nothing', async () => {
+		const onSubmit = vi.fn();
+		await mount({ onSubmit });
+		await back();
+
+		expect(await sentenceOf('amount-sign-line')).toBe('Sens à choisir');
+		expect(onSubmit).not.toHaveBeenCalled();
+	});
+
+	for (const [width, height, wide] of [
+		[390, 844, false],
+		[1280, 800, true]
+	] as const) {
+		/**
+		 * Separates « both answers are on the first screen, unobstructed » from « they sit below the
+		 * fold or under something », which is what the 1280 walk found on the anchored panel.
+		 */
+		it(`shows both answers inside the first viewport, unobstructed, at ${width}`, async () => {
+			await page.viewport(width, height);
+			await mount({ wide });
+			await expect.element(heading()).toBeVisible();
+			for (const name of [/^Argent sorti/, /^Argent entré/]) {
+				const button = page.getByRole('button', { name }).element() as HTMLElement;
+				const box = button.getBoundingClientRect();
+				expect(box.top).toBeGreaterThanOrEqual(0);
+				expect(box.bottom).toBeLessThanOrEqual(height);
+				expect(box.height).toBeGreaterThanOrEqual(88);
+				const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+				expect(button.contains(hit)).toBe(true);
+			}
+		});
+	}
 });
 
 /**
@@ -316,5 +382,24 @@ describe('after the sign answer, the next open question', () => {
 		await expect
 			.element(page.getByRole('button', { name: /^Compte/ }))
 			.toHaveAttribute('aria-expanded', 'false');
+	});
+});
+
+/**
+ * FOCUS COMES BACK TO THE ROW (WCAG 2.2, 2.4.3). The step replaces the screen, so closing it
+ * remounts the screen; the sheet it replaced returned focus to the row that opened it. Separates
+ * « focus on the Amount row after Back » from « focus on the page body », where a keyboard user
+ * starts again from the top of the page.
+ */
+describe('focus after the step closes', () => {
+	it('returns to the Amount row after Back', async () => {
+		expect.assertions(2);
+		await page.viewport(390, 844);
+		await mount();
+		await expect.element(heading()).toBeVisible();
+		await page.getByRole('button', { name: 'Retour aux colonnes' }).click();
+		await expect
+			.poll(() => (document.activeElement?.getAttribute('aria-label') ?? '').startsWith('Montant'))
+			.toBe(true);
 	});
 });

@@ -1508,6 +1508,8 @@
 	"import_designate_date_reading_inconsistent": "Deux ordres de date dans cette colonne",
 	"import_designate_amount_sign_title": "Argent sorti ou entré ?",
 	"import_designate_amount_sign_fact": "Aucun montant de « {column} » n'a de signe moins.",
+	"import_designate_amount_sign_back": "Retour aux colonnes",
+	"import_designate_amount_sign_rows_label": "Les premières lignes du fichier",
 	"import_designate_amount_sign_out": "Argent sorti",
 	"import_designate_amount_sign_in": "Argent entré",
 	"import_designate_amount_sign_both": "Certaines sorties, certaines entrées",
