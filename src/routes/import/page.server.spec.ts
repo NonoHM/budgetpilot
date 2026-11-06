@@ -2712,12 +2712,14 @@ describe('/import actions', () => {
 		 * proposals altogether.
 		 */
 		it('seeds no detected column over a remembered mapping that read nothing', async () => {
-			expect.assertions(3);
+			expect.assertions(4);
 			const headers = 'Jour;Libelle;Montant';
 			const content = `${headers}\npas une date;CARREFOUR MARKET;-24,90`;
-			type Offer = { data?: { designation?: DesignationFile } };
+			type Offer = { data?: { designation?: DesignationFile; correctingAssignment?: unknown } };
+			let lastData: Offer['data'];
 			const offerOf = async () => {
-				const offer = ((await runImportWithFile(content)) as Offer).data?.designation;
+				lastData = ((await runImportWithFile(content)) as Offer).data;
+				const offer = lastData?.designation;
 				if (!offer) throw new Error('no designation offer: the fixture no longer reaches it');
 				return offer.proposals;
 			};
@@ -2747,6 +2749,10 @@ describe('/import actions', () => {
 				currency: null
 			});
 			expect(remembered?.candidates).toEqual(detected?.candidates);
+			// Nor seeded from MEMORY: #1207 C2c-S1 sends the remembered columns only when the sign is
+			// the one open question. Separates that gate from « any refusal under a mapping », which
+			// would reopen this screen prefilled with the columns that just read nothing.
+			expect(lastData).not.toHaveProperty('correctingAssignment');
 		});
 
 		it('imports through the mapping and counts the use', async () => {

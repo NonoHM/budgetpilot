@@ -137,8 +137,10 @@ export function columnMappingLayers(
 	mapping: ColumnMappingInput,
 	remembered: Parameters<typeof storedLayers>[0] | null,
 	/**
-	 * The screen prefilled this row's columns from memory: a correction of THIS correspondance,
-	 * which the caller establishes from the batch it resolves under the user, never from the form.
+	 * The screen prefilled this row's columns from memory: a correction of THIS correspondance, or
+	 * since #1207 C2c-S1 its offer for the sign question. The caller compares the id the page posts
+	 * with the remembered row it read under the user, so a forged or stale id can only make this
+	 * false, which loses a layer to « member » and never claims one.
 	 * A recognised file whose correspondance is partial or lost opens on blank rows instead, so a
 	 * column picked there is the member's even when the old row named it (narrow pass).
 	 */
