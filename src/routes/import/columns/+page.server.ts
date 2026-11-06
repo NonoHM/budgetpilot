@@ -25,7 +25,7 @@ import {
 	recordColumnMappingUse,
 	saveColumnMapping
 } from '$lib/server/import/mapping/store';
-import { columnMappingLayers } from '$lib/server/import/mapping/layers';
+import { columnMappingLayers, storedAmountSign } from '$lib/server/import/mapping/layers';
 import { MAPPING_ROLES } from '$lib/server/import/mapping/model';
 import { refusalLabel } from '$lib/i18n/refusalLabel';
 import { refusalCellValue } from '$lib/server/import/utils/safety';
@@ -50,7 +50,7 @@ import type { ReplaceOutcome } from '$lib/import/completedImport.svelte';
 import type { ImportSummaryResult } from '$lib/domain/importSummary';
 import { readAccountDisplayName } from '$lib/server/accounts/service';
 import { logReferenceRefused } from '$lib/server/logging/authz';
-import { logSensitiveDelete } from '$lib/server/logging/data';
+import { logSensitiveDelete, logSensitiveUpdate } from '$lib/server/logging/data';
 import { currencyCodeColumns, readCurrencyAnswer } from '$lib/server/import/headerlessCurrency';
 
 /**
@@ -525,6 +525,18 @@ export const actions: Actions = {
 			// which of a user's mappings read it. A user who opted out of memorisation gets no link,
 			// and rightly: there is nothing memorised to correct.
 			if (saved.ok) columnMappingId = saved.id;
+			// #1294: a kept answer replaced or cleared changes how every later unsigned statement of
+			// that account is read, so it decides its log line (`overrule_remembered_account`'s
+			// precedent). A first answer is no change: this request's `import_file` line records it.
+			const before = remembered === null ? null : storedAmountSign(remembered);
+			const after = result.summary.amountSignApplied ?? null;
+			if (
+				saved.ok &&
+				before !== null &&
+				(before.sign !== after || before.accountId !== bucket.accountId)
+			) {
+				logSensitiveUpdate(user.id, 'change_kept_amount_sign');
+			}
 		}
 
 		const written = await writeImport({

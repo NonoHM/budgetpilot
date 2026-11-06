@@ -260,7 +260,7 @@ export type UncountedCreateOperation =
 	| 'create_statement_account';
 export type CountedCreateOperation = 'sync_bank_connection' | 'import_file';
 export type SensitiveCreateOperation = UncountedCreateOperation | CountedCreateOperation;
-export type SensitiveUpdateOperation = 'renew_bank_connection';
+export type SensitiveUpdateOperation = 'renew_bank_connection' | 'change_kept_amount_sign';
 
 /**
  * Why a restore file was refused by its integrity check: the suffix of the message key each
