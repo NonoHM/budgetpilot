@@ -312,6 +312,8 @@ describe('the sign question is a full-screen step', () => {
 		expect(document.querySelector('[data-testid="designation-card"]')).toBeNull();
 		expect(document.querySelector('[data-testid="column-picker-panel"]')).toBeNull();
 		expect(document.querySelectorAll('[role="dialog"]').length).toBe(0);
+		// No Import while the question is open (#1288: a press that did nothing visible at 1280).
+		expect(document.querySelector('[data-testid="designation-primary"]')).toBeNull();
 		expect(
 			page.getByRole('button', { name: BACK }).element().textContent?.replace(/\s+/g, ' ').trim()
 		).toBe('‹ Retour aux colonnes');
