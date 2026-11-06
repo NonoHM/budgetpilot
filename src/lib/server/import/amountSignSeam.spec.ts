@@ -162,6 +162,26 @@ describe('what does not move', () => {
 	});
 
 	/**
+	 * A DATE WHOSE ONLY FAULT IS ITS YEAR IS STILL A DATE (#758). Separates « a row with a readable
+	 * date proves the sign, even when its year cannot be stored » from « any refused date reading
+	 * drops the row », under which this signed file's one payment, dated year 0000, was set aside and
+	 * the salary beside it was asked about (gates run, `yearRange.db-smoke.ts`).
+	 */
+	it('counts a negative row whose year is out of range as proof that the file signs', () => {
+		expect.assertions(1);
+
+		const result = parseCsvTransactions(
+			[
+				'date,label,amount',
+				'0000-01-16,Boulangerie,-4.20',
+				'2026-06-14,Virement salaire,1850.00'
+			].join('\n')
+		);
+
+		expect(result.invalidRows.map((row) => row.fact.code)).toEqual(['date-out-of-range']);
+	});
+
+	/**
 	 * THE COST OF THE LINE ABOVE, stated and pinned (pass F3 decided the strict way, AGENTS.md: the
 	 * false negative wins). A signed file whose only negative row has an impossible date is ASKED, the
 	 * safe direction, and the screen opens the step from this refusal.

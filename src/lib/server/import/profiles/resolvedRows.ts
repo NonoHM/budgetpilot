@@ -130,18 +130,22 @@ export function parseResolvedRows({
 	// the right width and a date that reads. A footer or balance line with no readable date and a
 	// negative total would otherwise make an unsigned file look signed, and every row would import
 	// as income in silence (note pass 2, 1a). The cost runs the safe way: a signed file whose only
-	// negative row has an impossible date is asked, never defaulted. Applied HERE, before the type
+	// negative row has an impossible date is asked, never defaulted. A date refused only for its
+	// YEAR (#758) still reads as a calendar date, so its row counts. Applied HERE, before the type
 	// decides categorisation and totals (pass F2).
 	const amountIndex = headers.indexOf(columns.amount);
+	const carriesDatedAmount = (cells: string[]) => {
+		const reading = readRowDate(
+			[{ column: columns.date, value: toRecord(headers, cells)[columns.date] }],
+			dateOrder
+		);
+		return reading.kind !== 'refused' || reading.fact.code === 'date-out-of-range';
+	};
 	const sign = amountSignVerdict(
 		dataRows
 			.filter(
 				(parsedRow) =>
-					parsedRow.cells.length === headers.length &&
-					readRowDate(
-						[{ column: columns.date, value: toRecord(headers, parsedRow.cells)[columns.date] }],
-						dateOrder
-					).kind !== 'refused'
+					parsedRow.cells.length === headers.length && carriesDatedAmount(parsedRow.cells)
 			)
 			.map((parsedRow) => parsedRow.cells[amountIndex] ?? '')
 	);
