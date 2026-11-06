@@ -65,20 +65,24 @@ describe('parseAmountCents (import)', () => {
 		expect(parseAmountCents('\u221212,00')).toBe(-1_200);
 	});
 
-	it('accepts accounting parentheses as a negative amount (#1285)', () => {
-		expect(parseAmountCents('(12,00)')).toBe(-1_200);
-		expect(parseAmountCents('(12.50)')).toBe(-1_250);
+	it.each([
+		['(12,00)', -1_200],
+		['(12.50)', -1_250]
+	] as const)('accepts accounting parentheses %s as a negative amount (#1285)', (input, cents) => {
+		expect(parseAmountCents(input)).toBe(cents);
 	});
 
-	it('accepts a trailing minus as a negative amount (#1285)', () => {
-		expect(parseAmountCents('12,00-')).toBe(-1_200);
-		expect(parseAmountCents('12.50-')).toBe(-1_250);
+	it.each([
+		['12,00-', -1_200],
+		['12.50-', -1_250]
+	] as const)('accepts a trailing minus %s as a negative amount (#1285)', (input, cents) => {
+		expect(parseAmountCents(input)).toBe(cents);
 	});
 
-	it('still refuses contradictory sign shapes (#1285)', () => {
-		expect(parseAmountCents('(-12,00)')).toBeNull();
-		expect(parseAmountCents('-12,00-')).toBeNull();
-		expect(parseAmountCents('+12,00-')).toBeNull();
-		expect(parseAmountCents('()')).toBeNull();
-	});
+	it.each(['(-12,00)', '-12,00-', '+12,00-', '()'] as const)(
+		'still refuses contradictory sign shape %s (#1285)',
+		(input) => {
+			expect(parseAmountCents(input)).toBeNull();
+		}
+	);
 });

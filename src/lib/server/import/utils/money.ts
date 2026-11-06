@@ -17,7 +17,7 @@ export function parseAmountCents(value: string): number | null {
 
 /**
  * Maps bank-statement negative notations onto a leading ASCII hyphen that `parseMoney` already
- * accepts. Leaves contradictory shapes alone so they stay `null`.
+ * accepts. Contradictory shapes become doubled or mixed signs that `parseMoney` refuses.
  */
 function normalizeImportAmountSign(value: string): string {
 	// Match parseMoney's whitespace rule so "( 12,00 )" and "12,00 -" are seen as one token.
@@ -25,26 +25,11 @@ function normalizeImportAmountSign(value: string): string {
 	if (!amount) return amount;
 
 	if (amount.startsWith('(') && amount.endsWith(')') && amount.length > 2) {
-		const inner = amount.slice(1, -1);
-		// A sign already inside the parentheses is not an accounting negative we recognise.
-		if (
-			inner.startsWith('-') ||
-			inner.startsWith('+') ||
-			inner.includes('(') ||
-			inner.includes(')')
-		) {
-			return amount;
-		}
-		amount = `-${inner}`;
+		amount = `-${amount.slice(1, -1)}`;
 	}
 
 	if (amount.endsWith('-') && amount.length > 1) {
-		const body = amount.slice(0, -1);
-		// Leading and trailing signs together are refused rather than guessed.
-		if (body.startsWith('-') || body.startsWith('+')) {
-			return amount;
-		}
-		amount = `-${body}`;
+		amount = `-${amount.slice(0, -1)}`;
 	}
 
 	return amount;
