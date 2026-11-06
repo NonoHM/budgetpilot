@@ -818,6 +818,18 @@
 		});
 	});
 
+	/** Opens the sign step on the amount column, where the question is open and unanswered. */
+	function askSign(): boolean {
+		if (recap || !signAsked || signAnswered) return false;
+		openRole = 'amount';
+		pickerStep = 'sign';
+		return true;
+	}
+
+	// ON ARRIVAL, once: an unsigned column asks before the footer offers an Import the server would
+	// refuse (#1207 walk). The initial value only, like `assignment`: from here the member owns it.
+	askSign();
+
 	/** The order VALUE to the payload's key. One translation, used by both readers below. */
 	function readingKey(order: DateOrder): 'dayFirst' | 'monthFirst' {
 		return order === 'month-first' ? 'monthFirst' : 'dayFirst';
@@ -1225,6 +1237,8 @@
 			revealAccountError();
 			return;
 		}
+		// An open sign question is asked again rather than posted for the server to refuse.
+		if (askSign()) return;
 		if (replaces && deleteOldImport) {
 			confirmingReplace = true;
 			return;

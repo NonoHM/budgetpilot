@@ -488,6 +488,10 @@
 		// The sign step arrives with NOTHING focused but its question (ADR #1206): no option is a
 		// keypress away. Opened directly on it, the heading takes focus over the panel too.
 		if (isOpen && !previousOpen && currentStep === 'sign') headingEl?.focus();
+		// At 1280 the panel opens under the Amount row and its answers fall below the fold (#1207
+		// walk). Instant, with no `behavior`, so reduced motion has nothing to honour.
+		if (isOpen && currentStep === 'sign' && previousStep !== 'sign' && variant === 'anchored')
+			panelEl?.scrollIntoView({ block: 'nearest' });
 		previousStep = isOpen ? currentStep : null;
 		previousOpen = isOpen;
 	});

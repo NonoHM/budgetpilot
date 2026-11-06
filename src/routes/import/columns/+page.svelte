@@ -60,7 +60,11 @@
 	 */
 	let localError = $state<string | null>(null);
 	const shownError = $derived(
-		form?.error ??
+		// #1207 C2c-S1: the sign refusal opens the Amount row's step, which states the same fact; the
+		// banner saying it again above the step was one sentence twice (AGENTS.md, question 4).
+		(form && 'askAmountSign' in form && typeof form.askAmountSign === 'number'
+			? undefined
+			: form?.error) ??
 			(form && 'writeFailure' in form && form.writeFailure
 				? importWriteFailureLabel(form.writeFailure)
 				: undefined) ??

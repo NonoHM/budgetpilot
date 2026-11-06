@@ -223,3 +223,65 @@ describe('the sign step', () => {
 		expect(amountRow(container)).toBeTruthy();
 	});
 });
+
+describe('the sign step is asked before the import, not after its refusal', () => {
+	/**
+	 * Separates « the screen asks on arrival » from « the member must find the row first », which let
+	 * the footer read 3 sur 3 over an Import the server then refused.
+	 */
+	it('opens on arrival, focused on the question, once', async () => {
+		const onSubmit = vi.fn();
+		await mount({ onSubmit });
+
+		await expect.element(heading()).toBeVisible();
+		expect(document.activeElement?.textContent?.trim()).toBe(HEADING);
+		for (const name of [/^Argent sorti/, /^Argent entré/]) {
+			expect(page.getByRole('button', { name }).element().getAttribute('aria-pressed')).not.toBe(
+				'true'
+			);
+		}
+	});
+
+	/** Separates « no arrival question on a recap » from « every mount asks ». */
+	it('does not open on arrival in the recap', async () => {
+		await mount({ readOnly: true });
+		expect(heading().elements().length).toBe(0);
+	});
+
+	/**
+	 * Separates « the primary asks the open question » from « the primary posts an unanswered file
+	 * the server will refuse ».
+	 */
+	it('asks again instead of submitting when the step was closed unanswered', async () => {
+		const onSubmit = vi.fn();
+		await mount({ onSubmit });
+		await expect.element(heading()).toBeVisible();
+		await page.getByRole('button', { name: 'Fermer' }).first().click();
+		expect(heading().elements().length).toBe(0);
+
+		await page.getByTestId('designation-primary').click();
+
+		expect(onSubmit).not.toHaveBeenCalled();
+		await expect.element(heading()).toBeVisible();
+	});
+
+	/**
+	 * Separates « the anchored panel is brought into view » from « its answers open below the fold at
+	 * 1280 ». No `behavior`: instant, so reduced motion has nothing to honour.
+	 */
+	it('scrolls the anchored panel into view when the step opens at 1280', async () => {
+		await page.viewport(1280, 800);
+		const spy = vi.spyOn(Element.prototype, 'scrollIntoView');
+		try {
+			await mount({ wide: true });
+			await expect.element(heading()).toBeVisible();
+			const panel = page.getByTestId('column-picker-panel').element();
+			const calls = spy.mock.contexts
+				.map((context, index) => ({ context, args: spy.mock.calls[index] }))
+				.filter((call) => call.context === panel);
+			expect(calls.map((call) => call.args)).toEqual([[{ block: 'nearest' }]]);
+		} finally {
+			spy.mockRestore();
+		}
+	});
+});
