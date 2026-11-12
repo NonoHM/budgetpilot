@@ -257,7 +257,9 @@ describe('the remembered layers travel to the designation screen (#1207)', () =>
 		expect(takePendingDesignation()?.remembered).toEqual({
 			mappingId: 'mapping-1',
 			assignment: ASSIGNMENT,
-			layers
+			layers,
+			// #1294: the reply named no kept sign answer.
+			amountSign: null
 		});
 	});
 });

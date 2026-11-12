@@ -49,7 +49,8 @@ const SUMMARY: ImportSummaryResult = {
 	hiddenInvalidRowsCount: 0,
 	accountName: null,
 	rememberedMapping: false,
-	dateOrderDisclosure: null
+	dateOrderDisclosure: null,
+	keptAmountSign: null
 };
 
 const DATA: PageData = {

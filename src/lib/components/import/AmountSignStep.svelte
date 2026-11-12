@@ -13,11 +13,14 @@
 	 * the fold at 1280. One column, no sticky, no inner scroll: everything fits the first viewport for
 	 * the three rows it shows.
 	 *
-	 * No default: nothing is pressed or focused on arrival but the heading. Back returns to the columns
+	 * No default: nothing is marked or focused on arrival but the heading, except the answer in force
+	 * when the member came to change it (#1305), marked `aria-current` (WAI-ARIA « the current item
+	 * within a set »): the cards stay buttons that answer. Back returns to the columns
 	 * WITHOUT answering; « Some out, some in » explains and answers nothing.
 	 */
 	let {
 		prompt,
+		current = null,
 		onChoose,
 		onBack
 	}: {
@@ -27,6 +30,8 @@
 			outFirst: string;
 			inFirst: string;
 		};
+		/** #1305: the answer in force, marked on arrival (GOV.UK: a previous answer is pre-populated). */
+		current?: AmountSign | null;
 		onChoose: (sign: AmountSign) => void;
 		onBack: () => void;
 	} = $props();
@@ -75,7 +80,9 @@
 					data-testid="amount-sign-row"
 				>
 					<span class="min-w-0 break-words text-zinc-700">{row.label} · {row.date}</span>
-					<span class="max-w-[50%] text-right font-semibold break-all text-zinc-900 tabular-nums"
+					<!-- shrink-0: as a flex item it would shrink to one character, and break-all cuts the number (#1306). -->
+					<span
+						class="max-w-[50%] shrink-0 text-right font-semibold break-all text-zinc-900 tabular-nums"
 						>{row.amount}</span
 					>
 				</li>
@@ -85,7 +92,11 @@
 		<div class="mt-5 grid grid-cols-2 gap-3">
 			<button
 				type="button"
-				class="flex min-h-[88px] flex-col items-start justify-center gap-1 rounded-[14px] border-[1.5px] border-zinc-900 bg-white px-4 py-3 text-left"
+				class="flex min-h-[88px] flex-col items-start justify-center gap-1 rounded-[14px] border-[1.5px] border-zinc-900 px-4 py-3 text-left {current ===
+				'out'
+					? 'bg-zinc-100 ring-2 ring-zinc-900'
+					: 'bg-white'}"
+				aria-current={current === 'out' ? 'true' : undefined}
 				onclick={() => onChoose('out')}
 			>
 				<span class="text-[17px] font-semibold text-zinc-900"
@@ -94,10 +105,20 @@
 				<span class="text-[15px] font-semibold break-all text-rose-600 tabular-nums"
 					>{prompt.outFirst}</span
 				>
+				{#if current === 'out'}
+					<!-- Critique A2: the ring alone reads as « selected »; this says it is the answer in force. -->
+					<span class="text-[12.5px] font-medium text-zinc-600"
+						>{m.import_designate_amount_sign_current()}</span
+					>
+				{/if}
 			</button>
 			<button
 				type="button"
-				class="flex min-h-[88px] flex-col items-start justify-center gap-1 rounded-[14px] border-[1.5px] border-zinc-900 bg-white px-4 py-3 text-left"
+				class="flex min-h-[88px] flex-col items-start justify-center gap-1 rounded-[14px] border-[1.5px] border-zinc-900 px-4 py-3 text-left {current ===
+				'in'
+					? 'bg-zinc-100 ring-2 ring-zinc-900'
+					: 'bg-white'}"
+				aria-current={current === 'in' ? 'true' : undefined}
 				onclick={() => onChoose('in')}
 			>
 				<span class="text-[17px] font-semibold text-zinc-900"
@@ -106,6 +127,12 @@
 				<span class="text-[15px] font-semibold break-all text-emerald-700 tabular-nums"
 					>{prompt.inFirst}</span
 				>
+				{#if current === 'in'}
+					<!-- Critique A2: the ring alone reads as « selected »; this says it is the answer in force. -->
+					<span class="text-[12.5px] font-medium text-zinc-600"
+						>{m.import_designate_amount_sign_current()}</span
+					>
+				{/if}
 			</button>
 		</div>
 

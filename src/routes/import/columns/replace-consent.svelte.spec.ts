@@ -70,6 +70,7 @@ function seed(remembered: PendingDesignation['remembered'] = null) {
 		// Unanswered: this file is about the replace consent, which reads neither the reading nor it.
 		dateOrder: null,
 		currencyDeclined: false,
+		openOn: null,
 		/**
 		 * A RESOLVED account, because the primary now refuses a submission without one.
 		 *
@@ -179,7 +180,12 @@ describe('what the correction posts, and what decides it', () => {
 	 */
 	it('posts the reopened correspondance id with the consent unticked', async () => {
 		await page.viewport(390, 844);
-		seed({ mappingId: 'mapping-1', assignment: COMPLETE, layers: { label: 'member' } });
+		seed({
+			mappingId: 'mapping-1',
+			assignment: COMPLETE,
+			layers: { label: 'member' },
+			amountSign: null
+		});
 		await render(Page, { form: null as never });
 		const box = document.querySelector(
 			'[data-testid="designation-replace-consent"] input[type="checkbox"]'

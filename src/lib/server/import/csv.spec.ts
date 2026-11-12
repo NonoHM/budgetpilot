@@ -254,19 +254,6 @@ describe('parseCsvTransactions', () => {
 		expect(result.transactions[0].metadata.banquePopulaireCategory).toBe('Transaction exclue');
 	});
 
-	// #308: this used to also assert a `warnings` entry, on a channel nothing ever read
-	// (`CsvImportResult.warnings`, deleted in D2). The import itself is the behaviour that survives.
-	it('imports a negative Banque Populaire credit as income, its magnitude', () => {
-		expect.assertions(2);
-
-		const result = parseBanquePopulaireLine(
-			'24/06/2026;REMBOURSEMENT;REMBOURSEMENT;REFNEG;;Virement;Revenus;;;-1200,00;24/06/2026;24/06/2026;0'
-		);
-
-		expect(result.transactions[0].metadata.type).toBe('income');
-		expect(result.transactions[0].amountCents).toBe(120_000);
-	});
-
 	it('parses French Banque Populaire amount formats and formats with spaces', () => {
 		expect.assertions(8);
 
@@ -339,6 +326,63 @@ describe('parseCsvTransactions', () => {
 
 		expect(result.transactions[0].metadata.type).toBe('expense');
 		expect(result.transactions[0].amountCents).toBe(123_456);
+	});
+
+	// #1319. A negative Credit cell says money out while its column says money in. Separates
+	// « refused with the column named » from « stored as income with the sign dropped ».
+	it('refuses a negative Banque Populaire credit, naming the column (#1319)', () => {
+		const result = parseBanquePopulaireLine(
+			'24/06/2026;RETOUR;RETOUR;REF1319;;Virement;Autre;;;-12,00;24/06/2026;24/06/2026;0'
+		);
+
+		expect(result.invalidRows).toEqual([
+			{
+				scope: { kind: 'row', line: 2 },
+				fact: { code: 'amount-sign-against-column', column: 'Credit' },
+				field: 'Credit'
+			}
+		]);
+	});
+
+	it('stores nothing for a negative Banque Populaire credit (#1319)', () => {
+		const result = parseBanquePopulaireLine(
+			'24/06/2026;RETOUR;RETOUR;REF1319;;Virement;Autre;;;-12,00;24/06/2026;24/06/2026;0'
+		);
+
+		expect(result.transactions).toHaveLength(0);
+	});
+
+	it('adds a negative Banque Populaire credit to no total (#1319)', () => {
+		const result = parseBanquePopulaireLine(
+			'24/06/2026;RETOUR;RETOUR;REF1319;;Virement;Autre;;;-12,00;24/06/2026;24/06/2026;0'
+		);
+
+		expect(result.summary.totalCreditCents).toBe(0);
+	});
+
+	// The boundary: a credit with no sign, or an explicit plus, is still money in.
+	it.each(['12,00', '+12,00'])(
+		'still imports a Banque Populaire credit written %s as income (#1319)',
+		(credit) => {
+			const result = parseBanquePopulaireLine(
+				`24/06/2026;SALAIRE;SALAIRE;REF1319;;Virement;Autre;;;${credit};24/06/2026;24/06/2026;0`
+			);
+
+			expect(result.transactions.map((t) => [t.metadata.type, t.amountCents])).toEqual([
+				['income', 1_200]
+			]);
+		}
+	);
+
+	// `-0` is not money out: it keeps the zero refusal rather than the sign one.
+	it('still refuses a Banque Populaire credit of -0,00 as zero (#1319)', () => {
+		const result = parseBanquePopulaireLine(
+			'24/06/2026;ZERO;ZERO;REF1319;;Virement;Autre;;;-0,00;24/06/2026;24/06/2026;0'
+		);
+
+		expect(result.invalidRows.map((r) => r.fact)).toEqual([
+			{ code: 'zero-amount', column: 'Credit' }
+		]);
 	});
 
 	it('signale les lignes Banque Populaire invalides sans planter', () => {

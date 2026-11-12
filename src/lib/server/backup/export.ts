@@ -1,4 +1,8 @@
-import { storedLayers } from '$lib/server/import/mapping/layers';
+import {
+	amountSignFields,
+	storedAmountSign,
+	storedLayers
+} from '$lib/server/import/mapping/layers';
 import { categorySetBy } from '$lib/domain/categorySetBy';
 import { prisma } from '$lib/server/db';
 import type { BackupExport } from './schema';
@@ -93,7 +97,9 @@ export async function buildBackupExport(userId: string): Promise<BackupExport> {
 				labelLayer: true,
 				amountLayer: true,
 				categoryLayer: true,
-				layersKey: true
+				layersKey: true,
+				amountSign: true,
+				amountSignAccountId: true
 			}
 		}),
 		prisma.transaction.findMany({
@@ -296,11 +302,19 @@ export async function buildBackupExport(userId: string): Promise<BackupExport> {
 		// The layers go out through their one reader (#1207): a layer whose key no longer matches its
 		// columns is exported unknown rather than as a fact. The key itself is not carried; the
 		// restore recomputes it from the columns it writes.
-		columnMappings: columnMappings.map(({ layersKey, ...mapping }) => ({
-			...mapping,
-			matchBy: assertMatchBy(mapping.matchBy, mapping.fingerprint),
-			...storedLayers({ ...mapping, layersKey })
-		})),
+		// The kept sign answer the same way (#1294), through `storedAmountSign`: the raw columns never
+		// leave by the spread, and an answer whose key no longer matches goes out as none.
+		columnMappings: columnMappings.map(
+			({ layersKey, amountSign, amountSignAccountId, ...mapping }) => {
+				const kept = storedAmountSign({ ...mapping, amountSign, amountSignAccountId, layersKey });
+				return {
+					...mapping,
+					matchBy: assertMatchBy(mapping.matchBy, mapping.fingerprint),
+					...storedLayers({ ...mapping, amountSign, amountSignAccountId, layersKey }),
+					...amountSignFields(kept)
+				};
+			}
+		),
 		// ALWAYS EMPTY since the memory was keyed on the file's account identifier (#599): a
 		// remembered account is not carried by a backup at all. See `importSourceSignatures` in
 		// ./schema.ts for why the key is still written.

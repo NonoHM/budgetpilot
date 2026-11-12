@@ -211,6 +211,8 @@ export function refusalLabel(fact: CsvRefusalFact, context: RefusalRenderContext
 			return m.import_refusal_invalid_amount();
 		case 'zero-amount':
 			return m.import_refusal_zero_amount();
+		case 'amount-sign-against-column':
+			return m.import_refusal_amount_sign_against_column();
 		case 'invalid-total-amount':
 			return m.import_refusal_invalid_total_amount();
 		case 'type-amount-mismatch':

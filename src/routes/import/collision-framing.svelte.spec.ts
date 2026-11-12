@@ -99,7 +99,8 @@ function carry(correction: { batchId: string; deleteOldImport: boolean } | null)
 			remembered: {
 				mappingId: 'mapping-1',
 				assignment: ASSIGNMENT,
-				layers: { date: 'rule', label: 'member' }
+				layers: { date: 'rule', label: 'member' },
+				amountSign: null
 			},
 			correction: correction
 				? {
@@ -221,7 +222,8 @@ describe('declining keeps the designation work', () => {
 		expect(kept?.remembered).toEqual({
 			mappingId: 'mapping-1',
 			assignment: ASSIGNMENT,
-			layers: { date: 'rule', label: 'member' }
+			layers: { date: 'rule', label: 'member' },
+			amountSign: null
 		});
 		expect(kept?.file.name).toBe('releve (1).csv');
 		expect(kept?.view.headers).toEqual(VIEW.headers);

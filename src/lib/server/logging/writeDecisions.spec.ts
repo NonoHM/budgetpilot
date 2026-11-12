@@ -245,7 +245,9 @@ const DECISIONS: Record<string, { sites: number; decisions: Decision[] }> = {
 	},
 	'src/lib/server/import/mapping/store.ts': {
 		sites: 3,
-		decisions: ['logged: sensitive_create', 'logged: sensitive_delete']
+		// sensitive_update: a kept sign answer replaced or cleared by the save (#1294), written by its
+		// caller on `/import/columns`, which alone knows the answer it replaced.
+		decisions: ['logged: sensitive_create', 'logged: sensitive_delete', 'logged: sensitive_update']
 	},
 	'src/lib/server/import/persist.ts': {
 		sites: 6,

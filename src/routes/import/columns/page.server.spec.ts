@@ -298,7 +298,9 @@ describe('the designation action and a file with no header row', () => {
 		await submit(csv, true, { labelIndex: '3', dateLayer: 'model', labelLayer: 'rule' });
 
 		expect(store.saveColumnMapping.mock.calls[0]?.slice(3)).toEqual([
-			{ dateLayer: 'rule', labelLayer: 'member', amountLayer: 'rule', categoryLayer: null }
+			{ dateLayer: 'rule', labelLayer: 'member', amountLayer: 'rule', categoryLayer: null },
+			// #1294: no sign answer applied in these files, so none is kept.
+			null
 		]);
 	});
 
@@ -333,7 +335,7 @@ describe('the designation action and a file with no header row', () => {
 			labelLayer: 'member',
 			amountLayer: 'rule',
 			categoryLayer: null,
-			layersKey: layersKeyOf(columns)
+			layersKey: layersKeyOf({ ...columns, amountSign: null, amountSignAccountId: null })
 		});
 		const csv = `date,label,amount,note\n${HEADERLESS.split('\n')
 			.map((line) => `${line},x`)
@@ -343,7 +345,9 @@ describe('the designation action and a file with no header row', () => {
 
 		// No correction, so the screen drew blank rows: nothing is carried either (narrow pass).
 		expect(store.saveColumnMapping.mock.calls[0]?.slice(3)).toEqual([
-			{ dateLayer: 'member', labelLayer: 'member', amountLayer: 'member', categoryLayer: null }
+			{ dateLayer: 'member', labelLayer: 'member', amountLayer: 'member', categoryLayer: null },
+			// #1294: no sign answer applied in these files, so none is kept.
+			null
 		]);
 	});
 
@@ -375,13 +379,15 @@ describe('the designation action and a file with no header row', () => {
 			labelLayer: 'member',
 			amountLayer: 'rule',
 			categoryLayer: null,
-			layersKey: layersKeyOf(columns)
+			layersKey: layersKeyOf({ ...columns, amountSign: null, amountSignAccountId: null })
 		});
 
 		await submit(WITH_HEADER, true);
 
 		expect(store.saveColumnMapping.mock.calls[0]?.slice(3)).toEqual([
-			{ dateLayer: 'member', labelLayer: 'member', amountLayer: 'member', categoryLayer: null }
+			{ dateLayer: 'member', labelLayer: 'member', amountLayer: 'member', categoryLayer: null },
+			// #1294: no sign answer applied in these files, so none is kept.
+			null
 		]);
 	});
 });
@@ -452,13 +458,15 @@ describe('a corrected import replaces the batch it was launched from', () => {
 			labelLayer: 'member',
 			amountLayer: 'rule',
 			categoryLayer: null,
-			layersKey: layersKeyOf(columns)
+			layersKey: layersKeyOf({ ...columns, amountSign: null, amountSignAccountId: null })
 		});
 
 		await submit(WITH_HEADER, true, { rememberedMappingId: 'mapping-kept' });
 
 		expect(store.saveColumnMapping.mock.calls[0]?.slice(3)).toEqual([
-			{ dateLayer: null, labelLayer: 'member', amountLayer: 'rule', categoryLayer: null }
+			{ dateLayer: null, labelLayer: 'member', amountLayer: 'rule', categoryLayer: null },
+			// #1294: no sign answer applied in these files, so none is kept.
+			null
 		]);
 	});
 
@@ -485,13 +493,15 @@ describe('a corrected import replaces the batch it was launched from', () => {
 			labelLayer: 'member',
 			amountLayer: 'rule',
 			categoryLayer: null,
-			layersKey: layersKeyOf(columns)
+			layersKey: layersKeyOf({ ...columns, amountSign: null, amountSignAccountId: null })
 		});
 
 		await submit(WITH_HEADER, true, { rememberedMappingId: 'mapping-other' });
 
 		expect(store.saveColumnMapping.mock.calls[0]?.slice(3)).toEqual([
-			{ dateLayer: 'member', labelLayer: 'member', amountLayer: 'member', categoryLayer: null }
+			{ dateLayer: 'member', labelLayer: 'member', amountLayer: 'member', categoryLayer: null },
+			// #1294: no sign answer applied in these files, so none is kept.
+			null
 		]);
 	});
 

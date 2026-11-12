@@ -74,7 +74,8 @@ function summary(invalidRowDetails: ImportInvalidRowDetail[]): ImportSummaryResu
 		hiddenInvalidRowsCount: 0,
 		accountName: null,
 		rememberedMapping: false,
-		dateOrderDisclosure: null
+		dateOrderDisclosure: null,
+		keptAmountSign: null
 	};
 }
 

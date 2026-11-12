@@ -126,7 +126,7 @@
 		}
 		void goto(
 			resolve(
-				`/import?correct=${encodeURIComponent(correction.mappingId)}&batch=${encodeURIComponent(correction.batchId)}` as `/import?${string}`
+				`/import?correct=${encodeURIComponent(correction.mappingId)}&batch=${encodeURIComponent(correction.batchId)}${pending?.openOn === 'sign' ? '&step=sign' : ''}` as `/import?${string}`
 			)
 		);
 	}
@@ -160,10 +160,16 @@
 		// be pre-filled here and refused on the first press (second contradiction pass).
 		const refusedCurrency = form !== null && form !== undefined && 'declaredCurrency' in form;
 		const remembered = carried.resolution.rank === 3 && carried.resolution.kind === 'remembered';
+		// #1305: a reopened correspondance is a format already seen, so « First statement in this
+		// format » is false there; the row asks with no provenance instead.
+		const seenFormat =
+			pending?.remembered != null &&
+			carried.resolution.rank === 3 &&
+			carried.resolution.kind === 'unknown';
 		return {
 			options: carried.options,
 			chosenId: carried.chosenId ?? answer.accountId,
-			hint: refusedCurrency && remembered ? undefined : answer.hint,
+			hint: (refusedCurrency && remembered) || seenFormat ? undefined : answer.hint,
 			hintAboutFile: answer.aboutTheFile
 		};
 	});
@@ -318,7 +324,8 @@
 						view: declareHeaderRow(pending.view, result.hasHeaderRow),
 						initialAssignment: result.assignment,
 						dateOrder: result.dateOrder,
-						currencyDeclined: result.currencyDeclined
+						currencyDeclined: result.currencyDeclined,
+						openOn: null
 					});
 					setPendingCollision({
 						// Built by `buildCollisionRepost`, which is where the mapping is asserted: this
@@ -378,7 +385,8 @@
 						view: declareHeaderRow(pending.view, result.hasHeaderRow),
 						initialAssignment: result.assignment,
 						dateOrder: result.dateOrder,
-						currencyDeclined: result.currencyDeclined
+						currencyDeclined: result.currencyDeclined,
+						openOn: null
 					});
 				} else {
 					clearPendingDesignation();
@@ -463,6 +471,7 @@
 				onCreateAccount={createAccount}
 				initialAssignment={pending.initialAssignment}
 				remembered={pending.remembered ?? null}
+				openOn={pending.openOn}
 				{submitting}
 				{wide}
 				replaces={pending.correction && pending.correction.namedAt !== ''

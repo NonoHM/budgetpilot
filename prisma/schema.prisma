@@ -877,6 +877,16 @@ model ColumnMapping {
   /// SHA-256 of the role columns the four layers were written for (`layersKeyOf`, mapping/layers.ts):
   /// a writer older than 1.4 moves a column without it, and the layers then read unknown.
   layersKey      String?
+  /// The member's answer for an amount column with no minus sign (#1294): `out` or `in`, and the
+  /// account it was given for. Applied only to a statement of this format landing in that account,
+  /// and only where the file proves no sign (the file wins). Written only by `saveColumnMapping`, from
+  /// the answer the parse APPLIED, and by the backup restore; read only through `storedAmountSign`
+  /// (mapping/layers.ts), which checks the closed pair and `layersKey`, whose digest covers both
+  /// fields when the answer is set. A string, not an enum: PostgreSQL would need a CREATE TYPE.
+  /// No foreign key: SQLite cannot add one without redefining the table; the id is only ever
+  /// COMPARED with the account the server resolved for this member, never looked up.
+  amountSign          String?
+  amountSignAccountId String?
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
   user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)

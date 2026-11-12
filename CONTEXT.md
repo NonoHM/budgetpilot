@@ -106,11 +106,21 @@ Two ways an imported row can be said to go one way or the other.
 
 A file that signs its amounts ignores any sign answer: the file wins, as for the date order.
 
+- **The kept answer** (#1294) is a sign answer stored with the column correspondance and the account
+  it was given for. The next unsigned statement of that correspondance, landing in that account, is
+  read through it with no question, and the summary says so.
+
 > **What confusing this cost.** Before the question existed, a file with no sign stored every row
 > as income with nothing said (#1207, the gap #320 left to the mapping path). Once it existed, a
 > member re-importing such a statement and answering « money out » produced rows that matched none
 > of the stored ones, because the type is part of the duplicate key, so every row was stored twice.
 > The answer now skips a row whose opposite is already stored, and says how many.
+>
+> Keying the kept answer on the correspondance alone would have cost the same kind of error a
+> second way: a correspondance is a header row, and one bank can export a card account and a
+> savings account under the same header row. An answer of « money out » given for the card would
+> then have stored every deposit of the savings statement as money out, with no question. Found by
+> the design-note contradiction pass on #1294, before any code.
 
 ## Profile
 

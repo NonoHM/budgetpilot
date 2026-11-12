@@ -41,7 +41,8 @@ const BASE: ImportSummaryResult = {
 	hiddenInvalidRowsCount: 0,
 	accountName: null,
 	rememberedMapping: false,
-	dateOrderDisclosure: { kind: 'answered', header: 'Date operation', order: 'month-first' }
+	dateOrderDisclosure: { kind: 'answered', header: 'Date operation', order: 'month-first' },
+	keptAmountSign: null
 };
 
 const DATA: PageData = { user: null, correction: null };

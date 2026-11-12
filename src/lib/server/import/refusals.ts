@@ -112,6 +112,10 @@ export type CsvRefusalFact =
 	| { code: 'date-out-of-range'; column: string; value: string }
 	| { code: 'invalid-amount'; column: string }
 	| { code: 'zero-amount'; column: string }
+	// #1319. A cell whose sign says the opposite direction of the column it sits in (a negative
+	// Banque Populaire `Credit`). Refused rather than read either way: the two sources contradict.
+	// `column` is shown by the rows table's field cell, like `invalid-amount`.
+	| { code: 'amount-sign-against-column'; column: string }
 	| { code: 'invalid-total-amount'; column: string }
 	| { code: 'type-amount-mismatch' }
 	| { code: 'invalid-nature'; value: string }
@@ -189,6 +193,7 @@ export const CSV_REFUSAL_CODES = [
 	'date-out-of-range',
 	'invalid-amount',
 	'zero-amount',
+	'amount-sign-against-column',
 	'invalid-total-amount',
 	'type-amount-mismatch',
 	'invalid-nature',
@@ -283,6 +288,8 @@ export const DESIGNATION_REACH = {
 	'date-out-of-range': 'unrepairable',
 	'invalid-amount': 'repairable',
 	'zero-amount': 'repairable',
+	// The money's direction, which no choice of columns changes (#1319).
+	'amount-sign-against-column': 'unrepairable',
 	'invalid-total-amount': 'repairable',
 	'type-amount-mismatch': 'repairable',
 	'invalid-nature': 'repairable',

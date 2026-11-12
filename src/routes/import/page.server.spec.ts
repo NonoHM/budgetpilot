@@ -812,6 +812,7 @@ describe('/import load', () => {
 				// schema. Left absent, every test in this block failed on `undefined.toISOString()`,
 				// which is the mock's shape drifting from the route rather than a defect in either.
 				createdAt: SEEDED_AT,
+				fileName: 'releve-juin.csv',
 				columnMappingId: 'mapping-1'
 			} as (typeof db.state.batches)[number]);
 			for (const n of [1, 2, 3]) {
@@ -845,6 +846,8 @@ describe('/import load', () => {
 
 			expect(result.correction).toEqual({
 				mappingId: 'mapping-1',
+				step: null,
+				fileName: 'releve-juin.csv',
 				batchId: 'batch-1',
 				replacedAt: SEEDED_AT.toISOString(),
 				// 3, the rows the seed FILES under the batch, while its stored counter says 0: separates
@@ -854,6 +857,20 @@ describe('/import load', () => {
 				replacedRows: 3,
 				hasUserWork: false
 			});
+		});
+
+		/**
+		 * #1305: the step the link names, read against a closed set. Separates « only `sign` is
+		 * carried » from « the address bar names any step », which the page would then trust.
+		 */
+		it('carries the sign step from the link, and nothing else the address bar names', async () => {
+			seedCorrection();
+			const sign = await loadWith('?correct=mapping-1&batch=batch-1&step=sign');
+			const other = await loadWith('?correct=mapping-1&batch=batch-1&step=columns');
+			expect((sign.correction as { step?: unknown }).step).toBe('sign');
+			// The corrected import's file, read from the batch resolved under this member.
+			expect((sign.correction as { fileName?: unknown }).fileName).toBe('releve-juin.csv');
+			expect((other.correction as { step?: unknown }).step).toBeNull();
 		});
 
 		it('carries no timestamp when no batch resolved, so the control cannot half-render', async () => {
@@ -867,6 +884,8 @@ describe('/import load', () => {
 
 			expect(result.correction).toEqual({
 				mappingId: 'mapping-1',
+				step: null,
+				fileName: null,
 				batchId: null,
 				replacedAt: null,
 				replacedRows: 0,
@@ -885,6 +904,8 @@ describe('/import load', () => {
 			// declared wrong, which is a worse outcome than replacing nothing.
 			expect(result.correction).toEqual({
 				mappingId: 'mapping-1',
+				step: null,
+				fileName: null,
 				batchId: null,
 				replacedAt: null,
 				replacedRows: 0,
@@ -903,6 +924,8 @@ describe('/import load', () => {
 
 			expect(result.correction).toEqual({
 				mappingId: 'mapping-1',
+				step: null,
+				fileName: null,
 				batchId: null,
 				replacedAt: null,
 				replacedRows: 0,
@@ -918,6 +941,8 @@ describe('/import load', () => {
 
 			expect(result.correction).toEqual({
 				mappingId: 'mapping-1',
+				step: null,
+				fileName: null,
 				batchId: null,
 				replacedAt: null,
 				replacedRows: 0,
@@ -2172,7 +2197,10 @@ describe('/import actions', () => {
 					categoryLayer: null,
 					layersKey
 				} as (typeof db.state.columnMappings)[number]);
-			seed('mapping-1207', layersKeyOf(columns));
+			seed(
+				'mapping-1207',
+				layersKeyOf({ ...columns, amountSign: null, amountSignAccountId: null })
+			);
 			seed('mapping-1207-stale', 'not-the-key');
 			const file = `${headers.join(';')}\n24/06/2026;CARREFOUR MARKET;-24,90;PAIEMENT CB 22/06`;
 
@@ -2415,7 +2443,10 @@ describe('/import actions', () => {
 				amountLayer: 'rule',
 				dateLayer: null,
 				labelLayer: null,
-				categoryLayer: null
+				categoryLayer: null,
+				// No kept sign answer (#1294): this case is the one the member is still asked.
+				amountSign: null,
+				amountSignAccountId: null
 			};
 			// The integrity key the store writes, through its own function: an unkeyed row reads unknown.
 			db.state.columnMappings.push({

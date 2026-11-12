@@ -1,4 +1,5 @@
-import { layersByRole, storedLayers } from '$lib/server/import/mapping/layers';
+import { layersByRole, storedAmountSign, storedLayers } from '$lib/server/import/mapping/layers';
+import type { AmountSign } from '$lib/domain/amountSign';
 import { fail, type Actions } from '@sveltejs/kit';
 import { EVENT } from '$lib/server/logging/names';
 import { log } from '$lib/server/logging';
@@ -112,7 +113,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 					// The rows FILED under the batch, not the stored counter (D3, `importedCount.ts`): this
 					// number is what the delete destroys, and a counter at 0 over filed rows would make a
 					// destructive confirmation understate its own cost.
-					select: { id: true, createdAt: true, ...IMPORTED_COUNT_SELECT }
+					select: { id: true, createdAt: true, fileName: true, ...IMPORTED_COUNT_SELECT }
 				})
 			: null;
 	// Both fall through rather than refuse, so the line is the only trace of an id that did not
@@ -141,10 +142,14 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		correction: correcting
 			? {
 					mappingId: correcting.id,
+					// #1305: a closed set, so the address bar can only name a step that exists.
+					step: url.searchParams.get('step') === 'sign' ? ('sign' as const) : null,
 					batchId: correctingBatch?.id ?? null,
 					// Formatted on the page, where the negotiated locale is known. Null exactly when
 					// `batchId` is, so the label and the control appear and disappear together.
 					replacedAt: correctingBatch?.createdAt.toISOString() ?? null,
+					// #1305: the file to choose again, named on the notice (null on a legacy batch).
+					fileName: correctingBatch?.fileName ?? null,
 					replacedRows: correctingBatch ? importedCountOf(correctingBatch) : 0,
 					hasUserWork: userWorkCount > 0
 				}
@@ -356,6 +361,9 @@ export const actions: Actions = {
 				// #1207: what each remembered role was kept from, through the one reader, so a layer
 				// left behind by a writer older than 1.4 reads unknown rather than as a fact.
 				correctingLayers: layersByRole(storedLayers(correcting)),
+				// #1294: the kept sign answer and the account it was given for, through the one reader.
+				// The screen shows it answered only for that account and only where it asks the sign.
+				correctingAmountSign: storedAmountSign(correcting),
 				// Resolved under the member above; posted back so the save can tell the screen drew it.
 				correctingMappingId: correcting.id,
 				// Carried into the designation screen, which is the request that will delete. Until
@@ -404,21 +412,25 @@ export const actions: Actions = {
 		const answerKey = await answerKeyFor(importFile);
 		const answers = readBoundAnswers(formData, answerKey);
 
-		const result = parseCsvTransactionRows(importData.rows, {
-			maxBytes: IMPORT_FILE_MAX_BYTES,
-			profile: useMapping ? 'mapped' : 'auto',
-			columnMapping: useMapping ? remembered! : undefined,
-			sourceName: importFile.name || importData.kind,
-			categorizationRules: categorizationRules.map((rule) => ({
-				...rule,
-				type: rule.type === 'income' || rule.type === 'expense' ? rule.type : 'any'
-			})),
-			// The reading offer below is the caller, through the same closed-set validator
-			// `/import/columns` reads its own answer with, and only once bound to this file.
-			dateOrder: answers.dateOrder ?? undefined,
-			// #485's account-column offer below is the caller. No suppression flag, as for `dateOrder`.
-			accountColumnAnswers: answers.accountColumnAnswers
-		});
+		// One parse, run again with the kept sign answer once the destination is known (#1294, below).
+		const parse = (amountSign?: AmountSign) =>
+			parseCsvTransactionRows(importData.rows, {
+				maxBytes: IMPORT_FILE_MAX_BYTES,
+				profile: useMapping ? 'mapped' : 'auto',
+				columnMapping: useMapping ? remembered! : undefined,
+				sourceName: importFile.name || importData.kind,
+				categorizationRules: categorizationRules.map((rule) => ({
+					...rule,
+					type: rule.type === 'income' || rule.type === 'expense' ? rule.type : 'any'
+				})),
+				// The reading offer below is the caller, through the same closed-set validator
+				// `/import/columns` reads its own answer with, and only once bound to this file.
+				dateOrder: answers.dateOrder ?? undefined,
+				// #485's account-column offer below is the caller. No suppression flag, as for `dateOrder`.
+				accountColumnAnswers: answers.accountColumnAnswers,
+				amountSign
+			});
+		let result = parse();
 
 		/**
 		 * WHICH ACCOUNT THIS AUTO-DETECTED FILE LANDS IN, decided before anything is written.
@@ -445,6 +457,32 @@ export const actions: Actions = {
 			// The bound answer to a previous `ask`, when the user has given one for this file.
 			chosenId: answers.accountId
 		});
+
+		/**
+		 * #1294, THE KEPT SIGN ANSWER. The member answered « money out » or « money in » for this
+		 * correspondance and an account; the parse above was refused for want of that answer only.
+		 * Applied when the statement lands in that SAME account (owner ruling: another account sharing
+		 * the header row is asked as before), read only through `storedAmountSign`, and only where the
+		 * file still proves no sign: a file with a minus sign never asks, so it never reaches this.
+		 * Both ids are this member's: the destination was resolved under them and the mapping was read
+		 * under them; the stored id is compared, never looked up (ASVS v5.0.0-8.2.2). Re-parsed before
+		 * any consumer of the result: the profile read above is the same either way.
+		 */
+		const destinationAccountId =
+			decision.kind === 'account'
+				? decision.bucket.accountId
+				: decision.kind === 'by-source'
+					? (decision.existing?.accountId ?? null)
+					: null;
+		const keptSign = useMapping ? storedAmountSign(remembered!) : null;
+		if (
+			keptSign !== null &&
+			keptSign.accountId === destinationAccountId &&
+			result.invalidRows.length === 1 &&
+			result.invalidRows[0].fact.code === 'ambiguous-amount-sign'
+		) {
+			result = parse(keptSign.sign);
+		}
 		const kept = keptAnswers(answerKey, answers, {
 			accountId: answers.accountId !== null && decision.kind === 'account'
 		});
@@ -950,8 +988,15 @@ export const actions: Actions = {
 				fileLevelRefusals: result.summary.fileLevelRefusals,
 				duplicateRows: persisted.duplicateRows,
 				autoCategorizedRows: persisted.autoCategorizedRows,
-				// The auto path never posts a sign answer, so no row of it is answered: always 0 here.
+				// Rows answered by the KEPT sign answer (#1294) are checked for a stored mirror as on the
+				// designation door, and said the same way (note pass N3).
 				mirrorRows: persisted.mirrorRows,
+				...(persisted.mirrorRows > 0 && result.summary.amountSignApplied
+					? {
+							mirrorStoredAs:
+								result.summary.amountSignApplied === 'out' ? ('in' as const) : ('out' as const)
+						}
+					: {}),
 				totalDebitCents: persisted.importedDebitCents,
 				totalCreditCents: persisted.importedCreditCents,
 				period: result.summary.period,
@@ -970,7 +1015,15 @@ export const actions: Actions = {
 				rememberedMapping: false,
 				// Plate 7l. Populated whenever THIS parse's date order was chosen rather than proven or
 				// defaulted — see `CsvImportSummary.dateOrderDisclosure`'s docstring for the one rule.
-				dateOrderDisclosure: result.summary.dateOrderDisclosure ?? null
+				dateOrderDisclosure: result.summary.dateOrderDisclosure ?? null,
+				// #1294: only when THIS parse applied the kept answer. The auto path posts no answer of
+				// its own, so an applied answer here is the kept one, and `remembered` is the mapping
+				// that holds it (the correction link reopens it). Only when rows were saved: « Amounts
+				// saved as … » over a re-import whose every row was a duplicate is false (pass A R1).
+				keptAmountSign:
+					result.summary.amountSignApplied && useMapping && persisted.importedRows > 0
+						? { sign: result.summary.amountSignApplied, mappingId: remembered!.id }
+						: null
 			} satisfies ImportSummaryResult
 		};
 	}
