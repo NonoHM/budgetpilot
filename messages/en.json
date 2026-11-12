@@ -420,6 +420,7 @@
 	"import_refusal_date_out_of_range": "year out of range: “{value}” (expected: {first} to {last})",
 	"import_refusal_invalid_amount": "invalid amount",
 	"import_refusal_zero_amount": "zero amount rejected",
+	"import_refusal_amount_sign_against_column": "negative amount in a money-in column",
 	"import_refusal_invalid_total_amount": "invalid total amount",
 	"import_refusal_type_amount_mismatch": "type and amount sign do not match",
 	"import_refusal_invalid_nature": "invalid nature",

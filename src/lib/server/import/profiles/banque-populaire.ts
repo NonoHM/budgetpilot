@@ -305,6 +305,14 @@ function parseBanquePopulaireAmount(debit: string, credit: string): BanquePopula
 			field: hasDebit ? 'Debit' : 'Credit'
 		};
 
+	// #1319. A negative credit says money out in the money-in column: refused, never flipped.
+	if (hasCredit && parsedAmount < 0)
+		return {
+			ok: false,
+			fact: { code: 'amount-sign-against-column', column: 'Credit' },
+			field: 'Credit'
+		};
+
 	if (hasDebit) {
 		return { ok: true, amountCents: Math.abs(parsedAmount), type: 'expense' };
 	}
