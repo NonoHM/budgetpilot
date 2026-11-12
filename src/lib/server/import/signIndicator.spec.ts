@@ -70,6 +70,18 @@ describe('files that must still import', () => {
 		).toEqual(['expense', 'income']);
 	});
 
+	it('reads accounting parentheses as a signed amount, so an indicator column decides nothing (#1285)', () => {
+		expect(
+			importedTypes(
+				[
+					'date;libelle;montant;sens',
+					'24/06/2026;CARREFOUR MARKET;(24,90);D',
+					'21/06/2026;VIR RECU M. BERTIN SALAIRE;1850,00;C'
+				].join('\n')
+			)
+		).toEqual(['expense', 'income']);
+	});
+
 	it('is all positive with no indicator column, which imports as income once answered « in »', () => {
 		expect(
 			importedTypes(
