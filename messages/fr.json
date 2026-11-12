@@ -419,6 +419,7 @@
 	"import_refusal_date_out_of_range": "année hors plage : « {value} » (attendu : de {first} à {last})",
 	"import_refusal_invalid_amount": "montant invalide",
 	"import_refusal_zero_amount": "montant à zéro refusé",
+	"import_refusal_amount_sign_against_column": "montant négatif dans une colonne d'entrées d'argent",
 	"import_refusal_invalid_total_amount": "montant total invalide",
 	"import_refusal_type_amount_mismatch": "type et signe du montant incohérents",
 	"import_refusal_invalid_nature": "nature invalide",
