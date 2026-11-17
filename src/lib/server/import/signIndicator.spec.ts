@@ -38,6 +38,125 @@ describe('a statement carrying its direction in a separate column', () => {
 });
 
 /**
+ * #1323. One signed amount used to switch the detector off, so an UNSIGNED amount marked `D`
+ * beside it imported as income: row A of the issue's file, 24,90 stored as money in. MEASURED ON
+ * main AT 651d1f5, BEFORE THIS FIX: zero refusals, totalCreditCents 12490, totalDebitCents 300.
+ * The sign and the indicator are two answers to one question, and here they disagree, so the file
+ * is refused (AGENTS.md « Code style », a file proving two contradictory answers).
+ */
+describe('a statement whose signs and direction column disagree (#1323)', () => {
+	function refusal(file: string) {
+		const result = parseCsvTransactions(file, { profile: 'auto' });
+		return {
+			invalidRows: result.invalidRows,
+			credit: result.summary.totalCreditCents,
+			debit: result.summary.totalDebitCents
+		};
+	}
+	const refused = {
+		invalidRows: [
+			{
+				scope: { kind: 'header' },
+				fact: { code: 'amount-sign-against-indicator', column: 'sens' }
+			}
+		],
+		credit: 0,
+		debit: 0
+	};
+
+	// Separates: an unsigned amount marked debit (refused) from one that agrees (imports, below).
+	it('is refused when an unsigned amount is marked as a debit', () => {
+		expect(
+			refusal(
+				[
+					'date;libelle;montant;sens',
+					'13/01/2026;A;24,90;D',
+					'14/01/2026;B;-3,00;D',
+					'15/01/2026;C;100,00;C'
+				].join('\n')
+			)
+		).toEqual(refused);
+	});
+
+	// Separates: a negative amount marked credit, the mirror disagreement, from an agreeing file.
+	it('is refused when a negative amount is marked as a credit', () => {
+		expect(
+			refusal(
+				[
+					'date;libelle;montant;sens',
+					'13/01/2026;A;-24,90;D',
+					'14/01/2026;B;-3,00;C',
+					'15/01/2026;C;100,00;C'
+				].join('\n')
+			)
+		).toEqual(refused);
+	});
+
+	// Pass F1. Separates: a constant column judged in a signed file (refused) from one skipped as a
+	// marker. A month with no credit, same bank as above.
+	it('is refused when the column is constant and an unsigned amount sits beside its « D »', () => {
+		expect(
+			refusal(
+				[
+					'date;libelle;montant;sens',
+					'13/01/2026;A;-3,00;D',
+					'14/01/2026;B;24,90;D',
+					'15/01/2026;C;-60,00;D'
+				].join('\n')
+			)
+		).toEqual(refused);
+	});
+
+	// Pass F2. Separates: the column judged over the rows that are stored (refused) from one judged
+	// over every line, where the shifted cell `-12,00` is not a token and switched the check off.
+	it('is refused when one wrong-width row shifts a non-token into the column', () => {
+		expect(
+			refusal(
+				[
+					'date;libelle;montant;sens',
+					'13/01/2026;A;-3,00;D',
+					'14/01/2026;B;24,90;D',
+					'15/01/2026;C;100,00;C',
+					'16/01/2026;RESTO; PARIS;-12,00;D'
+				].join('\n')
+			)
+		).toEqual(refused);
+	});
+
+	// Pass 2, F-A. Separates: the column judged over rows with an amount (refused) from one where a
+	// zero-amount row's `N`, refused on its own line, switched the check off.
+	it('is refused when a zero-amount row carries a non-token in the column', () => {
+		expect(
+			refusal(
+				[
+					'date;libelle;montant;sens',
+					'13/01/2026;A;-3,00;D',
+					'14/01/2026;B;24,90;D',
+					'15/01/2026;C;100,00;C',
+					'16/01/2026;Info;0,00;N',
+					'17/01/2026;Paiement;;EN COURS'
+				].join('\n')
+			)
+		).toEqual(refused);
+	});
+
+	// Pass F2, second door. Separates the same two populations through an undated balance footer.
+	it('is refused when an undated footer carries a non-token in the column', () => {
+		expect(
+			refusal(
+				[
+					'date;libelle;montant;sens',
+					'13/01/2026;A;-3,00;D',
+					'14/01/2026;B;24,90;D',
+					'15/01/2026;C;100,00;C',
+					'Solde au 15/01/2026;;1234,56;Créditeur'
+				].join('\n')
+			)
+		).toEqual(refused);
+	});
+});
+
+/**
  * This change NARROWS what imports, so the tests above cannot fail for the reason worth being
  * afraid of: a detector that refused every file would satisfy every one of them. These are the
  * half that can, and they are the direction the change is not moving in.

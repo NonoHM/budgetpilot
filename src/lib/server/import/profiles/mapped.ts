@@ -17,7 +17,7 @@ import {
 	type UntrustedColumnMapping,
 	type MappingRole
 } from '../mapping/model';
-import { parseResolvedRows } from './resolvedRows';
+import { datedAmountRows, parseResolvedRows } from './resolvedRows';
 import { foldExactHeader } from '../utils/encoding';
 import { ACCEPTED_CURRENCY, currencyColumnsIn } from '../currencyDeclaration';
 
@@ -157,15 +157,20 @@ export function parseMappedRows({
 	if (verdict) {
 		const indicatorColumn = detectSignIndicatorColumn(
 			headers,
-			rows,
-			verdict.columns.amount,
-			firstDataRowIndex(hasHeaderRow)
+			datedAmountRows(
+				rows,
+				headers,
+				firstDataRowIndex(hasHeaderRow),
+				verdict.columns.date,
+				dateOrder
+			),
+			verdict.columns.amount
 		);
 		if (indicatorColumn)
 			addRefusal(
 				headerRefusals,
 				{ kind: 'header' },
-				{ code: 'amount-sign-in-separate-column', column: refusalCellValue(indicatorColumn) }
+				{ code: indicatorColumn.code, column: refusalCellValue(indicatorColumn.column) }
 			);
 
 		// The sibling shape #320's detector cannot see, for the reason its own first condition
