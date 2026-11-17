@@ -44,3 +44,11 @@ vulnerabilities:
       the app runs no QUIC endpoint and Node's QUIC is not enabled. Not in CISA KEV on the grant
       date.
     expired_at: 2026-10-07
+  - id: CVE-2026-128120
+    statement: >-
+      Granted 2026-11-17 by the owner (#1336). @sveltejs/kit 2.70.4, fixed only in 3.1.1; the
+      version-2 line carries no fix and the 3.x move does not yet work with this codebase. A
+      denial of service in the remote functions `form` parser; the app imports nothing from
+      `$app/server`, has no `*.remote.ts` file and does not enable the experimental
+      remoteFunctions option. Not in CISA KEV on the grant date.
+    expired_at: 2026-12-01
