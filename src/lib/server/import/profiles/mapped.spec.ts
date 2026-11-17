@@ -113,6 +113,23 @@ describe('the direction this is NOT moving in: what must still be refused', () =
 		});
 	});
 
+	it('refuses a mapped file whose signs and direction column disagree (#1323)', () => {
+		// The remembered-mapping door to #1323: one signed amount used to let the unsigned
+		// `24,90;D` import as income. Separates the two codes, so a caller hard-coding the old one
+		// reddens here.
+		const disagreeing =
+			'jour;intitule operation;somme;sens\n24/06/2026;CARREFOUR;24,90;D\n23/06/2026;ORANGE;-3,00;D\n21/06/2026;SALAIRE;1850,00;C\n';
+		const mapping: ColumnMappingInput = { ...MAPPING, columnCount: 4 };
+
+		const result = importMapped(disagreeing, mapping);
+
+		expect(result.transactions).toStrictEqual([]);
+		expect(result.invalidRows[0].fact).toStrictEqual({
+			code: 'amount-sign-against-indicator',
+			column: 'sens'
+		});
+	});
+
 	it('refuses a mapped file whose money is split across a debit and a credit column', () => {
 		// #343. The shape #320's detector cannot see: the debit column is ALREADY signed negative,
 		// so "every parsable amount is >= 0" is false and that guard returns null. The file was

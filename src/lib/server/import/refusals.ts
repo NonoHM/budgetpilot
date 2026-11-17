@@ -84,6 +84,9 @@ export type CsvRefusalFact =
 	// row would import as income. Carries the offending column so the user can look at it: a
 	// refusal saying "your amounts have no sign" leaves them nowhere to go.
 	| { code: 'amount-sign-in-separate-column'; column: string }
+	// The amounts are signed and a sibling column also holds the direction, and on some row the
+	// two disagree, so either reading stores rows reversed (#1323). Names the column, as above.
+	| { code: 'amount-sign-against-indicator'; column: string }
 	/** The file splits its money across two columns; `columns` names both, in file order. See #343. */
 	| { code: 'amount-split-across-columns'; columns: string }
 	// A remembered column mapping no longer fits the file in front of it: the plate's states 3b
@@ -188,6 +191,7 @@ export const CSV_REFUSAL_CODES = [
 	'bad-column-count',
 	'ambiguous-column-mapping',
 	'amount-sign-in-separate-column',
+	'amount-sign-against-indicator',
 	'amount-split-across-columns',
 	'invalid-date',
 	'date-out-of-range',
@@ -278,6 +282,8 @@ export const DESIGNATION_REACH = {
 	'ambiguous-column-mapping': 'repairable',
 	// The four closed roles cannot express either shape (#320, #343).
 	'amount-sign-in-separate-column': 'unrepairable',
+	// Naming columns cannot pick which of the file's two answers is true (#1323).
+	'amount-sign-against-indicator': 'unrepairable',
 	'amount-split-across-columns': 'unrepairable',
 	'invalid-date': 'repairable',
 	// #758. The column read IS a date column: the cell parsed as a calendar date, and only its year

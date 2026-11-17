@@ -40,7 +40,8 @@ describe('refusal catalogue coverage', () => {
 		// 47 since `ambiguous-amount-sign` (#1207): an amount column with no minus sign, asked about
 		// rather than read as income.
 		// 48 since `amount-sign-against-column` (#1319): a negative Banque Populaire credit, refused.
-		expect(CSV_REFUSAL_CODES).toHaveLength(48);
+		// 49 since `amount-sign-against-indicator` (#1323): signs and a direction column disagree.
+		expect(CSV_REFUSAL_CODES).toHaveLength(49);
 
 		const missingFr = CSV_REFUSAL_CODES.filter((c) => !(KEY(c) in fr));
 		const missingEn = CSV_REFUSAL_CODES.filter((c) => !(KEY(c) in en));

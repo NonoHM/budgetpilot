@@ -7,7 +7,7 @@ import {
 	getDuplicateHeaders
 } from '../utils/csv';
 import { REQUIRED_ROLES, resolveRequiredColumns } from './columnAliases';
-import { parseResolvedRows } from './resolvedRows';
+import { datedAmountRows, parseResolvedRows } from './resolvedRows';
 import { detectSignIndicatorColumn } from '../signIndicator';
 import { refusalCellValue } from '../utils/safety';
 import { foldComparableHeader } from '../utils/encoding';
@@ -153,12 +153,16 @@ export function parseGenericRows({
 	// than about one line. A file whose amount column never resolved has a louder problem already
 	// reported above.
 	if (columns.amount) {
-		const indicatorColumn = detectSignIndicatorColumn(headers, rows, columns.amount);
+		const indicatorColumn = detectSignIndicatorColumn(
+			headers,
+			columns.date ? datedAmountRows(rows, headers, 1, columns.date, dateOrder) : [],
+			columns.amount
+		);
 		if (indicatorColumn)
 			addRefusal(
 				headerRefusals,
 				{ kind: 'header' },
-				{ code: 'amount-sign-in-separate-column', column: refusalCellValue(indicatorColumn) }
+				{ code: indicatorColumn.code, column: refusalCellValue(indicatorColumn.column) }
 			);
 	}
 

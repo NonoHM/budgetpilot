@@ -12,6 +12,17 @@ import { parseAmountCents } from './utils/money';
  */
 const DIRECTION_TOKENS = new Set(['d', 'c', 'db', 'cr', 'dr', 'debit', 'credit', 'w']);
 
+/** The tokens that mean money out. The rest of `DIRECTION_TOKENS` means money in. */
+const DEBIT_TOKENS = new Set(['d', 'db', 'dr', 'debit', 'w']);
+
+export type SignIndicatorFinding = {
+	column: string;
+	// amount-sign-in-separate-column: no amount carries a sign, the column holds the direction (#320).
+	// amount-sign-against-indicator: the amounts are signed AND the column holds a direction, and on some row the two
+	// say opposite things (#1323). Two answers to one question, so the file is refused.
+	code: 'amount-sign-in-separate-column' | 'amount-sign-against-indicator';
+};
+
 /**
  * Which column, if any, carries the direction that the amount column does not.
  *
@@ -28,10 +39,12 @@ const DIRECTION_TOKENS = new Set(['d', 'c', 'db', 'cr', 'dr', 'debit', 'credit',
  * ## Three conditions, all required, and the conjunction is what keeps this narrow
  *
  * 1. Every parsable amount in the file is >= 0. One negative amount anywhere means the file signs
- *    its amounts, so an indicator column beside them is redundant rather than load-bearing. The
- *    sign wins and nothing is refused.
+ *    its amounts, so an indicator column beside them is redundant rather than load-bearing, AS
+ *    LONG AS IT AGREES. Where any row's sign contradicts its token (an unsigned amount marked
+ *    debit, a negative one marked credit), the file proves two answers and is refused as
+ *    `amount-sign-against-indicator` (#1323): letting the sign win stored that row reversed.
  * 2. Some other column's non-empty values are ALL drawn from `DIRECTION_TOKENS`.
- * 3. That column carries at least two DISTINCT tokens. A column reading "D" on every row carries
+ * 3. On an unsigned file, that column carries at least two DISTINCT tokens. A column reading "D" on every row carries
  *    no direction at all: it is a constant, and a statement of pure spending is ordinary. Without
  *    this, an all-expense export written with magnitudes and a constant marker would be refused
  *    when it is perfectly readable.
@@ -46,50 +59,65 @@ const DIRECTION_TOKENS = new Set(['d', 'c', 'db', 'cr', 'dr', 'debit', 'credit',
  * once, whether its rows are money out or money in. A file mixing both directions with an
  * unrecognised vocabulary still cannot be expressed by that file-wide answer (#1284).
  *
- * Returns the offending header so the refusal can name it.
+ * Returns the offending header and which of the two shapes it is, so the refusal can name both.
  */
 export function detectSignIndicatorColumn(
 	headers: string[],
-	rows: ParsedCsvRow[],
-	amountColumn: string,
-	// 0 on a file the member says has no header row: its line 1 is a transaction, and skipping it
-	// once hid the only « C » of a direction column (#1202's pass, finding 2).
-	firstDataRow: 0 | 1 = 1
-): string | null {
+	// The rows whose amounts are stored, from `datedAmountRows`, header excluded. Judged over every
+	// row instead, one wrong-width line or undated footer put a non-token in the column and switched
+	// the detector off for the whole file (#1323 pass, F2). On a headerless file line 1 is in here:
+	// skipping it once hid the only « C » of a direction column (#1202's pass, finding 2).
+	body: ParsedCsvRow[],
+	amountColumn: string
+): SignIndicatorFinding | null {
 	const amountIndex = headers.indexOf(amountColumn);
 	if (amountIndex === -1) return null;
-
-	const body = rows.slice(firstDataRow);
 	if (body.length === 0) return null;
 
-	let parsableAmounts = 0;
-	for (const row of body) {
-		const cents = parseAmountCents(row.cells[amountIndex] ?? '');
-		if (cents === null) continue;
-		parsableAmounts += 1;
-		if (cents < 0) return null;
-	}
-	// An absolute figure guarding the emptiness above. With no parsable amount at all, "every
+	const amounts = body.map((row) => parseAmountCents(row.cells[amountIndex] ?? ''));
+	const parsableAmounts = amounts.filter((cents) => cents !== null).length;
+	// An absolute figure guarding the emptiness below. With no parsable amount at all, "every
 	// amount is positive" is vacuously true, and refusing on it would refuse a file this function
 	// has no evidence about.
 	if (parsableAmounts === 0) return null;
+	const signed = amounts.some((cents) => cents !== null && cents < 0);
 
 	for (const [index, header] of headers.entries()) {
 		if (index === amountIndex) continue;
 
 		const distinctTokens = new Set<string>();
 		let everyValueIsAToken = true;
-		for (const row of body) {
+		for (const [rowIndex, row] of body.entries()) {
 			const cell = (row.cells[index] ?? '').trim().toLowerCase();
-			if (cell === '') continue;
+			// A row with no amount, or a zero one, carries no direction and is refused on its own
+			// line: its cell must not switch the check off for the rows that are stored (pass 2, F-A).
+			if (cell === '' || !amounts[rowIndex]) continue;
 			if (!DIRECTION_TOKENS.has(cell)) {
 				everyValueIsAToken = false;
 				break;
 			}
 			distinctTokens.add(cell);
 		}
+		if (!everyValueIsAToken || distinctTokens.size === 0) continue;
 
-		if (everyValueIsAToken && distinctTokens.size >= 2) return header;
+		// Condition 3 is the UNSIGNED file's: a constant « D » beside magnitudes is a statement of
+		// pure spending. In a signed file a constant column still contradicts any sign against it,
+		// so it is judged below (#1323 pass, F1: a month with no credit imported « 24,90;D » as income).
+		if (!signed) {
+			if (distinctTokens.size >= 2)
+				return { column: header, code: 'amount-sign-in-separate-column' };
+			continue;
+		}
+
+		// A signed file: the column is redundant only while it agrees with every sign. A zero, an
+		// unparsable amount or an empty cell says nothing either way.
+		const disagrees = body.some((row, rowIndex) => {
+			const cents = amounts[rowIndex];
+			const cell = (row.cells[index] ?? '').trim().toLowerCase();
+			if (cents === null || cents === 0 || cell === '') return false;
+			return cents < 0 !== DEBIT_TOKENS.has(cell);
+		});
+		if (disagrees) return { column: header, code: 'amount-sign-against-indicator' };
 	}
 
 	return null;

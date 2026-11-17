@@ -76,6 +76,9 @@ const FIELD_DISPLAY: {
 	'amount-sign-in-separate-column': {
 		column: { shown: 'sentence', values: ['sens', 'direction'] }
 	},
+	'amount-sign-against-indicator': {
+		column: { shown: 'sentence', values: ['sens', 'direction'] }
+	},
 	'amount-split-across-columns': {
 		columns: { shown: 'sentence', values: ['« Debit » et « Credit »', '« Sortie » et « Entrée »'] }
 	},
@@ -259,10 +262,10 @@ describe('refusalLabel', () => {
 		// would satisfy "none is empty" perfectly. 44 since #485 added 'multi-account-file' and
 		// 'ambiguous-account-column'; 45 since #600 added 'declared-currency-mismatch'; 46 since #758 added
 		// 'date-out-of-range'; 47 since #1207 added 'ambiguous-amount-sign'; 48 since #1319 added
-		// 'amount-sign-against-column'.
-		expect(rendered).toHaveLength(48);
-		expect(CSV_REFUSAL_CODES).toHaveLength(48);
-		expect(rendered.filter((label) => label.trim().length > 0)).toHaveLength(48);
+		// 'amount-sign-against-column'; 49 since #1323 added 'amount-sign-against-indicator'.
+		expect(rendered).toHaveLength(49);
+		expect(CSV_REFUSAL_CODES).toHaveLength(49);
+		expect(rendered.filter((label) => label.trim().length > 0)).toHaveLength(49);
 		// A key leaking through would render as the key itself.
 		expect(rendered.filter((label) => label.startsWith('import_refusal_'))).toEqual([]);
 	});
@@ -272,7 +275,7 @@ describe('refusalLabel', () => {
 
 		// Two guards in sequence are indistinguishable to a user when they render the same
 		// sentence, which is the whole reason the contract names them separately.
-		expect(new Set(rendered).size).toBe(48);
+		expect(new Set(rendered).size).toBe(49);
 	});
 
 	it('renders the payload of the five facts whose sentence names a value', () => {
@@ -483,7 +486,7 @@ describe('what a refusal carries, and where the reader sees it (#692)', () => {
 			sentence: kinds.filter((kind) => kind === 'sentence').length,
 			by: kinds.filter((kind) => kind === 'by').length,
 			withheld: kinds.filter((kind) => kind === 'withheld').length
-		}).toEqual({ sentence: 48, by: 24, withheld: 4 });
+		}).toEqual({ sentence: 50, by: 24, withheld: 4 });
 	});
 
 	it('names the currency and no bank, since three producers share the sentence', () => {

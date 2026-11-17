@@ -78,6 +78,29 @@ export interface ResolvedRowsInput {
  * caller at once and no caller's own tests can see it, because they all agree. What that buys is
  * that the blind spot is in ONE place, findable, and fixable once.
  */
+/**
+ * The data rows that carry a DATED AMOUNT: the right width, and a date that reads (a date refused
+ * only for its YEAR, #758, still reads as a calendar date). The rows whose amounts are stored, so
+ * the one population a file-wide fact about those amounts may be decided over: the sign verdict
+ * below and the indicator detector (#1323 pass, F2) both read it, never a copy of it.
+ */
+export function datedAmountRows(
+	rows: ParsedCsvRow[],
+	headers: string[],
+	firstDataRow: 0 | 1,
+	dateColumn: string,
+	dateOrder: DateOrder | undefined
+): ParsedCsvRow[] {
+	return rows.slice(firstDataRow).filter(({ cells }) => {
+		if (cells.length !== headers.length) return false;
+		const reading = readRowDate(
+			[{ column: dateColumn, value: toRecord(headers, cells)[dateColumn] }],
+			dateOrder
+		);
+		return reading.kind !== 'refused' || reading.fact.code === 'date-out-of-range';
+	});
+}
+
 export function parseResolvedRows({
 	rows,
 	headers,
@@ -134,20 +157,10 @@ export function parseResolvedRows({
 	// YEAR (#758) still reads as a calendar date, so its row counts. Applied HERE, before the type
 	// decides categorisation and totals (pass F2).
 	const amountIndex = headers.indexOf(columns.amount);
-	const carriesDatedAmount = (cells: string[]) => {
-		const reading = readRowDate(
-			[{ column: columns.date, value: toRecord(headers, cells)[columns.date] }],
-			dateOrder
-		);
-		return reading.kind !== 'refused' || reading.fact.code === 'date-out-of-range';
-	};
 	const sign = amountSignVerdict(
-		dataRows
-			.filter(
-				(parsedRow) =>
-					parsedRow.cells.length === headers.length && carriesDatedAmount(parsedRow.cells)
-			)
-			.map((parsedRow) => parsedRow.cells[amountIndex] ?? '')
+		datedAmountRows(rows, headers, firstDataRowIndex(hasHeaderRow), columns.date, dateOrder).map(
+			(parsedRow) => parsedRow.cells[amountIndex] ?? ''
+		)
 	);
 	const answeredSign = sign.kind === 'ambiguous' ? amountSign : undefined;
 
