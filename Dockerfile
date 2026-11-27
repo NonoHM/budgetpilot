@@ -176,7 +176,7 @@ COPY src/lib/server/database/provider.ts ./src/lib/server/database/provider.ts
 # Debugging: `docker compose exec budgetpilot sh` no longer exists. Use the same base's
 # debug-nonroot variant locally (`--entrypoint /busybox/sh`), never in production; see
 # docs/operations.md. `docker compose logs budgetpilot` is unchanged.
-FROM gcr.io/distroless/nodejs24-debian13:nonroot@sha256:9fc11f6ee65993285c0fe3c4c9bbc4fd275fd4470572f58834ce490df91056e3 AS runner
+FROM gcr.io/distroless/nodejs24-debian13:nonroot@sha256:675c532423b908f9e56f9d60a4e62309b63cd2a3175acb90a46b96f7ee68e121 AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
