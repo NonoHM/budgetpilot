@@ -6,8 +6,8 @@ import * as m from '$lib/paraglide/messages';
 import { clearPendingDesignation } from '$lib/import/pendingDesignation.svelte';
 
 const navigation = vi.hoisted(() => ({ goto: vi.fn(async () => {}) }));
-vi.mock('$app/navigation', async (importOriginal) => ({
-	...(await importOriginal<typeof import('$app/navigation')>()),
+vi.mock('$app/navigation', async () => ({
+	...(await import('$lib/testing/navigationStub')),
 	goto: navigation.goto
 }));
 

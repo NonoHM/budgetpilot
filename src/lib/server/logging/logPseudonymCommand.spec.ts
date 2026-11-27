@@ -7,6 +7,12 @@ import { env } from '$env/dynamic/private';
 import { SETTINGS } from '$lib/server/env/settings';
 import { logPseudonym, logSubnet } from './pseudonym';
 
+// SvelteKit 3 exports `env` as a read-only module namespace, so a test cannot assign a
+// secret to it. A mutable copy of the real values, seen by the code under test too (#1336).
+vi.mock('$env/dynamic/private', async (importOriginal) => ({
+	env: { ...(await importOriginal<typeof import('$env/dynamic/private')>()).env }
+}));
+
 /**
  * #942: `scripts/log-pseudonym.mjs`, the operator's way back from a log pseudonym. THE PROPERTY is
  * that it prints the value the running app writes into its log, so every expected value below comes

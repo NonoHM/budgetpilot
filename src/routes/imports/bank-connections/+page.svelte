@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { enhance } from '$app/forms';
+	import { enhance } from '$lib/forms/enhance';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { DropdownMenu as Menu } from 'bits-ui';
@@ -628,7 +628,7 @@
 											resolve(
 												`/imports/bank-connections?country=${value}` as `/imports/bank-connections?${string}`
 											),
-											{ keepFocus: true, noScroll: true }
+											{ reset: false }
 										);
 									}}
 								/>

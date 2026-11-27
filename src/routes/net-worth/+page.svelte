@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { enhance } from '$app/forms';
+	import { enhance } from '$lib/forms/enhance';
 	import { formatCents } from '$lib/domain/budget';
 	import {
 		computeNetWorthTotal,

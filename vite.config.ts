@@ -1,10 +1,14 @@
 import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import tailwindcss from '@tailwindcss/vite';
 import { defineConfig } from 'vitest/config';
 import { loadEnv } from 'vite';
 import { playwright } from '@vitest/browser-playwright';
 import { sveltekit } from '@sveltejs/kit/vite';
 import { paraglideVitePlugin } from '@inlang/paraglide-js';
+import kitConfig from './kit.config.js';
+import { keepKitOutDirPrivate } from './src/lib/server/env/privateKitDir';
+import { DEV_SERVER_FS_DENY } from './src/lib/server/env/devServerDeny';
 
 // `vite dev` loads .env into $env/dynamic/private but NEVER into process.env, so every
 // module reading process.env directly (areSecureCookiesEnabled, isLocalLlmEnabled's
@@ -42,12 +46,16 @@ const APP_VERSION = (
 
 export default defineConfig(({ mode }) => {
 	loadDotEnvIntoProcessEnv(mode);
+	// Before any plugin runs: kit writes declared secrets under its output directory (#1336).
+	keepKitOutDirPrivate(fileURLToPath(new URL('./.svelte-kit', import.meta.url)));
 
 	return {
 		define: { __APP_VERSION__: JSON.stringify(APP_VERSION) },
+		// The dev server served SvelteKit's generated env file, secrets included, to any local request.
+		server: { fs: { deny: DEV_SERVER_FS_DENY } },
 		plugins: [
 			tailwindcss(),
-			sveltekit(),
+			sveltekit(kitConfig),
 			paraglideVitePlugin({
 				project: './project.inlang',
 				outdir: './src/lib/paraglide',

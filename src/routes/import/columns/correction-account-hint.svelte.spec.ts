@@ -8,8 +8,8 @@ import {
 } from '$lib/import/pendingDesignation.svelte';
 import type { DesignationFile, RoleAssignment } from '$lib/domain/columnDesignation';
 
-vi.mock('$app/navigation', async (importOriginal) => ({
-	...(await importOriginal<typeof import('$app/navigation')>()),
+vi.mock('$app/navigation', async () => ({
+	...(await import('$lib/testing/navigationStub')),
 	goto: vi.fn(async () => {})
 }));
 

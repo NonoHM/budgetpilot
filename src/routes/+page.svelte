@@ -6,7 +6,7 @@
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { navigating } from '$app/state';
-	import { enhance } from '$app/forms';
+	import { enhance } from '$lib/forms/enhance';
 	import Modal from '$lib/components/Modal.svelte';
 	import AlertBanner from '$lib/components/AlertBanner.svelte';
 	import Button from '$lib/components/Button.svelte';

@@ -11,7 +11,7 @@
 	class="inline-flex items-center gap-2.5 text-2xl font-semibold tracking-tight text-zinc-950"
 	href={resolve('/')}
 	><img
-		src={asset('/brand/symbol-light.svg')}
+		src={asset('brand/symbol-light.svg')}
 		alt=""
 		width="23"
 		height="26"

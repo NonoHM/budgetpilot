@@ -28,8 +28,9 @@
 	import { getLocale } from '$lib/paraglide/runtime';
 	import { refusalLabel, scopeLabel } from '$lib/i18n/refusalLabel';
 	import { goto } from '$app/navigation';
-	import { applyAction, deserialize, enhance } from '$app/forms';
-	import type { SubmitFunction } from '@sveltejs/kit';
+	import { applyAction, deserialize } from '$app/forms';
+	import { enhance } from '$lib/forms/enhance';
+	import type { SubmitFunction } from '$app/forms';
 	import DuplicateStatementDialog from '$lib/components/import/DuplicateStatementDialog.svelte';
 	import AccountColumnDialog from '$lib/components/import/AccountColumnDialog.svelte';
 	import type {

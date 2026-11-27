@@ -18,8 +18,8 @@ import type { DesignationFile, RoleAssignment } from '$lib/domain/columnDesignat
 // it partially fails the IMPORT rather than an assertion, with "does not provide an export named
 // invalidateAll" from a component that has nothing to do with this test.
 const navigation = vi.hoisted(() => ({ goto: vi.fn(async () => {}) }));
-vi.mock('$app/navigation', async (importOriginal) => ({
-	...(await importOriginal<typeof import('$app/navigation')>()),
+vi.mock('$app/navigation', async () => ({
+	...(await import('$lib/testing/navigationStub')),
 	goto: navigation.goto
 }));
 

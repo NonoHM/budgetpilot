@@ -59,11 +59,11 @@ COPY . .
 # future refactor dropped a COPY step.
 #
 # `svelte-kit sync` first, and it is not optional here. The `prisma-client` generator emits
-# TypeScript and reads tsconfig.json to do it; this repo's tsconfig.json extends
-# ./.svelte-kit/tsconfig.json, which only exists once SvelteKit has synced. Locally and in CI it
-# is already there (npm's `prepare` script runs it during `npm ci`), but this stage installs
+# TypeScript and reads tsconfig.json to do it; this repo's tsconfig.json extends `$app/tsconfig`,
+# which SvelteKit 3 writes to node_modules/$app/tsconfig.json only when it syncs. Locally and in CI
+# it is already there (npm's `prepare` script runs it during `npm ci`), but this stage installs
 # nothing — it copies node_modules from `deps` — so nothing has created it yet, and
-# `prisma generate` fails with "File './.svelte-kit/tsconfig.json' not found."
+# `prisma generate` fails to find the config tsconfig.json extends.
 RUN npx svelte-kit sync \
 	&& npm run db:generate
 

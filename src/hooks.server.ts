@@ -1,6 +1,11 @@
-import { redirect, type Handle, type HandleServerError, type ServerInit } from '@sveltejs/kit';
-import { building, dev } from '$app/environment';
-import { sequence } from '@sveltejs/kit/hooks';
+import { redirect } from '@sveltejs/kit';
+import { building, dev } from '$app/env';
+import {
+	sequence,
+	type Handle,
+	type HandleServerError,
+	type ServerInit
+} from '@sveltejs/kit/hooks';
 import { paraglideMiddleware } from '$lib/paraglide/server';
 import {
 	areSecureCookiesEnabled,
@@ -180,7 +185,9 @@ export function escapeHtmlAttribute(value: string): string {
 // getLocale() never leaks from one concurrent request to another.
 const handleParaglide: Handle = ({ event, resolve }) =>
 	paraglideMiddleware(event.request, async ({ request, locale }) => {
-		event.request = request;
+		// SvelteKit 3 types `request` readonly; at run time it is a plain property, so this keeps 2.x
+		// behaviour (#1336). With this app's strategies Paraglide hands back a clone at the same URL.
+		(event as { request: Request }).request = request;
 		const response = await resolve(event, {
 			transformPageChunk: ({ html }) =>
 				html
@@ -263,7 +270,7 @@ export const handleAuth: Handle = async ({ event, resolve }) => {
 	return resolve(event);
 };
 
-// Headers not covered by kit.csp (svelte.config.js): frame-ancestors there already blocks
+// Headers not covered by `csp` (kit.config.js): frame-ancestors there already blocks
 // framing per CSP, X-Frame-Options is a defense-in-depth duplicate for older browsers.
 // HSTS is conditioned on areSecureCookiesEnabled() (same fail-safe signal as the Secure
 // cookie flag): sending it over a plain-HTTP local/LAN deployment would be actively harmful
@@ -311,7 +318,12 @@ export const handleDoubleSlash: Handle = ({ event, resolve }) => {
  * path is never written, because it is the one part of a request a visitor types freely. The message
  * returned is SvelteKit's own generic one, never the error's (`v5.0.0-16.5.1`).
  */
-export const handleError: HandleServerError = ({ error, status, message }) => {
+export const handleError: HandleServerError = ({ kind, error }) => {
+	// SvelteKit 3 also calls this for an `error()` the app threw (`app`), and merges what it returns
+	// over that body. SvelteKit 2 never called it there, so those keep their message and write no
+	// line; remote-function validation (`validation`) is not used here (#1336).
+	if (kind === 'app' || kind === 'validation') return;
+	const status = kind === 'framework' ? error.status : 500;
 	const errorId = requestErrorId() ?? crypto.randomUUID();
 	if (status === 404) {
 		log({
@@ -321,10 +333,17 @@ export const handleError: HandleServerError = ({ error, status, message }) => {
 	} else {
 		log({
 			event: E.requestFailed,
-			attributes: { ...errorFields(error), [A.httpStatus]: status, [A.errorId]: errorId }
+			attributes: {
+				// SvelteKit 2 passed its own errors as a `SvelteKitError`, an `Error` under that name;
+				// SvelteKit 3 passes a plain `{ status, message }`, which would log as `object`.
+				...errorFields(kind === 'framework' ? new Error() : error),
+				[A.httpStatus]: status,
+				[A.errorId]: errorId
+			}
 		});
 	}
-	return { message, errorId };
+	// Only what this adds: kit keeps its own status and generic message, never the error's.
+	return { errorId };
 };
 
 // The log context first, before `handleAuth`, so every line a request writes carries its id

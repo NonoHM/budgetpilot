@@ -1,6 +1,7 @@
 import { page, userEvent } from 'vitest/browser';
 import { describe, it, expect, vi } from 'vitest';
 import { render } from 'vitest-browser-svelte';
+import { unreachableAnswer } from '$lib/testing/actionAnswers';
 import '../layout.css';
 import Page from './+page.svelte';
 import type { ActionData, PageData } from './$types';
@@ -15,8 +16,8 @@ import * as m from '$lib/paraglide/messages';
 // counted without a router. Spread from the original so `beforeNavigate` and `goto` keep working —
 // a bare factory would replace the module and the page would fail to mount for an unrelated reason.
 const invalidateAll = vi.fn();
-vi.mock('$app/navigation', async (importOriginal) => ({
-	...(await importOriginal<typeof import('$app/navigation')>()),
+vi.mock('$app/navigation', async () => ({
+	...(await import('$lib/testing/navigationStub')),
 	invalidateAll: () => invalidateAll()
 }));
 
@@ -381,7 +382,8 @@ describe('the states after a write (1i)', () => {
 		expect(save.getAttribute('aria-disabled')).not.toBe('true');
 
 		const realFetch = window.fetch;
-		window.fetch = (() => Promise.reject(new TypeError('Failed to fetch'))) as typeof window.fetch;
+		// No network: what SvelteKit 3 hands the page for it, sent as the answer (#1336).
+		window.fetch = (async () => unreachableAnswer()) as typeof window.fetch;
 		try {
 			save.click();
 
@@ -463,7 +465,8 @@ describe('the states after a write (1i)', () => {
 		expect(save.getAttribute('aria-disabled')).not.toBe('true');
 
 		const realFetch = window.fetch;
-		window.fetch = (() => Promise.reject(new TypeError('Failed to fetch'))) as typeof window.fetch;
+		// No network: what SvelteKit 3 hands the page for it, sent as the answer (#1336).
+		window.fetch = (async () => unreachableAnswer()) as typeof window.fetch;
 		try {
 			save.click();
 			await expect
@@ -515,7 +518,8 @@ describe('the states after a write (1i)', () => {
 		) as HTMLButtonElement;
 
 		const realFetch = window.fetch;
-		window.fetch = (() => Promise.reject(new TypeError('Failed to fetch'))) as typeof window.fetch;
+		// No network: what SvelteKit 3 hands the page for it, sent as the answer (#1336).
+		window.fetch = (async () => unreachableAnswer()) as typeof window.fetch;
 		try {
 			save.click();
 			// Present, on the transaction it belongs to.

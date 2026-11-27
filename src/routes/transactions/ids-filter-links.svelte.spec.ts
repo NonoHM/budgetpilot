@@ -9,8 +9,8 @@ import { TRANSACTION_NATURES, type TransactionNature } from '$lib/domain/transac
 const goto = vi.hoisted(() => vi.fn());
 // Spread the real module rather than replacing it: `$app/forms`' enhance imports `invalidateAll`
 // from here, so a bare `{ goto }` factory fails the whole file at import time.
-vi.mock('$app/navigation', async (importOriginal) => ({
-	...(await importOriginal<typeof import('$app/navigation')>()),
+vi.mock('$app/navigation', async () => ({
+	...(await import('$lib/testing/navigationStub')),
 	goto
 }));
 

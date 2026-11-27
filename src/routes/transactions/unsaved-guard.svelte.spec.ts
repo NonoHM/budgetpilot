@@ -35,8 +35,8 @@ const goto = vi.hoisted(() => vi.fn());
 const beforeNavigateCallbacks = vi.hoisted(() => [] as Array<(nav: unknown) => void>);
 // Spread the real module rather than replacing it: `$app/forms`' enhance imports `invalidateAll`
 // from here, so a bare factory fails the whole file at import time.
-vi.mock('$app/navigation', async (importOriginal) => ({
-	...(await importOriginal<typeof import('$app/navigation')>()),
+vi.mock('$app/navigation', async () => ({
+	...(await import('$lib/testing/navigationStub')),
 	goto,
 	beforeNavigate: (cb: (nav: unknown) => void) => {
 		beforeNavigateCallbacks.push(cb);
@@ -219,12 +219,37 @@ describe('unsaved-changes guard', () => {
 		const { container } = await render(Page, { data: baseData(), form: null });
 		await makeDirty(container);
 		const target = new URL('https://example.test/budgets?month=2026-06');
-		fireNavigate(navigation({ to: { url: target } }));
+		fireNavigate(
+			navigation({
+				from: { url: new URL('https://example.test/transactions') },
+				to: { url: target }
+			})
+		);
 
 		await userEvent.click(page.getByRole('button', { name: m.transactions_unsaved_discard() }));
 		// The URL, in full. Replaying "/budgets" instead of the captured target would drop whatever
-		// the user actually clicked — a month, a filter, an anchor.
-		expect(goto).toHaveBeenCalledWith(target, { noScroll: true });
+		// the user actually clicked — a month, a filter, an anchor. Another page takes SvelteKit's
+		// default reset of focus and scroll, so a screen reader announces it (#1336).
+		expect(goto).toHaveBeenCalledWith(target, undefined);
+	});
+
+	// SvelteKit 3 has one `reset` for focus and scroll together, where 2 had `noScroll` alone (#1336).
+	// SEPARATES: a filter change on this page keeps the reader's place, from one that resets it.
+	it('"Abandonner" on a filter change keeps the place on this page', async () => {
+		expect.assertions(3);
+		await page.viewport(1280, 800);
+		const { container } = await render(Page, { data: baseData(), form: null });
+		await makeDirty(container);
+		const target = new URL('https://example.test/transactions?category=cat-1');
+		fireNavigate(
+			navigation({
+				from: { url: new URL('https://example.test/transactions') },
+				to: { url: target }
+			})
+		);
+
+		await userEvent.click(page.getByRole('button', { name: m.transactions_unsaved_discard() }));
+		expect(goto).toHaveBeenCalledWith(target, { reset: false });
 	});
 
 	it('a tab close is cancelled but raises no dialog of ours', async () => {

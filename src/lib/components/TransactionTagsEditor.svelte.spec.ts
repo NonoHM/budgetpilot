@@ -4,7 +4,7 @@ import { render } from 'vitest-browser-svelte';
 import '../../routes/layout.css';
 import TransactionTagsEditor from './TransactionTagsEditor.svelte';
 import type { ComponentProps } from 'svelte';
-import type { SubmitFunction } from '@sveltejs/kit';
+import type { SubmitFunction } from '$app/forms';
 import * as m from '$lib/paraglide/messages';
 import { MAX_TAGS_PER_TRANSACTION } from '$lib/domain/tags';
 

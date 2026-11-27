@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
-	import { enhance } from '$app/forms';
-	import type { SubmitFunction } from '@sveltejs/kit';
+	import { enhance } from '$lib/forms/enhance';
+	import type { SubmitFunction } from '$app/forms';
 	import Button from './Button.svelte';
 	import TagPicker from './ui/TagPicker.svelte';
 	import AlertBanner from './AlertBanner.svelte';

@@ -13,8 +13,8 @@ import type { DesignationFile, RoleAssignment } from '$lib/domain/columnDesignat
 // in `$app/navigation`, and without the mock the failure arrives as a broken IMPORT rather than as
 // an assertion.
 const navigation = vi.hoisted(() => ({ goto: vi.fn(async () => {}) }));
-vi.mock('$app/navigation', async (importOriginal) => ({
-	...(await importOriginal<typeof import('$app/navigation')>()),
+vi.mock('$app/navigation', async () => ({
+	...(await import('$lib/testing/navigationStub')),
 	goto: navigation.goto
 }));
 

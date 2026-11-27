@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { enhance } from '$app/forms';
+	import { enhance } from '$lib/forms/enhance';
 	import { beforeNavigate, goto, invalidateAll } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { navigating } from '$app/state';
@@ -16,7 +16,7 @@
 	import { buildTransactionsHref, buildTransactionsExportHref, filterHiddenInputs } from './hrefs';
 	import { splitSaveFailureMessage } from './split-save-failure';
 	import { normalizeForMatch } from '$lib/domain/normalize';
-	import type { SubmitFunction } from '@sveltejs/kit';
+	import type { SubmitFunction } from '$app/forms';
 	import type { ActionData, PageData } from './$types';
 	import Button from '$lib/components/Button.svelte';
 	import Modal from '$lib/components/Modal.svelte';
@@ -194,7 +194,7 @@
 	$effect(() => {
 		if (focusOpen && focusRemainingIds.length === 0) {
 			focusOpen = false;
-			goto(resolve(buildFilterHref('classify')), { keepFocus: true, noScroll: true });
+			goto(resolve(buildFilterHref('classify')), { reset: false });
 		}
 	});
 
@@ -224,10 +224,10 @@
 		const handled = new Set([...resolvedIds, ...ignoredIds]);
 		const nextId = getAdjacentFocusStackId(focusStackIds, handled, transactionId, 'next');
 		if (nextId) {
-			goto(resolve(buildSelectedHref(nextId)), { keepFocus: true, noScroll: true });
+			goto(resolve(buildSelectedHref(nextId)), { reset: false });
 		} else {
 			focusOpen = false;
-			goto(resolve(buildFilterHref('classify')), { keepFocus: true, noScroll: true });
+			goto(resolve(buildFilterHref('classify')), { reset: false });
 		}
 	}
 
@@ -239,7 +239,7 @@
 		if (!firstId) return;
 		focusStackIds = data.classifyStackIds;
 		focusOpen = true;
-		goto(resolve(buildFocusHref(firstId)), { keepFocus: true, noScroll: true });
+		goto(resolve(buildFocusHref(firstId)), { reset: false });
 	}
 
 	function closeFocusMode() {
@@ -470,6 +470,8 @@
 	// caught by the very guard that asked the question and the dialog would reopen forever.
 	let bypassUnsavedGuard = $state(false);
 	let pendingNavigation = $state<URL | null>(null);
+	// Whether the cancelled navigation stays on this page (a filter, a month) or leaves it.
+	let pendingStaysHere = false;
 
 	beforeNavigate((nav) => {
 		if (!hasUnsavedChanges || bypassUnsavedGuard) return;
@@ -491,6 +493,7 @@
 		//     on that premise would go red for the wrong reason.
 		if (nav.willUnload) return;
 		pendingNavigation = nav.to?.url ?? null;
+		pendingStaysHere = nav.from?.url.pathname === nav.to?.url.pathname;
 	});
 
 	function keepEditing() {
@@ -505,8 +508,11 @@
 		try {
 			// `target` is the URL SvelteKit itself produced for the navigation it just handed us, so
 			// it is already resolved; `resolve()` takes a route id and would not even type-check here.
+			// Another page takes SvelteKit's default reset of focus and scroll, so a screen reader
+			// announces it; this page keeps the reader's place, as `noScroll` did before SvelteKit 3,
+			// which has one `reset` for both (#1336).
 			// eslint-disable-next-line svelte/no-navigation-without-resolve
-			await goto(target, { noScroll: true });
+			await goto(target, pendingStaysHere ? { reset: false } : undefined);
 		} finally {
 			// In a `finally`, so a rejected navigation (an offline load, a server error) cannot leave
 			// the guard permanently switched off — which would silently disarm it for the rest of the
@@ -615,8 +621,7 @@
 	/** Clears the tag filter, keeping every other one. */
 	function clearTagFilter() {
 		goto(resolve(buildTransactionsHref({ ...data.filters, tag: '' }, {}, { keepIds: false })), {
-			keepFocus: true,
-			noScroll: true
+			reset: false
 		});
 	}
 
@@ -650,7 +655,7 @@
 	 * control holding the value. `data.filters` is the server's own view of the filter, so this
 	 * cannot drift from what produced the current page.
 	 *
-	 * `keepFocus` matters and is not decoration. SvelteKit's router blurs the active element and
+	 * `reset: false` (`keepFocus` before SvelteKit 3) matters and is not decoration. SvelteKit's router blurs the active element and
 	 * calls reset_focus() after a client-side navigation, which would throw focus to the body right
 	 * after a selection and undo the focus-return the dropdown just performed. The same flag is why
 	 * the period arrows on /upcoming-bills stopped stealing focus.
@@ -663,8 +668,7 @@
 		split?: string;
 	}) {
 		goto(resolve(buildTransactionsHref({ ...data.filters, ...patch }, {}, { keepIds: false })), {
-			keepFocus: true,
-			noScroll: true
+			reset: false
 		});
 	}
 
@@ -1306,7 +1310,7 @@
 	 */
 	async function closeDetail() {
 		const id = data.selectedTransaction?.id;
-		await goto(resolve(buildDeselectedHref()), { noScroll: true });
+		await goto(resolve(buildDeselectedHref()), { reset: false });
 		if (!id || deleteConfirmOpen) return;
 		// Both surfaces are MOUNTED at every breakpoint and only hidden by CSS, so "the desktop one
 		// first" is wrong: on a phone it exists, is `display: none`, and swallows the focus silently.
@@ -3265,7 +3269,7 @@
 							<a
 								href={resolve(buildDeselectedHref())}
 								aria-label={m.transactions_detail_close_aria()}
-								data-sveltekit-noscroll
+								data-sveltekit-reset="false"
 								onclick={(event) => {
 									// The href is what survives with JS off and what a middle-click uses; the handler
 									// exists only so focus can be put back on the row afterwards, which a plain link
@@ -4725,12 +4729,10 @@
 	acceptError={form?.acceptError}
 	onClose={closeFocusMode}
 	onPrevious={() => {
-		if (focusPreviousId)
-			goto(resolve(buildSelectedHref(focusPreviousId)), { keepFocus: true, noScroll: true });
+		if (focusPreviousId) goto(resolve(buildSelectedHref(focusPreviousId)), { reset: false });
 	}}
 	onNext={() => {
-		if (focusNextId)
-			goto(resolve(buildSelectedHref(focusNextId)), { keepFocus: true, noScroll: true });
+		if (focusNextId) goto(resolve(buildSelectedHref(focusNextId)), { reset: false });
 	}}
 	onAccepted={handleAccepted}
 	onRefused={refreshAfterRefusedAccept}

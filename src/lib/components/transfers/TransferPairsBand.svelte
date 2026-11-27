@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { enhance } from '$app/forms';
+	import { enhance } from '$lib/forms/enhance';
 	import Button from '$lib/components/Button.svelte';
 	import Tooltip from '$lib/components/ui/Tooltip.svelte';
 	import { cardBase } from '$lib/styles';

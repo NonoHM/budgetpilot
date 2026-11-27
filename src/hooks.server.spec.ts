@@ -328,7 +328,7 @@ describe('hooks auth: session.invalid (L3)', () => {
 //     (@sveltejs/kit/src/runtime/server/page/render.js sets `content-type: text/html` with no
 //     charset parameter). No direct call to this hook can observe it, which is why that row
 //     is asserted against a built server in e2e/security-headers.spec.ts instead.
-//   - The CSP header is produced by SvelteKit from svelte.config.js, not here. Its directives
+//   - The CSP header is produced by SvelteKit from kit.config.js, not here. Its directives
 //     are pinned in the 'CSP directives' block below and its EMISSION in the same e2e spec.
 //   - Cookie attributes (v5.0.0-3.3.1 through 3.3.4) are set by the functions that create the
 //     cookies, and are pinned beside them: src/lib/server/auth.spec.ts for the session cookie,
@@ -457,7 +457,7 @@ describe('hooks handleSecurityHeaders', () => {
 
 // ASVS 5.0 response-header contract, part two: the CSP DIRECTIVES.
 //
-// The policy is declared in svelte.config.js and emitted by SvelteKit's renderer, so it is
+// The policy is declared in kit.config.js and emitted by SvelteKit's renderer, so it is
 // reachable from neither handleSecurityHeaders nor any route. This block asserts the declared
 // directives; e2e/security-headers.spec.ts asserts that a real response carries them.
 //
@@ -466,12 +466,12 @@ describe('hooks handleSecurityHeaders', () => {
 // `mode`, a framework upgrade, a route that overwrites the header); a response assertion can
 // only see the deployment mode the harness happens to run in. So: this block is the value, the
 // e2e spec is the emission, and a failure names which of the two moved.
-describe('CSP directives (svelte.config.js)', () => {
+describe('CSP directives (kit.config.js)', () => {
 	it('v5.0.0-3.4.3: is nonce-based, with object-src none and no unsafe-inline in script-src or style-src', async () => {
 		expect.assertions(6);
 
-		const { default: config } = await import('../svelte.config.js');
-		const csp = config.kit?.csp;
+		const { default: config } = await import('../kit.config.js');
+		const csp = config.csp;
 
 		// 'auto' is what makes it nonce-based on every dynamically rendered page, which is the
 		// alternative the requirement offers to an allowlist. Losing it would leave the
@@ -487,15 +487,15 @@ describe('CSP directives (svelte.config.js)', () => {
 	// Asserted POSITIVELY, on purpose. `style-src-attr: 'unsafe-inline'` is a deliberate,
 	// documented exception (SvelteKit's own announcer element and bits-ui's visually-hidden
 	// helpers carry inline style attributes), and the reasoning sits next to it in
-	// svelte.config.js. Left unasserted, a future reader sweeping for `unsafe-inline` reads it
+	// kit.config.js. Left unasserted, a future reader sweeping for `unsafe-inline` reads it
 	// as the regression the test above forbids and removes it. Pinning it states that its
 	// presence is a decision, and pins its SCOPE: an inline style attribute is permitted, a
 	// <style> block and an inline <script> are not.
 	it('v5.0.0-3.4.3: permits inline style ATTRIBUTES only, through style-src-attr, deliberately', async () => {
 		expect.assertions(2);
 
-		const { default: config } = await import('../svelte.config.js');
-		const directives = config.kit?.csp?.directives;
+		const { default: config } = await import('../kit.config.js');
+		const directives = config.csp?.directives;
 
 		expect(directives?.['style-src-attr']).toEqual(['unsafe-inline']);
 		// The scope claim: nothing else in the policy carries the same escape hatch.
@@ -509,9 +509,9 @@ describe('CSP directives (svelte.config.js)', () => {
 	it('v5.0.0-3.4.6: denies framing by default through frame-ancestors none', async () => {
 		expect.assertions(1);
 
-		const { default: config } = await import('../svelte.config.js');
+		const { default: config } = await import('../kit.config.js');
 
-		expect(config.kit?.csp?.directives?.['frame-ancestors']).toEqual(['none']);
+		expect(config.csp?.directives?.['frame-ancestors']).toEqual(['none']);
 	});
 
 	// DEVIATION FROM THE REQUIREMENT TEXT, pinned rather than corrected here, because correcting
@@ -525,9 +525,9 @@ describe('CSP directives (svelte.config.js)', () => {
 	it('v5.0.0-3.4.3: sends base-uri self, which is NOT the none the requirement names', async () => {
 		expect.assertions(1);
 
-		const { default: config } = await import('../svelte.config.js');
+		const { default: config } = await import('../kit.config.js');
 
-		expect(config.kit?.csp?.directives?.['base-uri']).toEqual(['self']);
+		expect(config.csp?.directives?.['base-uri']).toEqual(['self']);
 	});
 });
 
@@ -965,6 +965,11 @@ describe('escapeHtmlAttribute', () => {
  */
 describe('handleError', () => {
 	const MARKER = 'L0MRK7c41q';
+	const postEvent = () =>
+		({
+			...buildEvent('/categories', undefined),
+			request: new Request('http://localhost/categories', { method: 'POST' })
+		}) as never;
 
 	it('logs status, an error id and the class and code, and returns the id', async () => {
 		const { handleError } = await import('./hooks.server');
@@ -974,20 +979,12 @@ describe('handleError', () => {
 			clientVersion: '7'
 		});
 
-		const returned = await handleError({
-			error: caught,
-			event: {
-				...buildEvent('/categories', undefined),
-				request: new Request('http://localhost/categories', { method: 'POST' })
-			} as never,
-			status: 500,
-			message: 'Internal Error'
-		});
+		// SvelteKit 3's input: `kind` and `error`, no `status` or `message` (#1336). The return is
+		// merged over kit's own body, so it carries only what it adds: a `message` key, even
+		// undefined, would replace kit's « Internal Error ».
+		const returned = await handleError({ kind: 'unknown', error: caught, event: postEvent() });
 
-		expect(returned).toEqual({
-			message: 'Internal Error',
-			errorId: expect.stringMatching(/^[0-9a-f-]{36}$/)
-		});
+		expect(returned).toEqual({ errorId: expect.stringMatching(/^[0-9a-f-]{36}$/) });
 		const errorId = (returned as { errorId: string }).errorId;
 		// The whole event: a fragment assertion would pass over the message riding along after the
 		// code, and over the path, which is no longer written.
@@ -1002,6 +999,64 @@ describe('handleError', () => {
 				}
 			}
 		]);
+	});
+
+	// SvelteKit 2 called the hook for kit's own errors, a 404 among them, and wrote request.not_found
+	// for it. SvelteKit 3 hands the status inside `error`, so a hook reading the old `status`
+	// argument files every 404 as request.failed.
+	it('writes request.not_found for kit 3 framework 404, with an id and nothing else', async () => {
+		const { handleError } = await import('./hooks.server');
+
+		const returned = await handleError({
+			kind: 'framework',
+			error: { status: 404, message: 'Not Found' },
+			event: postEvent()
+		});
+
+		const errorId = (returned as { errorId: string }).errorId;
+		expect(returned).toEqual({ errorId: expect.stringMatching(/^[0-9a-f-]{36}$/) });
+		expect(logged).toEqual([
+			{ event: E.requestNotFound, attributes: { [A.httpStatus]: 404, [A.errorId]: errorId } }
+		]);
+	});
+
+	// Any other framework error (405, 413...) keeps request.failed at its own status.
+	it('writes request.failed at the framework status for a framework error that is not a 404', async () => {
+		const { handleError } = await import('./hooks.server');
+
+		const returned = await handleError({
+			kind: 'framework',
+			error: { status: 405, message: 'Method Not Allowed' },
+			event: postEvent()
+		});
+
+		// `Error` is what SvelteKit 2's `SvelteKitError` logged as: a name it never set.
+		expect(logged).toEqual([
+			{
+				event: E.requestFailed,
+				attributes: {
+					[A.errorType]: 'Error',
+					[A.httpStatus]: 405,
+					[A.errorId]: (returned as { errorId: string }).errorId
+				}
+			}
+		]);
+	});
+
+	// SvelteKit 2 never called the hook for an `error(status, message)` the app threw, so it logged
+	// nothing and the page showed the app's message. SvelteKit 3 calls it and merges the return over
+	// the body: anything returned here would replace that message on the page.
+	it('leaves an expected error alone: no line, nothing returned', async () => {
+		const { handleError } = await import('./hooks.server');
+
+		const returned = await handleError({
+			kind: 'app',
+			error: { status: 403, message: 'Not yours' },
+			event: postEvent()
+		});
+
+		expect(returned).toBeUndefined();
+		expect(logged).toEqual([]);
 	});
 });
 

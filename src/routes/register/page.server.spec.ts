@@ -1395,7 +1395,8 @@ describe('L4a: authorization events on /register', () => {
 
 		const answer = await loadAs(MEMBER);
 		expect({ answer, logged }).toEqual({
-			answer: { status: 403, body: { message: m.register_error_admin_only() } },
+			// SvelteKit 3 adds the status to an error body (#1336).
+			answer: { status: 403, body: { message: m.register_error_admin_only(), status: 403 } },
 			logged: [
 				{
 					event: EVENT.authzFail,

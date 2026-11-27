@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { enhance } from '$app/forms';
+	import { enhance } from '$lib/forms/enhance';
 	import { formatCents, formatBudgetDelta } from '$lib/domain/budget';
 	import { widthClass } from '$lib/domain/widthClass';
 	import { categoryDisplayName } from '$lib/domain/categoryLabels';
