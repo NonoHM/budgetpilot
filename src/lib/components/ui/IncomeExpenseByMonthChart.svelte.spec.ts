@@ -35,12 +35,13 @@ describe('IncomeExpenseByMonthChart', () => {
 	// Separates « the sentence sums the twelve whole months » from « it also sums the month in progress ».
 	it('states the twelve whole months, and how many of them spent beyond income', async () => {
 		render(IncomeExpenseByMonthChart, { months });
-		const caption = page.getByRole('figure').locator('figcaption');
-		await expect.element(caption).toBeInTheDocument();
+		const figure = page.getByRole('figure');
+		await expect.element(figure).toBeInTheDocument();
+		const caption = figure.element().querySelector('figcaption');
 		// Equality, not a substring: a doubled or truncated tail must fail. Whitespace is collapsed on
 		// both sides because formatCents writes narrow no-break spaces.
 		const collapse = (text: string) => text.replace(/\s+/g, ' ').trim();
-		expect(collapse(caption.element().textContent ?? '')).toBe(
+		expect(collapse(caption?.textContent ?? '')).toBe(
 			collapse(
 				`12 mois complets : ${formatCents(300_000)} entrés, ${formatCents(280_000)} sortis. Mois où les dépenses dépassent les revenus : 1.`
 			)

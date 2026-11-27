@@ -148,7 +148,8 @@ describe('/reports load', () => {
 			};
 		};
 
-		expect(db.prisma.transaction.findMany).toHaveBeenCalledTimes(1);
+		// The period read, then #418's thirteen-month read, last in the load's Promise.all.
+		expect(db.prisma.transaction.findMany).toHaveBeenCalledTimes(2);
 		expect(db.prisma.transaction.findMany).toHaveBeenCalledWith(
 			expect.objectContaining({
 				where: {
@@ -197,9 +198,10 @@ describe('/reports load', () => {
 			report: { expenseAveragePerDayCents: number; previousMonth?: unknown };
 		};
 
-		// No comparison period for all-time → a single transaction query, floored at the first storable
-		// day (#758): the epoch floor dropped every row from 1000 to 1969 out of the totals.
-		expect(db.prisma.transaction.findMany).toHaveBeenCalledTimes(1);
+		// No comparison period for all-time → one period query (the first call), floored at the first
+		// storable day (#758): the epoch floor dropped every row from 1000 to 1969 out of the totals. The
+		// second call is #418's thirteen-month read.
+		expect(db.prisma.transaction.findMany).toHaveBeenCalledTimes(2);
 		expect(db.prisma.transaction.findMany.mock.calls[0][0].where.date.gte).toEqual(
 			new Date('1000-01-01T00:00:00.000Z')
 		);
