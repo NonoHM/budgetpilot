@@ -35,11 +35,16 @@ describe('IncomeExpenseByMonthChart', () => {
 	// Separates « the sentence sums the twelve whole months » from « it also sums the month in progress ».
 	it('states the twelve whole months, and how many of them spent beyond income', async () => {
 		render(IncomeExpenseByMonthChart, { months });
-		await expect
-			.element(page.getByRole('figure').locator('figcaption'))
-			.toHaveTextContent(
-				`Sur les 12 derniers mois complets, ${formatCents(300_000)} sont entrés et ${formatCents(280_000)} sont sortis. Les dépenses ont dépassé les revenus sur 1 d’entre eux.`
-			);
+		const caption = page.getByRole('figure').locator('figcaption');
+		await expect.element(caption).toBeInTheDocument();
+		// Equality, not a substring: a doubled or truncated tail must fail. Whitespace is collapsed on
+		// both sides because formatCents writes narrow no-break spaces.
+		const collapse = (text: string) => text.replace(/\s+/g, ' ').trim();
+		expect(collapse(caption.element().textContent ?? '')).toBe(
+			collapse(
+				`12 mois complets : ${formatCents(300_000)} entrés, ${formatCents(280_000)} sortis. Mois où les dépenses dépassent les revenus : 1.`
+			)
+		);
 	});
 
 	// Separates « a month opens its own rows, every kind » from « a type filter that can disagree
@@ -57,7 +62,12 @@ describe('IncomeExpenseByMonthChart', () => {
 		const rows = page.getByRole('table').getByRole('row');
 		// One header row plus thirteen months.
 		expect(rows.elements()).toHaveLength(14);
-		await expect.element(rows.nth(1)).toHaveTextContent(/janv\. 2026 · en cours/);
+		const header = rows.nth(1).getByRole('rowheader');
+		await expect.element(header).toBeInTheDocument();
+		const text = (header.element().textContent ?? '').replace(/\s+/g, ' ').trim();
+		expect([...text].map((char) => char.codePointAt(0)!.toString(16))).toEqual(
+			[...'janv. 2026 · en cours'].map((char) => char.codePointAt(0)!.toString(16))
+		);
 	});
 
 	it('says there is nothing to show when the thirteen months are empty', async () => {

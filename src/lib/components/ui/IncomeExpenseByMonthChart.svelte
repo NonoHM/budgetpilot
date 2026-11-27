@@ -12,7 +12,10 @@
 	const INCOME_FILL = '#10b981';
 	const EXPENSE_FILL = '#be123c';
 
-	const WIDTH = 600;
+	// Drawn at the container's own width, so the bars keep their 160 px height at 390 rather than
+	// shrinking with a fixed-ratio viewBox. 600 until the first measure (server render).
+	let measured = $state(0);
+	const WIDTH = $derived(measured || 600);
 	const HEIGHT = 160;
 	const TOP = 4;
 	const BAR_GAP = 2;
@@ -81,7 +84,7 @@
 			</span>
 		</div>
 
-		<div class="relative">
+		<div class="relative" bind:clientWidth={measured}>
 			<svg
 				class="w-full"
 				viewBox="0 0 {WIDTH} {HEIGHT}"
@@ -147,8 +150,10 @@
 					style:transform={activeIndex < months.length / 2 ? 'translateX(0)' : 'translateX(-100%)'}
 				>
 					<div class="font-semibold text-zinc-900">
-						{monthName(active.month, 'long')}{#if active.partial}
-							· {m.reports_month_flow_in_progress()}{/if}
+						{monthName(
+							active.month,
+							'long'
+						)}{#if active.partial}{` · ${m.reports_month_flow_in_progress()}`}{/if}
 					</div>
 					<div class="mt-0.5 text-emerald-600 tabular-nums">
 						{m.reports_kpi_income()}
@@ -194,7 +199,7 @@
 								{monthName(month.month, 'short')}
 								{month.month.slice(0, 4)}</a
 							>{#if month.partial}
-								<span class="text-zinc-500"> · {m.reports_month_flow_in_progress()}</span>{/if}
+								<span class="text-zinc-500">{` · ${m.reports_month_flow_in_progress()}`}</span>{/if}
 						</th>
 						<td class="py-1.5 text-right">{formatCents(month.incomeCents)}</td>
 						<td class="py-1.5 text-right">{formatCents(month.expenseCents)}</td>

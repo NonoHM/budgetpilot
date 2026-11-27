@@ -533,7 +533,7 @@
 	"reports_kpi_income": "Revenus",
 	"reports_kpi_expense": "Dépenses",
 	"reports_month_flow_heading": "Revenus et dépenses, 12 derniers mois",
-	"reports_month_flow_summary": "Sur les 12 derniers mois complets, {income} sont entrés et {expense} sont sortis. Les dépenses ont dépassé les revenus sur {count} d’entre eux.",
+	"reports_month_flow_summary": "12 mois complets : {income} entrés, {expense} sortis. Mois où les dépenses dépassent les revenus : {count}.",
 	"reports_month_flow_bar_label": "{month} : revenus {income}, dépenses {expense}. Voir les transactions",
 	"reports_month_flow_month": "Mois",
 	"reports_month_flow_difference": "Écart",
