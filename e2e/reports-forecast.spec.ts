@@ -39,8 +39,8 @@ test('reports forecast chart title reflects the current horizon, not a hardcoded
 		await expect(dialog).toBeHidden();
 	}
 
-	await page.goto('/reports');
+	await page.goto('/reports?view=forecast');
 
-	await expect(page.getByRole('heading', { name: m.reports_forecast_heading() })).toBeVisible();
+	await expect(page.getByRole('region', { name: m.reports_forecast_heading() })).toBeVisible();
 	await expect(page.getByText(m.reports_forecast_chart_title({ months: 3 }))).toBeVisible();
 });

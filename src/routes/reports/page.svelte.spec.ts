@@ -63,9 +63,13 @@ function buildReport(): MonthlyReport {
 	};
 }
 
-function buildData(emptyState: PageData['cashFlowForecast']['emptyState']): PageData {
+function buildData(
+	emptyState: PageData['cashFlowForecast']['emptyState'],
+	view: PageData['view'] = 'period'
+): PageData {
 	return {
 		todayIso: '2026-06-17',
+		view,
 		user: { email: 'user@example.com', role: 'USER' },
 		month: PERIOD.budgetMonth,
 		period: PERIOD,
@@ -73,6 +77,7 @@ function buildData(emptyState: PageData['cashFlowForecast']['emptyState']): Page
 		report: buildReport(),
 		categories: [],
 		incomeExpenseByMonth: [],
+		cashFlow: { income: [], expenses: [], totalCents: 0, leftOverCents: 0, beyondIncomeCents: 0 },
 		cashFlowForecast: {
 			hasBalanceAnchor: false,
 			days: [],
@@ -148,7 +153,7 @@ describe('/reports forecast panel — split empty-state copy (Task 2)', () => {
 	it("renders the 'nothing detected yet' copy when emptyState is 'none-detected'", async () => {
 		expect.assertions(3);
 
-		const screen = await render(Page, { data: buildData('none-detected') });
+		const screen = await render(Page, { data: buildData('none-detected', 'forecast') });
 
 		await expect.element(screen.getByText(m.reports_forecast_empty_title())).toBeInTheDocument();
 		expect(screen.container.textContent).not.toContain(m.reports_forecast_stale_title());
@@ -160,7 +165,7 @@ describe('/reports forecast panel — split empty-state copy (Task 2)', () => {
 	it("renders the 'gone stale' copy when emptyState is 'all-stale'", async () => {
 		expect.assertions(3);
 
-		const screen = await render(Page, { data: buildData('all-stale') });
+		const screen = await render(Page, { data: buildData('all-stale', 'forecast') });
 
 		await expect.element(screen.getByText(m.reports_forecast_stale_title())).toBeInTheDocument();
 		expect(screen.container.textContent).not.toContain(m.reports_forecast_empty_title());
@@ -176,7 +181,7 @@ describe('/reports forecast panel — split empty-state copy (Task 2)', () => {
 	it("offers no dead anchor in the 'none-detected' branch", async () => {
 		expect.assertions(2);
 
-		const screen = await render(Page, { data: buildData('none-detected') });
+		const screen = await render(Page, { data: buildData('none-detected', 'forecast') });
 
 		expect(screen.container.querySelector('a[href="#annexe-recurrences"]')).toBeNull();
 		// The control beside the emptiness assertion.
@@ -186,7 +191,7 @@ describe('/reports forecast panel — split empty-state copy (Task 2)', () => {
 	it("offers no dead anchor in the 'all-stale' branch either", async () => {
 		expect.assertions(2);
 
-		const screen = await render(Page, { data: buildData('all-stale') });
+		const screen = await render(Page, { data: buildData('all-stale', 'forecast') });
 
 		expect(screen.container.querySelector('a[href="#annexe-recurrences"]')).toBeNull();
 		expect(screen.container.textContent).toContain(m.reports_forecast_stale_title());
@@ -201,7 +206,7 @@ describe('/reports forecast panel — split empty-state copy (Task 2)', () => {
 	it('renders the populated forecast (chart + flows table), not an empty state, when emptyState is null', async () => {
 		expect.assertions(4);
 
-		const data = buildData(null);
+		const data = buildData(null, 'forecast');
 		data.cashFlowForecast.flows = [
 			{
 				id: 'tx-netflix',
@@ -407,7 +412,7 @@ describe('/reports forecast flows — two amount bands of one merchant (#audit-1
 	it('renders one row per band instead of throwing on a duplicate key', async () => {
 		expect.assertions(2);
 
-		const data = buildData(null);
+		const data = buildData(null, 'forecast');
 		data.cashFlowForecast = {
 			...data.cashFlowForecast,
 			flows: [bandedFlow(8_000), bandedFlow(2_500)]
@@ -580,5 +585,33 @@ describe('/reports totals — linked transfers left out (#212)', () => {
 			.element(screen.getByText(m.reports_kpi_savings_rate()).first())
 			.toBeInTheDocument();
 		expect(screen.getByText(m.totals_linked_transfers_left_out()).elements()).toHaveLength(0);
+	});
+});
+
+// Owner 2026-11-27: three views behind tabs. Separates « each view shows its own sections and only
+// the period view has the period control » from one long page or a control that applies nowhere.
+describe('/reports views', () => {
+	it.each([
+		['period', 'cash-flow-heading'],
+		['monthly', 'month-flow-heading'],
+		['forecast', null]
+	] as const)('the %s view shows its own sections only', async (view, heading) => {
+		await render(Page, { data: buildData(null, view) });
+		await expect
+			.element(page.getByRole('navigation', { name: m.reports_views_label() }))
+			.toBeInTheDocument();
+		const current = document.querySelector('nav a[aria-current="page"]');
+		expect(current?.getAttribute('href')).toBe(
+			view === 'period' ? '/reports?period=this-month' : `/reports?period=this-month&view=${view}`
+		);
+		const shown = ['cash-flow-heading', 'month-flow-heading'].filter((id) =>
+			document.getElementById(id)
+		);
+		expect(shown).toEqual(heading ? [heading] : []);
+		expect(document.querySelectorAll('[data-period-panel]').length > 0).toBe(view === 'period');
+		// The forecast's landmark, named by its heading; the tab is its only visible label.
+		expect(
+			document.querySelectorAll(`section[aria-label="${m.reports_forecast_heading()}"]`).length
+		).toBe(view === 'forecast' ? 1 : 0);
 	});
 });

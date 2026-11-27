@@ -73,9 +73,9 @@ test.describe('Cash-flow forecast — state 1: no detection at all (desktop)', (
 		// window's floor passed 06-12. `all-time` is floored at the epoch by
 		// PERIOD_EPOCH_FLOOR, so it cannot expire. The forecast itself is independent of this period
 		// selector (CLAUDE.md), which is why any period containing the seed will do.
-		await page.goto('/reports?period=all-time');
+		await page.goto('/reports?period=all-time&view=forecast');
 
-		await expect(page.getByRole('heading', { name: m.reports_forecast_heading() })).toBeVisible();
+		await expect(page.getByRole('region', { name: m.reports_forecast_heading() })).toBeVisible();
 		await expect(page.getByText(m.reports_forecast_empty_title())).toBeVisible();
 		await expect(page.locator('a[href="#annexe-recurrences"]')).toHaveCount(0);
 	});
@@ -91,7 +91,7 @@ test.describe('Cash-flow forecast — state 2: tentative only, 2 occurrences (de
 		await page.goto('/');
 		await expect(page.getByText(m.dashboard_forecast_empty_title())).toBeVisible();
 
-		await page.goto('/reports');
+		await page.goto('/reports?view=forecast');
 		await expect(page.getByText(m.reports_forecast_empty_title())).toBeVisible();
 	});
 });
@@ -115,9 +115,9 @@ test.describe('Cash-flow forecast — state 3: confirmed reliable flow (desktop)
 	test('/reports shows the chart and the confidence badge in the included-flows table', async ({
 		page
 	}) => {
-		await page.goto('/reports');
+		await page.goto('/reports?view=forecast');
 
-		await expect(page.getByRole('heading', { name: m.reports_forecast_heading() })).toBeVisible();
+		await expect(page.getByRole('region', { name: m.reports_forecast_heading() })).toBeVisible();
 		await expect(page.getByText(m.reports_forecast_chart_title({ months: 3 }))).toBeVisible();
 		// 'haute' (reports_confidence_high, messages/fr.json) — the app's actual confidence label,
 		// distinct from the design planche's own wording ("Élevée"). Scoping to the flows table
@@ -143,9 +143,9 @@ test.describe('Cash-flow forecast — state 3: confirmed reliable flow (mobile)'
 	});
 
 	test('/reports renders the chart on mobile', async ({ page }) => {
-		await page.goto('/reports');
+		await page.goto('/reports?view=forecast');
 
-		await expect(page.getByRole('heading', { name: m.reports_forecast_heading() })).toBeVisible();
+		await expect(page.getByRole('region', { name: m.reports_forecast_heading() })).toBeVisible();
 		await expect(page.getByText(m.reports_forecast_chart_title({ months: 3 }))).toBeVisible();
 	});
 });

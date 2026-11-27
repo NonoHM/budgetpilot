@@ -210,3 +210,23 @@ describe('/reports load', () => {
 		expect(data.report.previousMonth).toBeUndefined();
 	});
 });
+
+// The view is read against a closed list at the server; anything else is the period view.
+describe('/reports view parameter', () => {
+	it.each([
+		['monthly', 'monthly'],
+		['forecast', 'forecast'],
+		['period', 'period'],
+		['<script>', 'period'],
+		[null, 'period']
+	])('?view=%s reads as %s', async (raw, expected) => {
+		const url = new URL('/reports?period=this-month', 'http://localhost');
+		if (raw !== null) url.searchParams.set('view', raw);
+		const data = (await load({ locals: { user: testUser }, url } as Parameters<
+			typeof load
+		>[0])) as {
+			view: string;
+		};
+		expect(data.view).toBe(expected);
+	});
+});

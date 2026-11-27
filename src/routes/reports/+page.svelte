@@ -23,6 +23,7 @@
 	import EmptyState from '$lib/components/ui/EmptyState.svelte';
 	import CashFlowForecastChart from '$lib/components/ui/CashFlowForecastChart.svelte';
 	import IncomeExpenseByMonthChart from '$lib/components/ui/IncomeExpenseByMonthChart.svelte';
+	import CashFlowSankey from '$lib/components/ui/CashFlowSankey.svelte';
 	import type { FlowCadence, FlowConfidenceTier } from '$lib/domain/forecast';
 	import * as m from '$lib/paraglide/messages';
 	import { formatPercent, labelledValue } from '$lib/domain/typography';
@@ -76,6 +77,16 @@
 	);
 
 	const hasData = $derived(report.transactionCount > 0);
+	const view = $derived(data.view);
+	const views = $derived([
+		{ id: 'period', label: m.reports_view_period() },
+		{ id: 'monthly', label: m.reports_view_monthly() },
+		{ id: 'forecast', label: m.reports_view_forecast() }
+	] as const);
+	function viewHref(id: 'period' | 'monthly' | 'forecast') {
+		const query = id === 'period' ? data.periodQuery : `${data.periodQuery}&view=${id}`;
+		return resolve(`/reports?${query}` as `/reports?${string}`);
+	}
 
 	/**
 	 * « Plus grosses dépenses » KEEPS the parent's ranking, category and amount (OD-3) — a split
@@ -116,18 +127,33 @@
 			}));
 	}
 
+	/** Each top category's colour on this page, by its rank in the report: the one map the donut,
+	 *  its table, its cards and the cash-flow diagram (#190) read, so a category wears one colour
+	 *  here. */
+	function categoryColorMap(categories: Array<{ category: string }>): Record<string, string> {
+		return Object.fromEntries(
+			categories
+				.slice(0, CATEGORY_PALETTE.length)
+				.map((category, i) => [category.category, CATEGORY_PALETTE[i]])
+		);
+	}
+
 	function buildCategoryDonutSegments(
-		categories: Array<{ category: string; percentageOfExpenses: number }>
+		categories: Array<{ category: string; percentageOfExpenses: number }>,
+		colors: Record<string, string>
 	): DonutSegment[] {
-		return categories.slice(0, 5).map((category, i) => ({
+		return categories.slice(0, 5).map((category) => ({
 			label: categoryDisplayName(category.category),
-			color: CATEGORY_PALETTE[i] ?? CATEGORY_PALETTE_OTHERS,
+			color: colors[category.category] ?? CATEGORY_PALETTE_OTHERS,
 			pct: category.percentageOfExpenses * 100
 		}));
 	}
 
 	const natureSegments = $derived(buildNatureSegments(report.natureAnalysis));
-	const categoryDonutSegments = $derived(buildCategoryDonutSegments(report.topCategories));
+	const categoryColors = $derived(categoryColorMap(report.topCategories));
+	const categoryDonutSegments = $derived(
+		buildCategoryDonutSegments(report.topCategories, categoryColors)
+	);
 
 	/**
 	 * The top categories' whole-number shares, computed ONCE for the three places this page prints
@@ -235,9 +261,11 @@
 		<div class="flex flex-wrap items-end justify-between gap-4">
 			<div>
 				<h1 class="text-xl font-semibold tracking-tight">{m.reports_heading()}</h1>
-				<p class="mt-1 text-sm text-zinc-500">
-					{m.reports_subtitle()}
-				</p>
+				{#if view === 'period'}
+					<p class="mt-1 text-sm text-zinc-500">
+						{m.reports_subtitle()}
+					</p>
+				{/if}
 			</div>
 			<!-- #547. The same Periode panel /transactions mounts, with this screen's preset set
 			     passed as a prop. It replaces a Select plus two text date boxes plus a submit: the
@@ -247,143 +275,77 @@
 			     No `method="GET"` form any more. The panel applies through `goto`, and
 			     `periodQueryOfRange` decides whether the URL carries a named period or a custom
 			     pair, so a preset keeps its name and its comparisonMonth. -->
-			<div class="hidden items-end gap-2 lg:flex" data-period-panel>
-				<PeriodFilter
-					dimensionLabel={m.reports_period_label()}
-					from={period.fromDate}
-					to={period.toDate}
-					invalid={false}
-					locale={getLocale()}
-					todayIso={data.todayIso}
-					presets={REPORTING_PERIOD_PRESET_IDS}
-					triggerSize="field"
-					allowCustomRung={true}
-					clearAriaLabel={m.reports_period_reset_aria()}
-					onApply={applyPeriod}
-					onClear={resetPeriod}
-				/>
-			</div>
+			{#if view === 'period'}
+				<div class="hidden items-end gap-2 lg:flex" data-period-panel>
+					<PeriodFilter
+						dimensionLabel={m.reports_period_label()}
+						from={period.fromDate}
+						to={period.toDate}
+						invalid={false}
+						locale={getLocale()}
+						todayIso={data.todayIso}
+						presets={REPORTING_PERIOD_PRESET_IDS}
+						triggerSize="field"
+						allowCustomRung={true}
+						clearAriaLabel={m.reports_period_reset_aria()}
+						onApply={applyPeriod}
+						onClear={resetPeriod}
+					/>
+				</div>
+			{/if}
 		</div>
 
-		<!-- 1 · SÉLECTEUR DE PÉRIODE (mobile) -->
-		<!-- Same component, `surface="mobile"` and `allowCustomRung={false}`: the custom rung relies
+		<!-- Three views of one report (owner 2026-11-27): the period's figures, the months side by
+		     side, the forecast. Links, not buttons: the view is in the URL, so back, reload and a
+		     shared link keep it, and it works before the page's script runs. -->
+		<nav aria-label={m.reports_views_label()} class="border-b border-zinc-200">
+			<ul class="-mb-px flex gap-6">
+				{#each views as option (option.id)}
+					<li>
+						<a
+							href={viewHref(option.id)}
+							aria-current={view === option.id ? 'page' : undefined}
+							class="inline-flex min-h-11 items-center border-b-2 text-sm font-medium transition-colors {view ===
+							option.id
+								? 'border-zinc-900 text-zinc-900'
+								: 'border-transparent text-zinc-500 hover:text-zinc-900'}">{option.label}</a
+						>
+					</li>
+				{/each}
+			</ul>
+		</nav>
+
+		{#if view === 'period'}
+			<!-- 1 · SÉLECTEUR DE PÉRIODE (mobile) -->
+			<!-- Same component, `surface="mobile"` and `allowCustomRung={false}`: the custom rung relies
 		     on a Tooltip and touch has no hover to open one, so the mobile ladder stops one rung
 		     earlier. Same choice /transactions made for the same reason. -->
-		<div class="{cardBase} p-5 lg:hidden">
-			<p class="block text-sm font-medium text-zinc-600">{m.reports_period_label()}</p>
-			<div class="mt-1.5" data-period-panel>
-				<PeriodFilter
-					dimensionLabel={m.reports_period_label()}
-					from={period.fromDate}
-					to={period.toDate}
-					invalid={false}
-					locale={getLocale()}
-					todayIso={data.todayIso}
-					presets={REPORTING_PERIOD_PRESET_IDS}
-					allowCustomRung={false}
-					surface="mobile"
-					backLabel={m.common_close()}
-					clearAriaLabel={m.reports_period_reset_aria()}
-					onApply={applyPeriod}
-					onClear={resetPeriod}
-				/>
+			<div class="{cardBase} p-5 lg:hidden">
+				<p class="block text-sm font-medium text-zinc-600">{m.reports_period_label()}</p>
+				<div class="mt-1.5" data-period-panel>
+					<PeriodFilter
+						dimensionLabel={m.reports_period_label()}
+						from={period.fromDate}
+						to={period.toDate}
+						invalid={false}
+						locale={getLocale()}
+						todayIso={data.todayIso}
+						presets={REPORTING_PERIOD_PRESET_IDS}
+						allowCustomRung={false}
+						surface="mobile"
+						backLabel={m.common_close()}
+						clearAriaLabel={m.reports_period_reset_aria()}
+						onApply={applyPeriod}
+						onClear={resetPeriod}
+					/>
+				</div>
 			</div>
-		</div>
 
-		<!-- KPI STRIP (desktop) -->
-		<div
-			class="hidden grid-cols-2 divide-x divide-zinc-200 overflow-hidden rounded-lg border border-zinc-200 bg-white sm:grid-cols-3 lg:grid lg:grid-cols-6"
-		>
-			<div class="border-t-2 border-zinc-300 px-4 py-3.5">
-				<div class="text-[10px] font-bold tracking-wide text-zinc-500 uppercase">
-					{m.reports_kpi_income()}
-				</div>
-				<div class="mt-1 text-2xl font-bold text-emerald-600 tabular-nums">
-					{formatCents(report.incomeCents)}
-				</div>
-				{#if report.previousMonth}
-					<div class="mt-0.5 text-xs text-zinc-400">
-						{m.reports_delta_vs({
-							delta: formatDelta(report.previousMonth.incomeDeltaCents),
-							month: report.previousMonth.month
-						})}
-					</div>
-				{/if}
-			</div>
-			<div class="border-t-2 border-zinc-300 px-4 py-3.5">
-				<div class="text-[10px] font-bold tracking-wide text-zinc-500 uppercase">
-					{m.reports_kpi_expense()}
-				</div>
-				<div class="mt-1 text-2xl font-bold text-rose-600 tabular-nums">
-					{formatCents(report.expenseCents)}
-				</div>
-				{#if report.previousMonth}
-					<div class="mt-0.5 text-xs text-zinc-400">
-						{m.reports_delta_vs({
-							delta: formatDelta(report.previousMonth.expenseDeltaCents),
-							month: report.previousMonth.month
-						})}
-					</div>
-				{/if}
-			</div>
-			<div class="border-t-2 border-zinc-300 px-4 py-3.5">
-				<div class="text-[10px] font-bold tracking-wide text-zinc-500 uppercase">
-					{m.reports_kpi_balance()}
-				</div>
-				<div
-					class="mt-1 text-2xl font-bold tabular-nums {report.balanceCents >= 0
-						? 'text-emerald-600'
-						: 'text-rose-600'}"
-				>
-					{formatCents(report.balanceCents)}
-				</div>
-				{#if report.previousMonth}
-					<div class="mt-0.5 text-xs text-zinc-400">
-						{m.reports_delta_vs({
-							delta: formatDelta(report.previousMonth.balanceDeltaCents),
-							month: report.previousMonth.month
-						})}
-					</div>
-				{/if}
-			</div>
-			<div class="border-t-2 border-zinc-300 px-4 py-3.5">
-				<div class="text-[10px] font-bold tracking-wide text-zinc-500 uppercase">
-					{m.reports_kpi_transactions()}
-				</div>
-				<div class="mt-1 text-2xl font-bold text-zinc-900 tabular-nums">
-					{report.transactionCount}
-				</div>
-			</div>
-			<div class="border-t-2 border-zinc-300 px-4 py-3.5">
-				<div class="text-[10px] font-bold tracking-wide text-zinc-500 uppercase">
-					{m.reports_kpi_expense_per_day()}
-				</div>
-				<div class="mt-1 text-2xl font-bold text-zinc-900 tabular-nums">
-					{formatCents(report.expenseAveragePerDayCents)}
-				</div>
-			</div>
-			<div class="border-t-2 border-zinc-300 px-4 py-3.5">
-				<div class="text-[10px] font-bold tracking-wide text-zinc-500 uppercase">
-					{m.reports_kpi_savings_rate()}
-				</div>
-				<div
-					class="mt-1 text-2xl font-bold tabular-nums {report.savingsRate === null
-						? 'text-zinc-400'
-						: report.savingsRate >= 0.1
-							? 'text-indigo-600'
-							: report.savingsRate >= 0
-								? 'text-emerald-600'
-								: 'text-rose-600'}"
-				>
-					{formatPercentOrNa(report.savingsRate)}
-				</div>
-			</div>
-		</div>
-
-		<!-- KPI (mobile) : 3 cartes à 2 colonnes -->
-		<div class="grid grid-cols-1 gap-3 lg:hidden">
-			<div class="grid grid-cols-2 divide-x divide-zinc-200 {cardBase} p-4">
-				<div class="pr-4">
+			<!-- KPI STRIP (desktop) -->
+			<div
+				class="hidden grid-cols-2 divide-x divide-zinc-200 overflow-hidden rounded-lg border border-zinc-200 bg-white sm:grid-cols-3 lg:grid lg:grid-cols-6"
+			>
+				<div class="border-t-2 border-zinc-300 px-4 py-3.5">
 					<div class="text-[10px] font-bold tracking-wide text-zinc-500 uppercase">
 						{m.reports_kpi_income()}
 					</div>
@@ -399,7 +361,7 @@
 						</div>
 					{/if}
 				</div>
-				<div class="pl-4">
+				<div class="border-t-2 border-zinc-300 px-4 py-3.5">
 					<div class="text-[10px] font-bold tracking-wide text-zinc-500 uppercase">
 						{m.reports_kpi_expense()}
 					</div>
@@ -415,9 +377,7 @@
 						</div>
 					{/if}
 				</div>
-			</div>
-			<div class="grid grid-cols-2 divide-x divide-zinc-200 {cardBase} p-4">
-				<div class="pr-4">
+				<div class="border-t-2 border-zinc-300 px-4 py-3.5">
 					<div class="text-[10px] font-bold tracking-wide text-zinc-500 uppercase">
 						{m.reports_kpi_balance()}
 					</div>
@@ -437,7 +397,7 @@
 						</div>
 					{/if}
 				</div>
-				<div class="pl-4">
+				<div class="border-t-2 border-zinc-300 px-4 py-3.5">
 					<div class="text-[10px] font-bold tracking-wide text-zinc-500 uppercase">
 						{m.reports_kpi_transactions()}
 					</div>
@@ -445,9 +405,7 @@
 						{report.transactionCount}
 					</div>
 				</div>
-			</div>
-			<div class="grid grid-cols-2 divide-x divide-zinc-200 {cardBase} p-4">
-				<div class="pr-4">
+				<div class="border-t-2 border-zinc-300 px-4 py-3.5">
 					<div class="text-[10px] font-bold tracking-wide text-zinc-500 uppercase">
 						{m.reports_kpi_expense_per_day()}
 					</div>
@@ -455,7 +413,7 @@
 						{formatCents(report.expenseAveragePerDayCents)}
 					</div>
 				</div>
-				<div class="pl-4">
+				<div class="border-t-2 border-zinc-300 px-4 py-3.5">
 					<div class="text-[10px] font-bold tracking-wide text-zinc-500 uppercase">
 						{m.reports_kpi_savings_rate()}
 					</div>
@@ -472,274 +430,424 @@
 					</div>
 				</div>
 			</div>
-		</div>
 
-		<!-- Once, under both strips, and only when it explains a figure on this screen (#212). -->
-		{#if report.linkedTransferCount > 0}
-			<p class="-mt-2 text-xs text-zinc-500">{m.totals_linked_transfers_left_out()}</p>
-		{/if}
-
-		{#if !hasData}
-			{#snippet emptyIcon()}
-				<svg
-					class="h-5 w-5 text-zinc-400"
-					viewBox="0 0 24 24"
-					fill="none"
-					stroke="currentColor"
-					stroke-width="1.6"
-					stroke-linecap="round"
-					stroke-linejoin="round"
-					aria-hidden="true"
-				>
-					<path d="M3 3v18h18" />
-					<path d="m7 14 3-3 3 3 4-5" />
-				</svg>
-			{/snippet}
-			{#snippet emptyAction()}
-				<div class="mt-1 flex w-full flex-col items-center gap-2 sm:w-auto sm:flex-row">
-					<Button href="/imports" class="w-full sm:w-auto">
-						{m.reports_empty_import_cta()}
-					</Button>
-					<!-- Used to be `form="period-form-mobile"` with `type="submit"`, which resubmitted
-					     the period form. That form is gone with #547, so this opens the period panel
-					     instead: BOTH panels are in the DOM at every width and only one is visible, so
-					     the visible one is the one to open. Checking `offsetParent` rather than the
-					     viewport width keeps this correct if the breakpoint ever moves. -->
-					<Button class="w-full sm:w-auto" variant="secondary" onclick={openPeriodPanel}>
-						{m.reports_empty_change_period_cta()}
-					</Button>
-				</div>
-			{/snippet}
-			<EmptyState
-				icon={emptyIcon}
-				title={m.reports_empty_heading()}
-				description={m.reports_empty_description()}
-				action={emptyAction}
-			/>
-		{:else}
-			<!-- 2 · À RETENIR -->
-			{#if report.takeaways.length > 0}
-				<div class="{cardBase} p-5">
-					<h2 class="text-[11px] font-semibold tracking-wide text-zinc-500 uppercase">
-						{m.reports_takeaways_heading()}
-					</h2>
-					<ul class="mt-3 space-y-2.5">
-						{#each report.takeaways as takeaway (takeaway.code)}
-							<li class="flex items-start gap-2.5 text-sm text-zinc-700">
-								<span class="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full {takeawayDot(takeaway.code)}"
-								></span>
-								<span
-									>{#each takeawaySegments(takeaway) as segment, i (i)}{#if segment.bold}<strong
-												class="font-semibold text-zinc-900">{segment.text}</strong
-											>{:else}{segment.text}{/if}{/each}</span
-								>
-							</li>
-						{/each}
-					</ul>
-				</div>
-			{/if}
-
-			<!-- 3 · ANALYSE VISUELLE -->
-			<div>
-				<h2 class="text-[11px] font-semibold tracking-wide text-zinc-500 uppercase">
-					{m.reports_analysis_heading()}
-				</h2>
-				<div class="mt-3 grid gap-4 lg:grid-cols-2">
-					<!-- Donut : Sorties par catégorie -->
-					<div class="{cardBase} p-5">
-						<DonutChart
-							segments={categoryDonutSegments}
-							othersColor={CATEGORY_PALETTE_OTHERS}
-							title={m.reports_donut_title()}
-							meta={categoryDonutMeta}
-							centerCaption={m.reports_donut_total_label()}
-							centerValue={categoryDonutCenterValue}
-							emptyText={m.reports_empty_no_expense()}
-						/>
-					</div>
-
-					<!-- Barre empilée : Sorties par nature -->
-					<div class="{cardBase} p-5">
-						<div class="flex items-baseline justify-between">
-							<h3 class="text-sm font-semibold tracking-tight text-zinc-900">
-								{m.reports_nature_title()}
-							</h3>
+			<!-- KPI (mobile) : 3 cartes à 2 colonnes -->
+			<div class="grid grid-cols-1 gap-3 lg:hidden">
+				<div class="grid grid-cols-2 divide-x divide-zinc-200 {cardBase} p-4">
+					<div class="pr-4">
+						<div class="text-[10px] font-bold tracking-wide text-zinc-500 uppercase">
+							{m.reports_kpi_income()}
 						</div>
-						{#if natureSegments.length > 0}
-							<div class="mt-4 flex h-8 w-full overflow-hidden rounded-md ring-1 ring-zinc-200">
-								{#each natureSegments as segment, i (segment.label)}
-									<Tooltip
-										label={labelledValue(segment.label, formatCents(segment.cents))}
-										wrapperClass="contents"
-									>
-										<!-- Purely informative segment (no click action) made focusable so its
-											 Tooltip is reachable via keyboard, per the "never hover-only" rule.
-											 No interactive role is added on purpose (nothing happens on activation). -->
-										<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-										<div
-											aria-label={labelledValue(segment.label, formatCents(segment.cents))}
-											tabindex="0"
-											class="relative flex items-center justify-center text-[11px] font-semibold text-white {widthClass(
-												segment.pct
-											)} {hexToBgClass(segment.color)}"
-										>
-											{#if segment.pct >= 12}{formatPercent(naturePercents[i])}{/if}
-										</div>
-									</Tooltip>
-								{/each}
+						<div class="mt-1 text-2xl font-bold text-emerald-600 tabular-nums">
+							{formatCents(report.incomeCents)}
+						</div>
+						{#if report.previousMonth}
+							<div class="mt-0.5 text-xs text-zinc-400">
+								{m.reports_delta_vs({
+									delta: formatDelta(report.previousMonth.incomeDeltaCents),
+									month: report.previousMonth.month
+								})}
 							</div>
-							<ul class="mt-4 space-y-2 text-[13px]">
-								{#each natureSegments as segment (segment.label)}
-									<li class="flex items-center gap-2">
-										<span class="h-2.5 w-2.5 shrink-0 rounded-sm {hexToBgClass(segment.color)}"
-										></span>
-										<span class="flex-1 text-zinc-700">{segment.label}</span>
-										<span class="font-medium text-zinc-900 tabular-nums">
-											{formatCents(segment.cents)}
-										</span>
-									</li>
-								{/each}
-							</ul>
-						{:else}
-							<p class="mt-4 text-sm text-zinc-500">{m.reports_nature_empty()}</p>
 						{/if}
+					</div>
+					<div class="pl-4">
+						<div class="text-[10px] font-bold tracking-wide text-zinc-500 uppercase">
+							{m.reports_kpi_expense()}
+						</div>
+						<div class="mt-1 text-2xl font-bold text-rose-600 tabular-nums">
+							{formatCents(report.expenseCents)}
+						</div>
+						{#if report.previousMonth}
+							<div class="mt-0.5 text-xs text-zinc-400">
+								{m.reports_delta_vs({
+									delta: formatDelta(report.previousMonth.expenseDeltaCents),
+									month: report.previousMonth.month
+								})}
+							</div>
+						{/if}
+					</div>
+				</div>
+				<div class="grid grid-cols-2 divide-x divide-zinc-200 {cardBase} p-4">
+					<div class="pr-4">
+						<div class="text-[10px] font-bold tracking-wide text-zinc-500 uppercase">
+							{m.reports_kpi_balance()}
+						</div>
+						<div
+							class="mt-1 text-2xl font-bold tabular-nums {report.balanceCents >= 0
+								? 'text-emerald-600'
+								: 'text-rose-600'}"
+						>
+							{formatCents(report.balanceCents)}
+						</div>
+						{#if report.previousMonth}
+							<div class="mt-0.5 text-xs text-zinc-400">
+								{m.reports_delta_vs({
+									delta: formatDelta(report.previousMonth.balanceDeltaCents),
+									month: report.previousMonth.month
+								})}
+							</div>
+						{/if}
+					</div>
+					<div class="pl-4">
+						<div class="text-[10px] font-bold tracking-wide text-zinc-500 uppercase">
+							{m.reports_kpi_transactions()}
+						</div>
+						<div class="mt-1 text-2xl font-bold text-zinc-900 tabular-nums">
+							{report.transactionCount}
+						</div>
+					</div>
+				</div>
+				<div class="grid grid-cols-2 divide-x divide-zinc-200 {cardBase} p-4">
+					<div class="pr-4">
+						<div class="text-[10px] font-bold tracking-wide text-zinc-500 uppercase">
+							{m.reports_kpi_expense_per_day()}
+						</div>
+						<div class="mt-1 text-2xl font-bold text-zinc-900 tabular-nums">
+							{formatCents(report.expenseAveragePerDayCents)}
+						</div>
+					</div>
+					<div class="pl-4">
+						<div class="text-[10px] font-bold tracking-wide text-zinc-500 uppercase">
+							{m.reports_kpi_savings_rate()}
+						</div>
+						<div
+							class="mt-1 text-2xl font-bold tabular-nums {report.savingsRate === null
+								? 'text-zinc-400'
+								: report.savingsRate >= 0.1
+									? 'text-indigo-600'
+									: report.savingsRate >= 0
+										? 'text-emerald-600'
+										: 'text-rose-600'}"
+						>
+							{formatPercentOrNa(report.savingsRate)}
+						</div>
 					</div>
 				</div>
 			</div>
 
-			<!-- 4 · Top catégories + Plus grosses dépenses -->
-			<div>
-				<div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
-					<!-- desktop -->
-					<div class="hidden overflow-hidden rounded-lg border border-zinc-200 bg-white lg:block">
-						<div class="border-b border-zinc-100 px-5 py-3">
-							<h3 class="text-sm font-semibold tracking-tight text-zinc-900">
+			<!-- Once, under both strips, and only when it explains a figure on this screen (#212). -->
+			{#if report.linkedTransferCount > 0}
+				<p class="-mt-2 text-xs text-zinc-500">{m.totals_linked_transfers_left_out()}</p>
+			{/if}
+
+			{#if !hasData}
+				{#snippet emptyIcon()}
+					<svg
+						class="h-5 w-5 text-zinc-400"
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="1.6"
+						stroke-linecap="round"
+						stroke-linejoin="round"
+						aria-hidden="true"
+					>
+						<path d="M3 3v18h18" />
+						<path d="m7 14 3-3 3 3 4-5" />
+					</svg>
+				{/snippet}
+				{#snippet emptyAction()}
+					<div class="mt-1 flex w-full flex-col items-center gap-2 sm:w-auto sm:flex-row">
+						<Button href="/imports" class="w-full sm:w-auto">
+							{m.reports_empty_import_cta()}
+						</Button>
+						<!-- Used to be `form="period-form-mobile"` with `type="submit"`, which resubmitted
+					     the period form. That form is gone with #547, so this opens the period panel
+					     instead: BOTH panels are in the DOM at every width and only one is visible, so
+					     the visible one is the one to open. Checking `offsetParent` rather than the
+					     viewport width keeps this correct if the breakpoint ever moves. -->
+						<Button class="w-full sm:w-auto" variant="secondary" onclick={openPeriodPanel}>
+							{m.reports_empty_change_period_cta()}
+						</Button>
+					</div>
+				{/snippet}
+				<EmptyState
+					icon={emptyIcon}
+					title={m.reports_empty_heading()}
+					description={m.reports_empty_description()}
+					action={emptyAction}
+				/>
+			{:else}
+				<!-- 2 · À RETENIR -->
+				{#if report.takeaways.length > 0}
+					<div class="{cardBase} p-5">
+						<h2 class="text-[11px] font-semibold tracking-wide text-zinc-500 uppercase">
+							{m.reports_takeaways_heading()}
+						</h2>
+						<ul class="mt-3 space-y-2.5">
+							{#each report.takeaways as takeaway (takeaway.code)}
+								<li class="flex items-start gap-2.5 text-sm text-zinc-700">
+									<span
+										class="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full {takeawayDot(takeaway.code)}"
+									></span>
+									<span
+										>{#each takeawaySegments(takeaway) as segment, i (i)}{#if segment.bold}<strong
+													class="font-semibold text-zinc-900">{segment.text}</strong
+												>{:else}{segment.text}{/if}{/each}</span
+									>
+								</li>
+							{/each}
+						</ul>
+					</div>
+				{/if}
+
+				<!-- #190: the selected period's flow, from the same allocations as the figures above. -->
+				<section aria-labelledby="cash-flow-heading" class="{cardBase} p-5">
+					<h2 id="cash-flow-heading" class="text-sm font-medium text-zinc-900">
+						{m.reports_cash_flow_heading()}
+					</h2>
+					<div class="mt-3">
+						<CashFlowSankey flow={data.cashFlow} colors={categoryColors} />
+					</div>
+				</section>
+
+				<!-- 3 · ANALYSE VISUELLE -->
+				<div>
+					<h2 class="text-[11px] font-semibold tracking-wide text-zinc-500 uppercase">
+						{m.reports_analysis_heading()}
+					</h2>
+					<div class="mt-3 grid gap-4 lg:grid-cols-2">
+						<!-- Donut : Sorties par catégorie -->
+						<div class="{cardBase} p-5">
+							<DonutChart
+								segments={categoryDonutSegments}
+								othersColor={CATEGORY_PALETTE_OTHERS}
+								title={m.reports_donut_title()}
+								meta={categoryDonutMeta}
+								centerCaption={m.reports_donut_total_label()}
+								centerValue={categoryDonutCenterValue}
+								emptyText={m.reports_empty_no_expense()}
+							/>
+						</div>
+
+						<!-- Barre empilée : Sorties par nature -->
+						<div class="{cardBase} p-5">
+							<div class="flex items-baseline justify-between">
+								<h3 class="text-sm font-semibold tracking-tight text-zinc-900">
+									{m.reports_nature_title()}
+								</h3>
+							</div>
+							{#if natureSegments.length > 0}
+								<div class="mt-4 flex h-8 w-full overflow-hidden rounded-md ring-1 ring-zinc-200">
+									{#each natureSegments as segment, i (segment.label)}
+										<Tooltip
+											label={labelledValue(segment.label, formatCents(segment.cents))}
+											wrapperClass="contents"
+										>
+											<!-- Purely informative segment (no click action) made focusable so its
+											 Tooltip is reachable via keyboard, per the "never hover-only" rule.
+											 No interactive role is added on purpose (nothing happens on activation). -->
+											<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+											<div
+												aria-label={labelledValue(segment.label, formatCents(segment.cents))}
+												tabindex="0"
+												class="relative flex items-center justify-center text-[11px] font-semibold text-white {widthClass(
+													segment.pct
+												)} {hexToBgClass(segment.color)}"
+											>
+												{#if segment.pct >= 12}{formatPercent(naturePercents[i])}{/if}
+											</div>
+										</Tooltip>
+									{/each}
+								</div>
+								<ul class="mt-4 space-y-2 text-[13px]">
+									{#each natureSegments as segment (segment.label)}
+										<li class="flex items-center gap-2">
+											<span class="h-2.5 w-2.5 shrink-0 rounded-sm {hexToBgClass(segment.color)}"
+											></span>
+											<span class="flex-1 text-zinc-700">{segment.label}</span>
+											<span class="font-medium text-zinc-900 tabular-nums">
+												{formatCents(segment.cents)}
+											</span>
+										</li>
+									{/each}
+								</ul>
+							{:else}
+								<p class="mt-4 text-sm text-zinc-500">{m.reports_nature_empty()}</p>
+							{/if}
+						</div>
+					</div>
+				</div>
+
+				<!-- 4 · Top catégories + Plus grosses dépenses -->
+				<div>
+					<div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+						<!-- desktop -->
+						<div class="hidden overflow-hidden rounded-lg border border-zinc-200 bg-white lg:block">
+							<div class="border-b border-zinc-100 px-5 py-3">
+								<h3 class="text-sm font-semibold tracking-tight text-zinc-900">
+									{m.reports_top_categories_title()}
+								</h3>
+							</div>
+							{#if report.topCategories.length > 0}
+								<table class="w-full text-sm">
+									<thead>
+										<tr class="text-[11px] tracking-wide text-zinc-400 uppercase">
+											<th class="px-5 py-2 text-left font-medium"
+												>{m.reports_top_categories_table_category()}</th
+											>
+											<th class="px-5 py-2 text-right font-medium"
+												>{m.reports_top_categories_table_transactions()}</th
+											>
+											<th class="px-5 py-2 text-right font-medium"
+												>{m.reports_top_categories_table_share()}</th
+											>
+										</tr>
+									</thead>
+									<tbody class="divide-y divide-zinc-100">
+										{#each report.topCategories as category, i (category.category)}
+											<tr>
+												<td class="px-5 py-3">
+													<div class="font-medium text-zinc-900">
+														{categoryDisplayName(category.category)}
+													</div>
+													<div class="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-zinc-100">
+														<div
+															class="h-full rounded-full {widthClass(
+																category.percentageOfExpenses * 100
+															)} {hexToBgClass(
+																categoryColors[category.category] ?? CATEGORY_PALETTE_OTHERS
+															)}"
+														></div>
+													</div>
+												</td>
+												<td class="px-5 py-3 text-right text-zinc-500 tabular-nums">
+													{category.transactionCount}
+												</td>
+												<td class="px-5 py-3 text-right font-medium text-rose-600 tabular-nums">
+													{formatPercent(categoryPercents[i])}
+												</td>
+											</tr>
+										{/each}
+									</tbody>
+								</table>
+							{:else}
+								<p class="px-5 py-4 text-sm text-zinc-500">{m.reports_empty_no_expense()}</p>
+							{/if}
+						</div>
+
+						<!-- mobile -->
+						<div class="lg:hidden">
+							<h3 class="px-1 text-[11px] font-semibold tracking-wide text-zinc-500 uppercase">
 								{m.reports_top_categories_title()}
 							</h3>
-						</div>
-						{#if report.topCategories.length > 0}
-							<table class="w-full text-sm">
-								<thead>
-									<tr class="text-[11px] tracking-wide text-zinc-400 uppercase">
-										<th class="px-5 py-2 text-left font-medium"
-											>{m.reports_top_categories_table_category()}</th
-										>
-										<th class="px-5 py-2 text-right font-medium"
-											>{m.reports_top_categories_table_transactions()}</th
-										>
-										<th class="px-5 py-2 text-right font-medium"
-											>{m.reports_top_categories_table_share()}</th
-										>
-									</tr>
-								</thead>
-								<tbody class="divide-y divide-zinc-100">
+							{#if report.topCategories.length > 0}
+								<div class="mt-3 space-y-2.5">
 									{#each report.topCategories as category, i (category.category)}
-										<tr>
-											<td class="px-5 py-3">
-												<div class="font-medium text-zinc-900">
-													{categoryDisplayName(category.category)}
+										<div class="{cardBase} p-4">
+											<div class="flex items-baseline justify-between gap-3">
+												<span class="truncate text-sm font-semibold text-zinc-900"
+													>{categoryDisplayName(category.category)}</span
+												>
+												<div class="flex shrink-0 items-baseline gap-3">
+													<span class="text-xs text-zinc-500 tabular-nums">
+														{category.transactionCount === 1
+															? m.reports_top_categories_count_one({
+																	count: category.transactionCount
+																})
+															: m.reports_top_categories_count_many({
+																	count: category.transactionCount
+																})}
+													</span>
+													<span class="text-sm font-semibold text-zinc-900 tabular-nums">
+														{formatPercent(categoryPercents[i])}
+													</span>
 												</div>
-												<div class="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-zinc-100">
-													<div
-														class="h-full rounded-full {widthClass(
-															category.percentageOfExpenses * 100
-														)} {hexToBgClass(CATEGORY_PALETTE[i] ?? CATEGORY_PALETTE_OTHERS)}"
-													></div>
-												</div>
-											</td>
-											<td class="px-5 py-3 text-right text-zinc-500 tabular-nums">
-												{category.transactionCount}
-											</td>
-											<td class="px-5 py-3 text-right font-medium text-rose-600 tabular-nums">
-												{formatPercent(categoryPercents[i])}
-											</td>
-										</tr>
-									{/each}
-								</tbody>
-							</table>
-						{:else}
-							<p class="px-5 py-4 text-sm text-zinc-500">{m.reports_empty_no_expense()}</p>
-						{/if}
-					</div>
-
-					<!-- mobile -->
-					<div class="lg:hidden">
-						<h3 class="px-1 text-[11px] font-semibold tracking-wide text-zinc-500 uppercase">
-							{m.reports_top_categories_title()}
-						</h3>
-						{#if report.topCategories.length > 0}
-							<div class="mt-3 space-y-2.5">
-								{#each report.topCategories as category, i (category.category)}
-									<div class="{cardBase} p-4">
-										<div class="flex items-baseline justify-between gap-3">
-											<span class="truncate text-sm font-semibold text-zinc-900"
-												>{categoryDisplayName(category.category)}</span
-											>
-											<div class="flex shrink-0 items-baseline gap-3">
-												<span class="text-xs text-zinc-500 tabular-nums">
-													{category.transactionCount === 1
-														? m.reports_top_categories_count_one({
-																count: category.transactionCount
-															})
-														: m.reports_top_categories_count_many({
-																count: category.transactionCount
-															})}
-												</span>
-												<span class="text-sm font-semibold text-zinc-900 tabular-nums">
-													{formatPercent(categoryPercents[i])}
-												</span>
+											</div>
+											<div class="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-zinc-100">
+												<div
+													class="h-full rounded-full {widthClass(
+														category.percentageOfExpenses * 100
+													)} {hexToBgClass(
+														categoryColors[category.category] ?? CATEGORY_PALETTE_OTHERS
+													)}"
+												></div>
 											</div>
 										</div>
-										<div class="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-zinc-100">
-											<div
-												class="h-full rounded-full {widthClass(
-													category.percentageOfExpenses * 100
-												)} {hexToBgClass(CATEGORY_PALETTE[i] ?? CATEGORY_PALETTE_OTHERS)}"
-											></div>
-										</div>
-									</div>
-								{/each}
-							</div>
-						{:else}
-							<p class="mt-3 {cardBase} px-5 py-4 text-sm text-zinc-500">
-								{m.reports_empty_no_expense()}
-							</p>
-						{/if}
-					</div>
-
-					<!-- desktop -->
-					<div class="hidden overflow-hidden rounded-lg border border-zinc-200 bg-white lg:block">
-						<div class="border-b border-zinc-100 px-5 py-3">
-							<h3 class="text-sm font-semibold tracking-tight text-zinc-900">
-								{m.reports_largest_expenses_title()}
-							</h3>
+									{/each}
+								</div>
+							{:else}
+								<p class="mt-3 {cardBase} px-5 py-4 text-sm text-zinc-500">
+									{m.reports_empty_no_expense()}
+								</p>
+							{/if}
 						</div>
-						{#if report.largestExpenses.length > 0}
-							<table class="w-full text-sm">
-								<thead>
-									<tr class="text-[11px] tracking-wide text-zinc-400 uppercase">
-										<th class="px-5 py-2 text-left font-medium"
-											>{m.reports_largest_expenses_table_label()}</th
-										>
-										<th class="px-5 py-2 text-left font-medium"
-											>{m.reports_largest_expenses_table_category()}</th
-										>
-										<th class="px-5 py-2 text-right font-medium"
-											>{m.reports_largest_expenses_table_amount()}</th
-										>
-									</tr>
-								</thead>
-								<tbody class="divide-y divide-zinc-100">
-									{#each report.largestExpenses as expense, i (i)}
-										<tr>
-											<td class="px-5 py-3 font-medium text-zinc-900">{expense.label}</td>
-											<td class="px-5 py-3 text-zinc-500">
-												<!-- min-h-[22px] RESERVES the inert badge's own height on this line for every
+
+						<!-- desktop -->
+						<div class="hidden overflow-hidden rounded-lg border border-zinc-200 bg-white lg:block">
+							<div class="border-b border-zinc-100 px-5 py-3">
+								<h3 class="text-sm font-semibold tracking-tight text-zinc-900">
+									{m.reports_largest_expenses_title()}
+								</h3>
+							</div>
+							{#if report.largestExpenses.length > 0}
+								<table class="w-full text-sm">
+									<thead>
+										<tr class="text-[11px] tracking-wide text-zinc-400 uppercase">
+											<th class="px-5 py-2 text-left font-medium"
+												>{m.reports_largest_expenses_table_label()}</th
+											>
+											<th class="px-5 py-2 text-left font-medium"
+												>{m.reports_largest_expenses_table_category()}</th
+											>
+											<th class="px-5 py-2 text-right font-medium"
+												>{m.reports_largest_expenses_table_amount()}</th
+											>
+										</tr>
+									</thead>
+									<tbody class="divide-y divide-zinc-100">
+										{#each report.largestExpenses as expense, i (i)}
+											<tr>
+												<td class="px-5 py-3 font-medium text-zinc-900">{expense.label}</td>
+												<td class="px-5 py-3 text-zinc-500">
+													<!-- min-h-[22px] RESERVES the inert badge's own height on this line for every
 												     row, split or not — never `h-`, which would clamp instead: see CLAUDE.md,
 												     a fixed height absorbs an overflow invisibly where a minimum lets it grow
 												     and stay visible. -->
-												<div class="flex min-h-[22px] min-w-0 items-center gap-1.5">
-													<span class="min-w-0 truncate"
+													<div class="flex min-h-[22px] min-w-0 items-center gap-1.5">
+														<span class="min-w-0 truncate"
+															>{categoryDisplayName(expense.category)}</span
+														>
+														{#if expense.splitIndicator}
+															<SplitBadge
+																parts={badgeParts(expense.splitIndicator)}
+																otherCategoryCount={expense.splitIndicator.otherCategoryCount}
+																dominantCategory={categoryDisplayName(
+																	expense.splitIndicator.dominantCategory
+																)}
+															/>
+														{/if}
+													</div>
+												</td>
+												<td class="px-5 py-3 text-right font-semibold text-rose-600 tabular-nums">
+													{formatCents(expense.amountCents)}
+												</td>
+											</tr>
+										{/each}
+									</tbody>
+								</table>
+							{:else}
+								<p class="px-5 py-4 text-sm text-zinc-500">{m.reports_empty_no_expense_detail()}</p>
+							{/if}
+						</div>
+
+						<!-- mobile -->
+						<div class="lg:hidden">
+							<h3 class="px-1 text-[11px] font-semibold tracking-wide text-zinc-500 uppercase">
+								{m.reports_largest_expenses_title()}
+							</h3>
+							{#if report.largestExpenses.length > 0}
+								<div class="mt-3 space-y-2.5">
+									{#each report.largestExpenses as expense, i (i)}
+										<div class="flex items-center justify-between gap-3 {cardBase} p-4">
+											<div class="min-w-0">
+												<div class="truncate text-sm font-semibold text-zinc-900">
+													{expense.label}
+												</div>
+												<!-- min-h-[22px] reserves the badge's own height on this line — see the
+											     desktop table cell above for why it is a minimum, never a fixed height. -->
+												<div class="mt-0.5 flex min-h-[22px] min-w-0 items-center gap-1.5">
+													<span class="min-w-0 truncate text-xs text-zinc-500"
 														>{categoryDisplayName(expense.category)}</span
 													>
 													{#if expense.splitIndicator}
@@ -752,73 +860,140 @@
 														/>
 													{/if}
 												</div>
-											</td>
-											<td class="px-5 py-3 text-right font-semibold text-rose-600 tabular-nums">
-												{formatCents(expense.amountCents)}
-											</td>
-										</tr>
-									{/each}
-								</tbody>
-							</table>
-						{:else}
-							<p class="px-5 py-4 text-sm text-zinc-500">{m.reports_empty_no_expense_detail()}</p>
-						{/if}
-					</div>
-
-					<!-- mobile -->
-					<div class="lg:hidden">
-						<h3 class="px-1 text-[11px] font-semibold tracking-wide text-zinc-500 uppercase">
-							{m.reports_largest_expenses_title()}
-						</h3>
-						{#if report.largestExpenses.length > 0}
-							<div class="mt-3 space-y-2.5">
-								{#each report.largestExpenses as expense, i (i)}
-									<div class="flex items-center justify-between gap-3 {cardBase} p-4">
-										<div class="min-w-0">
-											<div class="truncate text-sm font-semibold text-zinc-900">
-												{expense.label}
 											</div>
-											<!-- min-h-[22px] reserves the badge's own height on this line — see the
-											     desktop table cell above for why it is a minimum, never a fixed height. -->
-											<div class="mt-0.5 flex min-h-[22px] min-w-0 items-center gap-1.5">
-												<span class="min-w-0 truncate text-xs text-zinc-500"
-													>{categoryDisplayName(expense.category)}</span
-												>
-												{#if expense.splitIndicator}
-													<SplitBadge
-														parts={badgeParts(expense.splitIndicator)}
-														otherCategoryCount={expense.splitIndicator.otherCategoryCount}
-														dominantCategory={categoryDisplayName(
-															expense.splitIndicator.dominantCategory
-														)}
-													/>
-												{/if}
+											<div class="shrink-0 text-sm font-semibold text-rose-600 tabular-nums">
+												{formatCents(expense.amountCents)}
 											</div>
 										</div>
-										<div class="shrink-0 text-sm font-semibold text-rose-600 tabular-nums">
-											{formatCents(expense.amountCents)}
+									{/each}
+								</div>
+							{:else}
+								<p class="mt-3 {cardBase} px-5 py-4 text-sm text-zinc-500">
+									{m.reports_empty_no_expense_detail()}
+								</p>
+							{/if}
+						</div>
+					</div>
+				</div>
+
+				<!-- 6 · ANNEXES -->
+				{#if report.recurringPayments.length > 0}
+					<div id="annexe-recurrences" class="scroll-mt-6">
+						<div class="flex items-center gap-2">
+							<h2 class="text-[11px] font-semibold tracking-wide text-zinc-400 uppercase">
+								{m.reports_appendix_heading()}
+							</h2>
+							<div class="h-px flex-1 bg-zinc-200"></div>
+						</div>
+						<!-- desktop -->
+						<div
+							class="mt-3 hidden overflow-hidden rounded-lg border border-zinc-200 bg-zinc-50/50 lg:block"
+						>
+							<div class="border-b border-zinc-100 px-5 py-3">
+								<h3 class="text-sm font-medium text-zinc-600">{m.reports_recurring_title()}</h3>
+								<p class="mt-1 text-xs text-zinc-500">{m.reports_recurring_subtitle()}</p>
+							</div>
+							<div class="overflow-x-auto">
+								<table class="w-full min-w-[760px] text-sm">
+									<thead>
+										<tr class="text-[11px] tracking-wide text-zinc-400 uppercase">
+											<th class="px-5 py-2 text-left font-medium"
+												>{m.reports_recurring_table_label()}</th
+											>
+											<th class="px-5 py-2 text-left font-medium"
+												>{m.reports_recurring_table_category()}</th
+											>
+											<th class="px-5 py-2 text-right font-medium"
+												>{m.reports_recurring_table_occurrences()}</th
+											>
+											<th class="px-5 py-2 text-right font-medium"
+												>{m.reports_recurring_table_last_date()}</th
+											>
+											<th class="px-5 py-2 text-right font-medium"
+												>{m.reports_recurring_table_confidence()}</th
+											>
+											<th class="px-5 py-2 text-right font-medium"
+												>{m.reports_recurring_table_average()}</th
+											>
+											<th class="px-5 py-2 text-right font-medium"
+												>{m.reports_recurring_table_total()}</th
+											>
+										</tr>
+									</thead>
+									<tbody class="divide-y divide-zinc-100">
+										{#each report.recurringPayments as rec (rec.id)}
+											<tr>
+												<td class="px-5 py-3 font-medium text-zinc-700">{rec.label}</td>
+												<td class="px-5 py-3 text-zinc-500">{categoryDisplayName(rec.category)}</td>
+												<td class="px-5 py-3 text-right text-zinc-500 tabular-nums">{rec.count}</td>
+												<td class="px-5 py-3 text-right text-zinc-500 tabular-nums"
+													>{rec.lastDate}</td
+												>
+												<td class="px-5 py-3 text-right text-zinc-500"
+													>{confidenceLabel(rec.confidence)}</td
+												>
+												<td class="px-5 py-3 text-right font-medium text-zinc-700 tabular-nums">
+													{formatCents(rec.amountCents)}
+												</td>
+												<td class="px-5 py-3 text-right font-medium text-zinc-700 tabular-nums">
+													{formatCents(rec.totalAmountCents)}
+												</td>
+											</tr>
+										{/each}
+									</tbody>
+								</table>
+							</div>
+						</div>
+
+						<!-- mobile -->
+						<div class="mt-3 lg:hidden">
+							<h3 class="px-1 text-[11px] font-semibold tracking-wide text-zinc-500 uppercase">
+								{m.reports_recurring_title()}
+							</h3>
+							<p class="mt-1 px-1 text-xs text-zinc-500">{m.reports_recurring_subtitle()}</p>
+							<div class="mt-3 space-y-2.5">
+								{#each report.recurringPayments as rec (rec.id)}
+									<div class="{cardBase} p-4">
+										<div class="flex items-start justify-between gap-3">
+											<div class="min-w-0">
+												<div class="truncate font-medium text-zinc-900">{rec.label}</div>
+												<div class="mt-0.5 truncate text-xs text-zinc-500">
+													{categoryDisplayName(rec.category)}
+												</div>
+											</div>
+											<span class="shrink-0">
+												<Badge tone="neutral">
+													{m.reports_recurring_confidence_badge({
+														level: confidenceLabel(rec.confidence)
+													})}
+												</Badge>
+											</span>
+										</div>
+										<div class="mt-3 flex items-end justify-between gap-3">
+											<div class="text-xs text-zinc-500">
+												{rec.count === 1
+													? m.reports_recurring_meta_one({ count: rec.count, date: rec.lastDate })
+													: m.reports_recurring_meta_many({ count: rec.count, date: rec.lastDate })}
+											</div>
+											<div class="shrink-0 text-right">
+												<div class="font-semibold text-zinc-900 tabular-nums">
+													{formatCents(rec.amountCents)}
+												</div>
+												<div class="text-xs text-zinc-500 tabular-nums">
+													{m.reports_recurring_table_total()}: {formatCents(rec.totalAmountCents)}
+												</div>
+											</div>
 										</div>
 									</div>
 								{/each}
 							</div>
-						{:else}
-							<p class="mt-3 {cardBase} px-5 py-4 text-sm text-zinc-500">
-								{m.reports_empty_no_expense_detail()}
-							</p>
-						{/if}
+						</div>
 					</div>
-				</div>
-			</div>
-
-			<!-- 5 · PRÉVISION DE TRÉSORERIE -->
-			<div>
-				<div class="flex items-center gap-2">
-					<h2 class="text-[11px] font-semibold tracking-wide text-zinc-400 uppercase">
-						{m.reports_forecast_heading()}
-					</h2>
-					<div class="h-px flex-1 bg-zinc-200"></div>
-				</div>
-
+				{/if}
+			{/if}
+		{:else if view === 'forecast'}
+			<!-- 5 · PRÉVISION DE TRÉSORERIE: the tab names it, so no visible label repeats it. -->
+			<section aria-label={m.reports_forecast_heading()}>
 				{#if cashFlowForecast.emptyState === null}
 					<div class="mt-3 {cardBase} p-5">
 						<h3 class="text-sm font-medium text-zinc-600">
@@ -955,131 +1130,17 @@
 						/>
 					{/if}
 				{/if}
-			</div>
-
-			<!-- 6 · ANNEXES -->
-			{#if report.recurringPayments.length > 0}
-				<div id="annexe-recurrences" class="scroll-mt-6">
-					<div class="flex items-center gap-2">
-						<h2 class="text-[11px] font-semibold tracking-wide text-zinc-400 uppercase">
-							{m.reports_appendix_heading()}
-						</h2>
-						<div class="h-px flex-1 bg-zinc-200"></div>
-					</div>
-					<!-- desktop -->
-					<div
-						class="mt-3 hidden overflow-hidden rounded-lg border border-zinc-200 bg-zinc-50/50 lg:block"
-					>
-						<div class="border-b border-zinc-100 px-5 py-3">
-							<h3 class="text-sm font-medium text-zinc-600">{m.reports_recurring_title()}</h3>
-							<p class="mt-1 text-xs text-zinc-500">{m.reports_recurring_subtitle()}</p>
-						</div>
-						<div class="overflow-x-auto">
-							<table class="w-full min-w-[760px] text-sm">
-								<thead>
-									<tr class="text-[11px] tracking-wide text-zinc-400 uppercase">
-										<th class="px-5 py-2 text-left font-medium"
-											>{m.reports_recurring_table_label()}</th
-										>
-										<th class="px-5 py-2 text-left font-medium"
-											>{m.reports_recurring_table_category()}</th
-										>
-										<th class="px-5 py-2 text-right font-medium"
-											>{m.reports_recurring_table_occurrences()}</th
-										>
-										<th class="px-5 py-2 text-right font-medium"
-											>{m.reports_recurring_table_last_date()}</th
-										>
-										<th class="px-5 py-2 text-right font-medium"
-											>{m.reports_recurring_table_confidence()}</th
-										>
-										<th class="px-5 py-2 text-right font-medium"
-											>{m.reports_recurring_table_average()}</th
-										>
-										<th class="px-5 py-2 text-right font-medium"
-											>{m.reports_recurring_table_total()}</th
-										>
-									</tr>
-								</thead>
-								<tbody class="divide-y divide-zinc-100">
-									{#each report.recurringPayments as rec (rec.id)}
-										<tr>
-											<td class="px-5 py-3 font-medium text-zinc-700">{rec.label}</td>
-											<td class="px-5 py-3 text-zinc-500">{categoryDisplayName(rec.category)}</td>
-											<td class="px-5 py-3 text-right text-zinc-500 tabular-nums">{rec.count}</td>
-											<td class="px-5 py-3 text-right text-zinc-500 tabular-nums">{rec.lastDate}</td
-											>
-											<td class="px-5 py-3 text-right text-zinc-500"
-												>{confidenceLabel(rec.confidence)}</td
-											>
-											<td class="px-5 py-3 text-right font-medium text-zinc-700 tabular-nums">
-												{formatCents(rec.amountCents)}
-											</td>
-											<td class="px-5 py-3 text-right font-medium text-zinc-700 tabular-nums">
-												{formatCents(rec.totalAmountCents)}
-											</td>
-										</tr>
-									{/each}
-								</tbody>
-							</table>
-						</div>
-					</div>
-
-					<!-- mobile -->
-					<div class="mt-3 lg:hidden">
-						<h3 class="px-1 text-[11px] font-semibold tracking-wide text-zinc-500 uppercase">
-							{m.reports_recurring_title()}
-						</h3>
-						<p class="mt-1 px-1 text-xs text-zinc-500">{m.reports_recurring_subtitle()}</p>
-						<div class="mt-3 space-y-2.5">
-							{#each report.recurringPayments as rec (rec.id)}
-								<div class="{cardBase} p-4">
-									<div class="flex items-start justify-between gap-3">
-										<div class="min-w-0">
-											<div class="truncate font-medium text-zinc-900">{rec.label}</div>
-											<div class="mt-0.5 truncate text-xs text-zinc-500">
-												{categoryDisplayName(rec.category)}
-											</div>
-										</div>
-										<span class="shrink-0">
-											<Badge tone="neutral">
-												{m.reports_recurring_confidence_badge({
-													level: confidenceLabel(rec.confidence)
-												})}
-											</Badge>
-										</span>
-									</div>
-									<div class="mt-3 flex items-end justify-between gap-3">
-										<div class="text-xs text-zinc-500">
-											{rec.count === 1
-												? m.reports_recurring_meta_one({ count: rec.count, date: rec.lastDate })
-												: m.reports_recurring_meta_many({ count: rec.count, date: rec.lastDate })}
-										</div>
-										<div class="shrink-0 text-right">
-											<div class="font-semibold text-zinc-900 tabular-nums">
-												{formatCents(rec.amountCents)}
-											</div>
-											<div class="text-xs text-zinc-500 tabular-nums">
-												{m.reports_recurring_table_total()}: {formatCents(rec.totalAmountCents)}
-											</div>
-										</div>
-									</div>
-								</div>
-							{/each}
-						</div>
-					</div>
+			</section>
+		{:else}
+			<!-- #418: its own thirteen months, shown whatever the selected period holds. -->
+			<section aria-labelledby="month-flow-heading" class="{cardBase} p-5">
+				<h2 id="month-flow-heading" class="text-sm font-medium text-zinc-900">
+					{m.reports_month_flow_heading()}
+				</h2>
+				<div class="mt-3">
+					<IncomeExpenseByMonthChart months={data.incomeExpenseByMonth} />
 				</div>
-			{/if}
+			</section>
 		{/if}
-
-		<!-- #418: its own thirteen months, shown whatever the selected period holds. -->
-		<section aria-labelledby="month-flow-heading" class="{cardBase} p-5">
-			<h2 id="month-flow-heading" class="text-sm font-medium text-zinc-900">
-				{m.reports_month_flow_heading()}
-			</h2>
-			<div class="mt-3">
-				<IncomeExpenseByMonthChart months={data.incomeExpenseByMonth} />
-			</div>
-		</section>
 	</div>
 </main>
