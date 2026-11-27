@@ -58,17 +58,29 @@ describe('IncomeExpenseByMonthChart', () => {
 			.toHaveAttribute('href', '/transactions?from=2025-11-01&to=2025-11-30');
 	});
 
-	it('gives every one of the thirteen months a table row, the last one in progress', async () => {
+	// Separates « newest six, then all thirteen on request » from a list that drops or reorders months.
+	it('lists the newest six months first, the one in progress marked, and all thirteen on request', async () => {
 		render(IncomeExpenseByMonthChart, { months });
-		const rows = page.getByRole('table').getByRole('row');
-		// One header row plus thirteen months.
-		expect(rows.elements()).toHaveLength(14);
-		const header = rows.nth(1).getByRole('rowheader');
-		await expect.element(header).toBeInTheDocument();
-		const text = (header.element().textContent ?? '').replace(/\s+/g, ' ').trim();
-		expect([...text].map((char) => char.codePointAt(0)!.toString(16))).toEqual(
-			[...'janv. 2026 · en cours'].map((char) => char.codePointAt(0)!.toString(16))
-		);
+		const rows = () => [...document.querySelectorAll('[data-month-row]')];
+		const collapse = (text: string | null) => (text ?? '').replace(/\s+/g, ' ').trim();
+		await expect
+			.element(page.getByRole('button', { name: 'Afficher les 13 mois' }))
+			.toBeInTheDocument();
+		expect(rows().map((row) => row.getAttribute('data-month-row'))).toEqual([
+			'2026-01',
+			'2025-12',
+			'2025-11',
+			'2025-10',
+			'2025-09',
+			'2025-08'
+		]);
+		expect(
+			collapse(rows()[0].querySelector('div')!.firstElementChild!.parentElement!.textContent)
+		).toMatch(/^janvier 2026 · en cours /);
+		await page.getByRole('button', { name: 'Afficher les 13 mois' }).click();
+		await expect.element(page.getByRole('button', { name: 'Afficher moins' })).toBeInTheDocument();
+		expect(rows()).toHaveLength(13);
+		expect(rows().at(-1)!.getAttribute('data-month-row')).toBe('2025-01');
 	});
 
 	it('says there is nothing to show when the thirteen months are empty', async () => {
@@ -78,6 +90,6 @@ describe('IncomeExpenseByMonthChart', () => {
 		await expect
 			.element(page.getByText('Aucun revenu ni aucune dépense sur les 12 derniers mois.'))
 			.toBeInTheDocument();
-		expect(page.getByRole('table').elements()).toHaveLength(0);
+		expect(document.querySelectorAll('[data-month-row]')).toHaveLength(0);
 	});
 });
