@@ -26,8 +26,16 @@ import {
 } from '$lib/server/forecast';
 import type { PageServerLoad } from './$types';
 
+/** The /reports views, a closed list: anything else in `?view=` reads as the period view. */
+const REPORT_VIEWS = ['period', 'monthly', 'forecast'] as const;
+type ReportView = (typeof REPORT_VIEWS)[number];
+function parseReportView(raw: string | null): ReportView {
+	return REPORT_VIEWS.find((view) => view === raw) ?? 'period';
+}
+
 export const load: PageServerLoad = async ({ locals, url }) => {
 	const user = requireUser(locals.user);
+	const view = parseReportView(url.searchParams.get('view'));
 	const period = parseDateRange(url.searchParams);
 	const previousPeriod = getPreviousMonthRange(period);
 	const todayIso = new Date().toISOString().slice(0, 10);
@@ -60,6 +68,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		// than a clock read inside the preset module: a preset that read the wall clock could not be
 		// tested at a boundary. /transactions resolves it the same way, in its own load.
 		todayIso,
+		view,
 		month: period.budgetMonth,
 		period,
 		periodQuery: serializePeriodParams(period),
