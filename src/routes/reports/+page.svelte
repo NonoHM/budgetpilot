@@ -117,18 +117,33 @@
 			}));
 	}
 
+	/** Each top category's colour on this page, by its rank in the report: the one map the donut,
+	 *  its table, its cards and the cash-flow diagram (#190) read, so a category wears one colour
+	 *  here. */
+	function categoryColorMap(categories: Array<{ category: string }>): Record<string, string> {
+		return Object.fromEntries(
+			categories
+				.slice(0, CATEGORY_PALETTE.length)
+				.map((category, i) => [category.category, CATEGORY_PALETTE[i]])
+		);
+	}
+
 	function buildCategoryDonutSegments(
-		categories: Array<{ category: string; percentageOfExpenses: number }>
+		categories: Array<{ category: string; percentageOfExpenses: number }>,
+		colors: Record<string, string>
 	): DonutSegment[] {
-		return categories.slice(0, 5).map((category, i) => ({
+		return categories.slice(0, 5).map((category) => ({
 			label: categoryDisplayName(category.category),
-			color: CATEGORY_PALETTE[i] ?? CATEGORY_PALETTE_OTHERS,
+			color: colors[category.category] ?? CATEGORY_PALETTE_OTHERS,
 			pct: category.percentageOfExpenses * 100
 		}));
 	}
 
 	const natureSegments = $derived(buildNatureSegments(report.natureAnalysis));
-	const categoryDonutSegments = $derived(buildCategoryDonutSegments(report.topCategories));
+	const categoryColors = $derived(categoryColorMap(report.topCategories));
+	const categoryDonutSegments = $derived(
+		buildCategoryDonutSegments(report.topCategories, categoryColors)
+	);
 
 	/**
 	 * The top categories' whole-number shares, computed ONCE for the three places this page prints
@@ -546,7 +561,7 @@
 					{m.reports_cash_flow_heading()}
 				</h2>
 				<div class="mt-3">
-					<CashFlowSankey flow={data.cashFlow} />
+					<CashFlowSankey flow={data.cashFlow} colors={categoryColors} />
 				</div>
 			</section>
 
@@ -654,7 +669,9 @@
 													<div
 														class="h-full rounded-full {widthClass(
 															category.percentageOfExpenses * 100
-														)} {hexToBgClass(CATEGORY_PALETTE[i] ?? CATEGORY_PALETTE_OTHERS)}"
+														)} {hexToBgClass(
+															categoryColors[category.category] ?? CATEGORY_PALETTE_OTHERS
+														)}"
 													></div>
 												</div>
 											</td>
@@ -705,7 +722,9 @@
 											<div
 												class="h-full rounded-full {widthClass(
 													category.percentageOfExpenses * 100
-												)} {hexToBgClass(CATEGORY_PALETTE[i] ?? CATEGORY_PALETTE_OTHERS)}"
+												)} {hexToBgClass(
+													categoryColors[category.category] ?? CATEGORY_PALETTE_OTHERS
+												)}"
 											></div>
 										</div>
 									</div>

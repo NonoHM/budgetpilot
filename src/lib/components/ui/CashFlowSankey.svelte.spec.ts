@@ -39,7 +39,43 @@ describe('CashFlowSankey', () => {
 	it('draws the diagram at 1280: one income node, five out, the left-over and the total', async () => {
 		await page.viewport(1280, 800);
 		render(CashFlowSankey, { flow: surplus });
-		await expect.poll(() => document.querySelectorAll('svg rect').length).toBe(8);
+		// Node rectangles only: the two label clip paths hold a rectangle each.
+		await expect
+			.poll(() => document.querySelectorAll('svg rect:not(clipPath rect)').length)
+			.toBe(8);
+	});
+
+	// Contradiction pass, 2026-11-27: a long name beside a large amount ran past the drawing's edge,
+	// and the clip cut the amount's last digit. Separates « the amount is whole and inside » from
+	// « a figure can lose a character ».
+	it('keeps a large amount whole and inside the drawing beside a long category name', async () => {
+		await page.viewport(1280, 800);
+		render(CashFlowSankey, {
+			flow: buildCashFlowSankey([
+				row('Salaire', 2_000_000),
+				row('Abonnements et logiciels de bureau', -1_234_567)
+			])
+		});
+		await expect.poll(() => document.querySelectorAll('svg text').length).toBeGreaterThan(0);
+		const svg = document.querySelector('svg')!;
+		const amount = [...svg.querySelectorAll('text')].find(
+			(text) => text.textContent?.trim() === formatCents(1_234_567)
+		);
+		expect(amount, 'the amount is drawn whole').toBeDefined();
+		// getBBox ignores clipping, so the clip is asserted absent separately.
+		expect(amount!.getAttribute('clip-path')).toBeNull();
+		const box = amount!.getBBox();
+		expect(box.x + box.width).toBeLessThanOrEqual(svg.viewBox.baseVal.width);
+	});
+
+	// Separates « a spending category wears the page's colour » from every node in the neutral grey
+	// (the page once passed no map, and every node rendered grey with all tests green).
+	it('colours a spending node, its ribbon and its list dot from the page map', async () => {
+		await page.viewport(1280, 800);
+		render(CashFlowSankey, { flow: surplus, colors: { Loyer: '#6366f1' } });
+		await expect.poll(() => document.querySelectorAll('svg rect[fill="#6366f1"]').length).toBe(1);
+		expect(document.querySelectorAll('svg path[fill="#6366f1"]')).toHaveLength(1);
+		expect(document.querySelectorAll('[data-cash-flow="out"] .bg-\\[\\#6366f1\\]')).toHaveLength(1);
 	});
 
 	it('shows only the list at 390', async () => {

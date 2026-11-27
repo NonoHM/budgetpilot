@@ -3,8 +3,12 @@
 	import { categoryDisplayName } from '$lib/domain/categoryLabels';
 	import type { CashFlowSankey, SankeyNode } from '$lib/domain/cashFlowSankey';
 	import * as m from '$lib/paraglide/messages';
+	import { CATEGORY_PALETTE_OTHERS, hexToBgClass } from '$lib/domain/colors';
 
-	let { flow }: { flow: CashFlowSankey } = $props();
+	// `colors`: the page's own category → colour map, the one its donut and top-categories table
+	// use, so a category wears one colour across /reports. A category outside it, and « Other »,
+	// take the palette's neutral.
+	let { flow, colors = {} }: { flow: CashFlowSankey; colors?: Record<string, string> } = $props();
 
 	// Layout values within the published library defaults (d3-sankey 24/8, Highcharts 20/10):
 	// docs f2-sankey-principles. The diagram is drawn only where its labels fit beside it; below
@@ -17,7 +21,6 @@
 	const LABEL = 200;
 	const MIN_WIDTH = 640;
 	const INCOME_FILL = '#10b981';
-	const EXPENSE_FILL = '#be123c';
 	const NEUTRAL_FILL = '#a1a1aa';
 	const TOTAL_FILL = '#3f3f46';
 
@@ -25,15 +28,23 @@
 	const width = $derived(measured);
 	const draws = $derived(width >= MIN_WIDTH && flow.totalCents > 0);
 
-	// A ribbon takes its node's colour: money in, money out (the money rule), neutral for the balance.
-	type Kind = 'income' | 'expense' | 'balance';
-	interface Placed {
+	// A ribbon takes its node's colour: income in emerald (the money rule), each spending category
+	// in the colour the page's donut gives it, the balance and « Other » neutral.
+	interface Flow {
 		key: string;
 		label: string;
 		cents: number;
-		kind: Kind;
+		color: string;
+	}
+	interface Placed extends Flow {
 		y: number;
 		height: number;
+	}
+
+	function expenseColor(node: SankeyNode): string {
+		return node.category === null
+			? CATEGORY_PALETTE_OTHERS
+			: (colors[node.category] ?? CATEGORY_PALETTE_OTHERS);
 	}
 
 	function label(node: SankeyNode): string {
@@ -42,12 +53,12 @@
 			: categoryDisplayName(node.category);
 	}
 
-	const left = $derived([
+	const left: Flow[] = $derived([
 		...flow.income.map((node) => ({
 			key: `in:${node.category ?? ''}`,
 			label: label(node),
 			cents: node.cents,
-			kind: 'income' as Kind
+			color: INCOME_FILL
 		})),
 		...(flow.beyondIncomeCents > 0
 			? [
@@ -55,17 +66,17 @@
 						key: 'beyond',
 						label: m.reports_cash_flow_beyond(),
 						cents: flow.beyondIncomeCents,
-						kind: 'balance' as Kind
+						color: NEUTRAL_FILL
 					}
 				]
 			: [])
 	]);
-	const right = $derived([
+	const right: Flow[] = $derived([
 		...flow.expenses.map((node) => ({
 			key: `out:${node.category ?? ''}`,
 			label: label(node),
 			cents: node.cents,
-			kind: 'expense' as Kind
+			color: expenseColor(node)
 		})),
 		...(flow.leftOverCents > 0
 			? [
@@ -73,7 +84,7 @@
 						key: 'left',
 						label: m.reports_cash_flow_left_over(),
 						cents: flow.leftOverCents,
-						kind: 'balance' as Kind
+						color: NEUTRAL_FILL
 					}
 				]
 			: [])
@@ -84,7 +95,7 @@
 			Math.max(1, flow.totalCents)
 	);
 
-	function stack(nodes: { key: string; label: string; cents: number; kind: Kind }[]): Placed[] {
+	function stack(nodes: Flow[]): Placed[] {
 		const span =
 			nodes.reduce((total, node) => total + node.cents * scale, 0) + GAP * (nodes.length - 1);
 		let y = TOP + (HEIGHT - TOP - span) / 2;
@@ -110,13 +121,13 @@
 	}
 
 	const ribbons = $derived.by(() => {
-		const out: { key: string; d: string; kind: Kind }[] = [];
+		const out: { key: string; d: string; color: string }[] = [];
 		let cursor = totalY;
 		for (const node of leftNodes) {
 			const h = node.cents * scale;
 			out.push({
 				key: node.key,
-				kind: node.kind,
+				color: node.color,
 				d: ribbon(xLeft + NODE, node.y, node.y + h, xCentre, cursor, cursor + h)
 			});
 			cursor += h;
@@ -126,7 +137,7 @@
 			const h = node.cents * scale;
 			out.push({
 				key: node.key,
-				kind: node.kind,
+				color: node.color,
 				d: ribbon(xCentre + NODE, cursor, cursor + h, xRight, node.y, node.y + h)
 			});
 			cursor += h;
@@ -134,14 +145,29 @@
 		return out;
 	});
 
-	function fill(kind: Kind): string {
-		return kind === 'income' ? INCOME_FILL : kind === 'expense' ? EXPENSE_FILL : NEUTRAL_FILL;
+	/** Long category names are cut by characters (never inside an emoji) and also clipped to the
+	 *  label column; the full name is in the list under the diagram. The amount has its own line and
+	 *  is never cut, so no clipping can change a figure (contradiction pass, 2026-11-27). */
+	function fit(text: string): string {
+		const characters = [...text];
+		return characters.length > 24 ? `${characters.slice(0, 23).join('')}…` : text;
 	}
 
-	/** Long category names are cut so a label never runs into the ribbons. */
-	function fit(text: string): string {
-		return text.length > 24 ? `${text.slice(0, 23)}…` : text;
+	// Two lines per label need 30 px. A label sits beside its node, pushed down when the one above
+	// is closer than that, then the column is moved up as a whole if it overflows the bottom.
+	const LINE_PAIR = 30;
+	function labelCentres(nodes: Placed[]): number[] {
+		const centres: number[] = [];
+		for (const node of nodes) {
+			const wanted = node.y + node.height / 2;
+			centres.push(centres.length === 0 ? wanted : Math.max(wanted, centres.at(-1)! + LINE_PAIR));
+		}
+		const overflow = (centres.at(-1) ?? 0) + LINE_PAIR / 2 - HEIGHT;
+		return overflow > 0 ? centres.map((centre) => centre - overflow) : centres;
 	}
+	const leftLabels = $derived(labelCentres(leftNodes));
+	const rightLabels = $derived(labelCentres(rightNodes));
+	const clipId = `sankey-${crypto.randomUUID().slice(0, 8)}`;
 
 	let hovered = $state<string | null>(null);
 </script>
@@ -153,14 +179,22 @@
 		<div bind:clientWidth={measured}>
 			{#if draws}
 				<svg class="block w-full" height={HEIGHT} viewBox="0 0 {width} {HEIGHT}" aria-hidden="true">
+					<defs>
+						<clipPath id="{clipId}-left"
+							><rect x="0" y="0" width={xLeft - 8} height={HEIGHT} /></clipPath
+						>
+						<clipPath id="{clipId}-right"
+							><rect x={xRight + NODE + 8} y="0" width={LABEL - 8} height={HEIGHT} /></clipPath
+						>
+					</defs>
 					{#each ribbons as band (band.key)}
 						<path
 							d={band.d}
-							fill={fill(band.kind)}
+							fill={band.color}
 							fill-opacity={hovered === null ? 0.2 : hovered === band.key ? 0.45 : 0.08}
 						/>
 					{/each}
-					{#each leftNodes as node (node.key)}
+					{#each leftNodes as node, index (node.key)}
 						<g
 							role="presentation"
 							onpointerenter={() => (hovered = node.key)}
@@ -172,15 +206,23 @@
 								width={NODE}
 								height={node.height}
 								rx="2"
-								fill={fill(node.kind)}
+								fill={node.color}
 							/>
 							<text
 								x={xLeft - 8}
-								y={node.y + node.height / 2 + 4}
+								y={leftLabels[index] - 2}
 								text-anchor="end"
 								font-size="12"
 								fill="#18181b"
-								>{fit(node.label)} <tspan fill="#71717a">{formatCents(node.cents)}</tspan></text
+								clip-path="url(#{clipId}-left)">{fit(node.label)}</text
+							>
+							<text
+								x={xLeft - 8}
+								y={leftLabels[index] + 12}
+								text-anchor="end"
+								font-size="12"
+								fill="#71717a"
+								class="tabular-nums">{formatCents(node.cents)}</text
 							>
 						</g>
 					{/each}
@@ -194,7 +236,7 @@
 						>{m.reports_donut_total_label()}
 						<tspan fill="#71717a">{formatCents(flow.totalCents)}</tspan></text
 					>
-					{#each rightNodes as node (node.key)}
+					{#each rightNodes as node, index (node.key)}
 						<g
 							role="presentation"
 							onpointerenter={() => (hovered = node.key)}
@@ -206,14 +248,21 @@
 								width={NODE}
 								height={node.height}
 								rx="2"
-								fill={fill(node.kind)}
+								fill={node.color}
 							/>
 							<text
 								x={xRight + NODE + 8}
-								y={node.y + node.height / 2 + 4}
+								y={rightLabels[index] - 2}
 								font-size="12"
 								fill="#18181b"
-								>{fit(node.label)} <tspan fill="#71717a">{formatCents(node.cents)}</tspan></text
+								clip-path="url(#{clipId}-right)">{fit(node.label)}</text
+							>
+							<text
+								x={xRight + NODE + 8}
+								y={rightLabels[index] + 12}
+								font-size="12"
+								fill="#71717a"
+								class="tabular-nums">{formatCents(node.cents)}</text
 							>
 						</g>
 					{/each}
@@ -223,13 +272,18 @@
 
 		<div class="grid gap-6 sm:grid-cols-2">
 			{#each [{ title: m.reports_cash_flow_in(), nodes: flow.income, kind: 'in' }, { title: m.reports_cash_flow_out(), nodes: flow.expenses, kind: 'out' }] as group (group.kind)}
-				<section>
+				<section class={group.nodes.length === 0 ? 'hidden' : ''}>
 					<h3 class="text-sm font-medium text-zinc-900">{group.title}</h3>
 					<ul class="mt-1 divide-y divide-zinc-100" data-cash-flow={group.kind}>
 						{#each group.nodes as node (node.category ?? '')}
 							<li class="flex items-start justify-between gap-4 py-2">
 								<div class="min-w-0">
-									<div class="text-sm text-zinc-900">{label(node)}</div>
+									<div class="flex items-center gap-2 text-sm text-zinc-900">
+										{#if group.kind === 'out'}<span
+												class="h-2.5 w-2.5 shrink-0 rounded-sm {hexToBgClass(expenseColor(node))}"
+												aria-hidden="true"
+											></span>{/if}{label(node)}
+									</div>
 									{#if node.members.length > 0}
 										<div class="mt-0.5 text-xs text-zinc-500">
 											{node.members.map(categoryDisplayName).join(', ')}
