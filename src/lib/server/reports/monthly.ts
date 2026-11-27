@@ -1,7 +1,11 @@
 import * as m from '$lib/paraglide/messages';
 import type { Transaction } from '$lib/domain/transaction';
 import type { CategoryAllocation, SplitIndicator } from '$lib/domain/allocation';
-import { countedInIncomeAndExpense, splitIndicatorsByTransactionId } from '$lib/domain/allocation';
+import {
+	countedInIncomeAndExpense,
+	splitIndicatorsByTransactionId,
+	sumIncomeAndExpense
+} from '$lib/domain/allocation';
 import { getTransactionKind } from '$lib/domain/transaction';
 import { getSimilarAmountGroups, normalizeRecurringLabel } from '$lib/domain/recurrence';
 import { categoryDisplayName } from '$lib/domain/categoryLabels';
@@ -154,13 +158,7 @@ export function buildPeriodReport(
 		(transaction) => getTransactionKind(transaction) === 'expense'
 	);
 	const expenseAllocations = counted.filter((allocation) => allocation.kind === 'expense');
-	const incomeCents = counted
-		.filter((allocation) => allocation.kind === 'income')
-		.reduce((total, allocation) => total + Math.abs(allocation.amountCents), 0);
-	const expenseCents = expenseAllocations.reduce(
-		(total, allocation) => total + Math.abs(allocation.amountCents),
-		0
-	);
+	const { incomeCents, expenseCents } = sumIncomeAndExpense(allocations);
 	const balanceCents = incomeCents - expenseCents;
 	const dayCount = Math.max(1, options.dayCount ?? getCoveredDayCount(transactions));
 	const topCategories = getTopCategories(expenseAllocations, expenseCents);

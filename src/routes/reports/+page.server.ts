@@ -10,6 +10,7 @@ import { readDashboardDataForRange } from '$lib/server/budget/dashboard';
 import { prisma } from '$lib/server/db';
 import { collectAllTransactions } from '$lib/server/transactions/batch';
 import { buildPeriodReport } from '$lib/server/reports/monthly';
+import { buildIncomeExpenseByMonth, reportMonths } from '$lib/domain/incomeExpenseByMonth';
 import {
 	buildCategoryNatureMap,
 	EFFECTIVE_CATEGORY_SELECT,
@@ -28,7 +29,9 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 	const user = requireUser(locals.user);
 	const period = parseDateRange(url.searchParams);
 	const previousPeriod = getPreviousMonthRange(period);
-	const [dashboardData, previous, categories, cashFlowForecast] = await Promise.all([
+	const todayIso = new Date().toISOString().slice(0, 10);
+	const months = reportMonths(todayIso);
+	const [dashboardData, previous, categories, cashFlowForecast, lastMonths] = await Promise.all([
 		readDashboardDataForRange(user.id, period),
 		previousPeriod
 			? readTransactionsForRange(user.id, previousPeriod.from, previousPeriod.to)
@@ -37,7 +40,13 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 			where: { userId: user.id },
 			select: { name: true }
 		}),
-		loadCashFlowForecast(user.id, FORECAST_REPORTS_HORIZON_DAYS).then(toDisplayCashFlowForecast)
+		loadCashFlowForecast(user.id, FORECAST_REPORTS_HORIZON_DAYS).then(toDisplayCashFlowForecast),
+		// #418: the chart's own thirteen months, independent of the selected period.
+		readTransactionsForRange(
+			user.id,
+			new Date(`${months[0].from}T00:00:00.000Z`),
+			new Date(Date.parse(`${months[months.length - 1].to}T00:00:00.000Z`) + 86_400_000)
+		)
 	]);
 	const { transactions, allocations } = dashboardData;
 	const previousReport =
@@ -49,7 +58,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		// The Periode panel's presets are a pure function of "today", which is a parameter rather
 		// than a clock read inside the preset module: a preset that read the wall clock could not be
 		// tested at a boundary. /transactions resolves it the same way, in its own load.
-		todayIso: new Date().toISOString().slice(0, 10),
+		todayIso,
 		month: period.budgetMonth,
 		period,
 		periodQuery: serializePeriodParams(period),
@@ -60,6 +69,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		}),
 		categories,
 		cashFlowForecast,
+		incomeExpenseByMonth: buildIncomeExpenseByMonth(lastMonths.allocations, months),
 		forecastHorizonMonths: FORECAST_REPORTS_HORIZON_MONTHS
 	};
 };

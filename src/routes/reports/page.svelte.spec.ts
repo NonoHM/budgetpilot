@@ -72,6 +72,7 @@ function buildData(emptyState: PageData['cashFlowForecast']['emptyState']): Page
 		periodQuery: 'period=this-month',
 		report: buildReport(),
 		categories: [],
+		incomeExpenseByMonth: [],
 		cashFlowForecast: {
 			hasBalanceAnchor: false,
 			days: [],
