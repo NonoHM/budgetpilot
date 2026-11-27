@@ -73,6 +73,7 @@ function buildData(emptyState: PageData['cashFlowForecast']['emptyState']): Page
 		report: buildReport(),
 		categories: [],
 		incomeExpenseByMonth: [],
+		cashFlow: { income: [], expenses: [], totalCents: 0, leftOverCents: 0, beyondIncomeCents: 0 },
 		cashFlowForecast: {
 			hasBalanceAnchor: false,
 			days: [],

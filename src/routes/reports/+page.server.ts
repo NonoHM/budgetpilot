@@ -11,6 +11,7 @@ import { prisma } from '$lib/server/db';
 import { collectAllTransactions } from '$lib/server/transactions/batch';
 import { buildPeriodReport } from '$lib/server/reports/monthly';
 import { buildIncomeExpenseByMonth, reportMonths } from '$lib/domain/incomeExpenseByMonth';
+import { buildCashFlowSankey } from '$lib/domain/cashFlowSankey';
 import {
 	buildCategoryNatureMap,
 	EFFECTIVE_CATEGORY_SELECT,
@@ -70,6 +71,8 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		categories,
 		cashFlowForecast,
 		incomeExpenseByMonth: buildIncomeExpenseByMonth(lastMonths.allocations, months),
+		// #190: the same period allocations as `report`, so the two cannot disagree.
+		cashFlow: buildCashFlowSankey(allocations),
 		forecastHorizonMonths: FORECAST_REPORTS_HORIZON_MONTHS
 	};
 };

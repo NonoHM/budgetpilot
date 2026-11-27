@@ -23,6 +23,7 @@
 	import EmptyState from '$lib/components/ui/EmptyState.svelte';
 	import CashFlowForecastChart from '$lib/components/ui/CashFlowForecastChart.svelte';
 	import IncomeExpenseByMonthChart from '$lib/components/ui/IncomeExpenseByMonthChart.svelte';
+	import CashFlowSankey from '$lib/components/ui/CashFlowSankey.svelte';
 	import type { FlowCadence, FlowConfidenceTier } from '$lib/domain/forecast';
 	import * as m from '$lib/paraglide/messages';
 	import { formatPercent, labelledValue } from '$lib/domain/typography';
@@ -538,6 +539,16 @@
 					</ul>
 				</div>
 			{/if}
+
+			<!-- #190: the selected period's flow, from the same allocations as the figures above. -->
+			<section aria-labelledby="cash-flow-heading" class="{cardBase} p-5">
+				<h2 id="cash-flow-heading" class="text-sm font-medium text-zinc-900">
+					{m.reports_cash_flow_heading()}
+				</h2>
+				<div class="mt-3">
+					<CashFlowSankey flow={data.cashFlow} />
+				</div>
+			</section>
 
 			<!-- 3 · ANALYSE VISUELLE -->
 			<div>
