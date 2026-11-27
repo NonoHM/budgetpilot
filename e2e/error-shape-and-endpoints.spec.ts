@@ -282,8 +282,10 @@ test.beforeAll(async () => {
 	staticDirectoryResponse = await rawRequest('GET', STATIC_DIR_URL);
 
 	for (const method of ['GET', 'TRACE', 'TRACK', 'OPTIONS', 'PUT', 'DELETE', 'PATCH']) {
+		// Same origin, because SvelteKit 3 refuses a PUT, PATCH or DELETE with no Origin as cross-site
+		// (403) before routing, which would hide the method surface this probe is about (#1336).
 		methodResponses[method] = await rawRequest(method, '/login', {
-			headers: { 'X-Errshape-Probe': TRACE_CANARY }
+			headers: { Origin: BASE_URL, 'X-Errshape-Probe': TRACE_CANARY }
 		});
 	}
 
@@ -366,8 +368,10 @@ test.describe('v5.0.0-16.5.1, v5.0.0-13.4.2: an unexpected error discloses nothi
 	test('calibration: each error body is a haystack the search can actually read', () => {
 		// Searching an empty string for a stack trace succeeds every time. Both bodies must be
 		// readable and must contain the one string they are supposed to contain.
+		// SvelteKit 3 adds the action's own address and the status to the result (#1336): the page
+		// posted to, and 500. Neither is a detail of the failure.
 		expect(actionErrorResult.body).toMatch(
-			/^\{"type":"error","error":\{"message":"Internal Error","errorId":"[0-9a-f-]{36}"\}\}$/
+			/^\{"type":"error","location":"\/login","error":\{"status":500,"message":"Internal Error","errorId":"[0-9a-f-]{36}"\}\}$/
 		);
 		expect(renderedErrorPage.contentType).toContain('text/html');
 		expect(renderedErrorPage.body.length).toBeGreaterThan(500);
@@ -388,18 +392,29 @@ test.describe('v5.0.0-16.5.1, v5.0.0-13.4.2: an unexpected error discloses nothi
 		expect(leaked, `internals in the rendered error page: ${leaked.join(', ')}`).toEqual([]);
 	});
 
-	// v5.0.0-13.4.2's mechanism rather than its symptom. The verdict says SvelteKit strips its
-	// dev-only branches at build time and names `fix_stack_trace`, the path that rewrites a stack
-	// against the source map before it is attached to the error. Asserting it is gone from the
-	// bundle measures the stripping; asserting it is present in the installed framework is what
-	// stops this becoming a search for a string that no longer exists anywhere, which would pass
-	// forever and mean nothing.
-	test('v5.0.0-13.4.2: the production bundle has no dev-only stack rewriting, and the token is one that still exists', () => {
+	// v5.0.0-13.4.2's mechanism rather than its symptom: SvelteKit strips its dev-only branches at
+	// build time. The token is `/@vite/client`, the HMR script SvelteKit injects into its error page
+	// in dev only. Asserting it is gone from the bundle measures the stripping; asserting it is
+	// present in the installed framework is what stops this becoming a search for a string that no
+	// longer exists anywhere, which would pass forever and mean nothing. The token was
+	// `fix_stack_trace` until SvelteKit 3, which keeps that source-mapped stack rewriting in
+	// production on purpose: it shapes the stack the SERVER logs, and the two tests above are what
+	// assert no stack reaches a response (#1336).
+	test('v5.0.0-13.4.2: the production bundle has no dev-only error-page code, and the token is one that still exists', () => {
 		const kitSource = readFileSync(
-			path.join('node_modules', '@sveltejs', 'kit', 'src', 'runtime', 'server', 'utils.js'),
+			path.join(
+				'node_modules',
+				'@sveltejs',
+				'kit',
+				'src',
+				'runtime',
+				'server',
+				'page',
+				'respond_with_error.js'
+			),
 			'utf8'
 		);
-		expect(kitSource).toContain('fix_stack_trace');
+		expect(kitSource).toContain('/@vite/client');
 
 		const bundle = readdirSync(path.join('build', 'server'), { recursive: true })
 			.map((entry) => path.join('build', 'server', String(entry)))
@@ -407,9 +422,9 @@ test.describe('v5.0.0-16.5.1, v5.0.0-13.4.2: an unexpected error discloses nothi
 		expect(bundle.length).toBeGreaterThan(10);
 
 		const offenders = bundle.filter((entry) =>
-			readFileSync(entry, 'utf8').includes('fix_stack_trace')
+			readFileSync(entry, 'utf8').includes('/@vite/client')
 		);
-		expect(offenders, `dev-only stack rewriting in the bundle: ${offenders.join(', ')}`).toEqual(
+		expect(offenders, `dev-only error-page code in the bundle: ${offenders.join(', ')}`).toEqual(
 			[]
 		);
 	});

@@ -131,7 +131,8 @@ export async function registerOwner(
 		maxRedirects: 0
 	});
 	await expectAction(registered, 'redirect', `${email} registered`);
-	await client.post('/logout', { maxRedirects: 0 }).catch(() => undefined);
+	// A body, so a Content-Type: SvelteKit 3 refuses a cross-site check on a POST without one (#1336).
+	await client.post('/logout', { form: {}, maxRedirects: 0 }).catch(() => undefined);
 	const signedIn = await client.post('/login', {
 		form: { email, password: OWNER_PASSWORD },
 		maxRedirects: 0
