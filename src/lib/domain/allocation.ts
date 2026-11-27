@@ -142,6 +142,21 @@ export function countedInIncomeAndExpense(
 	return allocations.filter((allocation) => !allocation.transferPaired);
 }
 
+/** The income and spending figures of a set of allocations, after #212's rule. Every surface that
+ *  shows them (the period report, the monthly chart) calls this, so they cannot disagree. */
+export function sumIncomeAndExpense(allocations: ReadonlyArray<CategoryAllocation>): {
+	incomeCents: number;
+	expenseCents: number;
+} {
+	let incomeCents = 0;
+	let expenseCents = 0;
+	for (const allocation of countedInIncomeAndExpense(allocations)) {
+		if (allocation.kind === 'income') incomeCents += Math.abs(allocation.amountCents);
+		else expenseCents += Math.abs(allocation.amountCents);
+	}
+	return { incomeCents, expenseCents };
+}
+
 /** The smallest thing the remainder rule needs to know about a whole or a part. */
 export interface CategoryAmount {
 	category: string;

@@ -22,6 +22,7 @@
 	import Tooltip from '$lib/components/ui/Tooltip.svelte';
 	import EmptyState from '$lib/components/ui/EmptyState.svelte';
 	import CashFlowForecastChart from '$lib/components/ui/CashFlowForecastChart.svelte';
+	import IncomeExpenseByMonthChart from '$lib/components/ui/IncomeExpenseByMonthChart.svelte';
 	import type { FlowCadence, FlowConfidenceTier } from '$lib/domain/forecast';
 	import * as m from '$lib/paraglide/messages';
 	import { formatPercent, labelledValue } from '$lib/domain/typography';
@@ -1070,5 +1071,15 @@
 				</div>
 			{/if}
 		{/if}
+
+		<!-- #418: its own thirteen months, shown whatever the selected period holds. -->
+		<section aria-labelledby="month-flow-heading" class="{cardBase} p-5">
+			<h2 id="month-flow-heading" class="text-sm font-medium text-zinc-900">
+				{m.reports_month_flow_heading()}
+			</h2>
+			<div class="mt-3">
+				<IncomeExpenseByMonthChart months={data.incomeExpenseByMonth} />
+			</div>
+		</section>
 	</div>
 </main>
