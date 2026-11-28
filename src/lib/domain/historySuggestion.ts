@@ -22,6 +22,9 @@ import { normalizeForMatch } from './normalize';
 export const HISTORY_SUGGESTION_FLOOR = 0.9;
 export const HISTORY_WINDOW = 10;
 
+/** Where a proposed category comes from: one definition for the server, the page and its strings. */
+export type ProposalSource = 'rule' | 'history' | 'similar';
+
 export type HistoryRow = { label: string; category: string; date: Date };
 export type HistoryIndex = ReadonlyMap<string, readonly string[]>;
 

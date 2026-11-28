@@ -14,14 +14,15 @@ import {
 import { resolveTransactionType } from '$lib/server/transactions/totals';
 import { normalizeId, resolveUncategorizedCategoryId } from '$lib/server/transactions/where';
 import { isTransactionNature, type TransactionNature } from '$lib/domain/transaction';
-import { suggestFromHistory, type HistoryIndex } from '$lib/domain/historySuggestion';
+import { suggestFromHistory, type ProposalSource } from '$lib/domain/historySuggestion';
+import { suggestFromSimilar } from '$lib/domain/nearestLabel';
 import { findMatchingCategoryRule } from './rules';
-import { loadMemberHistory } from './history';
+import { loadMemberHistory, type MemberHistory } from './history';
 
 export type Proposal = {
 	category: string;
 	nature: TransactionNature | null;
-	source: 'rule' | 'history';
+	source: ProposalSource;
 };
 
 type ProposalRule = {
@@ -36,7 +37,7 @@ type ProposalRule = {
 /** Everything `computeSuggestion` reads besides the row, loaded the same way for the page and the accept. */
 export type ProposalContext = {
 	rules: ProposalRule[];
-	history: HistoryIndex;
+	history: MemberHistory;
 	mappingMap: Map<string, TransactionNature>;
 };
 
@@ -78,8 +79,9 @@ export async function loadProposalRules(
  * gate on nature alone proposed nothing on such a row. `acceptSuggestion` refuses a proposal on a
  * row pinned since, which is the same « no pin » condition.
  *
- * The member's rules first, then their own history. A history proposal carries no nature: the
- * category's mapping decides it, as it does for a category the member picks by hand.
+ * The member's rules first, then their own history, then the filed labels nearest to this one
+ * (#1016). A history or similar proposal carries no nature: the category's mapping decides it, as
+ * it does for a category the member picks by hand.
  */
 export function computeSuggestion(
 	transaction: {
@@ -91,7 +93,7 @@ export function computeSuggestion(
 	},
 	nature: TransactionNature,
 	rules: ProposalRule[],
-	history: HistoryIndex,
+	history: MemberHistory,
 	mappingMap: Map<string, TransactionNature>
 ): Proposal | null {
 	// `=== null`, the accept's own predicate: an empty pin a restore can write is a pin for both.
@@ -110,8 +112,10 @@ export function computeSuggestion(
 			source: 'rule'
 		};
 	}
-	const fromHistory = suggestFromHistory(history, transaction.label);
-	return fromHistory ? { category: fromHistory, nature: null, source: 'history' } : null;
+	const fromHistory = suggestFromHistory(history.index, transaction.label);
+	if (fromHistory) return { category: fromHistory, nature: null, source: 'history' };
+	const similar = suggestFromSimilar(history.similar, transaction.label);
+	return similar ? { category: similar, nature: null, source: 'similar' } : null;
 }
 
 /** One « Accept all » posts at most one page of the list, which is this many rows. */
@@ -203,6 +207,9 @@ export type AcceptAllResult =
  * resolves under `userId` in the same where; one that does not refuses the whole list, nothing
  * written. All writes are one transaction (ASVS v5.0.0-2.3.3), and each repeats the state it read,
  * so a row changed meanwhile is skipped and counted rather than overwritten.
+ *
+ * A similar proposal (#1016) is skipped and counted the same way, whatever the page posted: owner
+ * ruling 2026-11-28, it is accepted one row at a time, because one pattern wrong is many rows wrong.
  */
 export async function acceptShownProposals(
 	userId: string,
@@ -254,6 +261,7 @@ export async function acceptShownProposals(
 				const proposal = computeSuggestion(row, effective.nature, rules, history, mappingMap);
 				if (
 					!proposal ||
+					proposal.source === 'similar' ||
 					computeNameKey(proposal.category) !== computeNameKey(category) ||
 					proposal.nature !== nature
 				)

@@ -107,12 +107,13 @@ async function row(
 }
 
 const history = (s: Seed) => loadMemberHistory(s.userId, s.categories, s.uncategorizedId);
+const historyIndex = async (s: Seed) => (await history(s)).index;
 
 describe('what the history suggester may learn from (#1014)', () => {
 	it('learns a category the member set', async () => {
 		const s = await seed();
 		await row(s, 'CB PRIMEUR LOMI 02/03', 'Courses', 'member');
-		expect(suggestFromHistory(await history(s), 'CB PRIMEUR LOMI 09/03')).toBe('Courses');
+		expect(suggestFromHistory(await historyIndex(s), 'CB PRIMEUR LOMI 09/03')).toBe('Courses');
 	});
 
 	// One test per excluded author, so each exclusion is broken and seen red on its own.
@@ -122,7 +123,7 @@ describe('what the history suggester may learn from (#1014)', () => {
 	])('does not learn a category set by %s', async (_name, source) => {
 		const s = await seed();
 		await row(s, 'CB PRIMEUR LOMI 02/03', 'Courses', source);
-		expect(suggestFromHistory(await history(s), 'CB PRIMEUR LOMI 09/03')).toBeNull();
+		expect(suggestFromHistory(await historyIndex(s), 'CB PRIMEUR LOMI 09/03')).toBeNull();
 	});
 
 	it('does not learn a pin whose author was written for another pin (unknown)', async () => {
@@ -134,13 +135,13 @@ describe('what the history suggester may learn from (#1014)', () => {
 		});
 		const stored = await prisma.transaction.findUniqueOrThrow({ where: { id } });
 		expect(categorySetBy(stored)).toBe('unknown');
-		expect(suggestFromHistory(await history(s), 'CB PRIMEUR LOMI 09/03')).toBeNull();
+		expect(suggestFromHistory(await historyIndex(s), 'CB PRIMEUR LOMI 09/03')).toBeNull();
 	});
 
 	it('does not learn the uncategorized sentinel the member pinned', async () => {
 		const s = await seed();
 		await row(s, 'CB PRIMEUR LOMI 02/03', UNCLASSIFIED_CATEGORY, 'member');
-		expect(suggestFromHistory(await history(s), 'CB PRIMEUR LOMI 09/03')).toBeNull();
+		expect(suggestFromHistory(await historyIndex(s), 'CB PRIMEUR LOMI 09/03')).toBeNull();
 	});
 
 	it('does not propose a category the member has deleted since', async () => {
@@ -148,7 +149,7 @@ describe('what the history suggester may learn from (#1014)', () => {
 		await row(s, 'CB PRIMEUR LOMI 02/03', 'Ancienne', 'member');
 		const live = s.categories.filter((c) => c.name !== 'Ancienne');
 		const index = await loadMemberHistory(s.userId, live, s.uncategorizedId);
-		expect(suggestFromHistory(index, 'CB PRIMEUR LOMI 09/03')).toBeNull();
+		expect(suggestFromHistory(index.index, 'CB PRIMEUR LOMI 09/03')).toBeNull();
 	});
 
 	// Code pass 1 (A N17a, B node 5): the source clause sits BEFORE the row cap, so the cap counts
@@ -159,7 +160,7 @@ describe('what the history suggester may learn from (#1014)', () => {
 		await row(s, 'CB PRIMEUR LOMI 02/03', 'Courses', 'member', 2);
 		await row(s, 'CB CINEMA ZUPEL 05/03', 'Loisirs', 'rule', 5);
 		const index = await loadMemberHistory(s.userId, s.categories, s.uncategorizedId, 1);
-		expect(suggestFromHistory(index, 'CB PRIMEUR LOMI 09/03')).toBe('Courses');
+		expect(suggestFromHistory(index.index, 'CB PRIMEUR LOMI 09/03')).toBe('Courses');
 	});
 
 	// ASVS v5.0.0-8.2.2: another member's choices never reach this member's suggestions.
@@ -167,7 +168,7 @@ describe('what the history suggester may learn from (#1014)', () => {
 		const s = await seed();
 		const other = await seed();
 		await row(other, 'CB CINEMA ZUPEL 02/03', 'Loisirs', 'member');
-		expect(suggestFromHistory(await history(s), 'CB CINEMA ZUPEL 09/03')).toBeNull();
+		expect(suggestFromHistory(await historyIndex(s), 'CB CINEMA ZUPEL 09/03')).toBeNull();
 	});
 });
 
@@ -399,10 +400,27 @@ describe('accepting a proposal (#1014)', () => {
  * through the route that produces the state: the list's load, the single accept, « Accept all ».
  */
 describe('the proposal from labels like the ones the member filed (#1016)', () => {
+	// A member's account rather than three rows: 24 made-up merchants, unfiled, half on a card and
+	// half by transfer, on the 1st so they sort below the rows under test. Three labels are too few
+	// for SIMILAR_MAX_DF to tell a prefix from a trade word, and the reader rightly refuses them.
+	const syllables = ['BA', 'DE', 'FI', 'GO', 'KU', 'LA', 'ME', 'NO', 'PI', 'RO', 'SU', 'TA'];
+	const member = async () => {
+		const s = await seed();
+		for (let i = 0; i < 24; i++)
+			await row(
+				s,
+				`${i % 2 ? 'CB' : 'VIR SEPA'} ${syllables[i % 12]}${syllables[Math.floor(i / 12)]}NDOR`,
+				null,
+				null,
+				1
+			);
+		return s;
+	};
+
 	// A merchant never filed, in a trade the member filed: history has no key for it, the n-gram
 	// reader shares « primeur » with a Courses label. Separates a third layer from none.
 	it('proposes the category of the nearest filed label, labelled as similar', async () => {
-		const s = await seed();
+		const s = await member();
 		await row(s, 'CB PRIMEUR LOMI 02/03', 'Courses', 'member', 2);
 		await row(s, 'CB CINEMA VALO 03/03', 'Loisirs', 'member', 3);
 		const pending = await row(s, 'CB PRIMEUR ZUPEL 09/03', null, null, 9);
@@ -415,17 +433,41 @@ describe('the proposal from labels like the ones the member filed (#1016)', () =
 
 	// Ownership in the where clause, observed through the page: another member's filed label never
 	// reaches this member's reader. Separates a history scoped by `userId` from one that is not.
+	// « fromager », « brasto » and « quelvin » are filed by no other test: the suite shares one database, and a word other tests
+	// file under several categories would tie the margin at 0 and read null under the break too.
 	it('never reads another member’s filed labels', async () => {
-		const s = await seed();
+		const s = await member();
 		const other = await seed();
-		await row(other, 'CB PRIMEUR LOMI 02/03', 'Courses', 'member', 2);
-		const pending = await row(s, 'CB PRIMEUR ZUPEL 09/03', null, null, 9);
+		await row(other, 'CB FROMAGER BRASTO 02/03', 'Courses', 'member', 2);
+		const pending = await row(s, 'CB FROMAGER QUELVIN 09/03', null, null, 9);
 		expect((await listed(s, pending))?.suggestion).toBeNull();
+	});
+
+	// The corpus is scoped too: another member whose labels all say « primeur » would make it a
+	// prefix by its share, and this member's proposal would vanish. Separates a corpus read under
+	// `userId` from one read across members.
+	it('fits its weights on this member’s labels only', async () => {
+		const s = await member();
+		const other = await seed();
+		for (let i = 0; i < 30; i++)
+			await row(
+				other,
+				`CB PRIMEUR ${syllables[i % 12]}${syllables[Math.floor(i / 12)]}VAL`,
+				null,
+				null,
+				1
+			);
+		await row(s, 'CB PRIMEUR LOMI 02/03', 'Courses', 'member', 2);
+		const pending = await row(s, 'CB PRIMEUR ZUPEL 09/03', null, null, 9);
+		expect((await listed(s, pending))?.suggestion).toMatchObject({
+			source: 'similar',
+			category: 'Courses'
+		});
 	});
 
 	// Below the margin, nothing: a label that shares no word with any filed one is not proposed.
 	it('proposes nothing for a label like none the member filed', async () => {
-		const s = await seed();
+		const s = await member();
 		await row(s, 'CB PRIMEUR LOMI 02/03', 'Courses', 'member', 2);
 		const pending = await row(s, 'VIR QUATUREN 09/03', null, null, 9);
 		expect((await listed(s, pending))?.suggestion).toBeNull();
@@ -434,7 +476,7 @@ describe('the proposal from labels like the ones the member filed (#1016)', () =
 	// The accept recomputes the proposal and finds the same one, so it is recorded as accepted,
 	// and an accepted suggestion is never learned: the reader's pool is the member's own choices.
 	it('records the accept as a suggestion, and does not learn from it', async () => {
-		const s = await seed();
+		const s = await member();
 		await row(s, 'CB PRIMEUR LOMI 02/03', 'Courses', 'member', 2);
 		await row(s, 'CB CINEMA VALO 03/03', 'Loisirs', 'member', 3);
 		const pending = await row(s, 'CB PRIMEUR ZUPEL 09/03', null, null, 9);
@@ -456,7 +498,7 @@ describe('the proposal from labels like the ones the member filed (#1016)', () =
 	// server: a posted list naming one is skipped and counted, a rule or history one still written.
 	// Separates a server-side skip from a page that merely hides the button.
 	it('leaves a similar proposal out of « Accept all », and still writes a history one', async () => {
-		const s = await seed();
+		const s = await member();
 		await row(s, 'CB PRIMEUR LOMI 02/03', 'Courses', 'member', 2);
 		await row(s, 'CB CINEMA VALO 03/03', 'Loisirs', 'member', 3);
 		const similar = await row(s, 'CB PRIMEUR ZUPEL 09/03', null, null, 9);
@@ -476,7 +518,7 @@ describe('the proposal from labels like the ones the member filed (#1016)', () =
 	// with a 0.072 threshold), so one hand-filed card row would be proposed on every card row.
 	// Separates a match on a shared word from a match on the bank's prefix.
 	it('proposes nothing when the only thing shared is the bank prefix', async () => {
-		const s = await seed();
+		const s = await member();
 		await row(s, 'CB PRIMEUR LOMI 02/03', 'Courses', 'member', 2);
 		await row(s, 'CB BAZAR VALO 04/03', null, null, 4);
 		await row(s, 'CB GARAGE MIREN 05/03', null, null, 5);

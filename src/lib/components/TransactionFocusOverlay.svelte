@@ -8,6 +8,7 @@
 	import * as m from '$lib/paraglide/messages';
 	import { seenRowOf } from '$lib/domain/seenRow';
 	import type { TransactionNature } from '$lib/domain/transaction';
+	import type { ProposalSource } from '$lib/domain/historySuggestion';
 
 	// Focus mode: triage one transaction at a time. Based on Modal (variant "compact" +
 	// hideHeader + mobileFullscreen), not BottomSheet — the latter is designed for
@@ -54,7 +55,7 @@
 			manualCategory: string | null;
 			manualNature: TransactionNature | null;
 		} | null;
-		suggestion: { category: string; nature: string | null; source: 'rule' | 'history' } | null;
+		suggestion: { category: string; nature: string | null; source: ProposalSource } | null;
 		categoryOptions: readonly string[];
 		natureOptions: readonly string[];
 		position: number;

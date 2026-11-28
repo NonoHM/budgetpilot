@@ -482,7 +482,8 @@ describe('focus mode « Create a rule » (#1014)', () => {
 /**
  * #1230: « Accept all » names the proposals the page shows and posts them back as shown, and the
  * undo banner says what the server counted. Two list rows carry a proposal, a third carries none,
- * so a button counting rows rather than proposals reads 3 and fails here.
+ * so a button counting rows rather than proposals reads 3 and fails here. A fourth carries a
+ * similar proposal (#1016), accepted one row at a time: a button that counts it reads 3 too.
  */
 describe('« Accept all » over the proposals the page shows (#1230)', () => {
 	function classifyFixture() {
@@ -501,11 +502,16 @@ describe('« Accept all » over the proposals the page shows (#1230)', () => {
 					id: 'tx-2',
 					suggestion: { category: 'Loisirs', nature: 'spending', source: 'rule' }
 				},
-				{ ...pending, id: 'tx-3', suggestion: null }
+				{ ...pending, id: 'tx-3', suggestion: null },
+				{
+					...pending,
+					id: 'tx-4',
+					suggestion: { category: 'Courses', nature: null, source: 'similar' }
+				}
 			],
 			selectedTransaction: null,
-			uncategorizedCount: 3,
-			classifyStackIds: ['tx-1', 'tx-2', 'tx-3']
+			uncategorizedCount: 4,
+			classifyStackIds: ['tx-1', 'tx-2', 'tx-3', 'tx-4']
 		});
 	}
 
@@ -527,6 +533,8 @@ describe('« Accept all » over the proposals the page shows (#1230)', () => {
 			{ id: 'tx-1', category: 'Courses', nature: null },
 			{ id: 'tx-2', category: 'Loisirs', nature: 'spending' }
 		]);
+		// The similar proposal is still shown on its row, under its own source.
+		expect(container.textContent).toContain(m.transactions_proposal_from_similar());
 	});
 
 	it('offers no « Accept all » when no row on the page carries a proposal', async () => {

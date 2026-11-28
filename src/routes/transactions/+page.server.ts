@@ -26,8 +26,7 @@ import {
 } from '$lib/server/tags/bulk';
 import { MAX_TAGS_PER_TRANSACTION, normalizeTagName } from '$lib/domain/tags';
 import { findMatchingCategoryRule, parseCategoryRuleInput } from '$lib/server/categorization/rules';
-import { loadMemberHistory } from '$lib/server/categorization/history';
-import type { HistoryIndex } from '$lib/domain/historySuggestion';
+import { loadMemberHistory, type MemberHistory } from '$lib/server/categorization/history';
 import {
 	acceptShownProposals,
 	computeSuggestion,
@@ -1182,7 +1181,7 @@ function mapTransactionListItem(
 		targetNature?: TransactionNature | null;
 		enabled: boolean;
 	}>,
-	history: HistoryIndex,
+	history: MemberHistory,
 	/** The active `?category=` filter, folded once by the caller — `null` when no category filter
 	 *  is active. See `matchedCategoryAllocation` below. */
 	categoryFilterNameKey: string | null
