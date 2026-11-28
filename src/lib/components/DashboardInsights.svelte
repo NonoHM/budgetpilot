@@ -3,6 +3,8 @@
 	import { formatCents, formatBudgetDelta, formatSpentOfLimit } from '$lib/domain/budget';
 	import { widthClass } from '$lib/domain/widthClass';
 	import { categoryDisplayName } from '$lib/domain/categoryLabels';
+	import { formatShortDate } from '$lib/domain/dateFormat';
+	import { getLocale } from '$lib/paraglide/runtime';
 	import type { DashboardInsights } from '$lib/server/dashboard/insights';
 	import Badge from '$lib/components/ui/Badge.svelte';
 	import TapLink from '$lib/components/ui/TapLink.svelte';
@@ -74,7 +76,7 @@
 		<div id="dashboard-insights-content" class={insightsOpen ? '' : 'hidden'}>
 			{#if insights.alerts.length > 0}
 				<div class="mt-3 grid gap-3 sm:grid-cols-2">
-					{#each insights.alerts as alert (alert.category)}
+					{#each insights.alerts as alert, alertIndex (alert.category)}
 						{@const usagePercentage = Math.min((alert.spentCents / alert.limitCents) * 100, 100)}
 						{@const delta = formatBudgetDelta(alert.spentCents, alert.limitCents)}
 						<div
@@ -112,6 +114,29 @@
 									class:bg-amber-400={alert.status === 'near_limit'}
 								></div>
 							</div>
+							{#if alert.topExpenses.length > 0}
+								<p
+									id="alert-top-expenses-{alertIndex}"
+									class="mt-3 text-xs font-medium text-zinc-500"
+								>
+									{m.dashboard_insights_top_expenses()}
+								</p>
+								<ul class="mt-1" aria-labelledby="alert-top-expenses-{alertIndex}">
+									{#each alert.topExpenses as expense, index (index)}
+										<li class="flex items-baseline gap-3 py-1 text-sm">
+											<span class="min-w-0 flex-1 truncate text-zinc-900" title={expense.label}
+												>{expense.label}</span
+											>
+											<span class="shrink-0 text-xs text-zinc-500 tabular-nums"
+												>{formatShortDate(expense.date, getLocale())}</span
+											>
+											<span class="w-20 shrink-0 text-right font-medium text-zinc-900 tabular-nums"
+												>{formatCents(expense.amountCents)}</span
+											>
+										</li>
+									{/each}
+								</ul>
+							{/if}
 							<div class="mt-3 flex justify-end">
 								<a
 									class="rounded-full px-3 py-1.5 text-sm font-medium"

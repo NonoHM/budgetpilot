@@ -700,6 +700,7 @@
 	"dashboard_insights_days_left_many": "{count} jours restants",
 	"dashboard_insights_daily_pace": "(≈ {pace}/jour)",
 	"dashboard_insights_view_category": "Voir la catégorie",
+	"dashboard_insights_top_expenses": "Plus grosses dépenses",
 	"dashboard_insights_unusual_spending": "{category} en hausse +{percent}% vs d'habitude",
 	"dashboard_insights_unusual_spending_detail": "({current} vs {average} en moyenne)",
 	"dashboard_insights_uncategorized_one": "{count} transaction à classer",
