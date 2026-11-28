@@ -9,8 +9,14 @@
 	import Badge from '$lib/components/ui/Badge.svelte';
 	import TapLink from '$lib/components/ui/TapLink.svelte';
 	import * as m from '$lib/paraglide/messages';
+	import { pressable } from '$lib/press';
+	import { pressSurface, pressTransition, transitionHover } from '$lib/styles';
 
 	let { insights }: { insights: DashboardInsights } = $props();
+
+	// The two compact rows are whole-row links, as ListCard's: the sentence takes the width a
+	// separate text link held (208 to 268 px at 390, #1021 I3), and the target is the full row.
+	const rowLink = `flex items-center gap-3 px-4 py-2.5 hover:bg-zinc-50 active:bg-zinc-100 ${transitionHover} ${pressTransition} ${pressSurface} focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:outline-none focus-visible:ring-inset`;
 
 	const insightsHasContent = $derived(
 		insights.alerts.length > 0 ||
@@ -160,7 +166,7 @@
 				>
 					{#if insights.unusualSpending}
 						{@const spending = insights.unusualSpending}
-						<div class="flex items-center gap-3 px-4 py-2.5">
+						<a use:pressable class={rowLink} href={categoryHref(spending.category)}>
 							<svg
 								class="h-4 w-4 shrink-0 text-zinc-400"
 								viewBox="0 0 24 24"
@@ -177,25 +183,35 @@
 							<div class="min-w-0 flex-1 text-sm text-zinc-600">
 								{m.dashboard_insights_unusual_spending({
 									category: categoryDisplayName(spending.category),
-									percent: Math.round(spending.increasePercentage)
+									percent: Math.round(spending.increasePercentage),
+									months: spending.baselineMonths
 								})}
 								<span class="text-zinc-400">
 									{m.dashboard_insights_unusual_spending_detail({
 										current: formatCents(spending.currentCents),
-										average: formatCents(spending.averageCents)
+										baseline: formatCents(spending.baselineCents)
 									})}
 								</span>
 							</div>
-							<a
-								class="inline-flex shrink-0 items-center py-1 text-xs font-medium text-zinc-500 hover:text-zinc-700"
-								href={categoryHref(spending.category)}
+							<!-- Chevron right: you leave this surface (ManageTagsFooter's). -->
+							<svg
+								class="h-4 w-4 shrink-0 text-zinc-400"
+								viewBox="0 0 20 20"
+								fill="none"
+								aria-hidden="true"
 							>
-								{m.dashboard_insights_view_category()}
-							</a>
-						</div>
+								<path
+									d="M7.5 5.5 12 10l-4.5 4.5"
+									stroke="currentColor"
+									stroke-width="1.5"
+									stroke-linecap="round"
+									stroke-linejoin="round"
+								/>
+							</svg>
+						</a>
 					{/if}
 					{#if insights.uncategorizedCount > 0}
-						<div class="flex items-center gap-3 px-4 py-2.5">
+						<a use:pressable class={rowLink} href={resolve('/transactions?type=classify')}>
 							<svg
 								class="h-4 w-4 shrink-0 text-zinc-400"
 								viewBox="0 0 24 24"
@@ -223,13 +239,22 @@
 								</span>
 								<span class="text-zinc-400">{m.dashboard_insights_uncategorized_hint()}</span>
 							</div>
-							<a
-								class="inline-flex shrink-0 items-center py-1 text-xs font-medium text-zinc-500 hover:text-zinc-700"
-								href={resolve('/transactions?type=classify')}
+							<!-- Chevron right: you leave this surface (ManageTagsFooter's). -->
+							<svg
+								class="h-4 w-4 shrink-0 text-zinc-400"
+								viewBox="0 0 20 20"
+								fill="none"
+								aria-hidden="true"
 							>
-								{m.dashboard_insights_open_assistant()}
-							</a>
-						</div>
+								<path
+									d="M7.5 5.5 12 10l-4.5 4.5"
+									stroke="currentColor"
+									stroke-width="1.5"
+									stroke-linecap="round"
+									stroke-linejoin="round"
+								/>
+							</svg>
+						</a>
 					{/if}
 				</div>
 			{/if}

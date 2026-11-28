@@ -47,6 +47,14 @@ splitting. See the
 | Budget alert     | A category with a budget is over it, or near it |
 | Unusual spending | A category is well above its own usual level    |
 
+**Unusual spending compares this month so far with a typical month**: the
+median of the last three months, which is the middle one of the three. The
+line appears only when each of those three months has spending recorded, and
+when this month's figure is at least 20.00 and at least 30% above that
+median. It names one category, the one furthest above, and gives both
+figures. A category with no spending in two of the three months has a
+typical month of zero and is not flagged.
+
 **The badge counts budget alerts only.** A panel holding two budget alerts
 and one unusual-spending line reads `2 to review`, because the third item is
 not an alert. When there is no alert at all, no badge is shown.

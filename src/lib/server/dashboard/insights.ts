@@ -8,7 +8,6 @@ import { countUncategorizedTransactions } from '$lib/server/transactions/nature'
 const MAX_ALERTS = 2;
 const MAX_ALERT_EXPENSES = 3;
 const HISTORY_MONTHS = 3;
-const MIN_HISTORY_MONTHS_WITH_DATA = 2;
 const UNUSUAL_INCREASE_THRESHOLD = 0.3;
 const UNUSUAL_MIN_CURRENT_CENTS = 2000;
 
@@ -32,7 +31,9 @@ export interface BudgetAlert {
 export interface UnusualSpendingInsight {
 	category: string;
 	currentCents: number;
-	averageCents: number;
+	/** The median month of the last `baselineMonths`, all of which had spending (#1021). */
+	baselineCents: number;
+	baselineMonths: number;
 	increasePercentage: number;
 }
 
@@ -136,24 +137,34 @@ export function computeUnusualSpendingInsight(
 	currentSpendByCategory: Map<string, number>,
 	historicalMonthSpends: Map<string, number>[]
 ): UnusualSpendingInsight | null {
-	const monthsWithData = historicalMonthSpends.filter((month) => month.size > 0);
-	if (monthsWithData.length < MIN_HISTORY_MONTHS_WITH_DATA) return null;
+	// Every month of the window must have data, so the sentence « vs your last N months » is true;
+	// the median, not the mean, so one spike month or one empty month cannot move the baseline.
+	if (historicalMonthSpends.length !== HISTORY_MONTHS) return null;
+	if (historicalMonthSpends.some((month) => month.size === 0)) return null;
 
 	let best: UnusualSpendingInsight | null = null;
 
 	for (const [category, currentCents] of currentSpendByCategory) {
 		if (currentCents < UNUSUAL_MIN_CURRENT_CENTS) continue;
 
-		const averageCents =
-			monthsWithData.reduce((total, month) => total + (month.get(category) ?? 0), 0) /
-			monthsWithData.length;
-		if (averageCents <= 0) continue;
+		// shortcut: middle element is the median only for an odd HISTORY_MONTHS; average the two
+		// middle ones if the window ever becomes even.
+		const baselineCents = historicalMonthSpends
+			.map((month) => month.get(category) ?? 0)
+			.sort((a, b) => a - b)[(HISTORY_MONTHS - 1) / 2];
+		if (baselineCents <= 0) continue;
 
-		const increasePercentage = ((currentCents - averageCents) / averageCents) * 100;
+		const increasePercentage = ((currentCents - baselineCents) / baselineCents) * 100;
 		if (increasePercentage < UNUSUAL_INCREASE_THRESHOLD * 100) continue;
 
 		if (!best || increasePercentage > best.increasePercentage) {
-			best = { category, currentCents, averageCents, increasePercentage };
+			best = {
+				category,
+				currentCents,
+				baselineCents,
+				baselineMonths: HISTORY_MONTHS,
+				increasePercentage
+			};
 		}
 	}
 

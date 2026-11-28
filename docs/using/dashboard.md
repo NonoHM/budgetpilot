@@ -60,7 +60,7 @@ Expenses and contributes to two different categories. See
 **Insights** collapses and expands. Open it to see what the app thinks is
 worth your attention right now.
 
-![The Insights panel expanded: a red Dining out alert reading "Over by €35.50", an amber Transport alert reading "€11.90 remaining, 21 days left, about €0.57 a day", and below them a line reading "Dining out up +294% vs usual"](../screenshots/dashboard/insights-desktop.png)
+![The Insights panel expanded: a red Dining out alert reading "Over by €35.50" and an amber Transport alert reading "€11.90 remaining", each listing its largest expenses, and below them a line reading "Dining out up 189% vs your last 3 months (€115.50 vs a typical €40.00)"](../screenshots/dashboard/insights-desktop.png)
 
 Two kinds of thing appear here:
 
@@ -68,16 +68,18 @@ Two kinds of thing appear here:
   It states how much is left and how many days remain in the month. A
   category that is close but not over also gets the daily pace that would
   keep it under, and links straight to that category's transactions.
-- **Unusual spending**, when one category is much higher than it usually is.
-  The comparison figure is beside it, so you can judge whether it is a real
-  change or one large purchase.
+- **Unusual spending**, when one category is much higher than in a typical
+  month of the last three. This month's figure and the typical one are
+  beside it, so you can judge whether it is a real change or one large
+  purchase.
 
 The badge counts **budget alerts only**. Above a panel holding three items
 it reads `2 to review`, and that is not a miscount: two of them are budget
 alerts and the third, the unusual-spending line, is not.
 
-**View category** on either one opens the transactions list already filtered
-to that category, which is where you can actually do something about it.
+**View category** on a budget alert, or the unusual-spending line itself,
+opens the transactions list already filtered to that category, which is
+where you can actually do something about it.
 
 ## See where the money really went
 
