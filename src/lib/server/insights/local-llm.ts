@@ -450,6 +450,150 @@ export async function requestLocalModel<T>(
 	// rather than as a failure code the reader would be told to act on.
 	const answerBound = answerByteBound(request.format, model);
 
+	return throughModelHost(env, model, modelDigestPin(env), answerBound, signal, async (client) => {
+		const response = await client.chat({
+			model,
+			messages: [{ role: 'user', content: request.prompt }],
+			format: request.format,
+			// UNCONDITIONAL, and the absence of a capability gate is the decision rather than the
+			// shortcut. A reasoning model spends its reasoning tokens out of the same `num_predict`
+			// budget as the answer, so the ceiling below can be correctly sized for the schema and
+			// still leave nothing for the JSON. Measured in #527 on qwen3.5:4b-q8_0 over a prompt built
+			// from this module's own builders: without this field, `done_reason: length`, 1060 tokens
+			// and ZERO characters of content; with it, `stop`, 282 tokens and complete French JSON.
+			// So on a model that reasons this is not an optimisation, it is the only measured
+			// configuration in which an answer arrives at all.
+			//
+			// Sent to every model because a model with no thinking capability accepts it and generates
+			// normally, measured on qwen2.5:0.5b and ministral-3:3b: HTTP 200, no error field. A gate
+			// is therefore available and buys nothing, at the cost of a request per generation and a
+			// second thing to keep true. Where it would read from was checked against a running server
+			// rather than against the client's types, because the two disagree: Ollama 0.32.5 returns
+			// `capabilities` per model on `/api/tags`, carrying `thinking` for qwen3.5:4b-q8_0 and not
+			// for qwen2.5:0.5b, while `ollama@0.6.3` declares that field only on `ShowResponse`. So the
+			// endpoint sends something the typed client cannot see, and reading the `.d.ts` alone gives
+			// the wrong answer about whether the gate is even buildable.
+			//
+			// It does NOT replace the ceiling. A model that ignores `think` reasons anyway, and no
+			// model measured here ignores it, so that branch is untested rather than handled.
+			think: false,
+			options: {
+				temperature: 0.2,
+				// The caller's, derived from its schema: see `LocalModelRequest.numPredict`.
+				num_predict: request.numPredict
+			}
+		});
+		// `done_reason` has always been on this response and nothing read it. It is the one field that
+		// separates "the ceiling cut the answer off" from "the model produced something unreadable",
+		// which are the same broken JSON string and opposite advice to the person reading the card.
+		const truncated = response.done_reason === 'length';
+
+		const content = response.message?.content;
+		if (!content) return unreadable(truncated);
+
+		return parseLocalLlmContent(content, request.schema, truncated);
+	});
+}
+
+/**
+ * THE EMBEDDING READER (#1015, B3): one vector per text, through Ollama's `/api/embed`, with no
+ * caller in the application. Defined here, beside the chat call, rather than under `ai/` as the
+ * issue drafted it, because the guards it must share are this module's and the model door
+ * (`eslint.config.js`) admits importers of this module by name: a second module would either copy
+ * them or export them past the door.
+ *
+ * The same door as the chat call, by construction rather than by copy: `throughModelHost` holds the
+ * host allowlist, the kill switch, the no-redirect capped reader and the digest read before and
+ * after. One difference, deliberate: the pin is REQUIRED here, because the embedding model is not
+ * `LLM_MODEL` and no setting names it yet; the caller passes the weights it measured.
+ *
+ * Bounded before any socket: at most `EMBED_MAX_TEXTS` texts of `EMBED_MAX_TEXT_CHARS` characters
+ * (a normalised label or a header, never a row), refused by a throw because exceeding them is the
+ * caller's mistake. The answer is refused unless it holds exactly one finite vector per text, all
+ * of one width no wider than `EMBED_MAX_DIMENSIONS`.
+ */
+export const EMBED_MAX_TEXTS = 64;
+export const EMBED_MAX_TEXT_CHARS = 256;
+/** qwen3-embedding:8b answers 4096, the widest embedding model the Ollama library lists. */
+export const EMBED_MAX_DIMENSIONS = 4096;
+/** Go writes a float32 in at most 15 characters (`-1.2345678e-38`); 24 leaves room, plus a comma. */
+const WORST_BYTES_PER_EMBED_NUMBER = 25;
+/** The envelope around `embeddings`: model, three durations and a count, like the chat one. */
+const EMBED_ENVELOPE_BYTES = 2048;
+
+export interface EmbedModel {
+	/** The Ollama tag, such as `nomic-embed-text:latest`. */
+	name: string;
+	/** The 64-hex digest `/api/tags` lists for it. Required: an embedder runs pinned or not at all. */
+	digest: string;
+}
+
+export async function embedLocalModel(
+	texts: readonly string[],
+	embedder: EmbedModel,
+	env: NodeJS.ProcessEnv = process.env,
+	signal?: AbortSignal
+): Promise<LocalLlmResult<number[][]> | null> {
+	if (!isLocalLlmEnabled(env)) return null;
+	if (texts.length === 0 || texts.length > EMBED_MAX_TEXTS) {
+		throw new Error(`embedLocalModel: between 1 and ${EMBED_MAX_TEXTS} texts per call`);
+	}
+	if (texts.some((text) => text.length === 0 || text.length > EMBED_MAX_TEXT_CHARS)) {
+		throw new Error(`embedLocalModel: each text holds 1 to ${EMBED_MAX_TEXT_CHARS} characters`);
+	}
+	if (!MODEL_DIGEST.test(embedder.digest)) {
+		throw new Error('embedLocalModel: the embedder digest must be 64 lowercase hexadecimal');
+	}
+	const answerBound =
+		texts.length * EMBED_MAX_DIMENSIONS * WORST_BYTES_PER_EMBED_NUMBER +
+		EMBED_ENVELOPE_BYTES +
+		Buffer.byteLength(embedder.name) * 6;
+	const answer = embedAnswerSchema(texts.length);
+
+	return throughModelHost(
+		env,
+		embedder.name,
+		embedder.digest,
+		answerBound,
+		signal,
+		async (client) => {
+			// `truncate: false`: a text the model cannot hold is an error, never a vector of its prefix.
+			const response = await client.embed({
+				model: embedder.name,
+				input: [...texts],
+				truncate: false
+			});
+			const parsed = answer.safeParse(response.embeddings);
+			return parsed.success ? { value: parsed.data } : unavailable('response_unusable');
+		}
+	);
+}
+
+function embedAnswerSchema(count: number) {
+	return z
+		.array(z.array(z.number().finite()).min(1).max(EMBED_MAX_DIMENSIONS))
+		.length(count)
+		.refine((vectors) => vectors.every((vector) => vector.length === vectors[0].length), {
+			message: 'every vector has the same width'
+		});
+}
+
+/**
+ * THE DOOR BOTH CALLS GO THROUGH: everything between « may this run » and « these weights
+ * answered », so the chat call and the embedding reader cannot come to disagree about a guard.
+ * `generate` does only the call and the reading of its own answer; a failure it returns is passed
+ * on, and a value is handed over only once the weights are confirmed unchanged.
+ */
+async function throughModelHost<T>(
+	env: NodeJS.ProcessEnv,
+	model: string,
+	pin: string | null,
+	answerBound: number,
+	signal: AbortSignal | undefined,
+	generate: (
+		client: Ollama
+	) => Promise<{ value: T; unavailable?: undefined } | LocalLlmResult<never>>
+): Promise<LocalLlmResult<T>> {
 	// The kill switch (#986). Registered BEFORE the halt is read, so a halt written after this line
 	// aborts this call and one written before it is read below: `ai/inferenceHalt.ts` says why the
 	// two orders together leave no gap. Every early return below sits inside this try, so `leave`
@@ -473,7 +617,6 @@ export async function requestLocalModel<T>(
 		const before = await readModelIdentity(baseUrl, model, env, callSignal);
 		if (halt.signal.aborted) return unavailable('halted', true);
 		if (typeof before === 'string') return unavailable(before, true);
-		const pin = modelDigestPin(env);
 		if (pin !== null && before.digest !== pin) return unavailable('model_mismatch', true);
 
 		// Refused rather than replaced by the default (#754): `0x10` used to read as 16 ms. The boot
@@ -498,53 +641,13 @@ export async function requestLocalModel<T>(
 		});
 
 		try {
-			const response = await client.chat({
-				model,
-				messages: [{ role: 'user', content: request.prompt }],
-				format: request.format,
-				// UNCONDITIONAL, and the absence of a capability gate is the decision rather than the
-				// shortcut. A reasoning model spends its reasoning tokens out of the same `num_predict`
-				// budget as the answer, so the ceiling below can be correctly sized for the schema and
-				// still leave nothing for the JSON. Measured in #527 on qwen3.5:4b-q8_0 over a prompt built
-				// from this module's own builders: without this field, `done_reason: length`, 1060 tokens
-				// and ZERO characters of content; with it, `stop`, 282 tokens and complete French JSON.
-				// So on a model that reasons this is not an optimisation, it is the only measured
-				// configuration in which an answer arrives at all.
-				//
-				// Sent to every model because a model with no thinking capability accepts it and generates
-				// normally, measured on qwen2.5:0.5b and ministral-3:3b: HTTP 200, no error field. A gate
-				// is therefore available and buys nothing, at the cost of a request per generation and a
-				// second thing to keep true. Where it would read from was checked against a running server
-				// rather than against the client's types, because the two disagree: Ollama 0.32.5 returns
-				// `capabilities` per model on `/api/tags`, carrying `thinking` for qwen3.5:4b-q8_0 and not
-				// for qwen2.5:0.5b, while `ollama@0.6.3` declares that field only on `ShowResponse`. So the
-				// endpoint sends something the typed client cannot see, and reading the `.d.ts` alone gives
-				// the wrong answer about whether the gate is even buildable.
-				//
-				// It does NOT replace the ceiling. A model that ignores `think` reasons anyway, and no
-				// model measured here ignores it, so that branch is untested rather than handled.
-				think: false,
-				options: {
-					temperature: 0.2,
-					// The caller's, derived from its schema: see `LocalModelRequest.numPredict`.
-					num_predict: request.numPredict
-				}
-			});
+			const generated = await generate(client);
 			// A halt landing after the body was read and before the client resolved aborts nothing,
 			// and the checks below would name the answer instead (code pass, item 4). Charged: the
 			// generation ran. No deterministic test reaches that window; the line is kept because it
 			// is real, not because a break reddens.
 			if (halt.signal.aborted) return unavailable('halted');
-			// `done_reason` has always been on this response and nothing read it. It is the one field that
-			// separates "the ceiling cut the answer off" from "the model produced something unreadable",
-			// which are the same broken JSON string and opposite advice to the person reading the card.
-			const truncated = response.done_reason === 'length';
-
-			const content = response.message?.content;
-			if (!content) return unreadable(truncated);
-
-			const parsed = parseLocalLlmContent(content, request.schema, truncated);
-			if (parsed.unavailable) return parsed;
+			if (generated.unavailable) return generated;
 			// Confirmed AFTER the answer, because a pull finishing between the first read and the
 			// generation runs other weights under the first read's record. The generation ran, so charged.
 			const after = await readModelIdentity(baseUrl, model, env, callSignal);
@@ -554,7 +657,7 @@ export async function requestLocalModel<T>(
 			if (halt.signal.aborted) return unavailable('halted');
 			if (typeof after === 'string') return unavailable(after);
 			if (after.digest !== before.digest) return unavailable('model_mismatch');
-			return { value: parsed.value, model: before };
+			return { value: generated.value, model: before };
 		} catch (caught) {
 			// First: the halt's abort reaches the client as an AbortError, which the codes below would
 			// read as a dropped connection. Charged: the generation had been sent.
