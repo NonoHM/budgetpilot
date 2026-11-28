@@ -9,7 +9,8 @@ import {
 	normalizeIdList,
 	normalizeSearch,
 	parseTransactionDateRange,
-	parseTransactionFilter
+	parseTransactionFilter,
+	transactionKindWhere
 } from './where';
 
 describe('buildTransactionWhere', () => {
@@ -42,8 +43,23 @@ describe('buildTransactionWhere', () => {
 			importBatchId: ''
 		});
 
-		expect(income).toMatchObject({ type: 'income' });
-		expect(expense).toMatchObject({ type: 'expense' });
+		// #1343: the kind predicate, never a `type` column equality, which dropped untyped rows.
+		// What the predicate SELECTS is asserted on three engines in totals.db-smoke.ts.
+		expect(income).toEqual({ userId: 'user-a', OR: transactionKindWhere('income').OR });
+		expect(expense).toEqual({ userId: 'user-a', OR: transactionKindWhere('expense').OR });
+	});
+
+	it('composes the kind with the category filter instead of overwriting it (#1343)', () => {
+		expect.assertions(1);
+
+		const where = buildTransactionWhere({
+			userId: 'user-a',
+			type: 'expense',
+			category: 'Loyer',
+			importBatchId: ''
+		});
+
+		expect(where.AND).toEqual([transactionKindWhere('expense'), expect.anything()]);
 	});
 
 	it('ignore le type quand le filtre vaut "all" ou "classify"', () => {
@@ -395,7 +411,7 @@ describe('buildTransactionWhere', () => {
 
 		expect(where).toMatchObject({
 			userId: 'user-a',
-			type: 'expense',
+			AND: [transactionKindWhere('expense'), expect.anything()],
 			importBatchId: 'batch-1'
 		});
 	});

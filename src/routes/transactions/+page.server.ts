@@ -62,7 +62,8 @@ import {
 	normalizeId,
 	normalizeIdList,
 	parseTransferPairList,
-	resolveUncategorizedCategoryId
+	resolveUncategorizedCategoryId,
+	transactionKindWhere
 } from '$lib/server/transactions/where';
 import { resolveTransactionScope } from '$lib/server/transactions/scope';
 import { isSplitTransaction } from '$lib/server/transactions/splits';
@@ -77,7 +78,6 @@ import {
 	computeFilteredTotals,
 	sumFilteredTotals,
 	resolveTransactionType,
-	transactionKindWhere,
 	pickMatchedAllocation,
 	type FilteredTotals
 } from '$lib/server/transactions/totals';

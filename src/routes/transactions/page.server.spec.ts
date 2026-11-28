@@ -3,6 +3,7 @@ import { UNCLASSIFIED_CATEGORY } from '$lib/domain/categories';
 import { GENERIC_BUCKET_STORED_NAME } from '$lib/domain/account';
 import type { SplitIndicator } from '$lib/domain/allocation';
 import { computeNameKey, computeNullableNameKey } from '$lib/server/naming/nameKey';
+import { transactionKindWhere } from '$lib/server/transactions/where';
 // Compared against the message FUNCTION, never a copied literal: a spec that retypes the sentence
 // passes while the catalogue says something else, and this one runs in the base locale (English)
 // while the app it guards renders French.
@@ -792,7 +793,7 @@ describe('/transactions load', () => {
 				expect.objectContaining({
 					where: expect.objectContaining({
 						userId: 'user-a',
-						type: 'income',
+						OR: transactionKindWhere('income').OR,
 						id: { in: ['transaction-3', 'transaction-4'] }
 					})
 				})
@@ -843,7 +844,8 @@ describe('/transactions load', () => {
 
 		expect(db.prisma.transaction.findMany).toHaveBeenCalledWith(
 			expect.objectContaining({
-				where: expect.objectContaining({ type: 'income' })
+				// #1343: the kind predicate, so a row with no stored type is listed by its sign.
+				where: expect.objectContaining({ OR: transactionKindWhere('income').OR })
 			})
 		);
 	});
@@ -2134,7 +2136,10 @@ describe('bulkTag', () => {
 		});
 
 		const passedWhere = applyTagToFilteredSetMock.mock.calls[0][1] as Record<string, unknown>;
-		expect(passedWhere).toMatchObject({ userId: 'user-a', type: 'expense' });
+		expect(passedWhere).toMatchObject({
+			userId: 'user-a',
+			OR: transactionKindWhere('expense').OR
+		});
 		expect(JSON.stringify(passedWhere)).not.toContain('transaction-9');
 	});
 

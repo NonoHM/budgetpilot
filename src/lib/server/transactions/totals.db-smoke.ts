@@ -1,13 +1,8 @@
 import { DEFAULT_DENOMINATION } from '$lib/domain/money';
 import { describe, it, expect } from 'vitest';
 import { prisma } from '$lib/server/db';
-import {
-	transactionKindWhere,
-	resolveTransactionType,
-	computeFilteredTotals,
-	sumFilteredTotals
-} from './totals';
-import { buildTransactionWhere } from './where';
+import { resolveTransactionType, computeFilteredTotals, sumFilteredTotals } from './totals';
+import { buildTransactionWhere, transactionKindWhere } from './where';
 import { replaceSplits } from './splits';
 import { computeNameKey } from '$lib/server/naming/nameKey';
 
@@ -105,6 +100,104 @@ describe('transaction kind predicate', () => {
 			where: { AND: [{ userId }, transactionKindWhere('expense')] }
 		});
 		expect(incomeCount + expenseCount).toBe(rows.length);
+
+		await prisma.user.delete({ where: { id: userId } });
+	}, 60_000);
+
+	// #1343. The « Income » and « Expenses » filters on /transactions go through
+	// buildTransactionWhere, not through the predicate above. A plain `type` equality there drops
+	// the rows whose kind comes from the sign (a null or unknown stored type), so the list and its
+	// band total disagree with every other figure. Separates « the list filter classifies like
+	// resolveTransactionType » from « the list filter reads the column »: on the matrix the second
+	// lists 3 rows per kind where the first lists 7 income (a zero amount is income) and 5 expense.
+	it('the list filter agrees with resolveTransactionType over the same matrix (#1343)', async () => {
+		const { userId, accountId, categoryId } = await seedUser();
+		const rows = TYPES.flatMap((type) =>
+			AMOUNTS.map((amountCents) => ({
+				...DEFAULT_DENOMINATION,
+				userId,
+				accountId,
+				categoryId,
+				date: new Date('2026-07-01T00:00:00.000Z'),
+				label: `${type}-${amountCents}`,
+				amountCents,
+				type,
+				source: 'manual'
+			}))
+		);
+		await prisma.transaction.createMany({ data: rows });
+
+		for (const kind of ['income', 'expense'] as const) {
+			const where = buildTransactionWhere({ userId, type: kind, category: '', importBatchId: '' });
+			const listed = await prisma.transaction.findMany({ where, select: { label: true } });
+			const expected = rows
+				.filter((row) => resolveTransactionType(row) === kind)
+				.map((row) => row.label)
+				.sort();
+
+			expect(listed.map((row) => row.label).sort()).toEqual(expected);
+		}
+
+		await prisma.user.delete({ where: { id: userId } });
+	}, 60_000);
+
+	// #1343, the composition on a real engine. The kind and the category filter are both OR-shaped,
+	// so one assigned over the other still type-checks and leaves the unit shape tests as the only
+	// witness. Separates « kind AND category » from « category alone » (the untyped inflow in Loyer
+	// is listed) and from « kind alone » (the untyped outflow in Maison is listed).
+	it('the list filter ANDs the kind with the category filter (#1343)', async () => {
+		const { userId, accountId } = await seedUser();
+		const [loyer, maison] = await Promise.all(
+			['Loyer', 'Maison'].map((name) =>
+				prisma.category.create({
+					data: { userId, name, nameKey: computeNameKey(name) },
+					select: { id: true }
+				})
+			)
+		);
+		const base = {
+			...DEFAULT_DENOMINATION,
+			userId,
+			accountId,
+			date: new Date('2026-07-01T00:00:00.000Z'),
+			source: 'manual'
+		};
+		await prisma.transaction.createMany({
+			data: [
+				{
+					...base,
+					categoryId: loyer.id,
+					label: 'loyer-untyped-out',
+					amountCents: -100,
+					type: null
+				},
+				{
+					...base,
+					categoryId: loyer.id,
+					label: 'loyer-typed-out',
+					amountCents: -400,
+					type: 'expense'
+				},
+				{ ...base, categoryId: loyer.id, label: 'loyer-untyped-in', amountCents: 300, type: null },
+				{
+					...base,
+					categoryId: maison.id,
+					label: 'maison-untyped-out',
+					amountCents: -200,
+					type: null
+				}
+			]
+		});
+
+		const where = buildTransactionWhere({
+			userId,
+			type: 'expense',
+			category: 'Loyer',
+			importBatchId: ''
+		});
+		const listed = await prisma.transaction.findMany({ where, select: { label: true } });
+
+		expect(listed.map((row) => row.label).sort()).toEqual(['loyer-typed-out', 'loyer-untyped-out']);
 
 		await prisma.user.delete({ where: { id: userId } });
 	}, 60_000);
