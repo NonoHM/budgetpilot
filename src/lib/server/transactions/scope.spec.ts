@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { computeNameKey } from '$lib/server/naming/nameKey';
 import { UNCLASSIFIED_CATEGORY } from '$lib/domain/categories';
 import { resolveTransactionScope } from './scope';
+import { transactionKindWhere } from './where';
 
 const u = (qs: string) => new URL(`http://localhost/transactions?${qs}`);
 
@@ -10,7 +11,8 @@ describe('resolveTransactionScope', () => {
 		const scope = await resolveTransactionScope('user-a', u('type=income'));
 		expect(scope.kind).toBe('sql');
 		if (scope.kind !== 'sql') throw new Error('unreachable');
-		expect(scope.where).toMatchObject({ userId: 'user-a', type: 'income' });
+		// #1343: the kind predicate, never a stored-`type` equality.
+		expect(scope.where).toMatchObject({ userId: 'user-a', OR: transactionKindWhere('income').OR });
 	});
 
 	it('returns the scan branch when a search is active, and exposes no property named `where`', async () => {

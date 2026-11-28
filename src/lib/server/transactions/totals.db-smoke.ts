@@ -140,6 +140,44 @@ describe('transaction kind predicate', () => {
 
 		await prisma.user.delete({ where: { id: userId } });
 	}, 60_000);
+
+	// #1343, the composition on a real engine. The kind and the category filter are both OR-shaped,
+	// so one assigned over the other still type-checks and leaves the unit shape tests as the only
+	// witness. Separates « kind AND category » from « category alone » (the untyped inflow in Loyer
+	// is listed) and from « kind alone » (the untyped outflow in Maison is listed).
+	it('the list filter ANDs the kind with the category filter (#1343)', async () => {
+		const { userId, accountId } = await seedUser();
+		const [loyer, maison] = await Promise.all(
+			['Loyer', 'Maison'].map((name) =>
+				prisma.category.create({
+					data: { userId, name, nameKey: computeNameKey(name) },
+					select: { id: true }
+				})
+			)
+		);
+		const base = {
+			...DEFAULT_DENOMINATION,
+			userId,
+			accountId,
+			date: new Date('2026-07-01T00:00:00.000Z'),
+			source: 'manual'
+		};
+		await prisma.transaction.createMany({
+			data: [
+				{ ...base, categoryId: loyer.id, label: 'loyer-untyped-out', amountCents: -100, type: null },
+				{ ...base, categoryId: loyer.id, label: 'loyer-typed-out', amountCents: -400, type: 'expense' },
+				{ ...base, categoryId: loyer.id, label: 'loyer-untyped-in', amountCents: 300, type: null },
+				{ ...base, categoryId: maison.id, label: 'maison-untyped-out', amountCents: -200, type: null }
+			]
+		});
+
+		const where = buildTransactionWhere({ userId, type: 'expense', category: 'Loyer', importBatchId: '' });
+		const listed = await prisma.transaction.findMany({ where, select: { label: true } });
+
+		expect(listed.map((row) => row.label).sort()).toEqual(['loyer-typed-out', 'loyer-untyped-out']);
+
+		await prisma.user.delete({ where: { id: userId } });
+	}, 60_000);
 });
 
 /**
