@@ -8,6 +8,7 @@ import { prisma } from '$lib/server/db';
 import { computeNameKey } from '$lib/server/naming/nameKey';
 import { manualCategoryUpdate } from '$lib/server/transactions/manualCategory';
 import { loadMemberHistory } from './history';
+import { acceptShownProposals } from './proposals';
 import { actions, load } from '../../../routes/transactions/+page.server';
 
 /**
@@ -389,5 +390,97 @@ describe('accepting a proposal (#1014)', () => {
 		]);
 		expect(refused).toMatchObject({ status: 404 });
 		expect(await stored(theirs)).toEqual({ pin: 'Loisirs', by: 'member' });
+	});
+});
+
+/**
+ * B4 (#1016), ruled 2026-11-28 on B3's figures (#1015, PR #1356): after rules and history, the
+ * member's OWN filed labels nearest to the row's, by character n-grams, no model. Each case runs
+ * through the route that produces the state: the list's load, the single accept, « Accept all ».
+ */
+describe('the proposal from labels like the ones the member filed (#1016)', () => {
+	// A merchant never filed, in a trade the member filed: history has no key for it, the n-gram
+	// reader shares « primeur » with a Courses label. Separates a third layer from none.
+	it('proposes the category of the nearest filed label, labelled as similar', async () => {
+		const s = await seed();
+		await row(s, 'CB PRIMEUR LOMI 02/03', 'Courses', 'member', 2);
+		await row(s, 'CB CINEMA VALO 03/03', 'Loisirs', 'member', 3);
+		const pending = await row(s, 'CB PRIMEUR ZUPEL 09/03', null, null, 9);
+		expect((await listed(s, pending))?.suggestion).toEqual({
+			category: 'Courses',
+			nature: null,
+			source: 'similar'
+		});
+	});
+
+	// Ownership in the where clause, observed through the page: another member's filed label never
+	// reaches this member's reader. Separates a history scoped by `userId` from one that is not.
+	it('never reads another member’s filed labels', async () => {
+		const s = await seed();
+		const other = await seed();
+		await row(other, 'CB PRIMEUR LOMI 02/03', 'Courses', 'member', 2);
+		const pending = await row(s, 'CB PRIMEUR ZUPEL 09/03', null, null, 9);
+		expect((await listed(s, pending))?.suggestion).toBeNull();
+	});
+
+	// Below the margin, nothing: a label that shares no word with any filed one is not proposed.
+	it('proposes nothing for a label like none the member filed', async () => {
+		const s = await seed();
+		await row(s, 'CB PRIMEUR LOMI 02/03', 'Courses', 'member', 2);
+		const pending = await row(s, 'VIR QUATUREN 09/03', null, null, 9);
+		expect((await listed(s, pending))?.suggestion).toBeNull();
+	});
+
+	// The accept recomputes the proposal and finds the same one, so it is recorded as accepted,
+	// and an accepted suggestion is never learned: the reader's pool is the member's own choices.
+	it('records the accept as a suggestion, and does not learn from it', async () => {
+		const s = await seed();
+		await row(s, 'CB PRIMEUR LOMI 02/03', 'Courses', 'member', 2);
+		await row(s, 'CB CINEMA VALO 03/03', 'Loisirs', 'member', 3);
+		const pending = await row(s, 'CB PRIMEUR ZUPEL 09/03', null, null, 9);
+		const pool = (await history(s)).similar.labelled.length;
+		const result = await accept(s, [
+			['transactionId', pending],
+			['proposed', 'Courses'],
+			['category', 'Courses'],
+			['nature', ''],
+			['seen', '{"category":null,"nature":null}']
+		]);
+		expect(result).toMatchObject({ acceptSuccess: true });
+		expect(await stored(pending)).toEqual({ pin: 'Courses', by: 'acceptedSuggestion' });
+		expect((await history(s)).similar.labelled.length).toBe(pool);
+	});
+
+	// Owner ruling 2026-11-28: a similar proposal is accepted one row at a time, never through
+	// « Accept all », because its errors come in batches (one pattern, many rows). Enforced by the
+	// server: a posted list naming one is skipped and counted, a rule or history one still written.
+	// Separates a server-side skip from a page that merely hides the button.
+	it('leaves a similar proposal out of « Accept all », and still writes a history one', async () => {
+		const s = await seed();
+		await row(s, 'CB PRIMEUR LOMI 02/03', 'Courses', 'member', 2);
+		await row(s, 'CB CINEMA VALO 03/03', 'Loisirs', 'member', 3);
+		const similar = await row(s, 'CB PRIMEUR ZUPEL 09/03', null, null, 9);
+		const fromHistory = await row(s, 'CB CINEMA VALO 09/03', null, null, 9);
+		expect((await listed(s, similar))?.suggestion).toMatchObject({ source: 'similar' });
+		const result = await acceptShownProposals(s.userId, [
+			{ id: similar, category: 'Courses', nature: null },
+			{ id: fromHistory, category: 'Loisirs', nature: null }
+		]);
+		expect(result).toMatchObject({ ok: true, changedSince: 1 });
+		expect(await stored(similar)).toEqual({ pin: null, by: null });
+		expect(await stored(fromHistory)).toEqual({ pin: 'Loisirs', by: 'acceptedSuggestion' });
+	});
+
+	// Contradiction pass on the design note, F1, measured: with ONE filed row the bank prefix
+	// alone carried the score (`CB BAZAR VADULPEL` against `CB PRIMEUR SELDULREN`, margin 0.298
+	// with a 0.072 threshold), so one hand-filed card row would be proposed on every card row.
+	// Separates a match on a shared word from a match on the bank's prefix.
+	it('proposes nothing when the only thing shared is the bank prefix', async () => {
+		const s = await seed();
+		await row(s, 'CB PRIMEUR LOMI 02/03', 'Courses', 'member', 2);
+		await row(s, 'CB BAZAR VALO 04/03', null, null, 4);
+		await row(s, 'CB GARAGE MIREN 05/03', null, null, 5);
+		const pending = await row(s, 'CB BOUTIQUE QUAZU 09/03', null, null, 9);
+		expect((await listed(s, pending))?.suggestion).toBeNull();
 	});
 });
