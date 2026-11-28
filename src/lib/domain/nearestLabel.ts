@@ -60,8 +60,13 @@ export type NgramIndex = {
 
 /** 3- to 5-character grams of each word, padded so a word's start and end are grams of their own. */
 function grams(label: string): Sparse {
+	return gramsOfKey(historyKey(label));
+}
+
+/** The same, over a label already folded by `historyKey`, so a corpus is folded once. */
+function gramsOfKey(key: string): Sparse {
 	const counts: Sparse = new Map();
-	for (const word of historyKey(label).split(' ').filter(Boolean)) {
+	for (const word of key.split(' ').filter(Boolean)) {
 		const padded = ` ${word} `;
 		for (let n = 3; n <= 5; n++) {
 			for (let i = 0; i + n <= padded.length; i++) {
@@ -87,7 +92,7 @@ function weigh(counts: Sparse, idf: ReadonlyMap<string, number>): Sparse {
 	return vector;
 }
 
-const wordsOf = (label: string) => new Set(historyKey(label).split(' ').filter(Boolean));
+const wordsOfKey = (key: string) => new Set(key.split(' ').filter(Boolean));
 
 /**
  * One entry per distinct key and category, so a merchant filed fifty times is one neighbour.
@@ -103,31 +108,34 @@ export function buildNgramIndex(
 	rows: readonly { label: string; category: string }[],
 	corpus: readonly string[] = rows.map((row) => row.label)
 ): NgramIndex {
-	const distinct = new Map<string, { label: string; category: string }>();
-	for (const row of rows) distinct.set(`${historyKey(row.label)}\u0001${row.category}`, row);
-	// The filed labels are in the corpus by construction, whatever the caller's cap cut.
-	const keys = [
-		...new Set([...corpus, ...rows.map((row) => row.label)].map(historyKey).filter(Boolean))
-	];
+	const distinct = new Map<string, { key: string; category: string }>();
+	for (const row of rows) {
+		const key = historyKey(row.label);
+		distinct.set(`${key}\u0001${row.category}`, { key, category: row.category });
+	}
+	// The filed labels are in the corpus by construction, whatever the caller's cap cut. Each key's
+	// grams are counted once and reused for the filed vectors.
+	const gramsByKey = new Map<string, Sparse>();
+	for (const key of [...corpus.map(historyKey), ...[...distinct.values()].map((d) => d.key)])
+		if (key !== '' && !gramsByKey.has(key)) gramsByKey.set(key, gramsOfKey(key));
 	const df = new Map<string, number>();
 	const wordDf = new Map<string, number>();
-	for (const key of keys) {
-		for (const gram of grams(key).keys()) df.set(gram, (df.get(gram) ?? 0) + 1);
-		for (const word of wordsOf(key)) wordDf.set(word, (wordDf.get(word) ?? 0) + 1);
+	for (const [key, counts] of gramsByKey) {
+		for (const gram of counts.keys()) df.set(gram, (df.get(gram) ?? 0) + 1);
+		for (const word of wordsOfKey(key)) wordDf.set(word, (wordDf.get(word) ?? 0) + 1);
 	}
+	const documents = gramsByKey.size;
 	// Smoothed IDF, as scikit-learn's TfidfVectorizer computes it: ln((1 + N) / (1 + df)) + 1.
-	const idf = new Map(
-		[...df].map(([gram, n]) => [gram, Math.log((1 + keys.length) / (1 + n)) + 1])
-	);
+	const idf = new Map([...df].map(([gram, n]) => [gram, Math.log((1 + documents) / (1 + n)) + 1]));
 	return {
 		idf,
-		labelled: [...distinct.values()].map(({ label, category }) => ({
-			vector: weigh(grams(label), idf),
+		labelled: [...distinct.values()].map(({ key, category }) => ({
+			vector: weigh(gramsByKey.get(key) ?? new Map(), idf),
 			category,
-			words: wordsOf(label)
+			words: wordsOfKey(key)
 		})),
 		wordDf,
-		documents: keys.length
+		documents
 	};
 }
 
@@ -160,8 +168,9 @@ export const SIMILAR_MARGIN = 0.26;
 
 /**
  * The share of the member's distinct labels a word may appear in and still say something about
- * the merchant: scikit-learn's `max_df`, which drops « corpus-specific stop words » above it
- * (`sklearn/feature_extraction/text.py` at 1.7.2). Measured on the invented set, 130 keys: the
+ * the merchant. The threshold semantics of scikit-learn's `max_df`, which drops « corpus-specific
+ * stop words » above it (`sklearn/feature_extraction/text.py` at 1.7.2), applied here to the WHOLE
+ * words the gate below reads, not to the grams the similarity is computed over. Measured on the invented set, 130 keys: the
  * bank prefixes sit at 0.23 to 0.54 (`cb`, `sepa`, `prlv`, `vir`), trade words at 0.08 or less.
  * A word shared by two labels is then in at least 2 of them, so a member holding fewer than 20
  * distinct labels is proposed nothing similar: too few labels to tell a prefix from a trade word.
@@ -180,7 +189,7 @@ export function similarLead(index: NgramIndex, label: string): Ranked | null {
 	const ranked = ranking(index, scores);
 	if (!ranked) return null;
 	const nearest = index.labelled[scores.indexOf(ranked.similarity)];
-	return [...wordsOf(label)].some(
+	return [...wordsOfKey(historyKey(label))].some(
 		(word) =>
 			nearest.words.has(word) && (index.wordDf.get(word) ?? 0) <= SIMILAR_MAX_DF * index.documents
 	)

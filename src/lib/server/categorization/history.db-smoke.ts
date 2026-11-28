@@ -473,18 +473,23 @@ describe('the proposal from labels like the ones the member filed (#1016)', () =
 		expect((await listed(s, pending))?.suggestion).toBeNull();
 	});
 
-	// The accept recomputes the proposal and finds the same one, so it is recorded as accepted,
-	// and an accepted suggestion is never learned: the reader's pool is the member's own choices.
-	it('records the accept as a suggestion, and does not learn from it', async () => {
+	// The single accept posts back the proposal the list showed, as its card does (`proposed`), so
+	// this test reads it from the page: without the layer there is nothing to post and it reddens.
+	// The action itself does not recompute (#1014's design): what it records is that the member
+	// accepted what they were shown, stamped as a suggestion, and an accepted suggestion is never
+	// learned, because the reader's pool is the member's own choices.
+	it('records an accepted similar proposal as a suggestion, and does not learn from it', async () => {
 		const s = await member();
 		await row(s, 'CB PRIMEUR LOMI 02/03', 'Courses', 'member', 2);
 		await row(s, 'CB CINEMA VALO 03/03', 'Loisirs', 'member', 3);
 		const pending = await row(s, 'CB PRIMEUR ZUPEL 09/03', null, null, 9);
+		const shown = (await listed(s, pending))?.suggestion as { category: string; source: string };
+		expect(shown).toMatchObject({ source: 'similar' });
 		const pool = (await history(s)).similar.labelled.length;
 		const result = await accept(s, [
 			['transactionId', pending],
-			['proposed', 'Courses'],
-			['category', 'Courses'],
+			['proposed', shown.category],
+			['category', shown.category],
 			['nature', ''],
 			['seen', '{"category":null,"nature":null}']
 		]);

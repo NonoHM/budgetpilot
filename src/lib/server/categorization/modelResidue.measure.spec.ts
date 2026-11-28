@@ -631,7 +631,7 @@ describe('B3 (#1015): readers over the residue of rules and history', () => {
 		const figures = await measureReader(ngramReader);
 		outFile('ngram.json', figures);
 		expect(lomo.invented.batches.length).toBeGreaterThan(0);
-	});
+	}, 60_000); // a full index build per residue item: seconds, and the suite runs files in parallel
 });
 
 /**
@@ -727,6 +727,19 @@ describe('B4 (#1016): the similar-label threshold, on the sparse protocol', () =
 					(f as { thresholdFromFit: number | null }).thresholdFromFit ?? 0
 				);
 		for (const [, h] of held) if (h.shown > 0) expect(h.precision).toBeGreaterThanOrEqual(0.9);
+	});
+
+	// Its own test, so it is computed whatever the precision assertion above reads. The opaque
+	// ablation keeps only the bank's prefix and a made-up name: nothing there says what the
+	// merchant sells, so the gate must show nothing at all, not merely nothing wrong.
+	it('shows nothing on the opaque ablation, at any k', () => {
+		const shown = [1, 3, 10].map(
+			(k) =>
+				sparse(sets.opaque, k).filter(
+					(s) => s.answer.category !== null && s.answer.confidence >= SIMILAR_MARGIN
+				).length
+		);
+		expect(shown).toStrictEqual([0, 0, 0]);
 	});
 });
 
