@@ -101,7 +101,7 @@ const wordsOfKey = (key: string) => new Set(key.split(' ').filter(Boolean));
  * vectorizer is fitted on its whole corpus with no category read (scikit-learn's `fit`): a bank's
  * « CB » or « PRLV SEPA » then weighs what it weighs across the account, not what it weighs among
  * the few rows the member filed by hand (contradiction pass 1016-note-1, F1). Only `rows`, the
- * member's own choices, are ever proposed from (AISVS 1.0 C1.3.2). Without a corpus, the filed
+ * member's own choices, are ever proposed from. Without a corpus, the filed
  * rows are their own, which is B3's measurement.
  */
 export function buildNgramIndex(
@@ -162,7 +162,8 @@ export function nearestByNgrams(index: NgramIndex, label: string): Ranked | null
  * filed and the rest are only in the corpus: the largest of the three fit-fold thresholds that
  * reach 0.90 precision (0.259, 0.129, 0.258 on 2026-11-28), rounded up, then scored on the held
  * fold. The spec asserts both, so moving this below a fit threshold reddens it. Above 0, so two
- * categories equally near never propose a coin toss.
+ * categories equally near never propose a coin toss. This is the confidence threshold AISVS 1.0
+ * C1.3.2 asks of an automatically generated label (`docs/reference/aisvs-map.md`).
  */
 export const SIMILAR_MARGIN = 0.26;
 

@@ -18,7 +18,7 @@ export type MemberHistory = { index: HistoryIndex; similar: NgramIndex };
  *
  * Only rows whose pin `categorySetBy` reads as `member`: never a rule's, never an accepted
  * suggestion (proposals would then reinforce themselves), never `unknown`, and never an imported
- * file's category column, `categoryId` (the poisoning route AISVS 1.0 C1.3.2 is about). A restored
+ * file's category column, `categoryId` (the poisoning route the 1.4 plan names). A restored
  * backup keeps the author its file states (ruled under #1013), so a member's own backup feeds
  * their own history. Scoped by `userId` in the one where clause, and the source clause sits there
  * too, before the cap, so the cap counts member rows only. A pin whose category no longer exists, or the « uncategorized »
