@@ -1,5 +1,5 @@
 import { createHmac } from 'node:crypto';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { env } from '$env/dynamic/private';
 import {
 	accountMemoryKeyFor,
@@ -9,6 +9,12 @@ import {
 import { accountMemoryKeyOf } from './accountMemory';
 import { findDiscriminantColumn, statementIdentifier } from './discriminant';
 import type { ParsedCsvRow } from './types';
+
+// SvelteKit 3 exports `env` as a read-only module namespace, so a test cannot assign a
+// secret to it. A mutable copy of the real values, seen by the code under test too (#1336).
+vi.mock('$env/dynamic/private', async (importOriginal) => ({
+	env: { ...(await importOriginal<typeof import('$env/dynamic/private')>()).env }
+}));
 
 /**
  * The key a remembered account is stored under (#599's re-ruling): a keyed hash of the FULL

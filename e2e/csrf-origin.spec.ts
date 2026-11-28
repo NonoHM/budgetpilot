@@ -6,7 +6,7 @@ import { E2E_BASE_URL, E2E_LOCALE } from './config';
  *
  * Before this file, nothing under `e2e/` or `src/` asserted that a cross-origin form POST is
  * refused. The control itself is SvelteKit's and has always been on (`csrf.checkOrigin` defaults
- * to true and `svelte.config.js` sets no `csrf` option) — what was missing is anything that would
+ * to true and `kit.config.js` sets no `csrf` option) — what was missing is anything that would
  * notice if that stopped being true.
  *
  * It matters more now than it did. The origin diagnostic added alongside this deliberately does

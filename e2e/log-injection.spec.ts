@@ -417,15 +417,16 @@ test.describe('calibration', () => {
 			query: '200',
 			headers: '200',
 			'header-esc': '400',
-			// SvelteKit answers a refused form action with HTTP 200 and `type: failure`.
-			'login-payload': '200 failure',
-			'register-payload': '200 failure',
-			'login-unknown-account': '200 failure',
-			'register-wrong-token': '200 failure',
+			// SvelteKit 3 answers a refused form action with its own status and `type: failure`, where
+			// SvelteKit 2 answered HTTP 200 (#1336).
+			'login-payload': '400 failure',
+			'register-payload': '400 failure',
+			'login-unknown-account': '400 failure',
+			'register-wrong-token': '403 failure',
 			register: '200 redirect',
 			login: '200 redirect',
-			'category-payload': '200 failure',
-			'reference-payload': '200 failure',
+			'category-payload': '400 failure',
+			'reference-payload': '400 failure',
 			// Measured, not chosen: the raw CR, LF and quote in this upload's file name make
 			// `request.formData()` throw before the action runs (#859). Kept, because it is the request
 			// that carries the payload to the error printer through a multipart body.

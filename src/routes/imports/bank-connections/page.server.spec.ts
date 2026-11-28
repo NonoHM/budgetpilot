@@ -20,6 +20,10 @@ const service = vi.hoisted(() => ({
 	syncBankConnection: vi.fn()
 }));
 vi.mock('$lib/server/banking/sync/service', () => service);
+vi.mock('$lib/server/auth/rateLimit', () => ({
+	isBankSyncStartRateLimited: vi.fn(async () => null),
+	recordBankSyncStartAttempt: vi.fn(async () => undefined)
+}));
 
 // The #1087 block decides what the net worth writes answer; nothing else in this file reaches them.
 const netWorth = vi.hoisted(() => ({
@@ -35,6 +39,42 @@ vi.mock('$lib/server/net-worth/service', async (importOriginal) => ({
 const { actions } = await import('./+page.server');
 
 const USER = { id: 'user-sync', email: 'sync@example.test', role: 'USER' as const };
+
+/**
+ * #1336: SvelteKit 3 refuses a redirect to another origin unless the call allows it, and the bank's
+ * authorization page is always another origin. Under SvelteKit 2 both actions sent the member there
+ * with a 303. Separates: the member reaches the bank page, and the action throws instead.
+ */
+describe('/imports/bank-connections ?/start and ?/renew send the member to the bank', () => {
+	const BANK_PAGE = 'https://bank.example.test/authorize?state=s1';
+
+	it.each([
+		['start', { bank: 'Example Bank', country: 'FR' }],
+		['renew', { connectionId: 'connection-1' }]
+	] as const)('?/%s answers 303 to the authorization page', async (name, fields) => {
+		const { isRedirect } = await import('@sveltejs/kit');
+		service.startBankAuthorization.mockResolvedValue({ authorizationUrl: BANK_PAGE });
+		const body = new FormData();
+		for (const [key, value] of Object.entries(fields)) body.set(key, value);
+		const request = new Request(`http://localhost/imports/bank-connections?/${name}`, {
+			method: 'POST',
+			body
+		});
+
+		const thrown = await Promise.resolve(
+			actions[name]({
+				locals: { user: USER },
+				request,
+				url: new URL(request.url),
+				getClientAddress: () => '192.0.2.1'
+			} as never)
+		).catch((caught: unknown) => caught);
+
+		expect(
+			isRedirect(thrown) ? { status: thrown.status, location: thrown.location } : thrown
+		).toEqual({ status: 303, location: BANK_PAGE });
+	});
+});
 
 async function sync(): Promise<{ status?: number }> {
 	const body = new FormData();

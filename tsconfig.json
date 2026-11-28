@@ -1,5 +1,9 @@
 {
-	"extends": "./.svelte-kit/tsconfig.json",
+	"extends": "$app/tsconfig",
+	// SvelteKit 3 leaves include and exclude to this file. e2e/ is listed so an e2e file importing a
+	// symbol a refactor moved or removed is caught: nothing else this repo runs reads it.
+	"include": ["src", "test", "tests", "e2e", "vite.config.ts", "kit.config.js"],
+	"exclude": ["src/service-worker"],
 	"compilerOptions": {
 		"rewriteRelativeImportExtensions": true,
 		"allowJs": true,
@@ -12,9 +16,4 @@
 		"strict": true,
 		"moduleResolution": "bundler"
 	}
-	// Path aliases are handled by https://svelte.dev/docs/kit/configuration#alias
-	// except $lib which is handled by https://svelte.dev/docs/kit/configuration#files
-	//
-	// To make changes to top-level options such as include and exclude, we recommend extending
-	// the generated config; see https://svelte.dev/docs/kit/configuration#typescript
 }

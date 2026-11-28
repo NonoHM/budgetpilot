@@ -21,6 +21,12 @@ import {
 	type LogPseudonym
 } from './pseudonym';
 
+// SvelteKit 3 exports `env` as a read-only module namespace, so a test cannot assign a
+// secret to it. A mutable copy of the real values, seen by the code under test too (#1336).
+vi.mock('$env/dynamic/private', async (importOriginal) => ({
+	env: { ...(await importOriginal<typeof import('$env/dynamic/private')>()).env }
+}));
+
 /**
  * The prefix setting as `logSubnet` reads it. Passes through to the real reading unless a test
  * queues widths, which are then answered one per read of `BP_RATE_LIMIT_IPV6_PREFIX`.

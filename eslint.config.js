@@ -69,6 +69,18 @@ const MODEL_DOOR = {
 		'Nothing calls the model in 1.3 (#1009): no file imports insights/local-llm. A caller is added to eslint.config.js by name, with its admission (#535).'
 };
 
+/**
+ * SvelteKit 3's own `enhance` navigates to the action's location after a submission, which drops
+ * the query a page was filtered by; `$lib/forms/enhance` applies the result in place, as 2.x did
+ * (#1336).
+ */
+const KIT_ENHANCE = {
+	name: '$app/forms',
+	importNames: ['enhance'],
+	message:
+		"Import enhance from '$lib/forms/enhance': kit's navigates away from the page's query (#1336)."
+};
+
 export default defineConfig(
 	includeIgnoreFile(gitignorePath),
 	js.configs.recommended,
@@ -159,7 +171,8 @@ export default defineConfig(
 			'no-restricted-imports': [
 				'error',
 				{
-					paths: LOGGING_IMPORT_RESTRICTION.paths,
+					// KIT_ENHANCE too: a route's .ts helper could hand SvelteKit's own `enhance` to a page (#1336).
+					paths: [...LOGGING_IMPORT_RESTRICTION.paths, KIT_ENHANCE],
 					patterns: [...LOGGING_IMPORT_RESTRICTION.patterns, MODEL_CLIENT, MODEL_DOOR]
 				}
 			]
@@ -191,8 +204,18 @@ export default defineConfig(
 		],
 		ignores: ['src/lib/server/**', '**/*.spec.ts', '**/*.svelte.spec.ts'],
 		rules: {
-			'no-restricted-imports': ['error', { patterns: [MODEL_CLIENT, MODEL_DOOR] }],
+			'no-restricted-imports': [
+				'error',
+				{ paths: [KIT_ENHANCE], patterns: [MODEL_CLIENT, MODEL_DOOR] }
+			],
 			'no-restricted-syntax': ['error', ...MODEL_DOOR_DYNAMIC]
+		}
+	},
+	{
+		// The house enhance is the one holder of kit's (#1336).
+		files: ['src/lib/forms/enhance.ts'],
+		rules: {
+			'no-restricted-imports': ['error', { patterns: [MODEL_CLIENT, MODEL_DOOR] }]
 		}
 	},
 	{

@@ -110,8 +110,10 @@ export const actions: Actions = {
 		} catch (caught) {
 			return fail(400, { error: mapBankSyncError(caught) });
 		}
-		// Outside the try block: a thrown redirect must never be swallowed by the catch.
-		redirect(303, authorizationUrl);
+		// Outside the try block: a thrown redirect must never be swallowed by the catch. The bank's page
+		// is another origin, which SvelteKit 3 refuses unless allowed; the URL is the provider's reply,
+		// never the member's input, and `true` still refuses `javascript:` and `data:` (#1336).
+		redirect(303, authorizationUrl, { external: true });
 	},
 
 	renew: async ({ locals, request, url, getClientAddress }) => {
@@ -146,8 +148,10 @@ export const actions: Actions = {
 		} catch (caught) {
 			return fail(400, { error: mapBankSyncError(caught) });
 		}
-		// Outside the try block: a thrown redirect must never be swallowed by the catch.
-		redirect(303, authorizationUrl);
+		// Outside the try block: a thrown redirect must never be swallowed by the catch. The bank's page
+		// is another origin, which SvelteKit 3 refuses unless allowed; the URL is the provider's reply,
+		// never the member's input, and `true` still refuses `javascript:` and `data:` (#1336).
+		redirect(303, authorizationUrl, { external: true });
 	},
 
 	sync: async ({ locals, request }) => {

@@ -1,10 +1,10 @@
 <script lang="ts">
 	import { tick } from 'svelte';
 	import { DropdownMenu } from 'bits-ui';
-	import { enhance } from '$app/forms';
+	import { enhance } from '$lib/forms/enhance';
 	import { navigating } from '$app/state';
 	import { resolve } from '$app/paths';
-	import type { SubmitFunction } from '@sveltejs/kit';
+	import type { SubmitFunction } from '$app/forms';
 	import AlertBanner from '$lib/components/AlertBanner.svelte';
 	import Avatar from '$lib/components/Avatar.svelte';
 	import BottomSheet from '$lib/components/BottomSheet.svelte';
@@ -841,7 +841,8 @@
 		     arrow carries one further condition of its own, `atOldestMonth`: the detection window has
 		     a hard floor and nothing renders past it.
 
-		     `data-sveltekit-keepfocus` is what makes the aria-live label below mean anything. Without
+		     `data-sveltekit-reset="false"` (`keepfocus` before SvelteKit 3, which ignores that name
+		     outside dev and also keeps the scroll now) is what makes the aria-live label below mean anything. Without
 		     it SvelteKit's client router blurs the active element and then calls its own
 		     `reset_focus()` after every client-side navigation, which lands focus on <body> — so the
 		     design's "annoncé sans voler le focus" was false in the browser even though the markup
@@ -852,7 +853,7 @@
 		<div class="flex items-center gap-2">
 			<a
 				href={previousDisabled ? undefined : resolve(monthHref(shiftMonth(bills.month, -1)))}
-				data-sveltekit-keepfocus
+				data-sveltekit-reset="false"
 				aria-label={m.bills_period_prev_aria()}
 				aria-disabled={previousDisabled ? 'true' : undefined}
 				tabindex={previousDisabled ? -1 : undefined}
@@ -872,7 +873,7 @@
 			{/if}
 			<a
 				href={noStreamsAtAll ? undefined : resolve(monthHref(shiftMonth(bills.month, 1)))}
-				data-sveltekit-keepfocus
+				data-sveltekit-reset="false"
 				aria-label={m.bills_period_next_aria()}
 				aria-disabled={noStreamsAtAll ? 'true' : undefined}
 				tabindex={noStreamsAtAll ? -1 : undefined}

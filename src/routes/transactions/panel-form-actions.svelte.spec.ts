@@ -2,8 +2,8 @@ import { page, userEvent } from 'vitest/browser';
 import { describe, it, expect, vi } from 'vitest';
 
 // Focus mode navigates with `goto` on open; the journey below only needs the overlay mounted.
-vi.mock('$app/navigation', async (importOriginal) => ({
-	...(await importOriginal<typeof import('$app/navigation')>()),
+vi.mock('$app/navigation', async () => ({
+	...(await import('$lib/testing/navigationStub')),
 	goto: vi.fn(async () => {})
 }));
 import { render } from 'vitest-browser-svelte';

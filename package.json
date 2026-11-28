@@ -35,8 +35,8 @@
 		"@eslint/js": "^10.0.1",
 		"@inlang/paraglide-js": "^2.29.3",
 		"@playwright/test": "^1.64.1",
-		"@sveltejs/adapter-node": "^5.5.8",
-		"@sveltejs/kit": "^2.70.4",
+		"@sveltejs/adapter-node": "^6.0.6",
+		"@sveltejs/kit": "^3.4.1",
 		"@sveltejs/vite-plugin-svelte": "^7.3.1",
 		"@tailwindcss/forms": "^0.5.11",
 		"@tailwindcss/typography": "^0.5.19",
@@ -67,11 +67,13 @@
 		"@tailwindcss/typography": {
 			"postcss-selector-parser": "^6.1.5"
 		},
-		"cookie": "^0.7.2",
 		"deepmerge-ts": "^8.0.0",
 		"mariadb": "^3.5.4",
 		"mysql2": "^3.24.3",
-		"effect": "3.22.1"
+		"effect": "3.22.1",
+		"runed": {
+			"@sveltejs/kit": "$@sveltejs/kit"
+		}
 	},
 	"dependencies": {
 		"@prisma/adapter-better-sqlite3": "^7.10.1",

@@ -1,7 +1,7 @@
 import { beforeEach, describe, it, expect, vi } from 'vitest';
 import { page, userEvent } from 'vitest/browser';
 import { render } from 'vitest-browser-svelte';
-import type { SubmitFunction } from '@sveltejs/kit';
+import type { SubmitFunction } from '$app/forms';
 import '../layout.css';
 import Page from './+page.svelte';
 import { formatAmountRangeBounds, toBillRowDomKey } from '$lib/domain/upcomingBills';
@@ -20,7 +20,8 @@ import type { PageData } from './$types';
  */
 const submitted = vi.hoisted(() => [] as { node: HTMLFormElement; submit: SubmitFunction }[]);
 
-vi.mock('$app/forms', () => ({
+// The pages import the house `enhance` (#1336), so the recorder stands in for that module.
+vi.mock('$lib/forms/enhance', () => ({
 	enhance: (node: HTMLFormElement, submit: SubmitFunction) => {
 		submitted.push({ node, submit });
 		return {};

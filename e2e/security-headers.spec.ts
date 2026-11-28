@@ -17,7 +17,7 @@ import { E2E_BASE_URL } from './config';
  *     bottom of hooks.server.ts, and deleting it from that list leaves every unit assertion in
  *     hooks.server.spec.ts green while the application ships with no security headers at all.
  *     Only a real response can tell those two states apart.
- *  3. Whether the CSP declared in svelte.config.js is actually EMITTED. The unit spec pins the
+ *  3. Whether the CSP declared in kit.config.js is actually EMITTED. The unit spec pins the
  *     directives; a changed `mode`, a framework upgrade or a route overwriting the header would
  *     leave that green and this red.
  *
@@ -116,7 +116,7 @@ test.describe('ASVS response headers on a built server', () => {
 		expect(headers['x-frame-options']).toBe('DENY');
 	});
 
-	test('v5.0.0-3.4.3/3.4.6: the CSP declared in svelte.config.js is emitted, nonce and all', async () => {
+	test('v5.0.0-3.4.3/3.4.6: the CSP declared in kit.config.js is emitted, nonce and all', async () => {
 		const response = await anon.get(RENDERED_PAGE);
 		const csp = response.headers()['content-security-policy'];
 
@@ -128,7 +128,7 @@ test.describe('ASVS response headers on a built server', () => {
 		expect(csp).toContain("frame-ancestors 'none'");
 		expect(csp).toContain("default-src 'self'");
 
-		// `mode: 'auto'` in svelte.config.js is what makes this nonce-based, which is the
+		// `mode: 'auto'` in kit.config.js is what makes this nonce-based, which is the
 		// alternative to an allowlist that the requirement accepts. Asserting the directives
 		// without the nonce would stay green if the mechanism were switched off.
 		expect(csp).toMatch(/script-src 'self' 'nonce-[A-Za-z0-9+/=]+'/);

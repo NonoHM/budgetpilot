@@ -14,8 +14,8 @@ export function normalizeOrigin(value: string): string | null {
 /**
  * The origin a link the app hands out is built on (#1147): ORIGIN, never the request. With ORIGIN
  * unset adapter-node takes `request.url` from the Host header, so a link built on it names whatever
- * host the client sent. SvelteKit 3 drops the adapter's runtime ORIGIN (#1148); this stays the one
- * place that reads it for links.
+ * host the client sent. adapter-node 6 still reads ORIGIN for the request (its 6.0.2 restored the
+ * fallback, #1336); this stays the one place that reads it for links.
  */
 export function configuredOrigin(env: Record<string, string | undefined>): string | null {
 	return normalizeOrigin(env.ORIGIN ?? '');

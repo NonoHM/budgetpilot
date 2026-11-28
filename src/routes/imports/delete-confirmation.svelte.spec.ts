@@ -327,10 +327,14 @@ describe('the delete that is refused', () => {
 			'fetch',
 			vi.fn(
 				async () =>
-					new Response(JSON.stringify({ type: 'failure', status: 500, data: '{"error":"boom"}' }), {
-						status: 500,
-						headers: { 'content-type': 'application/json' }
-					})
+					// `data` in devalue's encoding of `{ error: 'boom' }`, the form SvelteKit sends (#1336).
+					new Response(
+						JSON.stringify({ type: 'failure', status: 500, data: '[{"error":1},"boom"]' }),
+						{
+							status: 500,
+							headers: { 'content-type': 'application/json' }
+						}
+					)
 			)
 		);
 		await render(Page, { data: DATA, form: null });
@@ -380,7 +384,8 @@ describe('the delete that is refused', () => {
 		// Settled before the test ends, and awaited: a promise left hanging is reported as an unhandled
 		// rejection at teardown, which is noise that reads like a defect in the page.
 		resolveFetch(
-			new Response(JSON.stringify({ type: 'failure', status: 500, data: '{}' }), {
+			// `data` in devalue's encoding of `{}`, the form SvelteKit sends (#1336).
+			new Response(JSON.stringify({ type: 'failure', status: 500, data: '[{}]' }), {
 				status: 500,
 				headers: { 'content-type': 'application/json' }
 			})

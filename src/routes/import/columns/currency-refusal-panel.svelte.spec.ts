@@ -9,8 +9,8 @@ import { clearPendingCollision } from '$lib/import/pendingCollision.svelte';
 import type { DesignationFile, RoleAssignment } from '$lib/domain/columnDesignation';
 
 const navigation = vi.hoisted(() => ({ goto: vi.fn(async () => {}) }));
-vi.mock('$app/navigation', async (importOriginal) => ({
-	...(await importOriginal<typeof import('$app/navigation')>()),
+vi.mock('$app/navigation', async () => ({
+	...(await import('$lib/testing/navigationStub')),
 	goto: navigation.goto
 }));
 

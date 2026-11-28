@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { enhance } from '$app/forms';
+	import { enhance } from '$lib/forms/enhance';
 	import { goto, invalidateAll } from '$app/navigation';
 	import { navigating } from '$app/state';
 	import ImportCardSkeleton from '$lib/components/import/ImportCardSkeleton.svelte';

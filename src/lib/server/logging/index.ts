@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
 import { format } from 'node:util';
-import type { Handle } from '@sveltejs/kit';
+import type { Handle } from '@sveltejs/kit/hooks';
 import { createLogWriter, stdoutSink, type LogWriter, type RequestFields } from './core.ts';
 import { loggableError } from '$lib/server/errors';
 import type { ErrorFields, LogEvent } from './events.ts';

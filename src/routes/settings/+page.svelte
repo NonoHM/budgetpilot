@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { enhance } from '$app/forms';
-	import type { SubmitFunction } from '@sveltejs/kit';
+	import { enhance } from '$lib/forms/enhance';
+	import type { SubmitFunction } from '$app/forms';
 	import { afterNavigate, invalidateAll } from '$app/navigation';
 	import { onMount, tick } from 'svelte';
 	import Modal from '$lib/components/Modal.svelte';

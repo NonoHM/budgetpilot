@@ -21,7 +21,7 @@ BudgetPilot-Sign-In: refused
 
 In the access log it reads `"Budgetpilot-Sign-In": ["refused"]`, because Caddy writes header names
 with only the first letter of each word capitalised. The status code cannot carry this signal: a
-script can make every sign-in answer `200`.
+sign-in turned away for too many attempts also answers `400`, but carries no mark.
 
 | Answer                                                                                 | Marked | Why                                                                                                                                              |
 | -------------------------------------------------------------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------ |

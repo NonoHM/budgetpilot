@@ -1134,16 +1134,17 @@ test.describe('#876: the sign-in refusal header on the built server', () => {
 			'admin-reset': '200 absent',
 			'temporary-password-login': '200 absent',
 			'bank-start': '200 absent',
-			'authz-foreign-reference': '200 absent',
+			// SvelteKit 3 answers a refused action with its own status (#1336); the marks are unchanged.
+			'authz-foreign-reference': '404 absent',
 			'mfa-login-password': '200 absent',
 			'mfa-login-recovery-code': '200 absent',
-			'login-fail-1': '200 refused',
-			'login-fail-2': '200 refused',
-			'login-fail-3': '200 refused',
-			'login-fail-4': '200 refused',
-			'login-fail-5': '200 refused',
-			'login-fail-6': '200 absent',
-			'login-unknown-user': '200 refused'
+			'login-fail-1': '400 refused',
+			'login-fail-2': '400 refused',
+			'login-fail-3': '400 refused',
+			'login-fail-4': '400 refused',
+			'login-fail-5': '400 refused',
+			'login-fail-6': '400 absent',
+			'login-unknown-user': '400 refused'
 		});
 	});
 });

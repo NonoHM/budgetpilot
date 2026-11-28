@@ -1,6 +1,12 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { env } from '$env/dynamic/private';
 
+// SvelteKit 3 exports `env` as a read-only module namespace, so a test cannot assign a
+// secret to it. A mutable copy of the real values, seen by the code under test too (#1336).
+vi.mock('$env/dynamic/private', async (importOriginal) => ({
+	env: { ...(await importOriginal<typeof import('$env/dynamic/private')>()).env }
+}));
+
 const tx = vi.hoisted(() => ({
 	session: {
 		deleteMany: vi.fn()
@@ -907,7 +913,8 @@ describe('L4a: authorization events on /admin', () => {
 		it('the admin load as a member: one authz_fail role_required with no reference, then the same 403', async () => {
 			const answer = await loadAs(USER);
 			expect({ answer, lines: named(E.authzFail) }).toEqual({
-				answer: { status: 403, body: { message: m.admin_error_forbidden() } },
+				// SvelteKit 3 adds the status to an error body (#1336).
+				answer: { status: 403, body: { message: m.admin_error_forbidden(), status: 403 } },
 				lines: [
 					{
 						event: E.authzFail,

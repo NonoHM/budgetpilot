@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { ActionResult } from '@sveltejs/kit';
+import type { ActionResult } from '$app/forms';
 // Message FUNCTIONS, never retyped copy — the neighbouring specs state the rule: a spec that
 // copies the sentence goes on passing while the catalogue says something else.
 import * as m from '$lib/paraglide/messages';
@@ -28,12 +28,21 @@ describe('splitSaveFailureMessage', () => {
 	});
 
 	it('names the transport for an error, which is what a dropped connection deserialises to', () => {
-		const result: ActionResult = { type: 'error', error: new Error('failed to fetch') };
+		// SvelteKit 3 hands a client-side failure through `handleError`, as an `App.Error`.
+		const result: ActionResult = {
+			type: 'error',
+			error: { status: 500, message: 'Internal Error' }
+		};
 		expect(splitSaveFailureMessage(result)).toBe(m.splits_error_unreachable());
 	});
 
 	it('is silent for a success, which is the write itself', () => {
-		const result: ActionResult = { type: 'success', status: 200, data: { splitsSaved: true } };
+		const result: ActionResult = {
+			type: 'success',
+			status: 200,
+			data: { splitsSaved: true },
+			location: '/transactions'
+		};
 		expect(splitSaveFailureMessage(result)).toBeNull();
 	});
 
@@ -43,7 +52,8 @@ describe('splitSaveFailureMessage', () => {
 		const result: ActionResult = {
 			type: 'failure',
 			status: 400,
-			data: { splitsError: m.splits_error_sum() }
+			data: { splitsError: m.splits_error_sum() },
+			location: '/transactions'
 		};
 		expect(splitSaveFailureMessage(result)).toBeNull();
 	});
