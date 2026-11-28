@@ -164,14 +164,37 @@ describe('transaction kind predicate', () => {
 		};
 		await prisma.transaction.createMany({
 			data: [
-				{ ...base, categoryId: loyer.id, label: 'loyer-untyped-out', amountCents: -100, type: null },
-				{ ...base, categoryId: loyer.id, label: 'loyer-typed-out', amountCents: -400, type: 'expense' },
+				{
+					...base,
+					categoryId: loyer.id,
+					label: 'loyer-untyped-out',
+					amountCents: -100,
+					type: null
+				},
+				{
+					...base,
+					categoryId: loyer.id,
+					label: 'loyer-typed-out',
+					amountCents: -400,
+					type: 'expense'
+				},
 				{ ...base, categoryId: loyer.id, label: 'loyer-untyped-in', amountCents: 300, type: null },
-				{ ...base, categoryId: maison.id, label: 'maison-untyped-out', amountCents: -200, type: null }
+				{
+					...base,
+					categoryId: maison.id,
+					label: 'maison-untyped-out',
+					amountCents: -200,
+					type: null
+				}
 			]
 		});
 
-		const where = buildTransactionWhere({ userId, type: 'expense', category: 'Loyer', importBatchId: '' });
+		const where = buildTransactionWhere({
+			userId,
+			type: 'expense',
+			category: 'Loyer',
+			importBatchId: ''
+		});
 		const listed = await prisma.transaction.findMany({ where, select: { label: true } });
 
 		expect(listed.map((row) => row.label).sort()).toEqual(['loyer-typed-out', 'loyer-untyped-out']);
