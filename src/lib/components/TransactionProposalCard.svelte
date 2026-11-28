@@ -12,6 +12,7 @@
 	import { categoryDisplayName } from '$lib/domain/categoryLabels';
 	import { proposalSource } from '$lib/i18n/proposalSource';
 	import { encodeSeenRow, type SeenRow } from '$lib/domain/seenRow';
+	import type { ProposalSource } from '$lib/domain/historySuggestion';
 
 	// Proposal (category/nature suggestion) + Accept/Create rule/Ignore actions, shared by the
 	// desktop detail panel, the mobile bottom sheet, and TransactionFocusOverlay (see CLAUDE.md
@@ -37,7 +38,7 @@
 		onCreateRule
 	}: {
 		transactionId: string;
-		suggestion: { category: string; nature: string | null; source: 'rule' | 'history' } | null;
+		suggestion: { category: string; nature: string | null; source: ProposalSource } | null;
 		/** The row's pin and manual nature as the page loaded them, posted back as the stale guard. */
 		seen: SeenRow;
 		categoryOptions: readonly string[];

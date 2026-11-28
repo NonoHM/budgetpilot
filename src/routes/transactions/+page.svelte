@@ -145,10 +145,11 @@
 	const classificationMode = $derived(data.filters.type === 'classify');
 	// #1230: « Accept all » names exactly the proposals this page shows, and posts them back as
 	// shown: the server writes its own proposal for each, and only where it is still this one.
+	// A similar proposal (#1016) is accepted one row at a time; the server skips it too.
 	const shownProposals = $derived(
 		classificationMode
 			? data.transactions.flatMap((tx) =>
-					tx.suggestion
+					tx.suggestion && tx.suggestion.source !== 'similar'
 						? [{ id: tx.id, category: tx.suggestion.category, nature: tx.suggestion.nature }]
 						: []
 				)

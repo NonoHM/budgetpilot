@@ -17,10 +17,13 @@ import { normalizeForMatch } from './normalize';
  * all of them, so a member who moved a merchant to another category is followed.
  *
  * Pure: the caller passes rows the member set (`categorySetBy` is `member`), never a rule's or an
- * imported file's category, which is the poisoning route the plan names (AISVS C1.3.2).
+ * imported file's category, which is the poisoning route the plan names.
  */
 export const HISTORY_SUGGESTION_FLOOR = 0.9;
 export const HISTORY_WINDOW = 10;
+
+/** Where a proposed category comes from: one definition for the server, the page and its strings. */
+export type ProposalSource = 'rule' | 'history' | 'similar';
 
 export type HistoryRow = { label: string; category: string; date: Date };
 export type HistoryIndex = ReadonlyMap<string, readonly string[]>;

@@ -18,6 +18,8 @@ import {
 	cosine,
 	nearestByNgrams,
 	rankByNearest,
+	similarLead,
+	SIMILAR_MARGIN,
 	type Ranked
 } from '$lib/domain/nearestLabel';
 import {
@@ -629,6 +631,110 @@ describe('B3 (#1015): readers over the residue of rules and history', () => {
 		const figures = await measureReader(ngramReader);
 		outFile('ngram.json', figures);
 		expect(lomo.invented.batches.length).toBeGreaterThan(0);
+	}, 60_000); // a full index build per residue item: seconds, and the suite runs files in parallel
+});
+
+/**
+ * THE SPARSE PROTOCOL (#1016, contradiction pass 1016-note-1, F1). Production's history is the
+ * residue the member filed by hand, not every row: here the first `k` rows of each category are
+ * filed, every other label is in the corpus the IDF is fitted on but filed nowhere, as
+ * `loadMemberHistory` reads a member. Items are the unfiled keys rules and history leave empty,
+ * merchants alternating between the folds. The production gate (`similarLead`) answers; only the
+ * threshold varies, chosen on `fit`, and `SIMILAR_MARGIN` is scored on `held`.
+ */
+function sparse(rows: Row[], k: number): Scored[] {
+	const ordered = [...rows].sort((a, b) => a.date.localeCompare(b.date));
+	const perCategory = new Map<string, number>();
+	const filed: Row[] = [];
+	const unfiled: Row[] = [];
+	for (const row of ordered) {
+		const n = perCategory.get(row.expected) ?? 0;
+		(n < k ? filed : unfiled).push(row);
+		perCategory.set(row.expected, n + 1);
+	}
+	const history = buildHistoryIndex(
+		filed.map((r) => ({ label: r.label, category: r.expected, date: new Date(r.date) }))
+	);
+	const index = buildNgramIndex(
+		filed.map((r) => ({ label: r.label, category: r.expected })),
+		rows.map((r) => r.label)
+	);
+	const merchants = [...new Set(unfiled.map((r) => merchantOf(r.label)))];
+	const items = new Map<string, Scored>();
+	for (const row of unfiled) {
+		const key = historyKey(row.label);
+		if (key === '' || items.has(key) || control(row, history) !== null) continue;
+		const lead = similarLead(index, row.label);
+		items.set(key, {
+			item: {
+				month: 'sparse',
+				key,
+				label: row.label,
+				direction: directionOf(row.amount),
+				expected: row.expected,
+				seen: false,
+				rows: unfiled.filter((r) => historyKey(r.label) === key).length,
+				fold: merchants.indexOf(merchantOf(row.label)) % 2 === 0 ? 'fit' : 'held'
+			},
+			answer: lead ? { category: lead.category, confidence: lead.margin } : none()
+		});
+	}
+	if (items.size === 0) throw new Error('sparse protocol read zero residue items');
+	return [...items.values()];
+}
+
+describe('B4 (#1016): the similar-label threshold, on the sparse protocol', () => {
+	// The gate must still answer the planted item, or every figure below is about a dead reader.
+	it('answers the planted item through the production gate', () => {
+		// The invented set as the corpus: three labels are too few for SIMILAR_MAX_DF to tell a
+		// prefix from a trade word, and the gate rightly refuses them.
+		const index = buildNgramIndex(
+			plantedRows.slice(0, 2).map((r) => ({ label: r.label, category: r.expected })),
+			[...plantedRows, ...sets.invented].map((r) => r.label)
+		);
+		expect(similarLead(index, plantedRows[2].label)?.category).toBe('food');
+	});
+
+	it('holds 0.90 held-out precision at SIMILAR_MARGIN, k filed rows per category', () => {
+		const figures: Record<string, unknown> = { SIMILAR_MARGIN };
+		const held: Array<[string, ReturnType<typeof at>]> = [];
+		for (const name of MEASURED) {
+			for (const k of [1, 3, 10]) {
+				const scored = sparse(sets[name], k);
+				const fit = scored.filter((s) => s.item.fold === 'fit');
+				const heldOut = at(
+					scored.filter((s) => s.item.fold === 'held'),
+					SIMILAR_MARGIN
+				);
+				held.push([`${name} k=${k}`, heldOut]);
+				figures[`${name} k=${k}`] = {
+					items: scored.length,
+					thresholdFromFit: thresholdFor(fit),
+					fitAtConstant: at(fit, SIMILAR_MARGIN),
+					heldAtConstant: heldOut,
+					curveAllItems: curve(scored)
+				};
+			}
+		}
+		outFile('similar-sparse.json', figures);
+		// The invented set has trade words to read: a gate that shows nothing there is dead.
+		expect(held.filter(([n]) => n.startsWith('invented')).every(([, h]) => h.shown > 0)).toBe(true);
+		// The constant is chosen on the fit fold, never on the fold it is scored on: at least every
+		// configuration's own fit threshold.
+		for (const [name, f] of Object.entries(figures))
+			if (name !== 'SIMILAR_MARGIN')
+				expect(SIMILAR_MARGIN).toBeGreaterThanOrEqual(
+					(f as { thresholdFromFit: number | null }).thresholdFromFit ?? 0
+				);
+		for (const [, h] of held) if (h.shown > 0) expect(h.precision).toBeGreaterThanOrEqual(0.9);
+	});
+
+	// Its own test, so it is computed whatever the precision assertion above reads. The opaque
+	// ablation keeps only the bank's prefix and a made-up name: nothing there says what the
+	// merchant sells, so the gate must show nothing at all, not merely nothing wrong.
+	it('shows nothing on the opaque ablation, at any k', () => {
+		const shown = [1, 3, 10].map((k) => at(sparse(sets.opaque, k), SIMILAR_MARGIN).shown);
+		expect(shown).toStrictEqual([0, 0, 0]);
 	});
 });
 
