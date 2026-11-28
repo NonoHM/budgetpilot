@@ -5,6 +5,7 @@ import { allocateByCategory } from '$lib/domain/allocation';
 import { computeNameKey } from '$lib/server/naming/nameKey';
 import { getEffectiveCategory } from '$lib/server/transactions/nature';
 import { prisma } from '$lib/server/db';
+import { transactionKindWhere } from '$lib/server/transactions/where';
 
 /**
  * The one place the app turns a stored row into income-or-expense.
@@ -22,34 +23,6 @@ export function resolveTransactionType(transaction: {
 		type:
 			transaction.type === 'income' || transaction.type === 'expense' ? transaction.type : undefined
 	});
-}
-
-/**
- * The SQL twin of resolveTransactionType, and the riskiest few lines in this feature.
- *
- * `Transaction.type` is nullable, and getTransactionKind falls back to the sign of `amountCents`
- * whenever it is not exactly 'income' or 'expense'. Reproducing that in SQL has one trap that no
- * amount of reading catches: `notIn` does NOT match NULL, because SQL three-valued logic makes
- * `NULL NOT IN (...)` unknown rather than true. Omitting the explicit `{ type: null }` branch
- * silently drops every row with no stored type from BOTH totals.
- *
- * That is exactly the class of defect CLAUDE.md records as invisible to unit tests: the fixture is
- * what replaces the SQL. totals.db-smoke.ts asserts this predicate and getTransactionKind agree
- * over the full type x sign matrix, against all three engines.
- */
-export function transactionKindWhere(kind: TransactionKind): Prisma.TransactionWhereInput {
-	const typeIsUnset: Prisma.TransactionWhereInput = {
-		OR: [{ type: null }, { type: { notIn: ['income', 'expense'] } }]
-	};
-
-	if (kind === 'income') {
-		return {
-			OR: [{ type: 'income' }, { AND: [typeIsUnset, { amountCents: { gte: 0 } }] }]
-		};
-	}
-	return {
-		OR: [{ type: 'expense' }, { AND: [typeIsUnset, { amountCents: { lt: 0 } }] }]
-	};
 }
 
 export interface FilteredTotals {

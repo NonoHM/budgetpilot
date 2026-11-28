@@ -12,9 +12,8 @@ import { STORABLE_YEARS, validateTransaction } from '$lib/domain/transaction';
 import { parseManualAmountCents, DEFAULT_DENOMINATION } from '$lib/domain/money';
 import type { DateRange } from '$lib/server/date-range';
 import { prisma } from '$lib/server/db';
-import { normalizeId } from '$lib/server/transactions/where';
+import { normalizeId, transactionKindWhere } from '$lib/server/transactions/where';
 import { collectAllTransactions } from '$lib/server/transactions/batch';
-import { transactionKindWhere } from '$lib/server/transactions/totals';
 import {
 	buildCategoryNatureMap,
 	EFFECTIVE_CATEGORY_SELECT,
