@@ -98,6 +98,43 @@ describe('DashboardInsights.svelte', () => {
 		).toHaveLength(0);
 	});
 
+	// #1021 I3: the line names its window and what « typical » means, so neither word is left to
+	// the reader. The whole sentence is compared, in each language, so a part doubled or dropped
+	// turns it red; the words are literals, never read back from the catalogue under test.
+	it('says what the unusual-spending line compares against, as one sentence', async () => {
+		await render(DashboardInsights, {
+			insights: {
+				...emptyInsights,
+				unusualSpending: {
+					category: 'Loisirs',
+					currentCents: 20000,
+					baselineCents: 10000,
+					baselineMonths: 3,
+					increasePercentage: 100
+				}
+			}
+		});
+		await page.getByRole('button', { name: m.dashboard_insights_heading() }).click();
+
+		// The whole row is the link, so its accessible name is the sentence itself.
+		const link = page.getByRole('link', { name: /^Loisirs/ });
+		await expect.element(link).toBeVisible();
+		const normalise = (text: string | null) => (text ?? '').replace(/\s+/g, ' ').trim();
+		expect(normalise(link.element().textContent)).toBe(
+			normalise(
+				`Loisirs en hausse de 100% sur vos 3 derniers mois (${formatCents(20000)} contre ${formatCents(10000)} un mois type)`
+			)
+		);
+		expect(link.element().getAttribute('href')).toContain('Loisirs');
+	});
+
+	it('words the unusual-spending line the same way in English', () => {
+		const options = { locale: 'en' as const };
+		expect(
+			`${m.dashboard_insights_unusual_spending({ category: 'Leisure', percent: 100, months: 3 }, options)} ${m.dashboard_insights_unusual_spending_detail({ current: '€200.00', baseline: '€100.00' }, options)}`
+		).toBe('Leisure up 100% vs your last 3 months (€200.00 vs a typical €100.00)');
+	});
+
 	it('renders nothing for the insights section when there is no content', async () => {
 		await render(DashboardInsights, {
 			insights: emptyInsights

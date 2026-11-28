@@ -166,30 +166,62 @@ describe('computeBudgetAlerts', () => {
 });
 
 describe('computeUnusualSpendingInsight', () => {
-	it('returns null when fewer than 2 historical months have any data', () => {
+	// The window is every one of the last three months: with fewer the median equals the mean of
+	// two (or is one month), and the sentence « vs your last 3 months » would no longer be true.
+	it('returns null when one of the three historical months has no data', () => {
 		const result = computeUnusualSpendingInsight(new Map([['Alimentation', 32000]]), [
 			new Map([['Alimentation', 22000]]),
-			new Map(),
+			new Map([['Alimentation', 22000]]),
 			new Map()
 		]);
 
 		expect(result).toBeNull();
 	});
 
-	it('flags a category with a large increase vs its historical average', () => {
+	it('flags a category with a large increase vs its median month', () => {
 		const result = computeUnusualSpendingInsight(new Map([['Alimentation', 32000]]), [
 			new Map([['Alimentation', 22000]]),
 			new Map([['Alimentation', 22100]]),
 			new Map([['Alimentation', 21900]])
 		]);
 
-		expect(result?.category).toBe('Alimentation');
-		expect(result?.averageCents).toBeCloseTo(22000, 0);
-		expect(result?.increasePercentage).toBeGreaterThan(30);
+		expect(result).toEqual({
+			category: 'Alimentation',
+			currentCents: 32000,
+			baselineCents: 22000,
+			baselineMonths: 3,
+			increasePercentage: (10000 / 22000) * 100
+		});
+	});
+
+	// Separates median from mean: one spike month lifts the mean to the current figure (+0 %),
+	// while the median stays on the two ordinary months (+100 %).
+	it('is not hidden by one spike month in the history', () => {
+		const result = computeUnusualSpendingInsight(new Map([['Loisirs', 20000]]), [
+			new Map([['Loisirs', 10000]]),
+			new Map([['Loisirs', 40000]]),
+			new Map([['Loisirs', 10000]])
+		]);
+
+		expect(result).toMatchObject({ category: 'Loisirs', baselineCents: 10000 });
+		expect(result?.increasePercentage).toBe(100);
+	});
+
+	// The other direction: one month with no spend in the category drags the mean to 20000, so
+	// 27000 reads +35 % under the mean and -10 % against the median of 30000.
+	it('is not raised by one empty month in the history', () => {
+		const result = computeUnusualSpendingInsight(new Map([['Loisirs', 27000]]), [
+			new Map([['Loisirs', 30000]]),
+			new Map([['Alimentation', 5000]]),
+			new Map([['Loisirs', 30000]])
+		]);
+
+		expect(result).toBeNull();
 	});
 
 	it('does not flag a category below the increase threshold', () => {
-		const result = computeUnusualSpendingInsight(new Map([['Alimentation', 23000]]), [
+		const result = computeUnusualSpendingInsight(new Map([['Alimentation', 28500]]), [
+			new Map([['Alimentation', 22000]]),
 			new Map([['Alimentation', 22000]]),
 			new Map([['Alimentation', 22000]])
 		]);
@@ -197,8 +229,9 @@ describe('computeUnusualSpendingInsight', () => {
 		expect(result).toBeNull();
 	});
 
-	it('ignores categories with no historical baseline (average of 0)', () => {
+	it('ignores categories with no historical baseline (median of 0)', () => {
 		const result = computeUnusualSpendingInsight(new Map([['NouvelleCategorie', 5000]]), [
+			new Map([['Alimentation', 22000]]),
 			new Map([['Alimentation', 22000]]),
 			new Map([['Alimentation', 22000]])
 		]);
@@ -209,6 +242,7 @@ describe('computeUnusualSpendingInsight', () => {
 	it('ignores small absolute amounts even with a high percentage increase', () => {
 		const result = computeUnusualSpendingInsight(new Map([['Divers', 1500]]), [
 			new Map([['Divers', 500]]),
+			new Map([['Divers', 500]]),
 			new Map([['Divers', 500]])
 		]);
 
@@ -216,21 +250,16 @@ describe('computeUnusualSpendingInsight', () => {
 	});
 
 	it('picks the category with the highest increase when several qualify', () => {
+		const history = new Map([
+			['Alimentation', 22000],
+			['Loisirs', 20000]
+		]);
 		const result = computeUnusualSpendingInsight(
 			new Map([
 				['Alimentation', 30000],
 				['Loisirs', 40000]
 			]),
-			[
-				new Map([
-					['Alimentation', 22000],
-					['Loisirs', 20000]
-				]),
-				new Map([
-					['Alimentation', 22000],
-					['Loisirs', 20000]
-				])
-			]
+			[history, history, history]
 		);
 
 		expect(result?.category).toBe('Loisirs');
