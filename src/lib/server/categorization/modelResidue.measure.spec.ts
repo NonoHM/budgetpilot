@@ -733,12 +733,7 @@ describe('B4 (#1016): the similar-label threshold, on the sparse protocol', () =
 	// ablation keeps only the bank's prefix and a made-up name: nothing there says what the
 	// merchant sells, so the gate must show nothing at all, not merely nothing wrong.
 	it('shows nothing on the opaque ablation, at any k', () => {
-		const shown = [1, 3, 10].map(
-			(k) =>
-				sparse(sets.opaque, k).filter(
-					(s) => s.answer.category !== null && s.answer.confidence >= SIMILAR_MARGIN
-				).length
-		);
+		const shown = [1, 3, 10].map((k) => at(sparse(sets.opaque, k), SIMILAR_MARGIN).shown);
 		expect(shown).toStrictEqual([0, 0, 0]);
 	});
 });
